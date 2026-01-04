@@ -301,22 +301,33 @@ footer{
 <footer>© 2026 Shakh Tashkentski • IT SHAKH</footer>
 
 <script>
-const bars=document.querySelectorAll('.bar');
-const audios=document.querySelectorAll('.audio');
-const ring=document.getElementById('ring');
+const bars = document.querySelectorAll('.bar');
+const audios = document.querySelectorAll('.audio');
+const ring = document.getElementById('ring');
+
+/* 🔁 AUTO REPEAT (LOOP) */
+audios.forEach(a=>{
+  a.addEventListener("ended", ()=>{
+    a.currentTime = 0;
+    a.play();
+  });
+});
 
 let ctx, analyser, source, data;
 
+/* 🎵 AUDIO + BASS EFFECT */
 audios.forEach(audio=>{
-  audio.addEventListener('play',()=>{
-    audios.forEach(a=>{if(a!==audio)a.pause()});
+  audio.addEventListener('play', ()=>{
+    audios.forEach(a=>{ if(a !== audio) a.pause(); });
+
     if(!ctx){
-      ctx=new(window.AudioContext||window.webkitAudioContext)();
-      analyser=ctx.createAnalyser();
-      analyser.fftSize=256;
-      data=new Uint8Array(analyser.frequencyBinCount);
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      data = new Uint8Array(analyser.frequencyBinCount);
     }
-    source=ctx.createMediaElementSource(audio);
+
+    source = ctx.createMediaElementSource(audio);
     source.connect(analyser);
     analyser.connect(ctx.destination);
     animate();
@@ -326,24 +337,21 @@ audios.forEach(audio=>{
 function animate(){
   requestAnimationFrame(animate);
   if(!analyser) return;
+
   analyser.getByteFrequencyData(data);
 
-  // equalizer
   bars.forEach((bar,i)=>{
-    bar.style.height=Math.max(25,data[i*2])+'px';
+    bar.style.height = Math.max(25, data[i*2]) + 'px';
   });
 
-  // 🔊 BASS → RING
-  let bass = data[2]; // low frequency
+  let bass = data[2];
   let hue = bass * 1.5;
 
   ring.style.filter = `hue-rotate(${hue}deg)`;
-  ring.style.boxShadow = `0 0 ${bass/1.5}px hsl(${hue},100%,60%)`;
   ring.style.transform = `scale(${1 + bass/500}) rotate(${hue}deg)`;
 }
 </script>
 
+
 </body>
 </html>
-
-shunga musiclarga povtor qilib qoyadigan funksiya qoshib ber boshqa xech narsasiga tegma toliq tashla
