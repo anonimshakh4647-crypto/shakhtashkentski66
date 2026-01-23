@@ -106,7 +106,8 @@ header h1{
   display:flex;
   align-items:center;
   justify-content:center;
-  transition: transform 0.1s ease-out;
+  /* Eskidek aylanish animatsiyasi qaytarildi */
+  animation:ringRotate 20s linear infinite;
 }
 
 /* RGB GLOW */
@@ -134,6 +135,11 @@ header h1{
   border-radius:50%;
   background:#020409;
   z-index:-1;
+}
+
+@keyframes ringRotate{
+  from{transform:rotate(0)}
+  to{transform:rotate(360deg)}
 }
 
 .logo{
@@ -171,7 +177,7 @@ section p{color:var(--muted);margin-bottom:40px}
 /* EQUALIZER */
 .equalizer{
   display:flex;
-  justify-content:center;
+  justify(content:center;
   align-items:flex-end;
   height:240px;
   gap:16px;
@@ -184,7 +190,6 @@ section p{color:var(--muted);margin-bottom:40px}
   border-radius:12px;
   box-shadow:0 0 35px rgba(0,234,255,.9);
   transform-origin:bottom;
-  transition: height 0.05s ease;
 }
 
 /* TRACKS */
@@ -267,7 +272,7 @@ footer{
   <div class="equalizer">
     <div class="bar"></div><div class="bar"></div><div class="bar"></div>
     <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-    <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    <div class="bar"></div><div class="bar)</div><div class="bar"></div>
     <div class="bar"></div>
   </div>
 
@@ -297,32 +302,26 @@ footer{
 <footer>© 2026 Shakh Tashkentski • IT SHAKH</footer>
 
 <script>
-const bars = document.querySelectorAll('.bar');
-const audios = document.querySelectorAll('.audio');
-const ring = document.getElementById('ring');
+const bars=document.querySelectorAll('.bar');
+const audios=document.querySelectorAll('.audio');
+const ring=document.getElementById('ring');
 
 let ctx, analyser, data;
-const sources = new Map(); // Bir audioni bir marta bog'lash uchun
+const sources = new Map();
 
-audios.forEach(audio => {
-  audio.addEventListener('play', () => {
-    // Boshqa barcha audiolarni to'xtatish
-    audios.forEach(a => { if (a !== audio) a.pause() });
-
-    // AudioContextni faollashtirish
-    if (!ctx) {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      data = new Uint8Array(analyser.frequencyBinCount);
+audios.forEach(audio=>{
+  audio.addEventListener('play',()=>{
+    audios.forEach(a=>{if(a!==audio)a.pause()});
+    if(!ctx){
+      ctx=new(window.AudioContext||window.webkitAudioContext)();
+      analyser=ctx.createAnalyser();
+      analyser.fftSize=256;
+      data=new Uint8Array(analyser.frequencyBinCount);
       animate();
     }
+    
+    if (ctx.state === 'suspended') ctx.resume();
 
-    if (ctx.state === 'suspended') {
-      ctx.resume();
-    }
-
-    // Har bir audio elementni faqat bir marta Analyserga bog'lash
     if (!sources.has(audio)) {
       const source = ctx.createMediaElementSource(audio);
       source.connect(analyser);
@@ -332,31 +331,24 @@ audios.forEach(audio => {
   });
 });
 
-let rotation = 0;
-
-function animate() {
+function animate(){
   requestAnimationFrame(animate);
-  if (!analyser) return;
+  if(!analyser) return;
   analyser.getByteFrequencyData(data);
 
-  // EQUALIZER ANIMATSIYASI
-  bars.forEach((bar, i) => {
-    // data[i*2] orqali chastotalarni olamiz
-    let height = data[i * 2] || 0;
-    bar.style.height = Math.max(25, height) + 'px';
+  // Equalizer
+  bars.forEach((bar,i)=>{
+    bar.style.height=Math.max(25,data[i*2])+'px';
   });
 
-  // LOGO VA RING BASS EFFEKTI
-  let bass = data[2]; // Past chastota (bass)
-  let mid = data[10]; // O'rta chastota
-  
-  rotation += 0.5 + (bass / 50); // Bassga qarab aylanish tezligi oshadi
-  
-  let hue = (bass + mid) / 2;
-  
+  // 🔊 BASS → RING GLOW & SCALE (Aylanish CSS'da qoldi)
+  let bass = data[2]; 
+  let hue = bass * 1.5;
+
   ring.style.filter = `hue-rotate(${hue}deg)`;
-  ring.style.boxShadow = `0 0 ${bass / 1.5}px hsl(${hue}, 100%, 60%)`;
-  ring.style.transform = `scale(${1 + bass / 600}) rotate(${rotation}deg)`;
+  ring.style.boxShadow = `0 0 ${bass/1.5}px hsl(${hue},100%,60%)`;
+  // Aylanishni CSS boshqaryapti, JS faqat masshtabni o'zgartiradi
+  ring.style.scale = `${1 + bass/600}`; 
 }
 </script>
 
