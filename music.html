@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Music | IT SHAKH</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;800&display=swap" rel="stylesheet">
+    <style>
+        :root{ --bg:#04060b; --card:#0b1220; --accent:#38bdf8; --glow:0 0 30px rgba(56,189,248,.5); }
+        body{ margin:0; background:#020409; color:#fff; font-family:Inter, sans-serif; }
+        
+        header { padding: 20px; text-align: left; }
+        .back-link { color: var(--accent); text-decoration: none; font-weight: bold; }
+
+        .container { max-width: 1200px; margin: auto; padding: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 50px; }
+
+        /* Visualizer */
+        .visualizer-side { position: sticky; top: 100px; height: fit-content; text-align: center; }
+        .ring {
+            width: 350px; height: 350px; border-radius: 50%; margin: auto;
+            position: relative; display: flex; align-items: center; justify-content: center;
+            background: conic-gradient(#00eaff, #7c4dff, #ff4edb, #00eaff);
+            animation: rotate 10s linear infinite;
+        }
+        .ring::after { content: ""; position: absolute; inset: 5px; background: #020409; border-radius: 50%; }
+        .logo { position: absolute; width: 250px; z-index: 10; transition: 0.1s; }
+        @keyframes rotate { from {transform: rotate(0)} to {transform: rotate(360deg)} }
+
+        /* Music List */
+        .tracks-side { height: 80vh; overflow-y: auto; padding-right: 10px; }
+        .track { background: var(--card); padding: 20px; border-radius: 15px; margin-bottom: 15px; border: 1px solid #1e293b; }
+        audio { width: 100%; margin-top: 10px; }
+        
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: var(--accent); }
+    </style>
+</head>
+<body>
+
+<header><a href="index.html" class="back-link">← ASOSIYGA QAYTISH</a></header>
+
+<div class="container">
+    <div class="visualizer-side">
+        <div class="ring" id="ring">
+            <img src="logo.png" class="logo" id="logo">
+        </div>
+        <h2 id="current-title" style="margin-top: 20px; color: var(--accent);">Musiqani tanlang</h2>
+    </div>
+
+    <div class="tracks-side">
+        <div class="track">
+            <h4>Shakh Bass 1</h4>
+            <audio controls loop class="audio" data-name="Shakh Bass 1"><source src="music1.mp3"></audio>
+        </div>
+        <div class="track">
+            <h4>Shakh Bass 2</h4>
+            <audio controls loop class="audio" data-name="Shakh Bass 2"><source src="music2.mp3"></audio>
+        </div>
+        </div>
+</div>
+
+<script>
+    const audios = document.querySelectorAll('.audio');
+    const logo = document.getElementById('logo');
+    const ring = document.getElementById('ring');
+    const title = document.getElementById('current-title');
+    let ctx, analyser, data;
+
+    audios.forEach(audio => {
+        audio.addEventListener('play', () => {
+            audios.forEach(a => { if(a !== audio) a.pause(); });
+            title.innerText = audio.getAttribute('data-name');
+            
+            if(!ctx) {
+                ctx = new AudioContext();
+                analyser = ctx.createAnalyser();
+                audios.forEach(a => {
+                    const source = ctx.createMediaElementSource(a);
+                    source.connect(analyser);
+                });
+                analyser.connect(ctx.destination);
+                data = new Uint8Array(analyser.frequencyBinCount);
+                animate();
+            }
+        });
+    });
+
+    function animate() {
+        requestAnimationFrame(animate);
+        analyser.getByteFrequencyData(data);
+        let bass = data[2];
+        logo.style.transform = `scale(${1 + bass/500})`;
+        ring.style.boxShadow = `0 0 ${bass/2}px var(--accent)`;
+    }
+</script>
+</body>
+</html>
