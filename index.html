@@ -106,7 +106,7 @@ header h1{
   display:flex;
   align-items:center;
   justify-content:center;
-  animation:ringRotate 20s linear infinite;
+  transition: transform 0.1s ease-out;
 }
 
 /* RGB GLOW */
@@ -134,11 +134,6 @@ header h1{
   border-radius:50%;
   background:#020409;
   z-index:-1;
-}
-
-@keyframes ringRotate{
-  from{transform:rotate(0)}
-  to{transform:rotate(360deg)}
 }
 
 .logo{
@@ -189,6 +184,7 @@ section p{color:var(--muted);margin-bottom:40px}
   border-radius:12px;
   box-shadow:0 0 35px rgba(0,234,255,.9);
   transform-origin:bottom;
+  transition: height 0.05s ease;
 }
 
 /* TRACKS */
@@ -276,18 +272,18 @@ footer{
   </div>
 
   <div class="tracks">
-    <div class="track"><h4>Shakh Bass 1</h4><audio controls class="audio"><source src="music1.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 2</h4><audio controls class="audio"><source src="music2.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 3</h4><audio controls class="audio"><source src="music3.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 4</h4><audio controls class="audio"><source src="music4.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 5</h4><audio controls class="audio"><source src="music5.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 6</h4><audio controls class="audio"><source src="music6.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 7</h4><audio controls class="audio"><source src="music7.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 8</h4><audio controls class="audio"><source src="music8.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 9</h4><audio controls class="audio"><source src="music9.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 10</h4><audio controls class="audio"><source src="music10.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 11</h4><audio controls class="audio"><source src="music11.mp3"></audio></div>
-    <div class="track"><h4>Shakh Bass 12</h4><audio controls class="audio"><source src="music12.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 1</h4><audio controls loop class="audio"><source src="music1.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 2</h4><audio controls loop class="audio"><source src="music2.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 3</h4><audio controls loop class="audio"><source src="music3.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 4</h4><audio controls loop class="audio"><source src="music4.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 5</h4><audio controls loop class="audio"><source src="music5.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 6</h4><audio controls loop class="audio"><source src="music6.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 7</h4><audio controls loop class="audio"><source src="music7.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 8</h4><audio controls loop class="audio"><source src="music8.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 9</h4><audio controls loop class="audio"><source src="music9.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 10</h4><audio controls loop class="audio"><source src="music10.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 11</h4><audio controls loop class="audio"><source src="music11.mp3"></audio></div>
+    <div class="track"><h4>Shakh Bass 12</h4><audio controls loop class="audio"><source src="music12.mp3"></audio></div>
   </div>
 
   <div class="socials">
@@ -301,45 +297,66 @@ footer{
 <footer>© 2026 Shakh Tashkentski • IT SHAKH</footer>
 
 <script>
-const bars=document.querySelectorAll('.bar');
-const audios=document.querySelectorAll('.audio');
-const ring=document.getElementById('ring');
+const bars = document.querySelectorAll('.bar');
+const audios = document.querySelectorAll('.audio');
+const ring = document.getElementById('ring');
 
-let ctx, analyser, source, data;
+let ctx, analyser, data;
+const sources = new Map(); // Bir audioni bir marta bog'lash uchun
 
-audios.forEach(audio=>{
-  audio.addEventListener('play',()=>{
-    audios.forEach(a=>{if(a!==audio)a.pause()});
-    if(!ctx){
-      ctx=new(window.AudioContext||window.webkitAudioContext)();
-      analyser=ctx.createAnalyser();
-      analyser.fftSize=256;
-      data=new Uint8Array(analyser.frequencyBinCount);
+audios.forEach(audio => {
+  audio.addEventListener('play', () => {
+    // Boshqa barcha audiolarni to'xtatish
+    audios.forEach(a => { if (a !== audio) a.pause() });
+
+    // AudioContextni faollashtirish
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      data = new Uint8Array(analyser.frequencyBinCount);
+      animate();
     }
-    source=ctx.createMediaElementSource(audio);
-    source.connect(analyser);
-    analyser.connect(ctx.destination);
-    animate();
+
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
+
+    // Har bir audio elementni faqat bir marta Analyserga bog'lash
+    if (!sources.has(audio)) {
+      const source = ctx.createMediaElementSource(audio);
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+      sources.set(audio, source);
+    }
   });
 });
 
-function animate(){
+let rotation = 0;
+
+function animate() {
   requestAnimationFrame(animate);
-  if(!analyser) return;
+  if (!analyser) return;
   analyser.getByteFrequencyData(data);
 
-  // equalizer
-  bars.forEach((bar,i)=>{
-    bar.style.height=Math.max(25,data[i*2])+'px';
+  // EQUALIZER ANIMATSIYASI
+  bars.forEach((bar, i) => {
+    // data[i*2] orqali chastotalarni olamiz
+    let height = data[i * 2] || 0;
+    bar.style.height = Math.max(25, height) + 'px';
   });
 
-  // 🔊 BASS → RING
-  let bass = data[2]; // low frequency
-  let hue = bass * 1.5;
-
+  // LOGO VA RING BASS EFFEKTI
+  let bass = data[2]; // Past chastota (bass)
+  let mid = data[10]; // O'rta chastota
+  
+  rotation += 0.5 + (bass / 50); // Bassga qarab aylanish tezligi oshadi
+  
+  let hue = (bass + mid) / 2;
+  
   ring.style.filter = `hue-rotate(${hue}deg)`;
-  ring.style.boxShadow = `0 0 ${bass/1.5}px hsl(${hue},100%,60%)`;
-  ring.style.transform = `scale(${1 + bass/500}) rotate(${hue}deg)`;
+  ring.style.boxShadow = `0 0 ${bass / 1.5}px hsl(${hue}, 100%, 60%)`;
+  ring.style.transform = `scale(${1 + bass / 600}) rotate(${rotation}deg)`;
 }
 </script>
 
