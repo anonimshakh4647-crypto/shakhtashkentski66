@@ -97,7 +97,7 @@ header h1{
 }
 
 /* BIG ROTATING LOGO + RGB RING */
-.logo-wrap{display:flex;justify(content:center}
+.logo-wrap{display:flex;justify-content:center}
 .ring{
   position:relative;
   width:440px;
@@ -235,7 +235,7 @@ footer{
 @media(max-width:900px){
   .hero-box{grid-template-columns:1fr;text-align:center}
   .ring{width:300px;height:300px}
-  .logo{width:230px;height:230px}
+  .logo(width:230px;height:230px}
 }
 </style>
 </head>
@@ -301,54 +301,56 @@ footer{
 <footer>© 2026 Shakh Tashkentski • IT SHAKH</footer>
 
 <script>
-const bars=document.querySelectorAll('.bar');
-const audios=document.querySelectorAll('.audio');
-const ring=document.getElementById('ring');
+const bars = document.querySelectorAll('.bar');
+const audios = document.querySelectorAll('.audio');
+const ring = document.getElementById('ring');
 
 let ctx, analyser, data;
-const sources = new Map(); // Audio elementlarini bog'lashni nazorat qilish
+const connectedSources = new WeakSet(); // Xatoliklarni oldini olish uchun
 
-audios.forEach(audio=>{
-  audio.addEventListener('play',()=>{
-    audios.forEach(a=>{if(a!==audio)a.pause()});
-    if(!ctx){
-      ctx=new(window.AudioContext||window.webkitAudioContext)();
-      analyser=ctx.createAnalyser();
-      analyser.fftSize=256;
-      data=new Uint8Array(analyser.frequencyBinCount);
-      animate();
-    }
-    
-    // Resume context (brauzer xavfsizligi uchun)
+function initAudio(audio) {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    data = new Uint8Array(analyser.frequencyBinCount);
+    animate();
+  }
+  
+  // Faqat yangi bo'lsa bog'laymiz
+  if (!connectedSources.has(audio)) {
+    const source = ctx.createMediaElementSource(audio);
+    source.connect(analyser);
+    analyser.connect(ctx.destination);
+    connectedSources.add(audio);
+  }
+}
+
+audios.forEach(audio => {
+  audio.addEventListener('play', () => {
+    audios.forEach(a => { if (a !== audio) a.pause(); });
+    initAudio(audio);
     if (ctx.state === 'suspended') ctx.resume();
-
-    // Har bir audioni faqat bir marta bog'laymiz
-    if (!sources.has(audio)) {
-      const source = ctx.createMediaElementSource(audio);
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
-      sources.set(audio, source);
-    }
   });
 });
 
-function animate(){
+function animate() {
   requestAnimationFrame(animate);
-  if(!analyser) return;
+  if (!analyser) return;
   analyser.getByteFrequencyData(data);
 
-  // Equalizer
-  bars.forEach((bar,i)=>{
-    bar.style.height=Math.max(25,data[i*2])+'px';
+  // Equalizer animatsiyasi
+  bars.forEach((bar, i) => {
+    bar.style.height = Math.max(30, data[i * 2]) + 'px';
   });
 
-  // Bass effekti (Original effekt)
-  let bass = data[2]; 
+  // Logo va Ring bass effekti
+  let bass = data[2];
   let hue = bass * 1.5;
-
   ring.style.filter = `hue-rotate(${hue}deg)`;
-  ring.style.boxShadow = `0 0 ${bass/1.5}px hsl(${hue},100%,60%)`;
-  ring.style.transform = `scale(${1 + bass/500})`;
+  ring.style.boxShadow = `0 0 ${bass / 1.5}px hsl(${hue},100%,60%)`;
+  // Ring doimiy aylanadi (CSS orqali), bu yerda faqat Bassga qarab kattalashadi
+  ring.style.transform = `scale(${1 + bass / 500})`;
 }
 </script>
 
