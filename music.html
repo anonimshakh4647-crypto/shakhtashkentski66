@@ -34,6 +34,14 @@
         .logo{ position:absolute; width:200px; z-index:10; transition: 0.1s; }
         @keyframes rotate{ from {transform:rotate(0)} to {transform:rotate(360deg)} }
 
+        /* VIZUALIZATOR CANVAS */
+        #visualizerCanvas {
+            width: 100%;
+            height: 100px;
+            margin-top: 20px;
+            border-radius: 10px;
+        }
+
         .bass-control { margin-top: 25px; background: rgba(56, 189, 248, 0.1); padding: 15px; border-radius: 15px; border: 1px solid var(--accent); }
         .bass-slider { width: 100%; cursor: pointer; accent-color: var(--accent); }
 
@@ -60,7 +68,10 @@
 <div class="main-content">
     <div class="viz-box">
         <div class="ring" id="ring"><img src="logo.png" class="logo" id="logo"></div>
-        <h3 id="track-name" style="font-size: 16px; margin: 15px 0;">Musiqani tanlang</h3>
+        
+        <canvas id="visualizerCanvas"></canvas>
+        
+        <h3 id="track-name" style="font-size: 16px; margin: 10px 0;">Musiqani tanlang</h3>
         <div class="bass-control">
             <label style="font-size: 12px;">BASS BOOST: <span id="bass-value">0 dB</span></label>
             <input type="range" id="bass-slider" class="bass-slider" min="0" max="30" value="0">
@@ -96,26 +107,25 @@
     let audioCtx, analyser, bassFilter, data;
     const sources = new Map();
 
-    // MATRIX SYSTEM (FAQAT 0 VA 1)
-    const canvas = document.getElementById('matrixCanvas');
-    const ctx = canvas.getContext('2d');
+    // VIZUALIZATOR KONTEKSTI
+    const vizCanvas = document.getElementById('visualizerCanvas');
+    const vizCtx = vizCanvas.getContext('2d');
+
+    // MATRIX SYSTEM (0 & 1)
+    const mCanvas = document.getElementById('matrixCanvas');
+    const mCtx = mCanvas.getContext('2d');
     let matrixInterval;
     let drops = [];
 
     function drawMatrix() {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#00ff41';
-        ctx.font = '16px monospace';
-
+        mCtx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+        mCtx.fillRect(0, 0, mCanvas.width, mCanvas.height);
+        mCtx.fillStyle = '#00ff41';
+        mCtx.font = '16px monospace';
         for (let i = 0; i < drops.length; i++) {
-            // FAQAT 0 YOKI 1
-            const text = Math.floor(Math.random() * 2).toString(); 
-            ctx.fillText(text, i * 20, drops[i] * 20);
-
-            if (drops[i] * 20 > canvas.height && Math.random() > 0.975) {
-                drops[i] = 0;
-            }
+            const text = Math.floor(Math.random() * 2).toString();
+            mCtx.fillText(text, i * 20, drops[i] * 20);
+            if (drops[i] * 20 > mCanvas.height && Math.random() > 0.975) drops[i] = 0;
             drops[i]++;
         }
     }
@@ -124,16 +134,15 @@
         body.classList.toggle('night-mode');
         if(body.classList.contains('night-mode')) {
             modeToggle.innerText = "NIGHT MODE ON";
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            const columns = Math.floor(canvas.width / 20);
-            drops = Array(columns).fill(0);
+            mCanvas.width = window.innerWidth;
+            mCanvas.height = window.innerHeight;
+            drops = Array(Math.floor(mCanvas.width / 20)).fill(0);
             clearInterval(matrixInterval);
             matrixInterval = setInterval(drawMatrix, 50);
         } else {
             modeToggle.innerText = "NIGHT MODE OFF";
             clearInterval(matrixInterval);
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
         }
     };
 
@@ -148,6 +157,7 @@
                 bassFilter.type = "lowshelf";
                 bassFilter.frequency.value = 200;
                 analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 256;
                 data = new Uint8Array(analyser.frequencyBinCount);
                 animate();
             }
@@ -169,16 +179,35 @@
         requestAnimationFrame(animate);
         if(!analyser) return;
         analyser.getByteFrequencyData(data);
-        let bass = data[2];
-        logo.style.transform = `scale(${1 + bass/600})`;
-        ring.style.boxShadow = `0 0 ${bass/1.5}px var(--accent)`;
+
+        // LOGO VA RING ANIMATSIYASI
+        let bassValue = data[2];
+        logo.style.transform = `scale(${1 + bassValue/600})`;
+        ring.style.boxShadow = `0 0 ${bassValue/1.5}px var(--accent)`;
+
+        // BAR VISUALIZER CHIZISH
+        vizCtx.clearRect(0, 0, vizCanvas.width, vizCanvas.height);
+        const barWidth = (vizCanvas.width / data.length) * 2.5;
+        let x = 0;
+
+        for (let i = 0; i < data.length; i++) {
+            const barHeight = data[i] / 3;
+            const green = 150 + (i * 2);
+            
+            // Rangni tanlash (Night mode yoki Oddiy mode)
+            vizCtx.fillStyle = body.classList.contains('night-mode') ? '#00ff41' : `rgb(56, 189, 248)`;
+            
+            // Chiziqlarni chizish
+            vizCtx.fillRect(x, vizCanvas.height - barHeight, barWidth, barHeight);
+            x += barWidth + 1;
+        }
     }
 
     window.onresize = () => {
         if(body.classList.contains('night-mode')) {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            drops = Array(Math.floor(canvas.width / 20)).fill(0);
+            mCanvas.width = window.innerWidth;
+            mCanvas.height = window.innerHeight;
+            drops = Array(Math.floor(mCanvas.width / 20)).fill(0);
         }
     };
 </script>
