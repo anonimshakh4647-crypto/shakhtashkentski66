@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uz">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,7 +18,7 @@
         *{box-sizing: border-box;}
         body{ margin:0; background:var(--bg); color:var(--text-color); font-family:Inter, sans-serif; overflow-x:hidden; transition: 0.5s; }
         
-        /* Matrix */
+        /* Matrix Overlay */
         .matrix-overlay { position: fixed; inset: 0; z-index: -1; opacity: 0; pointer-events: none; }
         body.night-mode .matrix-overlay { opacity: 1; }
         #matrixCanvas { display: block; }
@@ -60,9 +60,9 @@
 <div class="main-content">
     <div class="viz-box">
         <div class="ring" id="ring"><img src="logo.png" class="logo" id="logo"></div>
-        <h3 id="track-name" style="font-size: 16px; margin: 15px 0;">Musiqa tanla</h3>
+        <h3 id="track-name" style="font-size: 16px; margin: 15px 0;">Musiqani tanlang</h3>
         <div class="bass-control">
-            <label style="font-size: 12px;">BASS BOOST <span id="bass-value">0 dB</span></label>
+            <label style="font-size: 12px;">BASS BOOST: <span id="bass-value">0 dB</span></label>
             <input type="range" id="bass-slider" class="bass-slider" min="0" max="30" value="0">
         </div>
     </div>
@@ -96,32 +96,39 @@
     let audioCtx, analyser, bassFilter, data;
     const sources = new Map();
 
-    // Matrix Logic
+    // MATRIX SYSTEM (FAQAT 0 VA 1)
     const canvas = document.getElementById('matrixCanvas');
     const ctx = canvas.getContext('2d');
     let matrixInterval;
+    let drops = [];
 
     function drawMatrix() {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#00ff41';
-        ctx.font = '15px monospace';
-        columns_drops.forEach((y, i) => {
-            const text = String.fromCharCode(0x30A0 + Math.random() * 96);
-            ctx.fillText(text, i * 20, y);
-            if (y > canvas.height && Math.random() > 0.975) columns_drops[i] = 0;
-            else columns_drops[i] += 20;
-        });
+        ctx.font = '16px monospace';
+
+        for (let i = 0; i < drops.length; i++) {
+            // FAQAT 0 YOKI 1
+            const text = Math.floor(Math.random() * 2).toString(); 
+            ctx.fillText(text, i * 20, drops[i] * 20);
+
+            if (drops[i] * 20 > canvas.height && Math.random() > 0.975) {
+                drops[i] = 0;
+            }
+            drops[i]++;
+        }
     }
 
-    let columns_drops = [];
     modeToggle.onclick = () => {
         body.classList.toggle('night-mode');
         if(body.classList.contains('night-mode')) {
             modeToggle.innerText = "NIGHT MODE ON";
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            columns_drops = Array(Math.floor(canvas.width / 20)).fill(0);
+            const columns = Math.floor(canvas.width / 20);
+            drops = Array(columns).fill(0);
+            clearInterval(matrixInterval);
             matrixInterval = setInterval(drawMatrix, 50);
         } else {
             modeToggle.innerText = "NIGHT MODE OFF";
@@ -130,12 +137,11 @@
         }
     };
 
-    // Audio Logic
+    // AUDIO LOGIC
     audios.forEach(audio => {
         audio.onplay = () => {
             audios.forEach(a => { if(a !== audio) a.pause(); });
             trackName.innerText = audio.getAttribute('data-n');
-            
             if(!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 bassFilter = audioCtx.createBiquadFilter();
@@ -167,6 +173,14 @@
         logo.style.transform = `scale(${1 + bass/600})`;
         ring.style.boxShadow = `0 0 ${bass/1.5}px var(--accent)`;
     }
+
+    window.onresize = () => {
+        if(body.classList.contains('night-mode')) {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            drops = Array(Math.floor(canvas.width / 20)).fill(0);
+        }
+    };
 </script>
 </body>
 </html>
