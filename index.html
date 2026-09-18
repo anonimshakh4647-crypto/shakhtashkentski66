@@ -771,19 +771,25 @@ function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 function renderLeaderboard(rows){
  const list=document.getElementById('leader-list');
  if(!rows||!rows.length){list.innerHTML='<div class="lb-empty">HOZIRCHA NATIJA YO\'Q.</div>';return;}
- const cleanRows=rows.filter(r=>{const n=String(r.name||'').trim().toLowerCase();return n&&n!=='name'&&n!=='foydalanuvchi';}); list.innerHTML=cleanRows.map((r,i)=>{const pic=r.picture?esc(r.picture):'logo.png';return `<div class="lb-row"><div class="lb-rank">${i+1}</div><div class="lb-name"><img src="${pic}" alt="" onerror="this.onerror=null;this.src='logo.png';"><b>${esc(r.name)}</b></div><div class="lb-score">${Number(r.score)||0}/300</div><div class="lb-percent">${Number(r.percent)||0}%</div></div>`}).join('');
+ const cleanRows=rows.filter(r=>{const n=String(r.name||'').trim().toLowerCase();return n&&n!=='name'&&n!=='foydalanuvchi';}); list.innerHTML=cleanRows.map((r,i)=>{const pic=r.picture?esc(r.picture):'logo.png';return `<div class="lb-row"><div class="lb-rank">${i+1}</div><div class="lb-name"><img src="${pic}" alt="" onerror="this.onerror=null;this.src='logo.png';"><b>${esc(r.name)}</b></div><div class="lb-score">${Number(r.score)||0}/${Number(r.total)||300}</div><div class="lb-percent">${Number(r.percent)||0}%</div></div>`}).join('');
 }
 function loadLeaderboard(){
  if(SHEETS_API_URL.indexOf('PASTE_')===0){document.getElementById('leader-list').innerHTML='<div class="lb-empty">GOOGLE SHEETS URL KIRITILMAGAN.</div>';return;}
  const cb='lbcb_'+Date.now(); window[cb]=function(data){try{const rows=data.rows||[];document.getElementById('lb-total').textContent=rows.length;document.getElementById('lb-high').textContent=rows.length?Math.max(...rows.map(x=>Number(x.score)||0)):0;document.getElementById('lb-low').textContent=rows.length?Math.min(...rows.map(x=>Number(x.score)||0)):0;renderLeaderboard(rows)}finally{delete window[cb]}};
  const s=document.createElement('script');s.src=SHEETS_API_URL+'?action=list&callback='+cb+'&_='+Date.now();s.onerror=()=>{document.getElementById('leader-list').innerHTML='<div class="lb-empty">SHEETS BILAN ULANIB BO\'LMADI.</div>';delete window[cb]};document.body.appendChild(s);
 }
+let lbRefreshTimer=null;
+function scheduleLeaderboardRefresh(){
+ clearTimeout(lbRefreshTimer);
+ lbRefreshTimer=setTimeout(loadLeaderboard,1200);
+}
 function saveQuizToSheets(score,total){
  if(SHEETS_API_URL.indexOf('PASTE_')===0)return;
  const u=getGoogleUser()||{};
- const displayName=(u.name&&String(u.name).trim()&&String(u.name).trim().toLowerCase()!=='name')?String(u.name).trim():'Foydalanuvchi'; const payload={action:'save',name:displayName,email:u.email||'',picture:u.picture||'',score:Number(score)||0,total:Number(total)||300};
+ const displayName=(u.name&&String(u.name).trim()&&String(u.name).trim().toLowerCase()!=='name')?String(u.name).trim():'Foydalanuvchi';
+ const payload={action:'save',name:displayName,email:u.email||'',picture:u.picture||'',score:Number(score)||0,total:Number(total)||300};
  fetch(SHEETS_API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)}).catch(()=>{});
- setTimeout(loadLeaderboard,1200);
+ scheduleLeaderboardRefresh();
 }
 document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);loadLeaderboard();
 </script>
@@ -4047,6 +4053,8 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
                     document.getElementById('quiz-result').innerHTML = '<span style="color:#ff5f57">✗ Noto\'g\'ri!</span>';
                 }
                 document.getElementById('quiz-score').textContent = `Ball: ${score}`;
+                // Har bir savolga javob berilgandan keyin natijani saqlash.
+                saveQuizToSheets(score, qIndex + 1);
                 document.getElementById('quiz-next').disabled = false;
                 if (qIndex === questions.length - 1) {
                     document.getElementById('quiz-next').textContent = 'NATIJA →';
