@@ -752,6 +752,89 @@ body.file-modal-active{overflow:hidden;}
 @media(max-width:600px){#file-center-section{padding:14px 10px !important;align-items:flex-start;}#file-center-section .file-modal-shell{max-height:calc(100vh - 28px);margin-top:8px;}#file-center-section .section-title{font-size:16px;}}
 
 /* ===== IT SHAKH LIVE STATUS ===== */
+
+#live-status-admin{
+    display:none;
+    margin:10px auto 0;
+    text-align:center;
+}
+#live-status-admin.show{display:block;}
+#live-status-open-editor{
+    border:1px solid rgba(56,189,248,.35);
+    border-radius:9px;
+    padding:8px 15px;
+    background:rgba(56,189,248,.08);
+    color:var(--accent);
+    font:700 10px monospace;
+    letter-spacing:1px;
+    cursor:pointer;
+}
+#live-status-open-editor:hover{box-shadow:0 0 18px rgba(56,189,248,.18);}
+#live-status-editor{
+    display:none;
+    position:fixed;
+    inset:0;
+    z-index:99999;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    background:rgba(0,0,0,.72);
+    backdrop-filter:blur(7px);
+}
+#live-status-editor.open{display:flex;}
+.live-status-editor-box{
+    width:min(520px,94vw);
+    padding:20px;
+    border:1px solid rgba(56,189,248,.3);
+    border-radius:15px;
+    background:#07101c;
+    box-shadow:0 0 35px rgba(0,100,180,.18);
+}
+.live-status-editor-title{
+    margin-bottom:12px;
+    color:var(--accent);
+    font:700 11px monospace;
+    letter-spacing:2px;
+}
+#live-status-input{
+    width:100%;
+    min-height:110px;
+    resize:vertical;
+    box-sizing:border-box;
+    padding:12px;
+    border:1px solid rgba(56,189,248,.25);
+    border-radius:9px;
+    outline:none;
+    background:rgba(0,0,0,.35);
+    color:#e5e7eb;
+    font:14px monospace;
+}
+.live-status-editor-actions{
+    display:flex;
+    gap:8px;
+    margin-top:9px;
+}
+#live-status-save,#live-status-close{
+    border-radius:9px;
+    padding:9px 15px;
+    cursor:pointer;
+    font:700 10px monospace;
+}
+#live-status-save{
+    border:1px solid rgba(56,189,248,.5);
+    background:rgba(56,189,248,.12);
+    color:var(--accent);
+}
+#live-status-close{
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.04);
+    color:#94a3b8;
+}
+#live-status-msg{
+    margin-top:7px;
+    color:#94a3b8;
+    font:10px monospace;
+}
 #live-status-wrap{
     margin:14px auto 0;
     width:min(760px,92vw);
@@ -5065,10 +5148,20 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     <div id="live-status-text">...</div>
 
     <div id="live-status-admin">
-        <textarea id="live-status-input" maxlength="500"
-            placeholder="Saytda ko‘rinadigan yozuvni kiriting..."></textarea>
-        <button id="live-status-save" type="button">SAQLASH →</button>
-        <div id="live-status-msg"></div>
+        <button id="live-status-open-editor" type="button">✎ YANGI YOZUV</button>
+    </div>
+
+    <div id="live-status-editor" aria-hidden="true">
+        <div class="live-status-editor-box">
+            <div class="live-status-editor-title">// SAYTGA YOZUV QO‘SHISH</div>
+            <textarea id="live-status-input" maxlength="500"
+                placeholder="Bu yerga yozing..."></textarea>
+            <div class="live-status-editor-actions">
+                <button id="live-status-save" type="button">SAQLASH →</button>
+                <button id="live-status-close" type="button">BEKOR QILISH</button>
+            </div>
+            <div id="live-status-msg"></div>
+        </div>
     </div>
 </div>
 
@@ -5086,6 +5179,9 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     const inputEl = document.getElementById('live-status-input');
     const saveEl = document.getElementById('live-status-save');
     const msgEl = document.getElementById('live-status-msg');
+    const openEditorEl = document.getElementById('live-status-open-editor');
+    const closeEditorEl = document.getElementById('live-status-close');
+    const editorEl = document.getElementById('live-status-editor');
 
     function localTime(){
         const d = new Date();
@@ -5177,8 +5273,32 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
         }
     }
 
-    saveEl && saveEl.addEventListener('click',()=>{
-        saveRemote((inputEl.value||'').trim());
+    openEditorEl && openEditorEl.addEventListener('click',()=>{
+        editorEl.classList.add('open');
+        editorEl.setAttribute('aria-hidden','false');
+        inputEl.focus();
+    });
+
+    closeEditorEl && closeEditorEl.addEventListener('click',()=>{
+        editorEl.classList.remove('open');
+        editorEl.setAttribute('aria-hidden','true');
+    });
+
+    editorEl && editorEl.addEventListener('click',e=>{
+        if(e.target===editorEl){
+            editorEl.classList.remove('open');
+            editorEl.setAttribute('aria-hidden','true');
+        }
+    });
+
+    saveEl && saveEl.addEventListener('click',async()=>{
+        await saveRemote((inputEl.value||'').trim());
+        if(msgEl.textContent.indexOf('✓')===0){
+            setTimeout(()=>{
+                editorEl.classList.remove('open');
+                editorEl.setAttribute('aria-hidden','true');
+            },500);
+        }
     });
 
     inputEl && inputEl.addEventListener('keydown',e=>{
