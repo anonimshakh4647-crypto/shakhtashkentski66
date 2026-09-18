@@ -29,8 +29,44 @@
             overflow-x: hidden;
             transition: 0.5s;
         }
-        canvas { position: fixed; inset: 0; z-index: -1; opacity: 0; pointer-events: none; }
+        canvas { position: fixed; inset: 0; z-index: 0; opacity: 0; pointer-events: none; transition: opacity .35s ease; }
         body.night-mode canvas { opacity: 1; }
+        body.night-mode .lion-bg { opacity: 0.035; filter: grayscale(1) contrast(1.35) brightness(.55); }
+        body.night-mode::before {
+            content: ""; position: fixed; inset: 0; z-index: 1; pointer-events: none;
+            background:
+              repeating-linear-gradient(0deg, rgba(0,255,65,.045) 0px, rgba(0,255,65,.045) 1px, transparent 1px, transparent 4px),
+              radial-gradient(circle at 50% 50%, transparent 0 38%, rgba(0,0,0,.28) 100%);
+            mix-blend-mode: screen; opacity: .9;
+        }
+        body.night-mode::after {
+            content: "SYSTEM BREACH // NIGHT PROTOCOL // TRACE ACTIVE";
+            position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+            z-index: 3; pointer-events: none; white-space: nowrap;
+            font: 700 10px/1 monospace; letter-spacing: 3px; color: #00ff41;
+            text-shadow: 0 0 8px #00ff41, 0 0 20px rgba(0,255,65,.8);
+            animation: warningBlink .9s steps(2,end) infinite;
+        }
+        .files-page header, .files-page #datetime-bar, .files-page #file-center-section { position: relative; z-index: 2; }
+        .files-page header { z-index: 100; }
+        body.night-mode #file-center-card {
+            border-color: rgba(0,255,65,.5);
+            box-shadow: 0 0 25px rgba(0,255,65,.14), inset 0 0 40px rgba(0,255,65,.035);
+        }
+        body.night-mode .section-title {
+            animation: hackerGlitch 1.8s infinite steps(2,end);
+        }
+        body.night-mode .file-btn.primary {
+            animation: pulseHack 1.25s infinite;
+        }
+        @keyframes warningBlink { 0%,45% { opacity: .95; } 46%,100% { opacity: .28; } }
+        @keyframes pulseHack { 0%,100% { box-shadow: 0 0 0 rgba(0,255,65,0); } 50% { box-shadow: 0 0 22px rgba(0,255,65,.5); } }
+        @keyframes hackerGlitch {
+            0%, 88%, 100% { transform: translate(0); filter:none; }
+            89% { transform: translate(2px,-1px); filter: drop-shadow(-2px 0 #ff003c); }
+            90% { transform: translate(-2px,1px); filter: drop-shadow(2px 0 #00ffff); }
+            91% { transform: translate(0); filter:none; }
+        }
         .lion-bg {
             position: fixed; inset: 0;
             background: url("lion-bg.png") center/cover no-repeat;
@@ -854,6 +890,51 @@ body.files-page{min-height:100vh;}
 </div>
 
 <script>
+/* ===== NIGHT PROTOCOL — MATRIX HACKER BACKGROUND ===== */
+(function(){
+    const canvas = document.getElementById('matrixCanvas');
+    if(!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let w=0,h=0,cols=[],raf=0;
+    const chars = '01ABCDEFGHIJKLMNOPQRSTUVWXYZ#$%<>[]{}\\/|░▒▓ ACCESS DENIED TRACE ROOT KERNEL';
+    function resize(){
+        const dpr=Math.min(window.devicePixelRatio||1,2);
+        w=window.innerWidth; h=window.innerHeight;
+        canvas.width=w*dpr; canvas.height=h*dpr;
+        canvas.style.width=w+'px'; canvas.style.height=h+'px';
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        const count=Math.ceil(w/15);
+        cols=Array.from({length:count},(_,i)=>({x:i*15,y:Math.random()*h/15, speed:.7+Math.random()*1.8, size:11+Math.random()*5, glitch:Math.random()}));
+    }
+    function draw(){
+        ctx.fillStyle='rgba(0,0,0,.115)'; ctx.fillRect(0,0,w,h);
+        const night=document.body.classList.contains('night-mode');
+        if(!night){ raf=requestAnimationFrame(draw); return; }
+        for(const c of cols){
+            const n=chars[Math.floor(Math.random()*chars.length)];
+            ctx.font=`${Math.floor(c.size)}px monospace`;
+            const bright=Math.random()>.94;
+            ctx.fillStyle=bright?'rgba(210,255,220,.95)':'rgba(0,255,65,.62)';
+            ctx.shadowBlur=bright?12:5; ctx.shadowColor='#00ff41';
+            ctx.fillText(n,c.x,c.y*15);
+            ctx.shadowBlur=0;
+            c.y += c.speed;
+            if(c.y*15>h+80) { c.y=-Math.random()*20; c.speed=.7+Math.random()*1.8; }
+        }
+        // occasional terminal-style warning flashes
+        if(Math.random()<.018){
+            ctx.save(); ctx.font='700 12px monospace'; ctx.fillStyle='rgba(0,255,65,.75)';
+            ctx.shadowBlur=14; ctx.shadowColor='#00ff41';
+            const msg=['[!] INTRUSION DETECTED','[!] TRACE RUNNING','[!] ROOT ACCESS','[!] FIREWALL BYPASS','[!] UNKNOWN PROCESS'][Math.floor(Math.random()*5)];
+            ctx.fillText(msg,18+Math.random()*w*.55,80+Math.random()*h*.75);
+            ctx.restore();
+        }
+        raf=requestAnimationFrame(draw);
+    }
+    resize(); window.addEventListener('resize',resize,{passive:true});
+    draw();
+})();
+
 /* ===== IT SHAKH FILE CENTER — CLOUDFLARE R2 ===== */
 (function(){
     const FILE_API = 'https://files.shakhtashkentski66.uz';
