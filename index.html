@@ -1077,30 +1077,50 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 </script>
 
 <script>
-    // START SCREEN + MUSIC
-    window.addEventListener('load', () => {
-        const startScreen = document.getElementById('loading-screen');
-        const startButton = document.getElementById('startButton');
-        const music = document.getElementById('shakhMusic');
+    // START SCREEN + MUSIC — robust version
+    (function(){
+        function setupStart(){
+            const startScreen = document.getElementById('loading-screen');
+            const startButton = document.getElementById('startButton');
+            const music = document.getElementById('shakhMusic');
+            if (!startScreen || !startButton) return;
+            if (startButton.dataset.ready === '1') return;
+            startButton.dataset.ready = '1';
 
-        startButton.addEventListener('click', async () => {
-            try {
-                music.volume = 0.65;
-                music.currentTime = 0;
-                await music.play();
-            } catch (e) {
-                console.log('Music playback was blocked:', e);
-            }
+            const enterSystem = async function(e){
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                if (startButton.disabled) return;
+                startButton.disabled = true;
+                startButton.textContent = 'LOADING...';
 
-            startButton.disabled = true;
-            startButton.textContent = 'LOADING...';
+                // Do not let audio prevent the START transition.
+                if (music) {
+                    try {
+                        music.volume = 0.65;
+                        music.currentTime = 0;
+                        const playPromise = music.play();
+                        if (playPromise && typeof playPromise.catch === 'function') playPromise.catch(()=>{});
+                    } catch (_) {}
+                }
 
-            setTimeout(() => {
                 startScreen.classList.add('hide');
-                setTimeout(() => startScreen.remove(), 800);
-            }, 500);
-        });
-    });
+                setTimeout(function(){
+                    if (startScreen && startScreen.parentNode) startScreen.remove();
+                }, 800);
+            };
+
+            startButton.addEventListener('click', enterSystem);
+            // Extra fallback for browsers where delegated handlers interfere.
+            startButton.onclick = enterSystem;
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupStart, {once:true});
+        } else {
+            setupStart();
+        }
+        window.addEventListener('load', setupStart, {once:true});
+    })();
 
     // VAQT VA SANA
     function updateDateTime() {
