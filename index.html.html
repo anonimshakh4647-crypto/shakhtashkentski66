@@ -74,6 +74,90 @@
         @keyframes loadbar { 0% { width: 0%; } 100% { width: 100%; } }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
+        /* MATH CAPTCHA */
+        #math-screen {
+            position: fixed; inset: 0;
+            background: #04060b;
+            z-index: 9998;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 25px;
+            transition: opacity 0.8s ease;
+        }
+        #math-screen.hide { opacity: 0; pointer-events: none; }
+
+        .math-logo {
+            width: 70px; height: 70px; border-radius: 50%;
+            background: conic-gradient(var(--accent), #7c4dff, var(--accent));
+            display: flex; align-items: center; justify-content: center;
+            position: relative;
+        }
+        .math-logo::after {
+            content: ""; position: absolute; inset: 4px;
+            background: #04060b; border-radius: 50%;
+        }
+        .math-logo img { width: 70%; z-index: 10; }
+
+        .math-card {
+            background: rgba(11,18,32,0.95);
+            border: 1px solid var(--accent);
+            border-radius: 20px;
+            padding: 35px 40px;
+            text-align: center;
+            box-shadow: var(--glow);
+            max-width: 360px; width: 90%;
+        }
+        .math-title {
+            font-family: monospace; font-size: 12px;
+            color: #9ca3af; letter-spacing: 3px;
+            margin-bottom: 20px;
+        }
+        .math-question {
+            font-family: monospace; font-size: 36px;
+            color: var(--accent); text-shadow: var(--glow);
+            font-weight: bold; margin-bottom: 25px;
+            letter-spacing: 4px;
+        }
+        .math-input {
+            width: 100%; background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px; padding: 14px;
+            color: var(--text-color); font-family: monospace;
+            font-size: 22px; text-align: center;
+            outline: none; transition: 0.3s;
+            margin-bottom: 15px;
+        }
+        .math-input:focus { border-color: var(--accent); box-shadow: var(--glow); }
+        .math-btn {
+            width: 100%; background: var(--accent); color: #000;
+            border: none; padding: 13px; border-radius: 12px;
+            cursor: pointer; font-weight: bold; font-size: 14px;
+            letter-spacing: 2px; transition: 0.3s;
+        }
+        .math-btn:hover { opacity: 0.85; }
+        .math-error {
+            color: #ff5f57; font-family: monospace;
+            font-size: 12px; margin-top: 12px;
+            min-height: 18px; letter-spacing: 1px;
+        }
+        .math-attempts {
+            display: flex; gap: 8px; justify-content: center;
+            margin-top: 12px;
+        }
+        .math-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--accent); transition: 0.3s;
+        }
+        .math-dot.used { background: #ff5f57; }
+        .math-lockout {
+            font-family: monospace; font-size: 28px;
+            color: #ff5f57; font-weight: bold;
+        }
+        .math-lockout-msg {
+            font-family: monospace; font-size: 12px;
+            color: #9ca3af; letter-spacing: 2px;
+        }
+
         /* DATETIME BAR */
         #datetime-bar {
             width: 100%; text-align: center; padding: 6px 20px;
@@ -617,18 +701,6 @@
 @media(max-width:600px){
     #google-login-screen .side-visual{width:24vw !important;min-width:90px !important;opacity:.55 !important;}
 }
-
-/* ===== MATH SECURITY GATE ===== */
-#math-security{display:none !important;width:min(100%,400px);margin:22px auto 0;text-align:center;position:relative;z-index:99999;}
-#math-security.show{display:block !important;}
-#math-security .math-title{font:700 12px monospace;letter-spacing:2px;color:#38bdf8;margin-bottom:14px;}
-#math-security .math-equation{font:800 34px monospace;color:#e5e7eb;text-shadow:0 0 18px rgba(56,189,248,.45);margin:10px 0 16px;}
-#math-security-input{width:180px;text-align:center;background:rgba(0,0,0,.35);border:1px solid rgba(56,189,248,.45);border-radius:10px;padding:11px;color:#fff;font:700 20px monospace;outline:none;}
-#math-security-input:focus{border-color:#38bdf8;box-shadow:0 0 18px rgba(56,189,248,.25);}
-#math-security-btn{display:block;margin:14px auto 0;background:#38bdf8;color:#001018;border:0;border-radius:22px;padding:10px 28px;font:800 11px monospace;letter-spacing:2px;cursor:pointer;}
-#math-security-msg{min-height:18px;margin-top:10px;font:10px monospace;color:#94a3b8;}
-#math-security-msg.ok{color:#28ca41;}
-#math-security-msg.err{color:#ff5f57;}
 </style>
 </head>
 <body>
@@ -650,13 +722,6 @@
     <h1>IT SHAKH</h1>
     <div class="login-subtitle">GOOGLE ACCOUNT BILAN KIRING</div>
     <div id="google-signin-button"></div>
-    <div id="math-security" aria-hidden="true">
-      <div class="math-title">// XAVFSIZLIK TEKSHIRUVI</div>
-      <div class="math-equation" id="math-equation">0 + 0 = ?</div>
-      <input id="math-security-input" type="text" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="JAVOB">
-      <button id="math-security-btn" type="button">DAVOM ETISH →</button>
-      <div id="math-security-msg"></div>
-    </div>
     <div class="login-features">
       <button class="login-feature" type="button" data-info="secure"><b>⌁</b>SECURE</button>
       <button class="login-feature" type="button" data-info="fast"><b>ϟ</b>FAST</button>
@@ -684,6 +749,25 @@
     <div class="loading-text">IT SHAKH</div>
     <button id="startButton" class="start-button">▶ START</button>
     <div class="start-hint">ENTER THE SYSTEM</div>
+</div>
+
+<!-- MATH CAPTCHA -->
+<div id="math-screen">
+    <div class="math-logo">
+        <img src="logo.png" alt="Logo">
+    </div>
+    <div class="math-card">
+        <div class="math-title">// KIRISH TEKSHIRUVI</div>
+        <div class="math-question" id="math-question">? + ? = ?</div>
+        <input type="number" class="math-input" id="math-input" placeholder="Javobni kiriting" autocomplete="off">
+        <button class="math-btn" onclick="checkMath()">KIRISH →</button>
+        <div class="math-error" id="math-error"></div>
+        <div class="math-attempts" id="math-attempts">
+            <div class="math-dot" id="dot-1"></div>
+            <div class="math-dot" id="dot-2"></div>
+            <div class="math-dot" id="dot-3"></div>
+        </div>
+    </div>
 </div>
 
 <canvas id="matrixCanvas"></canvas>
@@ -921,74 +1005,133 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 </script>
 
 <script>
-/* GOOGLE LOGIN + MATH SECURITY */
+/* GOOGLE LOGIN — unlocks the existing START screen */
 (function(){
  const CLIENT_ID='506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
- let mathAnswer=0;
  function decode(t){try{return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){return null}}
- function newMath(){
-   let a=Math.floor(Math.random()*90)+10, b=Math.floor(Math.random()*90)+1;
-   const minus=Math.random()<0.5;
-   if(minus && b>a){const t=a;a=b;b=t;}
-   mathAnswer=minus?a-b:a+b;
-   const eq=document.getElementById('math-equation');
-   const inp=document.getElementById('math-security-input');
-   const msg=document.getElementById('math-security-msg');
-   if(eq) eq.textContent=a+' '+(minus?'−':'+')+' '+b+' = ?';
-   if(inp){inp.value=''; setTimeout(()=>inp.focus(),100);}
-   if(msg){msg.textContent='';msg.className='';}
- }
- function showMath(){
-   const googleBox=document.getElementById('google-signin-button');
-   const box=document.getElementById('math-security');
-   if(googleBox) googleBox.style.setProperty('display','none','important');
-   if(box){box.style.setProperty('display','block','important');box.classList.add('show');box.setAttribute('aria-hidden','false');}
-   newMath();
- }
- function finishMath(){
-   const inp=document.getElementById('math-security-input');
-   const msg=document.getElementById('math-security-msg');
-   const raw=(inp?.value||'').trim();
-   if(raw===''){if(msg){msg.textContent='JAVOBNI KIRITING';msg.className='err';}return;}
-   if(Number(raw)!==mathAnswer || !Number.isInteger(Number(raw))){
-     if(msg){msg.textContent='✕ NOTO‘G‘RI — YANGI MISOL';msg.className='err';}
-     setTimeout(newMath,400);return;
-   }
-   if(msg){msg.textContent='✓ TO‘G‘RI!';msg.className='ok';}
-   sessionStorage.setItem('it_shakh_math_verified','1');
-   setTimeout(function(){
-     const gate=document.getElementById('google-login-screen');
-     const start=document.getElementById('loading-screen');
-     if(gate) gate.remove();
-     if(start){start.style.display='flex';start.style.visibility='visible';}
-   },250);
- }
  function success(r){
    if(!r || !r.credential) return;
    const u=decode(r.credential);
-   if(u) sessionStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||'',credential:r.credential||''}));
-   showMath();
+   if(u) sessionStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||''}));
+   const gate=document.getElementById('google-login-screen');
+   const start=document.getElementById('loading-screen');
+   if(gate) gate.remove();
+   if(start) start.style.display='flex';
  }
  window.onGoogleLogin=success;
  function init(){
-   if(!window.google || !google.accounts || !google.accounts.id){setTimeout(init,200);return;}
+   if(!window.google?.accounts?.id){setTimeout(init,200);return;}
    google.accounts.id.initialize({client_id:CLIENT_ID,callback:success,auto_select:false,cancel_on_tap_outside:false,context:'signin'});
    const box=document.getElementById('google-signin-button');
-   if(box){google.accounts.id.renderButton(box,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',logo_alignment:'left',width:Math.max(240,Math.min(400,Math.floor(box.getBoundingClientRect().width)))});}
+   if(box){ const w=Math.max(240,Math.min(400,Math.floor(box.getBoundingClientRect().width))); google.accounts.id.renderButton(box,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',logo_alignment:'left',width:w}); }
  }
  document.addEventListener('DOMContentLoaded',function(){
    const start=document.getElementById('loading-screen');
    if(start) start.style.display='none';
-   const btn=document.getElementById('math-security-btn');
-   const inp=document.getElementById('math-security-input');
-   if(btn) btn.addEventListener('click',finishMath);
-   if(inp) inp.addEventListener('keydown',e=>{if(e.key==='Enter')finishMath();});
    init();
  });
 })();
 </script>
 
 <script>
+    // MATH CAPTCHA
+    let mathAnswer = 0;
+    let mathAttempts = 0;
+    const MAX_ATTEMPTS = 3;
+    const LOCKOUT_TIME = 5 * 60;
+
+    function generateMath() {
+        const ops = ['+', '-'];
+        const op = ops[Math.floor(Math.random() * ops.length)];
+        let a, b;
+        if (op === '+') {
+            a = Math.floor(Math.random() * 50) + 1;
+            b = Math.floor(Math.random() * 50) + 1;
+            mathAnswer = a + b;
+        } else {
+            a = Math.floor(Math.random() * 50) + 20;
+            b = Math.floor(Math.random() * a) + 1;
+            mathAnswer = a - b;
+        }
+        document.getElementById('math-question').textContent = `${a} ${op} ${b} = ?`;
+        document.getElementById('math-input').value = '';
+        document.getElementById('math-error').textContent = '';
+    }
+
+    function checkLockout() {
+        const lockUntil = Number(localStorage.getItem('mathLockUntil') || 0);
+        if (Date.now() < lockUntil) {
+            showLockout(Math.ceil((lockUntil - Date.now()) / 1000));
+            return true;
+        }
+        return false;
+    }
+
+    function showLockout(seconds) {
+        const card = document.querySelector('.math-card');
+        card.innerHTML = `
+            <div class="math-title">// KIRISH BLOKLANDI</div>
+            <div class="math-lockout" id="lockout-timer">${formatTime(seconds)}</div>
+            <div class="math-lockout-msg">3 ta noto'g'ri javobdan so'ng<br>5 daqiqa kuting</div>
+        `;
+        const interval = setInterval(() => {
+            seconds--;
+            const el = document.getElementById('lockout-timer');
+            if (!el) { clearInterval(interval); return; }
+            if (seconds <= 0) {
+                clearInterval(interval);
+                localStorage.removeItem('mathLockUntil');
+                mathAttempts = 0;
+                location.reload();
+            } else {
+                el.textContent = formatTime(seconds);
+            }
+        }, 1000);
+    }
+
+    function formatTime(s) {
+        const m = Math.floor(s / 60);
+        const sec = s % 60;
+        return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    }
+
+    function checkMath() {
+        const val = parseInt(document.getElementById('math-input').value);
+        if (isNaN(val)) {
+            document.getElementById('math-error').textContent = '⚠ Iltimos javobni kiriting!';
+            return;
+        }
+        if (val === mathAnswer) {
+            localStorage.removeItem('mathLockUntil');
+            const screen = document.getElementById('math-screen');
+            screen.classList.add('hide');
+            setTimeout(() => screen.remove(), 800);
+        } else {
+            mathAttempts++;
+            const dot = document.getElementById(`dot-${mathAttempts}`);
+            if (dot) dot.classList.add('used');
+            if (mathAttempts >= MAX_ATTEMPTS) {
+                const lockUntil = Date.now() + LOCKOUT_TIME * 1000;
+                localStorage.setItem('mathLockUntil', String(lockUntil));
+                showLockout(LOCKOUT_TIME);
+            } else {
+                document.getElementById('math-error').textContent =
+                    `✗ Noto'g'ri! ${MAX_ATTEMPTS - mathAttempts} ta urinish qoldi.`;
+                generateMath();
+            }
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const mathInput = document.getElementById('math-input');
+        if (mathInput) {
+            mathInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') checkMath();
+            });
+        }
+        if (!checkLockout()) generateMath();
+    });
+
     // START SCREEN + MUSIC
     window.addEventListener('load', () => {
         const startScreen = document.getElementById('loading-screen');
