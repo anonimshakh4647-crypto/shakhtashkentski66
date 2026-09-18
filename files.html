@@ -939,6 +939,8 @@ body.files-page{min-height:100vh;}
 (function(){
     const FILE_API = 'https://files.shakhtashkentski66.uz';
     const MAX_FILE_SIZE = 1024 * 1024 * 1024;
+    const SIMPLE_UPLOAD_LIMIT = 80 * 1024 * 1024;
+    const MULTIPART_PART_SIZE = 50 * 1024 * 1024;
 
     const input = document.getElementById('file-input');
     const zone = document.getElementById('file-drop-zone');
@@ -1035,36 +1037,94 @@ body.files-page{min-height:100vh;}
         }
     }
 
-    function uploadOne(file){
+    function xhrUpload(url, method, body, token, contentType, onprogress, extraHeaders={}){
         return new Promise((resolve,reject)=>{
-            if(file.size > MAX_FILE_SIZE){
-                reject(new Error(file.name+' — 1 GB dan katta.'));
-                return;
-            }
-            const key=encodeURIComponent(file.name);
             const xhr=new XMLHttpRequest();
-            xhr.open('PUT',FILE_API+'/upload/'+key,true);
-            const token=getToken();
+            xhr.open(method,url,true);
             if(token) xhr.setRequestHeader('Authorization','Bearer '+token);
-            xhr.setRequestHeader('Content-Type',file.type||'application/octet-stream');
-            xhr.upload.onprogress=e=>{
-                if(e.lengthComputable){
-                    const pct=Math.round(e.loaded/e.total*100);
-                    progressBar.style.width=pct+'%';
-                    progressPercent.textContent=pct+'%';
-                }
-            };
+            if(contentType) xhr.setRequestHeader('Content-Type',contentType);
+            Object.entries(extraHeaders).forEach(([k,v])=>xhr.setRequestHeader(k,v));
+            xhr.upload.onprogress=e=>{ if(e.lengthComputable && onprogress) onprogress(e.loaded,e.total); };
             xhr.onload=()=>{
-                try{
-                    const data=JSON.parse(xhr.responseText||'{}');
-                    if(xhr.status>=200 && xhr.status<300 && data.success) resolve(data);
-                    else reject(new Error(data.error||'Upload failed ('+xhr.status+')'));
-                }catch(e){reject(new Error('Server javobi noto‘g‘ri.'))}
+                let data={};
+                try{data=JSON.parse(xhr.responseText||'{}');}catch(e){}
+                if(xhr.status>=200 && xhr.status<300) resolve(data);
+                else reject(new Error(data.error||xhr.responseText||('Server xatosi ('+xhr.status+')')));
             };
             xhr.onerror=()=>reject(new Error('Tarmoq xatosi yoki CORS muammosi.'));
             xhr.onabort=()=>reject(new Error('Upload bekor qilindi.'));
-            xhr.send(file);
+            xhr.send(body);
         });
+    }
+
+    async function uploadSimple(file){
+        const token=getToken();
+        const key=encodeURIComponent(file.name);
+        return xhrUpload(
+            FILE_API+'/upload/'+key,
+            'PUT',file,token,file.type||'application/octet-stream',
+            (loaded,total)=>{
+                const pct=Math.round((loaded/total)*100);
+                progressBar.style.width=pct+'%';
+                progressPercent.textContent=pct+'%';
+            }
+        );
+    }
+
+    async function uploadMultipart(file){
+        const token=getToken();
+        const key=encodeURIComponent(file.name);
+        const create=await xhrUpload(
+            FILE_API+'/multipart/'+key+'?action=mpu-create',
+            'POST',null,token,'application/json',null,{'X-File-Type':file.type||'application/octet-stream'}
+        );
+        if(!create.uploadId) throw new Error('Multipart upload ID olinmadi.');
+        const uploadId=create.uploadId;
+        const totalParts=Math.ceil(file.size/MULTIPART_PART_SIZE);
+        const parts=[];
+        let completedBytes=0;
+        try{
+            for(let i=0;i<totalParts;i++){
+                const start=i*MULTIPART_PART_SIZE;
+                const end=Math.min(start+MULTIPART_PART_SIZE,file.size);
+                const chunk=file.slice(start,end);
+                const partNo=i+1;
+                const result=await xhrUpload(
+                    FILE_API+'/multipart/'+key+'?action=mpu-uploadpart&uploadId='+encodeURIComponent(uploadId)+'&partNumber='+partNo,
+                    'PUT',chunk,token,'application/octet-stream',
+                    (loaded,total)=>{
+                        const pct=Math.round(((completedBytes+loaded)/file.size)*100);
+                        progressBar.style.width=pct+'%';
+                        progressPercent.textContent=pct+'%';
+                    }
+                );
+                if(!result.etag) throw new Error('Part '+partNo+' ETag olinmadi.');
+                parts.push({partNumber:result.partNumber||partNo,etag:result.etag});
+                completedBytes=end;
+            }
+            return await xhrUpload(
+                FILE_API+'/multipart/'+key+'?action=mpu-complete&uploadId='+encodeURIComponent(uploadId),
+                'POST',JSON.stringify({parts}),token,'application/json'
+            );
+        }catch(err){
+            try{
+                await xhrUpload(
+                    FILE_API+'/multipart/'+key+'?action=mpu-abort&uploadId='+encodeURIComponent(uploadId),
+                    'DELETE',null,token,'application/json'
+                );
+            }catch(e){}
+            throw err;
+        }
+    }
+
+    async function uploadOne(file){
+        if(file.size > MAX_FILE_SIZE){
+            throw new Error(file.name+' — 1 GB dan katta.');
+        }
+        // Cloudflare Free/Pro request bodies are limited to 100 MB.
+        // Files above 80 MB use R2 multipart upload, with 50 MB parts.
+        if(file.size > SIMPLE_UPLOAD_LIMIT) return uploadMultipart(file);
+        return uploadSimple(file);
     }
 
     async function uploadSelected(){
