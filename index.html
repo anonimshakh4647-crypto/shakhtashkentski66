@@ -467,6 +467,11 @@
     .typing-btn{flex:1; min-width:140px;}
 }
 
+
+/* GOOGLE SHEETS LEADERBOARD */
+#leaderboard-card{padding:20px;border:1px solid rgba(56,189,248,.18);border-radius:16px;background:rgba(4,10,18,.55);box-shadow:0 0 30px rgba(0,100,180,.08)}
+.leader-top{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}.leader-top>div{padding:13px;text-align:center;border:1px solid rgba(56,189,248,.12);border-radius:10px;background:rgba(0,0,0,.18)}.leader-top b{display:block;color:var(--accent);font:700 25px monospace}.leader-top span{display:block;margin-top:4px;color:#94a3b8;font:8px monospace;letter-spacing:1px}.leader-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:11px;border-bottom:1px solid rgba(56,189,248,.12);color:#cbd5e1;font:10px monospace;letter-spacing:2px}.leader-head button{background:rgba(7,16,28,.8);color:#9ca3af;border:1px solid rgba(56,189,248,.2);border-radius:8px;padding:7px 10px;cursor:pointer;font:9px monospace}.leader-head button:hover{color:#fff;border-color:var(--accent)}#leader-list{display:grid;gap:7px;margin-top:11px}.lb-row{display:grid;grid-template-columns:42px 1fr 85px 65px;gap:8px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.05);border-radius:9px;background:rgba(255,255,255,.018)}.lb-rank{text-align:center;color:var(--accent);font:700 13px monospace}.lb-name{display:flex;align-items:center;gap:8px;min-width:0}.lb-name img{width:28px;height:28px;border-radius:50%}.lb-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e5e7eb;font:600 11px Inter,sans-serif}.lb-score{text-align:right;color:var(--accent);font:700 12px monospace}.lb-percent{text-align:right;color:#94a3b8;font:9px monospace}.lb-loading,.lb-empty{text-align:center;color:#64748b;padding:22px;font:10px monospace}@media(max-width:600px){.lb-row{grid-template-columns:30px 1fr 62px 48px}.lb-name b{font-size:10px}.leader-top b{font-size:19px}.leader-top span{font-size:7px}.leader-head{font-size:9px}}
+
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -741,6 +746,47 @@
     </div>
 </div>
 
+
+
+<!-- GOOGLE SHEETS LEADERBOARD -->
+<div class="section" id="leaderboard-section">
+  <div class="section-title">// TEST NATIJALARI</div>
+  <div id="leaderboard-card">
+    <div class="leader-top">
+      <div><b id="lb-total">0</b><span>QATNASHGAN</span></div>
+      <div><b id="lb-high">0</b><span>ENG YUQORI</span></div>
+      <div><b id="lb-low">0</b><span>ENG PAST</span></div>
+    </div>
+    <div class="leader-head"><span>🏆 ISHTIROKCHILAR</span><button id="lb-refresh">↻ YANGILASH</button></div>
+    <div id="leader-list"><div class="lb-loading">YUKLANMOQDA...</div></div>
+  </div>
+</div>
+
+
+<script>
+/* GOOGLE SHEETS LEADERBOARD */
+const SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbwwSCvjGZGeI0g8szN62g8NVVzVKI6atqu1lUoF_W4FfhenqS-cpn27liDJU52gFHvN0Q/exec';
+function getGoogleUser(){try{return JSON.parse(sessionStorage.getItem('it_shakh_google_user')||'null')}catch(e){return null}}
+function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function renderLeaderboard(rows){
+ const list=document.getElementById('leader-list');
+ if(!rows||!rows.length){list.innerHTML='<div class="lb-empty">HOZIRCHA NATIJA YO\'Q.</div>';return;}
+ list.innerHTML=rows.map((r,i)=>`<div class="lb-row"><div class="lb-rank">${i+1}</div><div class="lb-name">${r.picture?`<img src="${esc(r.picture)}" alt="">`:''}<b>${esc(r.name)}</b></div><div class="lb-score">${Number(r.score)||0}/300</div><div class="lb-percent">${Number(r.percent)||0}%</div></div>`).join('');
+}
+function loadLeaderboard(){
+ if(SHEETS_API_URL.indexOf('PASTE_')===0){document.getElementById('leader-list').innerHTML='<div class="lb-empty">GOOGLE SHEETS URL KIRITILMAGAN.</div>';return;}
+ const cb='lbcb_'+Date.now(); window[cb]=function(data){try{const rows=data.rows||[];document.getElementById('lb-total').textContent=rows.length;document.getElementById('lb-high').textContent=rows.length?Math.max(...rows.map(x=>Number(x.score)||0)):0;document.getElementById('lb-low').textContent=rows.length?Math.min(...rows.map(x=>Number(x.score)||0)):0;renderLeaderboard(rows)}finally{delete window[cb]}};
+ const s=document.createElement('script');s.src=SHEETS_API_URL+'?action=list&callback='+cb+'&_='+Date.now();s.onerror=()=>{document.getElementById('leader-list').innerHTML='<div class="lb-empty">SHEETS BILAN ULANIB BO\'LMADI.</div>';delete window[cb]};document.body.appendChild(s);
+}
+function saveQuizToSheets(score,total){
+ if(SHEETS_API_URL.indexOf('PASTE_')===0)return;
+ const u=getGoogleUser()||{};
+ const payload={action:'save',name:u.name||'Foydalanuvchi',email:u.email||'',picture:u.picture||'',score:Number(score)||0,total:Number(total)||300};
+ fetch(SHEETS_API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)}).catch(()=>{});
+ setTimeout(loadLeaderboard,1200);
+}
+document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);loadLeaderboard();
+</script>
 
 <!-- TYPING TEST -->
 <div class="section">
@@ -4013,6 +4059,7 @@
     document.getElementById('quiz-next').onclick = () => {
         qIndex++;
         if (qIndex >= questions.length) {
+            saveQuizToSheets(score, questions.length);
             document.getElementById('quiz-card').innerHTML = `
                 <div style="text-align:center; font-family:monospace; padding:20px;">
                     <div style="font-size:40px; margin-bottom:20px;">🏆</div>
