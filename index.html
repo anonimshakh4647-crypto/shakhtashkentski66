@@ -74,90 +74,6 @@
         @keyframes loadbar { 0% { width: 0%; } 100% { width: 100%; } }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-        /* MATH CAPTCHA */
-        #math-screen {
-            position: fixed; inset: 0;
-            background: #04060b;
-            z-index: 9998;
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
-            gap: 25px;
-            transition: opacity 0.8s ease;
-        }
-        #math-screen.hide { opacity: 0; pointer-events: none; }
-
-        .math-logo {
-            width: 70px; height: 70px; border-radius: 50%;
-            background: conic-gradient(var(--accent), #7c4dff, var(--accent));
-            display: flex; align-items: center; justify-content: center;
-            position: relative;
-        }
-        .math-logo::after {
-            content: ""; position: absolute; inset: 4px;
-            background: #04060b; border-radius: 50%;
-        }
-        .math-logo img { width: 70%; z-index: 10; }
-
-        .math-card {
-            background: rgba(11,18,32,0.95);
-            border: 1px solid var(--accent);
-            border-radius: 20px;
-            padding: 35px 40px;
-            text-align: center;
-            box-shadow: var(--glow);
-            max-width: 360px; width: 90%;
-        }
-        .math-title {
-            font-family: monospace; font-size: 12px;
-            color: #9ca3af; letter-spacing: 3px;
-            margin-bottom: 20px;
-        }
-        .math-question {
-            font-family: monospace; font-size: 36px;
-            color: var(--accent); text-shadow: var(--glow);
-            font-weight: bold; margin-bottom: 25px;
-            letter-spacing: 4px;
-        }
-        .math-input {
-            width: 100%; background: rgba(0,0,0,0.4);
-            border: 1px solid rgba(255,255,255,0.15);
-            border-radius: 12px; padding: 14px;
-            color: var(--text-color); font-family: monospace;
-            font-size: 22px; text-align: center;
-            outline: none; transition: 0.3s;
-            margin-bottom: 15px;
-        }
-        .math-input:focus { border-color: var(--accent); box-shadow: var(--glow); }
-        .math-btn {
-            width: 100%; background: var(--accent); color: #000;
-            border: none; padding: 13px; border-radius: 12px;
-            cursor: pointer; font-weight: bold; font-size: 14px;
-            letter-spacing: 2px; transition: 0.3s;
-        }
-        .math-btn:hover { opacity: 0.85; }
-        .math-error {
-            color: #ff5f57; font-family: monospace;
-            font-size: 12px; margin-top: 12px;
-            min-height: 18px; letter-spacing: 1px;
-        }
-        .math-attempts {
-            display: flex; gap: 8px; justify-content: center;
-            margin-top: 12px;
-        }
-        .math-dot {
-            width: 10px; height: 10px; border-radius: 50%;
-            background: var(--accent); transition: 0.3s;
-        }
-        .math-dot.used { background: #ff5f57; }
-        .math-lockout {
-            font-family: monospace; font-size: 28px;
-            color: #ff5f57; font-weight: bold;
-        }
-        .math-lockout-msg {
-            font-family: monospace; font-size: 12px;
-            color: #9ca3af; letter-spacing: 2px;
-        }
-
         /* DATETIME BAR */
         #datetime-bar {
             width: 100%; text-align: center; padding: 6px 20px;
@@ -702,6 +618,12 @@
     #google-login-screen .side-visual{width:24vw !important;min-width:90px !important;opacity:.55 !important;}
 }
 </style>
+
+<style id="mini-games-link-style">
+.mini-games-link{cursor:pointer}
+.mini-games-fallback{position:fixed;right:22px;bottom:22px;z-index:99999;padding:12px 18px;border:1px solid #00eaff;border-radius:10px;text-decoration:none}
+</style>
+
 </head>
 <body>
 
@@ -749,25 +671,6 @@
     <div class="loading-text">IT SHAKH</div>
     <button id="startButton" class="start-button">▶ START</button>
     <div class="start-hint">ENTER THE SYSTEM</div>
-</div>
-
-<!-- MATH CAPTCHA -->
-<div id="math-screen">
-    <div class="math-logo">
-        <img src="logo.png" alt="Logo">
-    </div>
-    <div class="math-card">
-        <div class="math-title">// KIRISH TEKSHIRUVI</div>
-        <div class="math-question" id="math-question">? + ? = ?</div>
-        <input type="number" class="math-input" id="math-input" placeholder="Javobni kiriting" autocomplete="off">
-        <button class="math-btn" onclick="checkMath()">KIRISH →</button>
-        <div class="math-error" id="math-error"></div>
-        <div class="math-attempts" id="math-attempts">
-            <div class="math-dot" id="dot-1"></div>
-            <div class="math-dot" id="dot-2"></div>
-            <div class="math-dot" id="dot-3"></div>
-        </div>
-    </div>
 </div>
 
 <canvas id="matrixCanvas"></canvas>
@@ -1013,12 +916,10 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
    if(!r || !r.credential) return;
    const u=decode(r.credential);
    if(u) sessionStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||''}));
-   // Google login yopiladi
    const gate=document.getElementById('google-login-screen');
-   if(gate){ gate.style.opacity='0'; gate.style.transition='opacity 0.8s'; setTimeout(()=>gate.remove(),800); }
-   // Math ekrani ochiladi
-   const mathScreen = document.getElementById('math-screen');
-   if(mathScreen){ mathScreen.style.display='flex'; }
+   const start=document.getElementById('loading-screen');
+   if(gate) gate.remove();
+   if(start) start.style.display='flex';
  }
  window.onGoogleLogin=success;
  function init(){
@@ -1036,112 +937,6 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 </script>
 
 <script>
-    // MATH CAPTCHA
-    let mathAnswer = 0;
-    let mathAttempts = 0;
-    const MAX_ATTEMPTS = 3;
-    const LOCKOUT_TIME = 5 * 60;
-
-    function generateMath() {
-        const ops = ['+', '-'];
-        const op = ops[Math.floor(Math.random() * ops.length)];
-        let a, b;
-        if (op === '+') {
-            a = Math.floor(Math.random() * 50) + 1;
-            b = Math.floor(Math.random() * 50) + 1;
-            mathAnswer = a + b;
-        } else {
-            a = Math.floor(Math.random() * 50) + 20;
-            b = Math.floor(Math.random() * a) + 1;
-            mathAnswer = a - b;
-        }
-        document.getElementById('math-question').textContent = `${a} ${op} ${b} = ?`;
-        document.getElementById('math-input').value = '';
-        document.getElementById('math-error').textContent = '';
-    }
-
-    function checkLockout() {
-        const lockUntil = Number(localStorage.getItem('mathLockUntil') || 0);
-        if (Date.now() < lockUntil) {
-            showLockout(Math.ceil((lockUntil - Date.now()) / 1000));
-            return true;
-        }
-        return false;
-    }
-
-    function showLockout(seconds) {
-        const card = document.querySelector('.math-card');
-        card.innerHTML = `
-            <div class="math-title">// KIRISH BLOKLANDI</div>
-            <div class="math-lockout" id="lockout-timer">${formatTime(seconds)}</div>
-            <div class="math-lockout-msg">3 ta noto'g'ri javobdan so'ng<br>5 daqiqa kuting</div>
-        `;
-        const interval = setInterval(() => {
-            seconds--;
-            const el = document.getElementById('lockout-timer');
-            if (!el) { clearInterval(interval); return; }
-            if (seconds <= 0) {
-                clearInterval(interval);
-                localStorage.removeItem('mathLockUntil');
-                mathAttempts = 0;
-                location.reload();
-            } else {
-                el.textContent = formatTime(seconds);
-            }
-        }, 1000);
-    }
-
-    function formatTime(s) {
-        const m = Math.floor(s / 60);
-        const sec = s % 60;
-        return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-    }
-
-    function checkMath() {
-        const val = parseInt(document.getElementById('math-input').value);
-        if (isNaN(val)) {
-            document.getElementById('math-error').textContent = '⚠ Iltimos javobni kiriting!';
-            return;
-        }
-        if (val === mathAnswer) {
-            localStorage.removeItem('mathLockUntil');
-            const screen = document.getElementById('math-screen');
-            screen.style.opacity = '0';
-            screen.style.transition = 'opacity 0.8s';
-            setTimeout(() => screen.remove(), 800);
-            // START ekrani ochiladi
-            const startScreen = document.getElementById('loading-screen');
-            if(startScreen) startScreen.style.display = 'flex';
-        } else {
-            mathAttempts++;
-            const dot = document.getElementById(`dot-${mathAttempts}`);
-            if (dot) dot.classList.add('used');
-            if (mathAttempts >= MAX_ATTEMPTS) {
-                const lockUntil = Date.now() + LOCKOUT_TIME * 1000;
-                localStorage.setItem('mathLockUntil', String(lockUntil));
-                showLockout(LOCKOUT_TIME);
-            } else {
-                document.getElementById('math-error').textContent =
-                    `✗ Noto'g'ri! ${MAX_ATTEMPTS - mathAttempts} ta urinish qoldi.`;
-                generateMath();
-            }
-        }
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-        // Math ekrani boshlanganda yashirin
-        const mathScreen = document.getElementById('math-screen');
-        if (mathScreen) mathScreen.style.display = 'none';
-
-        const mathInput = document.getElementById('math-input');
-        if (mathInput) {
-            mathInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') checkMath();
-            });
-        }
-        if (!checkLockout()) generateMath();
-    });
-
     // START SCREEN + MUSIC
     window.addEventListener('load', () => {
         const startScreen = document.getElementById('loading-screen');
@@ -4712,5 +4507,6 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     };
 </script>
 
+<a href="games.html" class="mini-games-fallback">🎮 MINI GAMES</a>
 </body>
 </html>
