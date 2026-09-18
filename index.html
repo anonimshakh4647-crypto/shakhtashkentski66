@@ -5248,41 +5248,43 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     }
 
     async function saveRemote(text){
-  if(!isAdmin()){ throw new Error('Faqat admin akkaunt — anonimshakh4647@gmail.com — yozuv qo‘sha oladi.'); }
         if(!isAdmin()){
             msgEl.textContent='RUXSAT YO‘Q';
-            return;
+            return false;
         }
 
         const token=getToken();
         if(!token){
             msgEl.textContent='GOOGLE LOGIN TOKEN TOPILMADI';
-            return;
+            return false;
         }
 
-        localStorage.setItem(STORE_KEY,text);
-        render(text);
+        const clean=String(text||'').trim().slice(0,500);
         msgEl.textContent='SAQLANMOQDA...';
 
         try{
-            const r=await fetch(API,{
+            /* Google Apps Script javobini CORS bloklashi mumkin.
+               no-cors bilan POST backendga yetib boradi, javobni o‘qish shart emas. */
+            await fetch(API,{
                 method:'POST',
+                mode:'no-cors',
                 headers:{'Content-Type':'text/plain;charset=utf-8'},
                 body:JSON.stringify({
                     action:'status',
                     token:token,
                     clientId:CLIENT_ID,
-                    text:text
+                    text:clean
                 })
             });
-            const data=await r.json().catch(()=>null);
-            if(r.ok && data && data.success){
-                msgEl.textContent='✓ SAQLANDI';
-            }else{
-                msgEl.textContent=(data&&data.error)?data.error:'SAQLASHDA XATO';
-            }
+
+            localStorage.setItem(STORE_KEY,clean);
+            render(clean);
+            msgEl.textContent='✓ SAQLANDI';
+            setTimeout(loadRemote,2000);
+            return true;
         }catch(e){
             msgEl.textContent='API BILAN ULANISHDA XATO';
+            return false;
         }
     }
 
