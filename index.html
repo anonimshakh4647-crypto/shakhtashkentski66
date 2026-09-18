@@ -467,6 +467,22 @@
     .typing-btn{flex:1; min-width:140px;}
 }
 
+
+/* ===== PUBLIC LEADERBOARD ===== */
+#leaderboard-card{padding:22px;border:1px solid rgba(56,189,248,.16);border-radius:16px;background:rgba(4,10,18,.55);box-shadow:0 0 35px rgba(0,100,180,.08)}
+.leaderboard-top{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
+.leader-stat{padding:15px;text-align:center;border:1px solid rgba(56,189,248,.13);border-radius:12px;background:rgba(0,0,0,.18)}
+.leader-stat b{display:block;color:var(--accent);font:700 26px monospace;text-shadow:0 0 15px rgba(56,189,248,.5)}
+.leader-stat span{display:block;margin-top:5px;color:#94a3b8;font:9px monospace;letter-spacing:1.5px}
+.leaderboard-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid rgba(56,189,248,.12);color:#cbd5e1;font:11px monospace;letter-spacing:2px}
+.leaderboard-actions{display:flex;gap:6px;flex-wrap:wrap}
+.lb-sort,.lb-refresh{border:1px solid rgba(56,189,248,.2);background:rgba(7,16,28,.8);color:#9ca3af;border-radius:8px;padding:7px 10px;font:9px monospace;cursor:pointer}
+.lb-sort.active,.lb-sort:hover,.lb-refresh:hover{color:#fff;border-color:rgba(56,189,248,.65);box-shadow:0 0 12px rgba(56,189,248,.12)}
+#leaderboard-list{margin-top:12px;display:grid;gap:7px}
+.lb-row{display:grid;grid-template-columns:48px 1fr 90px 80px;align-items:center;gap:10px;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.018)}
+.lb-rank{font:700 14px monospace;color:#38bdf8;text-align:center}.lb-name{display:flex;align-items:center;gap:9px;min-width:0}.lb-name img{width:30px;height:30px;border-radius:50%;border:1px solid rgba(56,189,248,.3)}.lb-name strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e5e7eb;font:600 12px Inter,sans-serif}.lb-score{text-align:right;color:#38bdf8;font:700 14px monospace}.lb-percent{text-align:right;color:#94a3b8;font:10px monospace}.lb-empty,.lb-loading{padding:25px;text-align:center;color:#64748b;font:11px monospace;letter-spacing:1px}.lb-me{border-color:rgba(56,189,248,.4);box-shadow:0 0 18px rgba(56,189,248,.08)}
+@media(max-width:650px){#leaderboard-card{padding:14px}.leaderboard-top{grid-template-columns:1fr 1fr 1fr}.leader-stat{padding:10px 4px}.leader-stat b{font-size:19px}.leader-stat span{font-size:7px}.leaderboard-head{align-items:flex-start;flex-direction:column}.lb-row{grid-template-columns:34px 1fr 68px 50px;padding:9px}.lb-name img{width:25px;height:25px}.lb-name strong{font-size:10px}.lb-score{font-size:11px}.lb-percent{font-size:8px}.lb-sort,.lb-refresh{font-size:8px;padding:6px 8px}}
+
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -742,6 +758,73 @@
 </div>
 
 
+
+<!-- PUBLIC TEST LEADERBOARD -->
+<div class="section" id="leaderboard-section">
+  <div class="section-title">// TEST NATIJALARI</div>
+  <div id="leaderboard-card">
+    <div class="leaderboard-top">
+      <div class="leader-stat"><b id="lb-total">0</b><span>QATNASHGAN</span></div>
+      <div class="leader-stat"><b id="lb-best">0</b><span>ENG YUQORI BALL</span></div>
+      <div class="leader-stat"><b id="lb-low">0</b><span>ENG PAST BALL</span></div>
+    </div>
+    <div class="leaderboard-head">
+      <span>🏆 ISHTIROKCHILAR</span>
+      <div class="leaderboard-actions">
+        <button class="lb-sort active" data-sort="score">BALL</button>
+        <button class="lb-sort" data-sort="name">ISM</button>
+        <button class="lb-refresh" id="lb-refresh">↻ YANGILASH</button>
+      </div>
+    </div>
+    <div id="leaderboard-list"><div class="lb-loading">YUKLANMOQDA...</div></div>
+  </div>
+</div>
+
+
+    // PUBLIC QUIZ LEADERBOARD
+    const API_BASE = '';
+    let leaderboardSort = 'score';
+    async function apiJson(path, options={}){
+      const headers = Object.assign({'Content-Type':'application/json'}, options.headers||{});
+      const token=localStorage.getItem('it_shakh_session');
+      if(token) headers.Authorization='Bearer '+token;
+      const res=await fetch(API_BASE+path,Object.assign({},options,{headers}));
+      if(!res.ok) throw new Error('API '+res.status);
+      return res.json();
+    }
+    function renderLeaderboard(rows){
+      const list=document.getElementById('leaderboard-list');
+      if(!rows || !rows.length){list.innerHTML='<div class="lb-empty">HOZIRCHA HECH KIM NATIJA QOLDIRMAGAN.</div>';return;}
+      const me=JSON.parse(sessionStorage.getItem('it_shakh_google_user')||'null');
+      list.innerHTML=rows.map((u,i)=>`<div class="lb-row ${me&&u.name===me.name?'lb-me':''}">
+        <div class="lb-rank">${i+1}</div>
+        <div class="lb-name">${u.picture?`<img src="${String(u.picture).replace(/"/g,'&quot;')}" alt="">`:''}<strong>${String(u.name||'Foydalanuvchi').replace(/[&<>]/g,'')}</strong></div>
+        <div class="lb-score">${u.best_score}/300</div>
+        <div class="lb-percent">${u.best_percent}%</div>
+      </div>`).join('');
+    }
+    async function loadLeaderboard(){
+      const list=document.getElementById('leaderboard-list');
+      list.innerHTML='<div class="lb-loading">YUKLANMOQDA...</div>';
+      try{
+        const data=await apiJson('/api/leaderboard?sort='+encodeURIComponent(leaderboardSort));
+        document.getElementById('lb-total').textContent=data.stats.total_users;
+        document.getElementById('lb-best').textContent=data.stats.best_score;
+        document.getElementById('lb-low').textContent=data.stats.lowest_score;
+        renderLeaderboard(data.rows);
+      }catch(e){list.innerHTML='<div class="lb-empty">SERVER BILAN ULANISH YO\'Q. KEYINROQ YANGILANG.</div>';}
+    }
+    async function saveQuizResult(finalScore,total){
+      try{ await apiJson('/api/quiz/results',{method:'POST',body:JSON.stringify({score:finalScore,total})}); }catch(e){ console.warn('Result save failed',e); }
+      loadLeaderboard();
+    }
+    document.querySelectorAll('.lb-sort').forEach(btn=>btn.addEventListener('click',()=>{
+      document.querySelectorAll('.lb-sort').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active'); leaderboardSort=btn.dataset.sort; loadLeaderboard();
+    }));
+    document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
+    loadLeaderboard();
+
 <!-- TYPING TEST -->
 <div class="section">
     <div class="section-title">// YOZISH TEZLIGI TESTI</div>
@@ -854,14 +937,21 @@
 (function(){
  const CLIENT_ID='506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
  function decode(t){try{return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){return null}}
- function success(r){
+ async function success(r){
    if(!r || !r.credential) return;
-   const u=decode(r.credential);
-   if(u) sessionStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||''}));
-   const gate=document.getElementById('google-login-screen');
-   const start=document.getElementById('loading-screen');
-   if(gate) gate.remove();
-   if(start) start.style.display='flex';
+   try{
+     const res=await fetch('/api/auth/google',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:r.credential})});
+     if(!res.ok) throw new Error('Google login failed');
+     const data=await res.json();
+     localStorage.setItem('it_shakh_session',data.token);
+     sessionStorage.setItem('it_shakh_google_user',JSON.stringify(data.user));
+     const gate=document.getElementById('google-login-screen');
+     const start=document.getElementById('loading-screen');
+     if(gate) gate.remove();
+     if(start) start.style.display='flex';
+   }catch(e){
+     alert('Google kirishda xatolik. Qaytadan urinib ko\'ring.');
+   }
  }
  window.onGoogleLogin=success;
  function init(){
@@ -4013,6 +4103,7 @@
     document.getElementById('quiz-next').onclick = () => {
         qIndex++;
         if (qIndex >= questions.length) {
+            saveQuizResult(score, questions.length);
             document.getElementById('quiz-card').innerHTML = `
                 <div style="text-align:center; font-family:monospace; padding:20px;">
                     <div style="font-size:40px; margin-bottom:20px;">🏆</div>
