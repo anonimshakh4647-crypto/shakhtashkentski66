@@ -5260,31 +5260,27 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
         const clean=String(text||'').trim().slice(0,500);
         msgEl.textContent='SAQLANMOQDA...';
         try{
-            let frame=document.getElementById('it-shakh-status-frame');
-            if(!frame){
-                frame=document.createElement('iframe');
-                frame.name='it-shakh-status-frame';
-                frame.id='it-shakh-status-frame';
-                frame.style.display='none';
-                document.body.appendChild(frame);
-            }
-            const form=document.createElement('form');
-            form.method='POST';
-            form.action=API;
-            form.target='it-shakh-status-frame';
-            form.style.display='none';
-            [['action','status'],['token',token],['clientId',CLIENT_ID],['text',clean]].forEach(([name,value])=>{
-                const input=document.createElement('input');
-                input.type='hidden'; input.name=name; input.value=value;
-                form.appendChild(input);
+            // GET beacon: CORS/iframe cheklovlarisiz Apps Script'ga yuboriladi.
+            const q=new URLSearchParams({
+                action:'statusSave',
+                token:token,
+                clientId:CLIENT_ID,
+                text:clean,
+                _:String(Date.now())
             });
-            document.body.appendChild(form);
-            form.submit();
-            form.remove();
+            const beacon=new Image();
+            beacon.src=API+'?'+q.toString();
+            beacon.style.display='none';
+            document.body.appendChild(beacon);
+            setTimeout(()=>{try{beacon.remove()}catch(e){}},10000);
+
             localStorage.setItem(STORE_KEY,clean);
             render(clean);
-            msgEl.textContent='✓ SAQLANDI';
-            setTimeout(loadRemote,2500);
+            msgEl.textContent='✓ SAQLANMOQDA';
+            setTimeout(async()=>{
+                await loadRemote();
+                msgEl.textContent='✓ SAQLANDI';
+            },1800);
             return true;
         }catch(e){
             msgEl.textContent='API BILAN ULANISHDA XATO';
