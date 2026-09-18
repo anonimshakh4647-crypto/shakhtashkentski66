@@ -250,6 +250,65 @@
             background: rgba(0,0,0,0.3);
         }
 
+        /* TYPING TEST */
+        #typing-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px; padding: 30px;
+        }
+        #typing-text {
+            font-family: monospace; font-size: 16px;
+            line-height: 2; margin-bottom: 20px;
+            padding: 15px; border-radius: 10px;
+            background: rgba(0,0,0,0.3);
+            letter-spacing: 1px; user-select: none;
+        }
+        .typing-char { color: #9ca3af; }
+        .typing-char.correct { color: #28ca41; }
+        .typing-char.wrong { color: #ff5f57; background: rgba(255,95,87,0.2); border-radius: 2px; }
+        .typing-char.current { border-bottom: 2px solid var(--accent); color: var(--text-color); }
+        #typing-input {
+            width: 100%; background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 12px 15px;
+            color: var(--text-color); font-family: monospace;
+            font-size: 15px; outline: none; transition: 0.3s;
+        }
+        #typing-input:focus { border-color: var(--accent); box-shadow: var(--glow); }
+        .typing-stats {
+            display: flex; gap: 20px; margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .typing-stat {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px; padding: 12px 20px;
+            text-align: center; flex: 1; min-width: 80px;
+        }
+        .typing-stat-val {
+            font-family: monospace; font-size: 24px;
+            color: var(--accent); font-weight: bold;
+        }
+        .typing-stat-label {
+            font-size: 10px; color: #9ca3af;
+            letter-spacing: 2px; margin-top: 4px;
+        }
+        .typing-btns { display: flex; gap: 10px; margin-top: 15px; }
+        .typing-btn {
+            background: var(--accent); color: #000;
+            border: none; padding: 8px 20px; border-radius: 20px;
+            cursor: pointer; font-weight: bold; font-size: 12px;
+        }
+        #typing-timer-bar-wrap {
+            height: 3px; background: rgba(255,255,255,0.1);
+            border-radius: 10px; margin-bottom: 15px; overflow: hidden;
+        }
+        #typing-timer-bar {
+            height: 100%; width: 100%;
+            background: var(--accent); border-radius: 10px;
+            transition: width 1s linear;
+        }
+
         @media (max-width: 850px) {
             .hero-container {
                 grid-template-columns: 1fr; text-align: center;
@@ -358,6 +417,38 @@
         <div class="quiz-nav">
             <span class="quiz-score" id="quiz-score">Ball: 0</span>
             <button class="quiz-btn" id="quiz-next" disabled>KEYINGISI →</button>
+        </div>
+    </div>
+</div>
+
+<!-- TYPING TEST -->
+<div class="section">
+    <div class="section-title">// YOZISH TEZLIGI TESTI</div>
+    <div id="typing-card">
+        <div id="typing-timer-bar-wrap"><div id="typing-timer-bar"></div></div>
+        <div id="typing-text"></div>
+        <input type="text" id="typing-input" placeholder="Boshlash uchun bu yerga yozing..." autocomplete="off" spellcheck="false">
+        <div class="typing-stats">
+            <div class="typing-stat">
+                <div class="typing-stat-val" id="t-wpm">0</div>
+                <div class="typing-stat-label">WPM</div>
+            </div>
+            <div class="typing-stat">
+                <div class="typing-stat-val" id="t-acc">100%</div>
+                <div class="typing-stat-label">ANIQLIK</div>
+            </div>
+            <div class="typing-stat">
+                <div class="typing-stat-val" id="t-time">60</div>
+                <div class="typing-stat-label">SONIYA</div>
+            </div>
+            <div class="typing-stat">
+                <div class="typing-stat-val" id="t-chars">0</div>
+                <div class="typing-stat-label">BELGI</div>
+            </div>
+        </div>
+        <div class="typing-btns">
+            <button class="typing-btn" onclick="resetTyping()">↺ QAYTA BOSHLASH</button>
+            <button class="typing-btn" id="t-difficulty" onclick="changeDifficulty()">📝 OSON</button>
         </div>
     </div>
 </div>
@@ -503,6 +594,135 @@
         }
     };
     loadQuestion();
+
+    // TYPING TEST
+    const texts = {
+        easy: [
+            "Bu oddiy matn yozish testi. Tezroq yozing va natijangizni ko'ring.",
+            "Kompyuter sohasida bilim olish kelajak uchun eng yaxshi investitsiya.",
+            "Linux tizimi dasturchilar va IT mutaxassislari uchun eng qulay muhit."
+        ],
+        hard: [
+            "Network security requires understanding of TCP/IP protocols and firewall configurations.",
+            "Python scripting enables automation of repetitive system administration tasks efficiently.",
+            "Cybersecurity professionals must analyze vulnerabilities and implement robust defense mechanisms."
+        ]
+    };
+
+    let difficulty = 'easy';
+    let currentText = '';
+    let currentIndex = 0;
+    let startTime = null;
+    let timerInterval = null;
+    let timeLeft = 60;
+    let totalTyped = 0;
+    let correctTyped = 0;
+    let isFinished = false;
+
+    function getRandomText() {
+        const arr = texts[difficulty];
+        return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    function renderText() {
+        const container = document.getElementById('typing-text');
+        container.innerHTML = '';
+        for (let i = 0; i < currentText.length; i++) {
+            const span = document.createElement('span');
+            span.className = 'typing-char' + (i === currentIndex ? ' current' : '');
+            span.textContent = currentText[i];
+            container.appendChild(span);
+        }
+    }
+
+    function resetTyping() {
+        clearInterval(timerInterval);
+        currentText = getRandomText();
+        currentIndex = 0;
+        startTime = null;
+        timeLeft = 60;
+        totalTyped = 0;
+        correctTyped = 0;
+        isFinished = false;
+        document.getElementById('typing-input').value = '';
+        document.getElementById('typing-input').disabled = false;
+        document.getElementById('typing-input').placeholder = 'Boshlash uchun bu yerga yozing...';
+        document.getElementById('t-wpm').textContent = '0';
+        document.getElementById('t-acc').textContent = '100%';
+        document.getElementById('t-time').textContent = '60';
+        document.getElementById('t-chars').textContent = '0';
+        document.getElementById('typing-timer-bar').style.width = '100%';
+        renderText();
+    }
+
+    function changeDifficulty() {
+        difficulty = difficulty === 'easy' ? 'hard' : 'easy';
+        document.getElementById('t-difficulty').textContent = difficulty === 'easy' ? '📝 OSON' : '🔥 QIYIN';
+        resetTyping();
+    }
+
+    function startTimer() {
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            document.getElementById('t-time').textContent = timeLeft;
+            document.getElementById('typing-timer-bar').style.width = (timeLeft / 60 * 100) + '%';
+            if (timeLeft <= 0) {
+                finishTyping();
+            }
+        }, 1000);
+    }
+
+    function finishTyping() {
+        clearInterval(timerInterval);
+        isFinished = true;
+        document.getElementById('typing-input').disabled = true;
+        document.getElementById('typing-input').placeholder = "Tugadi! Qayta boshlash uchun ↺ tugmasini bosing.";
+    }
+
+    document.getElementById('typing-input').addEventListener('input', (e) => {
+        if (isFinished) return;
+        if (!startTime) {
+            startTime = Date.now();
+            startTimer();
+        }
+
+        const val = e.target.value;
+        const lastChar = val[val.length - 1];
+        e.target.value = '';
+
+        if (lastChar === undefined) return;
+
+        totalTyped++;
+        const spans = document.querySelectorAll('.typing-char');
+
+        if (lastChar === currentText[currentIndex]) {
+            spans[currentIndex].className = 'typing-char correct';
+            correctTyped++;
+        } else {
+            spans[currentIndex].className = 'typing-char wrong';
+        }
+
+        currentIndex++;
+        if (currentIndex < currentText.length) {
+            spans[currentIndex].classList.add('current');
+        }
+
+        // WPM hisoblash
+        const elapsed = (Date.now() - startTime) / 60000;
+        const wpm = Math.round((correctTyped / 5) / elapsed);
+        document.getElementById('t-wpm').textContent = wpm || 0;
+        document.getElementById('t-acc').textContent = Math.round((correctTyped / totalTyped) * 100) + '%';
+        document.getElementById('t-chars').textContent = correctTyped;
+
+        // Matn tugasa yangi matn
+        if (currentIndex >= currentText.length) {
+            currentText = getRandomText();
+            currentIndex = 0;
+            renderText();
+        }
+    });
+
+    resetTyping();
 
     // MATRIX
     const modeToggle = document.getElementById('modeToggle');
