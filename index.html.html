@@ -619,8 +619,8 @@
 }
 
 /* ===== MATH SECURITY GATE ===== */
-#math-security{display:none;width:min(100%,400px);margin-top:22px;text-align:center;}
-#math-security.show{display:block;}
+#math-security{display:none !important;width:min(100%,400px);margin:22px auto 0;text-align:center;position:relative;z-index:99999;}
+#math-security.show{display:block !important;}
 #math-security .math-title{font:700 12px monospace;letter-spacing:2px;color:#38bdf8;margin-bottom:14px;}
 #math-security .math-equation{font:800 34px monospace;color:#e5e7eb;text-shadow:0 0 18px rgba(56,189,248,.45);margin:10px 0 16px;}
 #math-security-input{width:180px;text-align:center;background:rgba(0,0,0,.35);border:1px solid rgba(56,189,248,.45);border-radius:10px;padding:11px;color:#fff;font:700 20px monospace;outline:none;}
@@ -921,62 +921,68 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 </script>
 
 <script>
-/* GOOGLE LOGIN — unlocks the existing START screen */
+/* GOOGLE LOGIN + MATH SECURITY */
 (function(){
  const CLIENT_ID='506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
- function decode(t){try{return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){return null}}
  let mathAnswer=0;
+ function decode(t){try{return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){return null}}
  function newMath(){
-   let a=Math.floor(Math.random()*90)+10;
-   let b=Math.floor(Math.random()*90)+1;
+   let a=Math.floor(Math.random()*90)+10, b=Math.floor(Math.random()*90)+1;
    const minus=Math.random()<0.5;
-   if(minus){ const hi=Math.max(a,b), lo=Math.min(a,b); a=hi; b=lo; }
-   mathAnswer=minus ? a-b : a+b;
+   if(minus && b>a){const t=a;a=b;b=t;}
+   mathAnswer=minus?a-b:a+b;
    const eq=document.getElementById('math-equation');
-   if(eq) eq.textContent=a+' '+(minus?'−':'+')+' '+b+' = ?';
    const inp=document.getElementById('math-security-input');
    const msg=document.getElementById('math-security-msg');
-   if(inp){inp.value='';setTimeout(()=>inp.focus(),60);}
+   if(eq) eq.textContent=a+' '+(minus?'−':'+')+' '+b+' = ?';
+   if(inp){inp.value=''; setTimeout(()=>inp.focus(),100);}
    if(msg){msg.textContent='';msg.className='';}
+ }
+ function showMath(){
+   const googleBox=document.getElementById('google-signin-button');
+   const box=document.getElementById('math-security');
+   if(googleBox) googleBox.style.setProperty('display','none','important');
+   if(box){box.style.setProperty('display','block','important');box.classList.add('show');box.setAttribute('aria-hidden','false');}
+   newMath();
  }
  function finishMath(){
    const inp=document.getElementById('math-security-input');
    const msg=document.getElementById('math-security-msg');
    const raw=(inp?.value||'').trim();
-   if(raw===''){ if(msg){msg.textContent='JAVOBNI KIRITING';msg.className='err';} return; }
-   const value=Number(raw);
-   if(!Number.isInteger(value) || value!==mathAnswer){
+   if(raw===''){if(msg){msg.textContent='JAVOBNI KIRITING';msg.className='err';}return;}
+   if(Number(raw)!==mathAnswer || !Number.isInteger(Number(raw))){
      if(msg){msg.textContent='✕ NOTO‘G‘RI — YANGI MISOL';msg.className='err';}
-     setTimeout(newMath,350); return;
+     setTimeout(newMath,400);return;
    }
    if(msg){msg.textContent='✓ TO‘G‘RI!';msg.className='ok';}
    sessionStorage.setItem('it_shakh_math_verified','1');
-   setTimeout(()=>{
+   setTimeout(function(){
      const gate=document.getElementById('google-login-screen');
      const start=document.getElementById('loading-screen');
      if(gate) gate.remove();
-     if(start) start.style.display='flex';
+     if(start){start.style.display='flex';start.style.visibility='visible';}
    },250);
  }
  function success(r){
    if(!r || !r.credential) return;
    const u=decode(r.credential);
    if(u) sessionStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||'',credential:r.credential||''}));
-   const box=document.getElementById('math-security');
-   const googleBox=document.getElementById('google-signin-button');
-   if(googleBox) googleBox.style.display='none';
-   if(box){ box.classList.add('show'); box.setAttribute('aria-hidden','false'); }
-   newMath();
- }window.onGoogleLogin=success;
+   showMath();
+ }
+ window.onGoogleLogin=success;
  function init(){
-   if(!window.google?.accounts?.id){setTimeout(init,200);return;}
+   if(!window.google || !google.accounts || !google.accounts.id){setTimeout(init,200);return;}
    google.accounts.id.initialize({client_id:CLIENT_ID,callback:success,auto_select:false,cancel_on_tap_outside:false,context:'signin'});
    const box=document.getElementById('google-signin-button');
-   if(box){ const w=Math.max(240,Math.min(400,Math.floor(box.getBoundingClientRect().width))); google.accounts.id.renderButton(box,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',logo_alignment:'left',width:w}); }
+   if(box){google.accounts.id.renderButton(box,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',logo_alignment:'left',width:Math.max(240,Math.min(400,Math.floor(box.getBoundingClientRect().width)))});}
  }
  document.addEventListener('DOMContentLoaded',function(){
    const start=document.getElementById('loading-screen');
    if(start) start.style.display='none';
+   const btn=document.getElementById('math-security-btn');
+   const inp=document.getElementById('math-security-input');
+   if(btn) btn.addEventListener('click',finishMath);
+   if(inp) inp.addEventListener('keydown',e=>{if(e.key==='Enter')finishMath();});
    init();
  });
 })();
