@@ -360,9 +360,33 @@
             letter-spacing: 2px;
         }
 
+
+/* GOOGLE LOGIN */
+#google-login-screen{position:fixed;inset:0;z-index:10000;background:#04060b;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;}
+#google-login-screen.hidden{display:none;}
+.google-login-box{max-width:420px;width:100%;padding:35px 25px;border:1px solid rgba(56,189,248,.35);border-radius:18px;background:rgba(11,18,32,.75);box-shadow:0 0 45px rgba(56,189,248,.25);}
+.google-login-logo{width:90px;height:90px;border-radius:50%;margin:0 auto 20px;background:conic-gradient(#38bdf8,#7c4dff,#38bdf8);display:flex;align-items:center;justify-content:center;animation:rotate 3s linear infinite;}
+.google-login-logo img{width:75%;border-radius:50%;animation:rotate 3s linear infinite reverse;}
+.google-login-title{font-size:28px;font-weight:800;color:#38bdf8;letter-spacing:3px;text-shadow:0 0 25px rgba(56,189,248,.8);}
+.google-login-text{font-family:monospace;color:#9ca3af;font-size:12px;letter-spacing:1px;margin:12px 0 25px;}
+#google-signin-button{display:flex;justify-content:center;min-height:44px;}
+#google-error{font-family:monospace;color:#ff5f57;font-size:11px;margin-top:15px;display:none;}
+
 </style>
 </head>
 <body>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<!-- GOOGLE LOGIN SCREEN -->
+<div id="google-login-screen">
+  <div class="google-login-box">
+    <div class="google-login-logo"><img src="logo.png" alt="IT SHAKH"></div>
+    <div class="google-login-title">IT SHAKH</div>
+    <div class="google-login-text">GOOGLE ACCOUNT BILAN KIRING</div>
+    <div id="google-signin-button"></div>
+    <div id="google-error">Google login yuklanmadi. Internet va domen sozlamalarini tekshiring.</div>
+  </div>
+</div>
+
 <audio id="shakhMusic" src="SHAKH.mp3" loop preload="auto"></audio>
 
 
@@ -490,9 +514,42 @@
 <footer>© 2026 Shakh Tashkentski • IT SHAKH</footer>
 
 <script>
+    // GOOGLE LOGIN -> START -> MUSIC
+    const GOOGLE_CLIENT_ID = '506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
+    const googleScreen = document.getElementById('google-login-screen');
+    const startScreen = document.getElementById('loading-screen');
+    startScreen.style.display = 'none';
+
+    function showStartScreen() {
+        googleScreen.classList.add('hidden');
+        startScreen.style.display = 'flex';
+    }
+
+    function handleGoogleCredential(response) {
+        try {
+            const parts = response.credential.split('.');
+            if (parts.length < 2) throw new Error('Invalid credential');
+            const payload = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+            sessionStorage.setItem('itshakh_google_user', JSON.stringify({name:payload.name||'',email:payload.email||'',picture:payload.picture||''}));
+            showStartScreen();
+        } catch (e) {
+            document.getElementById('google-error').style.display='block';
+        }
+    }
+
+    function initGoogleLogin() {
+        if (!window.google || !google.accounts || !google.accounts.id) {
+            setTimeout(initGoogleLogin, 300);
+            return;
+        }
+        google.accounts.id.initialize({client_id:GOOGLE_CLIENT_ID,callback:handleGoogleCredential,auto_select:false,cancel_on_tap_outside:false});
+        google.accounts.id.renderButton(document.getElementById('google-signin-button'),{theme:'filled_black',size:'large',shape:'pill',text:'signin_with',width:300,logo_alignment:'left'});
+    }
+
+    window.addEventListener('load', initGoogleLogin);
+
     // START SCREEN + MUSIC
     window.addEventListener('load', () => {
-        const startScreen = document.getElementById('loading-screen');
         const startButton = document.getElementById('startButton');
         const music = document.getElementById('shakhMusic');
 
