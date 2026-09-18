@@ -750,6 +750,70 @@ body.file-modal-active{overflow:hidden;}
 .file-note{margin-top:10px;color:#475569;font:9px monospace;line-height:1.6;}
 @media(max-width:600px){#file-center-card{padding:16px;}.file-upload-zone{min-height:190px;padding:28px 12px;}.file-row{grid-template-columns:34px minmax(0,1fr);}.file-row-actions{grid-column:1 / -1;justify-content:flex-start;}.file-row-actions button{flex:1;min-width:95px;}}
 @media(max-width:600px){#file-center-section{padding:14px 10px !important;align-items:flex-start;}#file-center-section .file-modal-shell{max-height:calc(100vh - 28px);margin-top:8px;}#file-center-section .section-title{font-size:16px;}}
+
+/* ===== IT SHAKH LIVE STATUS ===== */
+#live-status-wrap{
+    margin:14px auto 0;
+    width:min(760px,92vw);
+    text-align:center;
+}
+#live-status-time{
+    color:var(--accent);
+    font:700 12px monospace;
+    letter-spacing:2px;
+    text-shadow:var(--glow);
+    opacity:.9;
+}
+#live-status-text{
+    margin-top:8px;
+    min-height:24px;
+    color:#e5e7eb;
+    font:600 15px Inter,sans-serif;
+    line-height:1.5;
+    text-shadow:0 0 12px rgba(56,189,248,.18);
+    white-space:pre-wrap;
+    word-break:break-word;
+}
+#live-status-admin{
+    display:none;
+    margin:12px auto 0;
+    width:min(560px,92vw);
+    padding:10px;
+    border:1px solid rgba(56,189,248,.25);
+    border-radius:12px;
+    background:rgba(3,12,24,.72);
+}
+#live-status-admin.show{display:block;}
+#live-status-input{
+    width:100%;
+    min-height:58px;
+    resize:vertical;
+    padding:10px 12px;
+    border:1px solid rgba(56,189,248,.28);
+    border-radius:9px;
+    outline:none;
+    background:rgba(0,0,0,.35);
+    color:#e5e7eb;
+    font:13px monospace;
+}
+#live-status-save{
+    margin-top:8px;
+    border:1px solid rgba(56,189,248,.5);
+    border-radius:9px;
+    padding:9px 18px;
+    background:rgba(56,189,248,.12);
+    color:var(--accent);
+    font:700 11px monospace;
+    letter-spacing:1px;
+    cursor:pointer;
+}
+#live-status-save:hover{box-shadow:0 0 18px rgba(56,189,248,.18);}
+#live-status-msg{
+    margin-top:6px;
+    color:#94a3b8;
+    font:10px monospace;
+}
+
 </style>
 </head>
 <body>
@@ -4992,6 +5056,141 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     window.onresize = () => {
         if (body.classList.contains('night-mode')) initMatrix();
     };
+</script>
+
+
+<!-- ===== IT SHAKH LIVE STATUS ===== -->
+<div id="live-status-wrap">
+    <div id="live-status-time"></div>
+    <div id="live-status-text">...</div>
+
+    <div id="live-status-admin">
+        <textarea id="live-status-input" maxlength="500"
+            placeholder="Saytda ko‘rinadigan yozuvni kiriting..."></textarea>
+        <button id="live-status-save" type="button">SAQLASH →</button>
+        <div id="live-status-msg"></div>
+    </div>
+</div>
+
+<script>
+/* ===== IT SHAKH LIVE STATUS ===== */
+(function(){
+    const ADMIN_EMAIL = 'anonimshakh4647@gmail.com';
+    const CLIENT_ID = '506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
+    const API = 'https://script.google.com/macros/s/AKfycbwwSCvjGZGeI0g8szN62g8NVVzVKI6atqu1lUoF_W4FfhenqS-cpn27liDJU52gFHvN0Q/exec';
+    const STORE_KEY = 'it_shakh_live_status';
+
+    const timeEl = document.getElementById('live-status-time');
+    const textEl = document.getElementById('live-status-text');
+    const adminEl = document.getElementById('live-status-admin');
+    const inputEl = document.getElementById('live-status-input');
+    const saveEl = document.getElementById('live-status-save');
+    const msgEl = document.getElementById('live-status-msg');
+
+    function localTime(){
+        const d = new Date();
+        const date = d.toLocaleDateString('uz-UZ',{day:'2-digit',month:'2-digit',year:'numeric'});
+        const time = d.toLocaleTimeString('uz-UZ',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        timeEl.textContent = time + '  •  ' + date;
+    }
+    localTime();
+    setInterval(localTime,1000);
+
+    function getUser(){
+        try{
+            return JSON.parse(localStorage.getItem('it_shakh_google_user') || 'null');
+        }catch(e){ return null; }
+    }
+
+    function getToken(){
+        const u=getUser();
+        return u && u.credential ? u.credential : '';
+    }
+
+    function isAdmin(){
+        const u=getUser();
+        return !!u && String(u.email||'').toLowerCase()===ADMIN_EMAIL;
+    }
+
+    function showAdmin(){
+        if(isAdmin()){
+            adminEl.classList.add('show');
+            inputEl.value = localStorage.getItem(STORE_KEY) || '';
+        }
+    }
+
+    function render(text){
+        textEl.textContent = text || '';
+        textEl.style.display = text ? 'block' : 'none';
+    }
+
+    render(localStorage.getItem(STORE_KEY) || '');
+
+    async function loadRemote(){
+        try{
+            const r=await fetch(API+'?action=status&_='+Date.now(),{cache:'no-store'});
+            if(!r.ok) return;
+            const data=await r.json();
+            if(data && typeof data.text==='string'){
+                render(data.text);
+                localStorage.setItem(STORE_KEY,data.text);
+                showAdmin();
+            }
+        }catch(e){}
+    }
+
+    async function saveRemote(text){
+        if(!isAdmin()){
+            msgEl.textContent='RUXSAT YO‘Q';
+            return;
+        }
+
+        const token=getToken();
+        if(!token){
+            msgEl.textContent='GOOGLE LOGIN TOKEN TOPILMADI';
+            return;
+        }
+
+        localStorage.setItem(STORE_KEY,text);
+        render(text);
+        msgEl.textContent='SAQLANMOQDA...';
+
+        try{
+            const r=await fetch(API,{
+                method:'POST',
+                headers:{'Content-Type':'text/plain;charset=utf-8'},
+                body:JSON.stringify({
+                    action:'status',
+                    token:token,
+                    clientId:CLIENT_ID,
+                    text:text
+                })
+            });
+            const data=await r.json().catch(()=>null);
+            if(r.ok && data && data.success){
+                msgEl.textContent='✓ SAQLANDI';
+            }else{
+                msgEl.textContent=(data&&data.error)?data.error:'SAQLASHDA XATO';
+            }
+        }catch(e){
+            msgEl.textContent='API BILAN ULANISHDA XATO';
+        }
+    }
+
+    saveEl && saveEl.addEventListener('click',()=>{
+        saveRemote((inputEl.value||'').trim());
+    });
+
+    inputEl && inputEl.addEventListener('keydown',e=>{
+        if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){
+            saveRemote((inputEl.value||'').trim());
+        }
+    });
+
+    showAdmin();
+    loadRemote();
+    setInterval(loadRemote,30000);
+})();
 </script>
 
 </body>
