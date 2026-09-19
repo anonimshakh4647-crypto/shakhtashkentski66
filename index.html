@@ -791,8 +791,96 @@ body.file-modal-active{overflow:hidden;}
 @media(max-width:430px){.stats-grid{grid-template-columns:1fr}.tool-row{flex-direction:column;align-items:stretch}.tool-btn{width:100%}}
 </style>
 
+
+<style id="no-mandatory-google-login">
+/* Google login is NOT required for normal site entry. */
+#google-login-screen{display:none !important;}
+</style>
+
+<style id="optional-admin-login-style">
+.admin-login-trigger{background:transparent;color:#94a3b8;border:1px solid rgba(124,77,255,.35);padding:6px 10px;border-radius:20px;cursor:pointer;font:700 10px monospace;letter-spacing:1px;transition:.2s}
+.admin-login-trigger:hover{color:#fff;border-color:#7c4dff;box-shadow:0 0 14px rgba(124,77,255,.25)}
+</style>
+
+<style id="live-announcement-ticker-css">
+#live-announcement-ticker{
+    position:fixed;
+    top:72px;
+    right:14px;
+    z-index:180;
+    width:min(420px,42vw);
+    min-height:30px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:7px 11px;
+    border:1px solid rgba(56,189,248,.18);
+    border-radius:999px;
+    background:rgba(3,10,18,.78);
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    box-shadow:0 0 18px rgba(0,120,200,.08);
+    pointer-events:none;
+    opacity:.92;
+}
+#live-announcement-ticker .ticker-dot{
+    width:7px;height:7px;border-radius:50%;
+    flex:0 0 7px;background:#28ca41;
+    box-shadow:0 0 10px rgba(40,202,65,.8);
+    animation:statusPulse 1.5s infinite;
+}
+#live-announcement-ticker .ticker-label{
+    color:var(--accent);
+    font:700 8px monospace;
+    letter-spacing:1.4px;
+    white-space:nowrap;
+}
+#live-announcement-ticker .ticker-text{
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    color:#cbd5e1;
+    font:10px monospace;
+}
+@media(max-width:850px){
+    #live-announcement-ticker{
+        top:70px;right:8px;width:min(330px,calc(100vw - 16px));
+        min-height:28px;padding:6px 9px;
+    }
+    #live-announcement-ticker .ticker-label{font-size:7px}
+    #live-announcement-ticker .ticker-text{font-size:9px}
+}
+@media(max-width:560px){
+    #live-announcement-ticker{top:68px;left:8px;right:8px;width:auto}
+}
+</style>
+
+
+<style id="virtual-keyboard-click-fix">
+.keyboard-key{
+    appearance:none;
+    -webkit-appearance:none;
+    border:1px solid rgba(56,189,248,.16);
+    cursor:pointer;
+    user-select:none;
+    -webkit-tap-highlight-color:transparent;
+}
+.keyboard-key:focus-visible{
+    outline:1px solid var(--accent);
+    box-shadow:0 0 14px rgba(56,189,248,.25);
+}
+.keyboard-key:active{transform:translateY(1px) scale(.97);}
+</style>
+
 </head>
 <body>
+
+<div id="live-announcement-ticker" aria-live="polite" aria-label="Live announcement">
+  <span class="ticker-dot"></span>
+  <span class="ticker-label">LIVE</span>
+  <span class="ticker-text" id="live-announcement-text">SYSTEM ONLINE</span>
+</div>
+
 
 <!-- GOOGLE LOGIN: SEPARATE BACKGROUND + LIONS + LOGO -->
 <div id="google-login-screen">
@@ -869,6 +957,7 @@ body.file-modal-active{overflow:hidden;}
         <a href="about.html">BIO</a>
         <a href="music.html">BASS</a>
         <a href="files.html">FILES</a>
+        <button class="admin-login-trigger" id="adminLoginTrigger" type="button" title="Admin login">ADMIN</button>
         <button class="mode-toggle" id="modeToggle">NIGHT MODE</button>
     </div>
 </header>
@@ -1063,6 +1152,10 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
   <div class="section-title">// ADMIN PANEL</div>
   <div class="feature-card admin-panel">
     <div class="admin-badge">ADMIN • anonimshakh4647@gmail.com</div>
+    <div class="admin-status" style="color:#64748b;margin-bottom:8px">
+      📢 Bu xabarni faqat admin yozadi. Boshqa tashrifchilar uni tepada LIVE ko‘radi.
+    </div>
+
     <label class="admin-label" for="admin-announcement">ANNOUNCEMENT</label>
     <textarea class="admin-textarea" id="admin-announcement" maxlength="1000" placeholder="Barcha tashrifchilarga ko‘rinadigan xabar..."></textarea>
     <div class="admin-actions"><button class="admin-btn" id="admin-save-announcement">📢 PUBLISH ANNOUNCEMENT</button></div>
@@ -1226,37 +1319,120 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 </script>
 
 <script>
-/* GOOGLE LOGIN — unlocks the existing START screen */
+/* GOOGLE LOGIN / ACCESS GATE
+   Admin: anonimshakh4647@gmail.com -> no Google prompt, no math CAPTCHA.
+   Everyone else -> Google login + math CAPTCHA.
+*/
 (function(){
  const CLIENT_ID='506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
- function decode(t){try{return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){return null}}
+ const ADMIN_EMAIL='anonimshakh4647@gmail.com';
+ const ADMIN_KEY='it_shakh_admin_verified';
+ let googleReady=false;
+ let loginRequested=false;
+
+ function decode(t){
+   try{return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){return null}
+ }
+ function isAdminUser(u){
+   return !!(u && String(u.email||'').toLowerCase()===ADMIN_EMAIL.toLowerCase());
+ }
+ function getStoredUser(){
+   try{return JSON.parse(localStorage.getItem('it_shakh_google_user')||'null')}catch(e){return null}
+ }
+ function setStoredUser(u,credential){
+   localStorage.setItem('it_shakh_google_user',JSON.stringify({
+     name:u.name||'',email:u.email||'',picture:u.picture||'',credential:credential||''
+   }));
+ }
+ function hideGoogleGate(){
+   const gate=document.getElementById('google-login-screen');
+   if(gate){gate.style.display='none';gate.style.opacity='0';}
+ }
+ function showGoogleGate(){
+   const gate=document.getElementById('google-login-screen');
+   if(gate){gate.style.display='flex';gate.style.opacity='1';}
+ }
+ function hideMath(){
+   const screen=document.getElementById('math-screen');
+   if(screen){screen.style.display='none';screen.classList.add('hide');}
+ }
+ function showMath(){
+   const screen=document.getElementById('math-screen');
+   if(screen){screen.style.display='flex';screen.classList.remove('hide');}
+ }
+ function showStart(){
+   const start=document.getElementById('loading-screen');
+   if(start) start.style.display='flex';
+ }
+ function adminBypass(){
+   localStorage.setItem(ADMIN_KEY,'1');
+   hideGoogleGate();
+   hideMath();
+   showStart();
+   window.dispatchEvent(new Event('itshakh:login'));
+ }
+ function normalGate(){
+   localStorage.removeItem(ADMIN_KEY);
+   hideMath();
+   showGoogleGate();
+ }
  function success(r){
    if(!r || !r.credential) return;
    const u=decode(r.credential);
-   if(u) localStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||'',credential:r.credential}));
+   if(!u) return;
+   setStoredUser(u,r.credential);
+   if(isAdminUser(u)){
+      adminBypass();
+      return;
+   }
+   // Oddiy foydalanuvchi: Google login o'tdi, endi matematik tekshiruv.
+   hideGoogleGate();
+   showMath();
    window.dispatchEvent(new Event('itshakh:login'));
-   // Google login yopiladi
-   const gate=document.getElementById('google-login-screen');
-   if(gate){ gate.style.opacity='0'; gate.style.transition='opacity 0.8s'; setTimeout(()=>gate.remove(),800); }
-   // Math ekrani ochiladi
-   const mathScreen = document.getElementById('math-screen');
-   if(mathScreen){ mathScreen.style.display='flex'; }
  }
  window.onGoogleLogin=success;
- function init(){
-   if(!window.google?.accounts?.id){setTimeout(init,200);return;}
-   google.accounts.id.initialize({client_id:CLIENT_ID,callback:success,auto_select:false,cancel_on_tap_outside:false,context:'signin'});
+ function render(){
+   if(!window.google?.accounts?.id){setTimeout(render,200);return;}
+   googleReady=true;
+   google.accounts.id.initialize({
+      client_id:CLIENT_ID,
+      callback:success,
+      auto_select:true,
+      cancel_on_tap_outside:false,
+      context:'signin'
+   });
    const box=document.getElementById('google-signin-button');
-   if(box){ const w=Math.max(240,Math.min(400,Math.floor(box.getBoundingClientRect().width))); google.accounts.id.renderButton(box,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',logo_alignment:'left',width:w}); }
+   if(box){
+      const w=Math.max(240,Math.min(400,Math.floor(box.getBoundingClientRect().width||320)));
+      google.accounts.id.renderButton(box,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',logo_alignment:'left',width:w});
+   }
+   // Agar admin avval tasdiqlangan bo'lsa, umuman login/CAPTCHA ko'rsatilmaydi.
+   const stored=getStoredUser();
+   if(isAdminUser(stored)){
+      adminBypass();
+      return;
+   }
+   normalGate();
+   if(!loginRequested){
+      loginRequested=true;
+      // Oldingi Google sessiyasi admin bo'lsa GIS uni avtomatik tanlaydi.
+      try{google.accounts.id.prompt();}catch(e){}
+   }
  }
  document.addEventListener('DOMContentLoaded',function(){
    const start=document.getElementById('loading-screen');
    if(start) start.style.display='none';
-   init();
+   const adminBtn=document.getElementById('adminLoginTrigger');
+   if(adminBtn){
+     adminBtn.addEventListener('click',function(){
+       showGoogleGate();
+       render();
+     });
+   }
+   render();
  });
 })();
 </script>
-
 <script>
     // MATH CAPTCHA
     let mathAnswer = 0;
@@ -1351,14 +1527,29 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        // Math ekrani boshlanganda yashirin
         const mathScreen = document.getElementById('math-screen');
-        if (mathScreen) mathScreen.style.display = 'none';
+        const storedUser = (() => { try { return JSON.parse(localStorage.getItem('it_shakh_google_user') || 'null'); } catch(e) { return null; } })();
+        const adminEmail = 'anonimshakh4647@gmail.com';
+        const isAdmin = storedUser && String(storedUser.email || '').toLowerCase() === adminEmail.toLowerCase();
+
+        // Faqat admin uchun CAPTCHA ham o'tkazib yuboriladi.
+        if (isAdmin || localStorage.getItem('it_shakh_admin_verified') === '1') {
+            if (mathScreen) mathScreen.style.display = 'none';
+        } else {
+            // Oddiy foydalanuvchi uchun CAPTCHA Google login'dan keyin ko'rsatiladi.
+            if (mathScreen) mathScreen.style.display = 'none';
+        }
 
         const mathInput = document.getElementById('math-input');
         if (mathInput) {
             mathInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') checkMath();
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    checkMath();
+                }
+            });
+            mathInput.addEventListener('input', () => {
+                mathInput.value = mathInput.value.replace(/[^0-9-]/g,'').slice(0,8);
             });
         }
         if (!checkLockout()) generateMath();
@@ -4647,10 +4838,24 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
             const rowEl = document.createElement('div');
             rowEl.className = 'keyboard-row';
             [...row].forEach(key => {
-                const k = document.createElement('span');
+                const k = document.createElement('button');
+                k.type = 'button';
                 k.className = 'keyboard-key';
                 k.dataset.key = key.toLowerCase();
                 k.textContent = key;
+                k.setAttribute('aria-label', 'Key ' + key);
+                k.addEventListener('mousedown', e => e.preventDefault());
+                k.addEventListener('click', () => {
+                    if (isFinished || typingInput.disabled) return;
+                    typingInput.focus();
+                    let outKey = key;
+                    const expected = currentText[currentIndex] || '';
+                    if (/^[a-z]$/i.test(key) && expected === key.toUpperCase()) outKey = key.toUpperCase();
+                    typingInput.value = outKey;
+                    typingInput.dispatchEvent(new Event('input', {bubbles:true}));
+                    flashKeyboardKey(outKey);
+                    typingClickSound(outKey === expected);
+                });
                 rowEl.appendChild(k);
             });
             keyboard.appendChild(rowEl);
@@ -5145,9 +5350,12 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
   function loadPublic(){
     jsonp('announcement',d=>{
       if(!d.success)return;
-      $('public-announcement').innerHTML=d.text?esc(d.text):'<span class="announce-empty">HOZIRCHA E’LON YO‘Q.</span>';
-      $('announcement-time').textContent=d.text&&d.updatedAt?'UPDATED: '+formatDate(d.updatedAt):'';
-      const a=$('admin-announcement');if(a&&isAdmin())a.value=d.text||'';
+      const announcementText=String(d.text||'').trim();
+      $('public-announcement').innerHTML=announcementText?esc(announcementText):'<span class="announce-empty">HOZIRCHA E’LON YO‘Q.</span>';
+      $('announcement-time').textContent=announcementText&&d.updatedAt?'UPDATED: '+formatDate(d.updatedAt):'';
+      const ticker=$('live-announcement-text');
+      if(ticker)ticker.textContent=announcementText||'SYSTEM ONLINE';
+      const a=$('admin-announcement');if(a&&isAdmin())a.value=announcementText;
     });
     jsonp('status',d=>{
       if(!d.success)return;
@@ -5173,15 +5381,38 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     s.style.display=isAdmin()?'block':'none';
     if(isAdmin())loadPublic();
   }
-  function adminPost(action,text){
-    const u=user();const token=u?.credential;
+  async function adminPost(action,text){
+    const u=user();
+    const token=u?.credential||'';
     const result=$('admin-result');
-    if(!token||!isAdmin()){if(result)result.textContent='ADMIN GOOGLE LOGIN KERAK.';return;}
-    const form=document.createElement('form');form.method='POST';form.action=API;form.target='itShakhAdminFrame';form.style.display='none';
-    [['action',action],['text',text],['token',token],['clientId',CLIENT_ID]].forEach(([k,v])=>{const i=document.createElement('input');i.name=k;i.value=v||'';form.appendChild(i)});
-    document.body.appendChild(form);form.submit();form.remove();
-    if(result)result.textContent='SERVERGA YUBORILDI...';
-    setTimeout(()=>{loadPublic();if(result)result.textContent='SAQLASH TEKSHIRILDI. YANGI HOLAT YUKLANDI.'},1400);
+    if(!token||!isAdmin()){
+      if(result)result.textContent='ADMIN GOOGLE LOGIN KERAK.';
+      return;
+    }
+    if(!String(text||'').trim()){
+      if(result)result.textContent='MATN BO‘SH BO‘LMASIN.';
+      return;
+    }
+    if(result)result.textContent='SERVERGA SAQLANMOQDA...';
+    const payload=JSON.stringify({action:action,text:String(text).trim(),token:token,clientId:CLIENT_ID});
+    try{
+      await fetch(API,{
+        method:'POST',
+        mode:'no-cors',
+        headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:payload,
+        keepalive:true
+      });
+      // Apps Script POST javobini no-cors o‘qib bo‘lmaydi; shuning uchun serverdagi
+      // GET holatini qayta o‘qib, saqlangan qiymatni tekshiramiz.
+      setTimeout(()=>{
+        loadPublic();
+        if(result)result.textContent='SAQLANDI. BARCHA TASHRIFCHILAR UCHUN YANGILANDI.';
+      },1800);
+      setTimeout(loadPublic,5000);
+    }catch(err){
+      if(result)result.textContent='SAQLASHDA XATO: '+String(err);
+    }
   }
   function initTools(){
     const rand=n=>{const a=new Uint32Array(n);crypto.getRandomValues(a);return a};
@@ -5205,6 +5436,8 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     setTimeout(showAdmin,1200);
     window.addEventListener('itshakh:login',showAdmin);
     let adminPoll=0; const adminTimer=setInterval(()=>{showAdmin(); if(++adminPoll>=15)clearInterval(adminTimer)},1000);
+    // Announcement / status / statistics live refresh.
+    setInterval(loadPublic,10000);
   });
 })();
 </script>
