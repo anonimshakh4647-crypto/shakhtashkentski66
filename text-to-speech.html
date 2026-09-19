@@ -3,30 +3,34 @@
 document.getElementById('download').onclick=async()=>{
   const text=t.value.trim();
   if(!text){s.textContent='Avval matn yozing yoki TXT fayl yuklang.';return}
+  if(text.length>12000){s.textContent='Yuklash uchun matn 12000 belgidan oshmasin.';return}
+
   const vs=speechSynthesis.getVoices();
   const voice=vs[Number(v.value)]||null;
   const lang=(voice?.lang||'en-US').toLowerCase();
-  const voiceMap={
-    'en-us':'Brian','en-gb':'Amy','en-au':'Nicole','en-in':'Raveena',
-    'es-es':'Conchita','fr-fr':'Lea','de-de':'Hans','it-it':'Carla',
-    'pt-br':'Camila','ru-ru':'Maxim','tr-tr':'Filiz','ja-jp':'Takumi',
-    'ko-kr':'Seoyeon','zh-cn':'Zhiyu','pl-pl':'Maja','nl-nl':'Ruben',
-    'sv-se':'Astrid','da-dk':'Mads','nb-no':'Liv','fi-fi':'Suvi'
-  };
-  const apiVoice=voiceMap[lang]||voiceMap[lang.split('-')[0]+'-'+lang.split('-')[1]]||'Brian';
-  if(text.length>4500){s.textContent='Yuklash uchun matn 4500 belgidan oshmasin.';return}
+  const speed=Number(r.value)||1;
+
   try{
-    s.textContent='Ovoz fayli tayyorlanmoqda…';
-    const url='https://api.streamelements.com/kappa/v2/speech?voice='+encodeURIComponent(apiVoice)+'&text='+encodeURIComponent(text);
-    const res=await fetch(url);
-    if(!res.ok) throw new Error('TTS server');
+    s.textContent='MP3 tayyorlanmoqda…';
+    const url='https://tts-api.netlify.app/?text='+encodeURIComponent(text)+'&lang='+encodeURIComponent(lang.split('-')[0])+'&speed='+encodeURIComponent(speed);
+    const res=await fetch(url,{method:'GET',mode:'cors',cache:'no-store'});
+    if(!res.ok) throw new Error('TTS server: '+res.status);
+    const type=res.headers.get('content-type')||'';
+    if(!type.includes('audio')) throw new Error('Audio qaytmadi');
+
     const blob=await res.blob();
+    if(!blob.size) throw new Error('Bo‘sh audio');
+    const blobUrl=URL.createObjectURL(new Blob([blob],{type:'audio/mpeg'}));
     const a=document.createElement('a');
-    a.href=URL.createObjectURL(blob); a.download='it-shakh-voice.mp3';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    a.href=blobUrl;
+    a.download='it-shakh-voice.mp3';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),5000);
     s.textContent='Ovoz MP3 fayl sifatida yuklandi.';
   }catch(e){
-    s.textContent='Yuklashda xatolik. O‘qish tugmasi brauzer ovozida ishlaydi.';
+    console.error(e);
+    s.textContent='MP3 yuklashda xatolik. O‘QISH tugmasi brauzer ovozida ishlaydi.';
   }
-};</script></body></html>
+}</script></body></html>
