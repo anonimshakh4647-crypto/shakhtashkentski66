@@ -65,7 +65,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <label>AI UPSCALE</label>
 <select id="upscale">
 <option value="SRVGG, realesr-general-x4v3.pth">Real-ESRGAN General x4 — foto uchun</option>
-<option value="RRDBNet, RealESRGAN_x4plus.pth">Real-ESRGAN x4plus — kuchli detail</option>
+<option value="RRDB, RealESRGAN_x4plus.pth">Real-ESRGAN x4plus — kuchli detail</option>
 </select>
 </div>
 </div>
@@ -110,7 +110,7 @@ const bar=document.getElementById("bar");
 const face=document.getElementById("face");
 const upscale=document.getElementById("upscale");
 
-let selected=null, resultUrl=null, client=null, endpoint=null;
+let selected=null, resultUrl=null, client=null;
 
 function status(t){statusEl.textContent=t}
 function progress(n){bar.style.width=Math.max(0,Math.min(100,n))+"%"}
@@ -128,15 +128,10 @@ fileEl.addEventListener("change",()=>{
 });
 
 async function connect(){
- if(client && endpoint)return;
+ if(client)return;
  status("AI serverga ulanmoqda…");
  progress(5);
- client=await Client.connect(SPACE,{events:["data","status"]});
- const info=await client.view_api(true);
- const named=info?.named_endpoints||{};
- const keys=Object.keys(named);
- if(!keys.length) throw new Error("AI API endpoint topilmadi.");
- endpoint=keys.find(k=>/infer|predict|submit/i.test(k))||keys[0];
+ client=await Client.connect(SPACE);
  progress(15);
 }
 
@@ -186,10 +181,11 @@ enhance.addEventListener("click",async()=>{
    const input=handle_file(selected);
    progress(22);
 
-   // Gradio endpoint order follows the Space's submit.click inputs:
-   // gallery, face model, upscale model, scale, detector, threshold, center-only, filename, PNG.
+   // The Space uses gr.Gallery as its first input. Gallery values are
+   // (image, caption) pairs, so send one uploaded image as [FileData, null].
+   // The public endpoint is auto-generated from the Python method name: /inference.
    const payload=[
-     [input],
+     [[input, null]],
      face.value,
      upscale.value,
      4,
@@ -201,7 +197,7 @@ enhance.addEventListener("click",async()=>{
    ];
 
    status("AI yuzni tiklamoqda va rasmni 4× kattalashtirmoqda…");
-   const job=client.submit(endpoint,payload);
+   const job=client.submit("/inference",payload);
    let last=25;
    for await(const msg of job){
      if(msg.type==="status"){
@@ -232,7 +228,7 @@ enhance.addEventListener("click",async()=>{
  }catch(e){
    console.error(e);
    progress(0);
-   status("Xatolik: "+(e?.message||e)+" — keyinroq qayta urinib ko‘ring.");
+   status("Xatolik: "+(e?.message||e)+" — AI server javobini tekshiring va qayta urinib ko‘ring.");
  }finally{
    enhance.disabled=false;
  }
