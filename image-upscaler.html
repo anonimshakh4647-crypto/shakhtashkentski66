@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>4K Image Upscaler | IT SHAKH</title>
+<link rel="stylesheet" href="tools.css">
+<style>
+.drop{display:block;width:100%;border:1px dashed var(--accent);padding:30px;border-radius:14px;text-align:center;cursor:pointer;background:rgba(3,10,19,.45);transition:.2s}
+.drop:hover{box-shadow:var(--glow);background:rgba(3,10,19,.7)}
+.drop input{display:none}
+.drop b{display:block;font-size:15px;margin-bottom:7px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}
+.field{display:grid;gap:8px;min-width:0}
+.field input,.field select{width:100%;min-width:0}
+.preview{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
+.box{min-width:0}
+.box-title{font:11px monospace;letter-spacing:1.5px;color:var(--muted)}
+.imgbox{width:100%;height:330px;display:grid;place-items:center;margin-top:9px;border:1px solid rgba(56,189,248,.25);border-radius:12px;background:repeating-conic-gradient(#152535 0 25%,#08121d 0 50%) 50%/22px 22px;overflow:hidden}
+.imgbox img{max-width:100%;max-height:100%;display:block;object-fit:contain}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+#download{display:none;text-decoration:none}
+.hint{margin-top:12px}
+@media(max-width:700px){.grid,.preview{grid-template-columns:1fr}.imgbox{height:280px}}
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="index.html">IT SHAKH</a>
+  <a class="back" href="index.html">← ORQAGA</a>
+</header>
+<main>
+  <div class="eyebrow">// 4K IMAGE UPSCALER & RESIZER</div>
+  <h1>4K IMAGE UPSCALER</h1>
+  <p class="intro">Rasmni 4K va boshqa ekran o‘lchamlariga moslang. Qayta ishlash brauzeringizda bajariladi.</p>
+
+  <section class="panel">
+    <label class="drop">
+      <input id="file" type="file" accept="image/*">
+      <b>RASMNI TANLANG</b>
+      <span class="notice">JPG, PNG, WebP va brauzer ochadigan rasm formatlari</span>
+    </label>
+
+    <div class="grid">
+      <label class="field">
+        <span class="label">TAYYOR O‘LCHAM</span>
+        <select id="preset">
+          <option value="3840x2160">4K UHD — 3840 × 2160</option>
+          <option value="2560x1440">2K QHD — 2560 × 1440</option>
+          <option value="1920x1080">Full HD — 1920 × 1080</option>
+          <option value="1080x1920">Telefon — 1080 × 1920</option>
+          <option value="1080x1080">Kvadrat — 1080 × 1080</option>
+          <option value="1080x1350">Instagram — 1080 × 1350</option>
+          <option value="1080x1920">Story / Reels — 1080 × 1920</option>
+          <option value="custom">Maxsus o‘lcham</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">MOSLASH USULI</span>
+        <select id="fit">
+          <option value="contain">PROPORTSIYANI SAQLASH — sig‘dirish</option>
+          <option value="cover">PROPORTSIYANI SAQLASH — to‘ldirish</option>
+          <option value="stretch">TO‘LIQ O‘LCHAM — cho‘zish</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="grid" id="customRow" hidden>
+      <label class="field"><span class="label">ENI (PX)</span><input id="cw" type="number" min="1" max="12000" value="3840"></label>
+      <label class="field"><span class="label">BO‘YI (PX)</span><input id="ch" type="number" min="1" max="12000" value="2160"></label>
+    </div>
+
+    <div class="grid">
+      <label class="field">
+        <span class="label">FORMAT</span>
+        <select id="format">
+          <option value="image/jpeg">JPG</option>
+          <option value="image/png">PNG</option>
+          <option value="image/webp">WebP</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">SIFAT <b id="qv">95%</b></span>
+        <input id="quality" type="range" min="70" max="100" value="95">
+      </label>
+    </div>
+
+    <p id="status" class="notice">Rasm tanlang.</p>
+
+    <div class="preview">
+      <div class="box">
+        <div class="box-title">ORIGINAL</div>
+        <div class="imgbox"><img id="before" alt=""></div>
+      </div>
+      <div class="box">
+        <div class="box-title">NATIJA</div>
+        <div class="imgbox"><img id="after" alt=""></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="make" type="button">4K / O‘LCHAMNI YARATISH</button>
+      <a id="download" class="secondary">↓ RASMNI YUKLAB OLISH</a>
+    </div>
+    <p class="notice hint">Eslatma: bu brauzer ichidagi yuqori sifatli resize. U haqiqiy AI detal yaratishni emas, mavjud piksel ma’lumotini katta o‘lchamga qayta hisoblashni bajaradi.</p>
+  </section>
+</main>
+
+<script>
+const fileEl=document.getElementById('file');
+const preset=document.getElementById('preset');
+const fit=document.getElementById('fit');
+const customRow=document.getElementById('customRow');
+const cw=document.getElementById('cw'), ch=document.getElementById('ch');
+const format=document.getElementById('format');
+const quality=document.getElementById('quality');
+const qv=document.getElementById('qv');
+const status=document.getElementById('status');
+const before=document.getElementById('before');
+const after=document.getElementById('after');
+const download=document.getElementById('download');
+let sourceFile=null, sourceURL=null, resultURL=null;
+
+quality.oninput=()=>qv.textContent=quality.value+'%';
+preset.onchange=()=>{
+  customRow.hidden=preset.value!=='custom';
+  if(preset.value!=='custom'){
+    const [w,h]=preset.value.split('x').map(Number);
+    cw.value=w; ch.value=h;
+  }
+};
+
+fileEl.onchange=()=>{
+  const f=fileEl.files[0];
+  if(!f)return;
+  sourceFile=f;
+  if(sourceURL)URL.revokeObjectURL(sourceURL);
+  sourceURL=URL.createObjectURL(f);
+  before.src=sourceURL;
+  after.removeAttribute('src');
+  if(resultURL){URL.revokeObjectURL(resultURL);resultURL=null;}
+  download.style.display='none';
+  status.textContent='Rasm tayyor. O‘lchamni tanlab tugmani bosing.';
+};
+
+function targetSize(){
+  if(preset.value==='custom') return [Number(cw.value),Number(ch.value)];
+  return preset.value.split('x').map(Number);
+}
+
+document.getElementById('make').onclick=async()=>{
+  if(!sourceFile){status.textContent='Avval rasm tanlang.';return;}
+  const [tw,th]=targetSize();
+  if(!tw||!th||tw<1||th<1||tw>12000||th>12000){
+    status.textContent='O‘lcham 1–12000 px oralig‘ida bo‘lishi kerak.';return;
+  }
+  status.textContent='Rasm tayyorlanmoqda…';
+  try{
+    const img=new Image();
+    img.src=sourceURL;
+    await img.decode();
+
+    const canvas=document.createElement('canvas');
+    canvas.width=tw; canvas.height=th;
+    const ctx=canvas.getContext('2d');
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+
+    if(format.value==='image/jpeg'){
+      ctx.fillStyle='#fff';
+      ctx.fillRect(0,0,tw,th);
+    }
+
+    if(fit.value==='stretch'){
+      ctx.drawImage(img,0,0,tw,th);
+    }else{
+      const scale=fit.value==='cover'
+        ? Math.max(tw/img.naturalWidth,th/img.naturalHeight)
+        : Math.min(tw/img.naturalWidth,th/img.naturalHeight);
+      const w=img.naturalWidth*scale, h=img.naturalHeight*scale;
+      const x=(tw-w)/2, y=(th-h)/2;
+      ctx.drawImage(img,x,y,w,h);
+    }
+
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,format.value,Number(quality.value)/100));
+    if(!blob)throw new Error('Blob yaratilmadi');
+
+    if(resultURL)URL.revokeObjectURL(resultURL);
+    resultURL=URL.createObjectURL(blob);
+    after.src=resultURL;
+    const ext={ 'image/jpeg':'jpg','image/png':'png','image/webp':'webp' }[format.value];
+    download.href=resultURL;
+    download.download='it-shakh-'+tw+'x'+th+'.'+ext;
+    download.style.display='inline-flex';
+    status.textContent='✓ Tayyor: '+tw+' × '+th+' px — '+Math.round(blob.size/1024)+' KB';
+  }catch(e){
+    console.error(e);
+    status.textContent='Rasmni qayta ishlashda xatolik.';
+  }
+};
+</script>
+</body>
+</html>
