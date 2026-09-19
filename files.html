@@ -822,90 +822,8 @@ body.files-page{min-height:100vh;}
  .files-page #file-center-section .section-title{font-size:17px;}
 }
 </style>
-<style id="files-access-lock-style">
-#files-access-lock{position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;background:rgba(2,6,12,.98);color:#e5e7eb;font-family:Inter,Arial,sans-serif;text-align:center;padding:24px;}
-#files-access-lock .box{width:min(460px,92vw);border:1px solid #ff5f57;border-radius:20px;padding:34px 24px;background:rgba(10,16,28,.96);box-shadow:0 0 40px rgba(255,95,87,.18);}
-#files-access-lock h2{margin:0 0 12px;color:#ff817a;font-size:24px;letter-spacing:2px;}
-#files-access-lock p{margin:0;color:#9ca3af;line-height:1.7;font-size:13px;}
-#files-access-lock a{display:inline-block;margin-top:20px;padding:10px 18px;border:1px solid #38bdf8;border-radius:20px;color:#38bdf8;text-decoration:none;font-weight:800;font-size:12px;}
-body.files-locked>*:not(#files-access-lock){visibility:hidden!important;pointer-events:none!important;}
-</style></head>
+</head>
 <body class="files-page">
-<div id="files-access-lock" hidden>
-  <div class="box">
-    <h2>🔒 FILES YOPIQ</h2>
-    <p id="files-lock-message">IT SHAKH FILES hozircha administrator tomonidan yopilgan.</p>
-    <div id="files-admin-login" style="display:none;margin-top:18px;min-height:44px"></div>
-    <a href="index.html">← BOSH SAHIFA</a>
-  </div>
-</div>
-<script>
-/* ===== FILES ACCESS GATE ===== */
-(function(){
-    const ADMIN_EMAIL='anonimshakh4647@gmail.com';
-    const CLIENT_ID='506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
-    const API='https://script.google.com/macros/s/AKfycbwwSCvjGZGeI0g8szN62g8NVVzVKI6atqu1lUoF_W4FfhenqS-cpn27liDJU52gFHvN0Q/exec';
-    const lockEl=document.getElementById('files-access-lock');
-    const msgEl=document.getElementById('files-lock-message');
-    const loginEl=document.getElementById('files-admin-login');
-    function user(){try{return JSON.parse(localStorage.getItem('it_shakh_google_user')||'null')}catch(e){return null}}
-    function admin(){const u=user();return !!u&&String(u.email||'').toLowerCase()===ADMIN_EMAIL}
-    function parse(raw){try{const x=JSON.parse(String(raw||''));if(x&&x.__itShakh==='files-control')return x}catch(e){}return {locked:false}}
-    function unlockForAdmin(){
-        window.__filesLocked=false;
-        document.body.classList.remove('files-locked');
-        lockEl.hidden=true;
-        loginEl.style.display='none';
-        window.dispatchEvent(new Event('it-shakh-files-unlocked'));
-    }
-    function showGate(){
-        document.body.classList.add('files-locked');
-        lockEl.hidden=false;
-        if(admin()){ unlockForAdmin(); return; }
-        loginEl.style.display='block';
-        msgEl.textContent='FILES yopiq. Faqat administrator akkaunti orqali kirish mumkin.';
-        const wait=()=>{
-            if(!window.google?.accounts?.id){setTimeout(wait,200);return;}
-            try{
-                google.accounts.id.initialize({client_id:CLIENT_ID,callback:(r)=>{
-                    if(!r?.credential)return;
-                    try{
-                        const payload=r.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
-                        const u=JSON.parse(atob(payload));
-                        localStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||'',credential:r.credential}));
-                        if(String(u.email||'').toLowerCase()===ADMIN_EMAIL){
-                            unlockForAdmin();
-                        }else{
-                            msgEl.textContent='Bu akkaunt administrator emas.';
-                        }
-                    }catch(e){msgEl.textContent='Google login ma’lumotini tekshirib bo‘lmadi.';}
-                },auto_select:false,cancel_on_tap_outside:false});
-                loginEl.innerHTML='';
-                google.accounts.id.renderButton(loginEl,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',width:320});
-            }catch(e){}
-        };
-        wait();
-    }
-    window.__filesAccessReady=(async()=>{
-        try{
-            const r=await fetch(API+'?action=status&_='+Date.now(),{cache:'no-store'});
-            if(!r.ok)throw new Error('status '+r.status);
-            const d=await r.json();
-            const state=parse(d&&d.text);
-            window.__filesLocked=state.locked===true;
-            if(window.__filesLocked && !admin()){showGate();return false;}
-            if(window.__filesLocked && admin()){unlockForAdmin();return true;}
-            return true;
-        }catch(e){
-            /* Server holatini aniqlab bo‘lmasa, xavfsiz tomoni: admin bo‘lmasa yopamiz. */
-            if(admin())return true;
-            showGate();
-            return false;
-        }
-    })();
-})();
-</script>
-
 <canvas id="matrixCanvas"></canvas>
 <div class="lion-bg"></div>
 <div id="datetime-bar"></div>
@@ -1073,15 +991,7 @@ body.files-locked>*:not(#files-access-lock){visibility:hidden!important;pointer-
         const token=getToken();
         return token ? Object.assign({'Authorization':'Bearer '+token},extra) : extra;
     }
-    function isAdmin(){
-        const u=getUser();
-        return !!u&&String(u.email||'').toLowerCase()==='anonimshakh4647@gmail.com';
-    }
     function requireLogin(){
-        if(window.__filesLocked&&!isAdmin()){
-            setStatus('FILES vaqtincha yopiq.','err');
-            return false;
-        }
         if(!getToken()){
             setStatus('Google login required — avval Google orqali kiring.','err');
             return false;
@@ -1090,7 +1000,6 @@ body.files-locked>*:not(#files-access-lock){visibility:hidden!important;pointer-
     }
 
     async function loadFiles(){
-        if(window.__filesAccessReady) await window.__filesAccessReady;
         if(!requireLogin()){
             list.innerHTML='<div class="file-empty">GOOGLE LOGIN TALAB QILINADI.</div>';
             count.textContent='0 FILE';
@@ -1328,7 +1237,7 @@ body.files-locked>*:not(#files-access-lock){visibility:hidden!important;pointer-
     }
     updateUser();
     window.addEventListener('storage',updateUser);
-    Promise.resolve(window.__filesAccessReady).then(ok=>{if(ok)loadFiles();});
+    setTimeout(loadFiles,700);
 })();
 
     
