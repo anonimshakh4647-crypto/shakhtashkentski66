@@ -45,6 +45,7 @@
       <label class="field">
         <span class="label">TAYYOR O‘LCHAM</span>
         <select id="preset">
+          <option value="auto4k" selected>4K AUTO — nisbat saqlanadi (uzun tomoni 3840 px)</option>
           <option value="3840x2160">4K UHD — 3840 × 2160</option>
           <option value="2560x1440">2K QHD — 2560 × 1440</option>
           <option value="1920x1080">Full HD — 1920 × 1080</option>
@@ -124,7 +125,7 @@ let sourceFile=null, sourceURL=null, resultURL=null;
 quality.oninput=()=>qv.textContent=quality.value+'%';
 preset.onchange=()=>{
   customRow.hidden=preset.value!=='custom';
-  if(preset.value!=='custom'){
+  if(preset.value!=='custom' && preset.value!=='auto4k'){
     const [w,h]=preset.value.split('x').map(Number);
     cw.value=w; ch.value=h;
   }
@@ -143,23 +144,28 @@ fileEl.onchange=()=>{
   status.textContent='Rasm tayyor. O‘lchamni tanlab tugmani bosing.';
 };
 
-function targetSize(){
+function targetSize(img){
+  if(preset.value==='auto4k'){
+    const w=img.naturalWidth, h=img.naturalHeight;
+    if(!w||!h) return [3840,2160];
+    const scale=3840/Math.max(w,h);
+    return [Math.max(1,Math.round(w*scale)),Math.max(1,Math.round(h*scale))];
+  }
   if(preset.value==='custom') return [Number(cw.value),Number(ch.value)];
   return preset.value.split('x').map(Number);
 }
 
 document.getElementById('make').onclick=async()=>{
   if(!sourceFile){status.textContent='Avval rasm tanlang.';return;}
-  const [tw,th]=targetSize();
+  const img=new Image();
+    img.src=sourceURL;
+    await img.decode();
+    const [tw,th]=targetSize(img);
   if(!tw||!th||tw<1||th<1||tw>12000||th>12000){
     status.textContent='O‘lcham 1–12000 px oralig‘ida bo‘lishi kerak.';return;
   }
   status.textContent='Rasm tayyorlanmoqda…';
   try{
-    const img=new Image();
-    img.src=sourceURL;
-    await img.decode();
-
     const canvas=document.createElement('canvas');
     canvas.width=tw; canvas.height=th;
     const ctx=canvas.getContext('2d');
@@ -172,6 +178,8 @@ document.getElementById('make').onclick=async()=>{
     }
 
     if(fit.value==='stretch'){
+      ctx.drawImage(img,0,0,tw,th);
+    }else if(preset.value==='auto4k'){
       ctx.drawImage(img,0,0,tw,th);
     }else{
       const scale=fit.value==='cover'
