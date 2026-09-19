@@ -5287,16 +5287,6 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
         }catch(e){ return null; }
     }
 
-    function decodeJwt(t){try{return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){return null}}
-
-    function isTokenExpired(token){
-        if(!token) return true;
-        const u=decodeJwt(token);
-        if(!u||!u.exp) return true;
-        // 5 daqiqa avval yangilash
-        return (Number(u.exp)*1000 - 5*60*1000) < Date.now();
-    }
-
     function getToken(){
         const u=getUser();
         return u && u.credential ? u.credential : '';
@@ -5312,23 +5302,6 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
             adminEl.classList.add('show');
             inputEl.value = localStorage.getItem(STORE_KEY) || '';
         }
-    }
-
-    // Token eskirgan bo'lsa Google dan yangi token so'rash
-    function refreshTokenIfNeeded(){
-        return new Promise((resolve)=>{
-            const token=getToken();
-            if(!isTokenExpired(token)){ resolve(token); return; }
-            // Token eskirgan — Google One Tap orqali yangilash
-            if(window.google && window.google.accounts && window.google.accounts.id){
-                google.accounts.id.prompt((notification)=>{
-                    // Prompt ko'rsatildi yoki ko'rsatilmadi — 1 soniya kutib qaytamiz
-                    setTimeout(()=>resolve(getToken()), 1000);
-                });
-            } else {
-                resolve(token);
-            }
-        });
     }
 
     function render(text){
@@ -5351,20 +5324,20 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
         }catch(e){}
     }
 
-    async function saveRemote(text){
+    function saveRemote(text){
         if(!isAdmin()){
-            msgEl.textContent='RUXSAT YO’Q';
+            msgEl.textContent='RUXSAT YO‘Q';
             return false;
         }
-        msgEl.textContent='TOKEN TEKSHIRILMOQDA...';
-        const token = await refreshTokenIfNeeded();
+        const token=getToken();
         if(!token){
-            msgEl.textContent='GOOGLE LOGIN TOKEN TOPILMADI. Qayta kiring!';
+            msgEl.textContent='GOOGLE LOGIN TOKEN TOPILMADI';
             return false;
         }
         const clean=String(text||'').trim().slice(0,500);
         msgEl.textContent='SAQLANMOQDA...';
         try{
+            // GET beacon: CORS/iframe cheklovlarisiz Apps Script'ga yuboriladi.
             const q=new URLSearchParams({
                 action:'statusSave',
                 token:token,
@@ -5372,7 +5345,12 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
                 text:clean,
                 _:String(Date.now())
             });
-            fetch(API+'?'+q.toString(),{mode:'no-cors'}).catch(()=>{});
+            const beacon=new Image();
+            beacon.src=API+'?'+q.toString();
+            beacon.style.display='none';
+            document.body.appendChild(beacon);
+            setTimeout(()=>{try{beacon.remove()}catch(e){}},10000);
+
             localStorage.setItem(STORE_KEY,clean);
             render(clean);
             msgEl.textContent='✓ SAQLANMOQDA';
@@ -5386,7 +5364,6 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
             return false;
         }
     }
-
 
     openEditorEl && openEditorEl.addEventListener('click',()=>{
         editorEl.classList.add('open');
