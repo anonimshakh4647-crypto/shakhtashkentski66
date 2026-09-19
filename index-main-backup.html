@@ -1,0 +1,5450 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT SHAKH | Senior IT Specialist</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #04060b;
+            --accent: #38bdf8;
+            --glow: 0 0 45px rgba(56, 189, 248, 0.85);
+            --text-color: #e5e7eb;
+            --card-bg: rgba(11, 18, 32, 0.7);
+        }
+        body.night-mode {
+            --bg: #000;
+            --accent: #00ff41;
+            --glow: 0 0 45px rgba(0, 255, 65, 0.85);
+            --text-color: #00ff41;
+            --card-bg: rgba(0, 20, 0, 0.7);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 0;
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text-color);
+            overflow-x: hidden;
+            transition: 0.5s;
+        }
+        canvas { position: fixed; inset: 0; z-index: -1; opacity: 0; pointer-events: none; }
+        body.night-mode canvas { opacity: 1; }
+        .lion-bg {
+            position: fixed; inset: 0;
+            background: url("lion-bg.png") center/cover no-repeat;
+            opacity: 0.12; z-index: -2;
+            animation: float 20s infinite ease-in-out;
+        }
+
+        /* LOADING SCREEN */
+        #loading-screen {
+            position: fixed; inset: 0; background: #04060b;
+            z-index: 9999; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 20px;
+            transition: opacity 0.8s ease;
+        }
+        #loading-screen.hide { opacity: 0; pointer-events: none; }
+        .loading-logo {
+            width: 100px; height: 100px; border-radius: 50%;
+            background: conic-gradient(var(--accent), #7c4dff, var(--accent));
+            animation: rotate 1.5s linear infinite;
+            display: flex; align-items: center; justify-content: center; position: relative;
+        }
+        .loading-logo::after {
+            content: ""; position: absolute; inset: 6px;
+            background: #04060b; border-radius: 50%;
+        }
+        .loading-logo img { width: 70%; z-index: 10; }
+        .loading-text {
+            font-family: monospace; font-size: 14px;
+            color: var(--accent); letter-spacing: 4px;
+            text-shadow: var(--glow); animation: blink 1s infinite;
+        }
+        .loading-bar-wrap {
+            width: 200px; height: 3px;
+            background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden;
+        }
+        .loading-bar {
+            height: 100%; width: 0%; background: var(--accent);
+            box-shadow: var(--glow); border-radius: 10px;
+            animation: loadbar 2s ease forwards;
+        }
+        @keyframes loadbar { 0% { width: 0%; } 100% { width: 100%; } }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* MATH CAPTCHA */
+        #math-screen {
+            position: fixed; inset: 0;
+            background: #04060b;
+            z-index: 9998;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 25px;
+            transition: opacity 0.8s ease;
+        }
+        #math-screen.hide { opacity: 0; pointer-events: none; }
+
+        .math-logo {
+            width: 70px; height: 70px; border-radius: 50%;
+            background: conic-gradient(var(--accent), #7c4dff, var(--accent));
+            display: flex; align-items: center; justify-content: center;
+            position: relative;
+        }
+        .math-logo::after {
+            content: ""; position: absolute; inset: 4px;
+            background: #04060b; border-radius: 50%;
+        }
+        .math-logo img { width: 70%; z-index: 10; }
+
+        .math-card {
+            background: rgba(11,18,32,0.95);
+            border: 1px solid var(--accent);
+            border-radius: 20px;
+            padding: 35px 40px;
+            text-align: center;
+            box-shadow: var(--glow);
+            max-width: 360px; width: 90%;
+        }
+        .math-title {
+            font-family: monospace; font-size: 12px;
+            color: #9ca3af; letter-spacing: 3px;
+            margin-bottom: 20px;
+        }
+        .math-question {
+            font-family: monospace; font-size: 36px;
+            color: var(--accent); text-shadow: var(--glow);
+            font-weight: bold; margin-bottom: 25px;
+            letter-spacing: 4px;
+        }
+        .math-input {
+            width: 100%; background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px; padding: 14px;
+            color: var(--text-color); font-family: monospace;
+            font-size: 22px; text-align: center;
+            outline: none; transition: 0.3s;
+            margin-bottom: 15px;
+        }
+        .math-input:focus { border-color: var(--accent); box-shadow: var(--glow); }
+        .math-btn {
+            width: 100%; background: var(--accent); color: #000;
+            border: none; padding: 13px; border-radius: 12px;
+            cursor: pointer; font-weight: bold; font-size: 14px;
+            letter-spacing: 2px; transition: 0.3s;
+        }
+        .math-btn:hover { opacity: 0.85; }
+        .math-error {
+            color: #ff5f57; font-family: monospace;
+            font-size: 12px; margin-top: 12px;
+            min-height: 18px; letter-spacing: 1px;
+        }
+        .math-attempts {
+            display: flex; gap: 8px; justify-content: center;
+            margin-top: 12px;
+        }
+        .math-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--accent); transition: 0.3s;
+        }
+        .math-dot.used { background: #ff5f57; }
+        .math-lockout {
+            font-family: monospace; font-size: 28px;
+            color: #ff5f57; font-weight: bold;
+        }
+        .math-lockout-msg {
+            font-family: monospace; font-size: 12px;
+            color: #9ca3af; letter-spacing: 2px;
+        }
+
+        /* DATETIME BAR */
+        #datetime-bar {
+            width: 100%; text-align: center; padding: 6px 20px;
+            font-family: monospace; font-size: 13px; color: var(--accent);
+            background: rgba(0,0,0,0.6); letter-spacing: 2px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            position: fixed; top: 0; z-index: 200; transition: 0.5s;
+        }
+
+        header {
+            padding: 15px 20px; display: flex;
+            justify-content: space-between; align-items: center;
+            backdrop-filter: blur(10px);
+            position: fixed; top: 32px; width: 100%; z-index: 100;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .logo-text { font-weight: 800; letter-spacing: 2px; color: var(--accent); font-size: 14px; }
+        .nav-links { display: flex; align-items: center; gap: 15px; }
+        .nav-links a {
+            color: var(--text-color); text-decoration: none;
+            font-size: 12px; font-weight: 600; transition: 0.3s;
+        }
+        .tools-menu { position: relative; }
+        .tools-menu summary { list-style: none; cursor: pointer; font-size: 12px; font-weight: 600; }
+        .tools-menu summary::-webkit-details-marker { display: none; }
+        .tools-dropdown {
+            position: absolute; right: 0; top: 28px; width: 180px; padding: 8px;
+            background: rgba(4,6,11,.96); border: 1px solid var(--accent);
+            border-radius: 10px; box-shadow: var(--glow); display: grid; gap: 2px;
+        }
+        .tools-dropdown a { padding: 9px; border-radius: 6px; }
+        .tools-dropdown a:hover { background: rgba(56,189,248,.14); color: var(--accent); }
+
+        .hero {
+            min-height: 100vh; display: flex;
+            align-items: center; justify-content: center;
+            padding: 120px 20px 40px 20px;
+        }
+        .hero-container {
+            max-width: 1200px; width: 100%;
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 40px; align-items: center;
+        }
+        .hero-text h1 { font-size: clamp(30px, 8vw, 60px); margin: 0; line-height: 1.1; }
+        .hero-text span { color: var(--accent); text-shadow: var(--glow); }
+        .hero-text p { color: #9ca3af; font-size: clamp(14px, 4vw, 18px); margin: 20px 0; }
+
+        .socials { display: flex; gap: 15px; flex-wrap: wrap; }
+        .socials a {
+            width: 45px; height: 45px; background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            transition: 0.3s; box-shadow: var(--glow);
+        }
+        .socials a img { width: 20px; height: 20px; filter: invert(1); }
+
+        .logo-wrap { display: flex; justify-content: center; align-items: center; }
+        .logo-ring {
+            width: clamp(250px, 40vw, 400px); height: clamp(250px, 40vw, 400px);
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            position: relative; background: conic-gradient(var(--accent), #7c4dff, var(--accent));
+            animation: rotate 12s linear infinite;
+        }
+        .logo-ring::after {
+            content: ""; position: absolute; inset: 6px;
+            background: var(--bg); border-radius: 50%;
+        }
+        .main-logo { width: 80%; z-index: 10; filter: drop-shadow(var(--glow)); }
+
+        @keyframes rotate { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        @keyframes float { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+
+        .mode-toggle {
+            background: var(--accent); color: #000;
+            border: none; padding: 6px 12px; border-radius: 20px;
+            cursor: pointer; font-weight: bold; font-size: 10px;
+        }
+
+        /* SECTIONS UMUMIY */
+        .section {
+            max-width: 900px; margin: 0 auto;
+            padding: 60px 20px;
+        }
+        .section-title {
+            font-family: monospace; font-size: 20px;
+            color: var(--accent); text-shadow: var(--glow);
+            letter-spacing: 3px; margin-bottom: 30px;
+            border-left: 3px solid var(--accent);
+            padding-left: 15px;
+        }
+
+
+
+        /* TERMINAL */
+        #terminal {
+            background: #0a0a0a;
+            border: 1px solid var(--accent);
+            border-radius: 12px; overflow: hidden;
+            box-shadow: var(--glow);
+        }
+        .terminal-header {
+            background: rgba(255,255,255,0.05);
+            padding: 10px 15px; display: flex;
+            align-items: center; gap: 8px;
+        }
+        .t-dot {
+            width: 12px; height: 12px; border-radius: 50%;
+        }
+        .t-dot.red { background: #ff5f57; }
+        .t-dot.yellow { background: #ffbd2e; }
+        .t-dot.green { background: #28ca41; }
+        .terminal-title {
+            font-family: monospace; font-size: 12px;
+            color: #9ca3af; margin-left: 10px;
+        }
+        #terminal-output {
+            padding: 20px; font-family: monospace;
+            font-size: 13px; min-height: 200px;
+            max-height: 300px; overflow-y: auto;
+            color: var(--accent); line-height: 1.8;
+        }
+        .terminal-input-line {
+            display: flex; align-items: center;
+            padding: 10px 20px; border-top: 1px solid rgba(255,255,255,0.05);
+        }
+        .terminal-prompt { color: var(--accent); font-family: monospace; margin-right: 8px; }
+        #terminal-input {
+            background: transparent; border: none; outline: none;
+            color: var(--text-color); font-family: monospace;
+            font-size: 13px; flex: 1;
+        }
+        .t-error { color: #ff5f57; }
+        .t-success { color: #28ca41; }
+        .t-info { color: #ffbd2e; }
+
+        /* QUIZ */
+        #quiz-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px; padding: 30px;
+        }
+        .quiz-question {
+            font-size: 16px; font-weight: 600;
+            margin-bottom: 20px; line-height: 1.5;
+        }
+        .quiz-number {
+            font-family: monospace; font-size: 12px;
+            color: var(--accent); margin-bottom: 10px;
+            letter-spacing: 2px;
+        }
+        .quiz-options { display: flex; flex-direction: column; gap: 10px; }
+        .quiz-option {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 12px 18px;
+            cursor: pointer; transition: 0.3s; font-size: 14px;
+        }
+        .quiz-option:hover { border-color: var(--accent); color: var(--accent); }
+        .quiz-option.correct { background: rgba(40,202,65,0.15); border-color: #28ca41; color: #28ca41; }
+        .quiz-option.wrong { background: rgba(255,95,87,0.15); border-color: #ff5f57; color: #ff5f57; }
+        .quiz-result {
+            margin-top: 15px; font-family: monospace;
+            font-size: 13px; min-height: 20px;
+        }
+        .quiz-nav {
+            display: flex; gap: 10px; margin-top: 20px;
+            align-items: center; justify-content: space-between;
+        }
+        .quiz-btn {
+            background: var(--accent); color: #000;
+            border: none; padding: 8px 20px; border-radius: 20px;
+            cursor: pointer; font-weight: bold; font-size: 12px;
+            transition: 0.3s;
+        }
+        .quiz-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .quiz-score {
+            font-family: monospace; font-size: 13px;
+            color: var(--accent);
+        }
+
+        footer {
+            text-align: center; padding: 20px;
+            color: #9ca3af; font-size: 11px;
+            background: rgba(0,0,0,0.3);
+        }
+
+        /* TYPING TEST */
+        #typing-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px; padding: 30px;
+        }
+        #typing-text {
+            font-family: monospace; font-size: 16px;
+            line-height: 2; margin-bottom: 20px;
+            padding: 15px; border-radius: 10px;
+            background: rgba(0,0,0,0.3);
+            letter-spacing: 1px; user-select: none;
+        }
+        .typing-char { color: #9ca3af; }
+        .typing-char.correct { color: #28ca41; }
+        .typing-char.wrong { color: #ff5f57; background: rgba(255,95,87,0.2); border-radius: 2px; }
+        .typing-char.current { border-bottom: 2px solid var(--accent); color: var(--text-color); }
+        #typing-input {
+            width: 100%; background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 12px 15px;
+            color: var(--text-color); font-family: monospace;
+            font-size: 15px; outline: none; transition: 0.3s;
+        }
+        #typing-input:focus { border-color: var(--accent); box-shadow: var(--glow); }
+        .typing-stats {
+            display: flex; gap: 20px; margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .typing-stat {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px; padding: 12px 20px;
+            text-align: center; flex: 1; min-width: 80px;
+        }
+        .typing-stat-val {
+            font-family: monospace; font-size: 24px;
+            color: var(--accent); font-weight: bold;
+        }
+        .typing-stat-label {
+            font-size: 10px; color: #9ca3af;
+            letter-spacing: 2px; margin-top: 4px;
+        }
+        .typing-btns { display: flex; gap: 10px; margin-top: 15px; }
+        .typing-btn {
+            background: var(--accent); color: #000;
+            border: none; padding: 8px 20px; border-radius: 20px;
+            cursor: pointer; font-weight: bold; font-size: 12px;
+        }
+        #typing-timer-bar-wrap {
+            height: 3px; background: rgba(255,255,255,0.1);
+            border-radius: 10px; margin-bottom: 15px; overflow: hidden;
+        }
+        #typing-timer-bar {
+            height: 100%; width: 100%;
+            background: var(--accent); border-radius: 10px;
+            transition: width 1s linear;
+        }
+
+        @media (max-width: 850px) {
+            .hero-container {
+                grid-template-columns: 1fr; text-align: center;
+                display: flex; flex-direction: column-reverse; gap: 30px;
+            }
+            .hero { padding-top: 120px; }
+            .socials { justify-content: center; }
+            .logo-ring { width: 260px; height: 260px; }
+            .nav-links a { font-size: 11px; }
+            .logo-text { font-size: 12px; letter-spacing: 1px; }
+            #datetime-bar { font-size: 11px; letter-spacing: 1px; }
+            #ip-card { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 400px) {
+            .logo-ring { width: 200px; height: 200px; }
+            .hero-text h1 { font-size: 28px; }
+            .nav-links { gap: 8px; }
+        }
+
+        /* MOBILE HEADER: keep every menu item visible without overflowing */
+        @media (max-width: 600px) {
+            header { padding: 11px 12px; gap: 9px; }
+            .logo-text { flex: 0 0 84px; font-size: 11px; line-height: 1.15; }
+            .nav-links { flex: 1; justify-content: flex-end; gap: 7px; min-width: 0; }
+            .nav-links a, .tools-menu summary { font-size: 10px; white-space: nowrap; }
+            .mode-toggle { padding: 6px 8px; font-size: 9px; line-height: 1.05; white-space: nowrap; }
+            .tools-dropdown { right: 0; top: 25px; width: 164px; }
+            .tools-dropdown a { font-size: 11px; padding: 8px; }
+            .hero { padding: 112px 16px 34px; }
+        }
+        @media (max-width: 365px) {
+            header { padding-left: 9px; padding-right: 9px; }
+            .logo-text { flex-basis: 75px; font-size: 10px; }
+            .nav-links { gap: 5px; }
+            .nav-links a, .tools-menu summary { font-size: 9px; }
+            .mode-toggle { padding: 5px 6px; font-size: 8px; }
+        }
+    
+        /* START SCREEN - added without changing the existing site design */
+        #loading-screen.start-screen {
+            gap: 20px;
+        }
+        #loading-screen.start-screen.hide {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .start-button {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 12px 32px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 13px;
+            letter-spacing: 2px;
+            box-shadow: var(--glow);
+            transition: .3s;
+        }
+        .start-button:hover {
+            transform: scale(1.08);
+            box-shadow: 0 0 55px rgba(56,189,248,.95);
+        }
+        .start-hint {
+            font-family: monospace;
+            font-size: 10px;
+            color: #64748b;
+            letter-spacing: 2px;
+        }
+
+
+/* ===== TYPING TEST PRO FEATURES ===== */
+.typing-controls{
+    display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+    margin-bottom:15px;
+}
+.typing-control{
+    display:flex; align-items:center; gap:8px;
+    font:11px monospace; color:#9ca3af; letter-spacing:1px;
+}
+.typing-control select{
+    background:#080e18; color:var(--text-color);
+    border:1px solid rgba(56,189,248,.25); border-radius:9px;
+    padding:8px 10px; outline:none; cursor:pointer;
+}
+.typing-record{
+    margin-left:auto; color:#9ca3af; font:12px monospace;
+}
+.typing-record b{color:var(--accent);}
+.typing-live{
+    display:flex; justify-content:space-between; gap:10px;
+    margin-top:12px; color:#7dd3fc; font:11px monospace;
+    letter-spacing:1px; flex-wrap:wrap;
+}
+#typing-text{
+    min-height:62px;
+    transition:.2s;
+}
+#typing-input{
+    caret-color:var(--accent);
+}
+.typing-keyboard-wrap,.typing-chart-wrap{
+    margin-top:18px; padding:14px;
+    background:rgba(0,0,0,.22);
+    border:1px solid rgba(255,255,255,.07);
+    border-radius:12px;
+}
+.typing-keyboard-title,.typing-chart-head{
+    display:flex; justify-content:space-between;
+    color:#9ca3af; font:10px monospace;
+    letter-spacing:2px; margin-bottom:10px;
+}
+.keyboard-row{
+    display:flex; justify-content:center; gap:5px; margin:5px 0;
+}
+.keyboard-key{
+    min-width:28px; height:30px; padding:0 7px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid rgba(56,189,248,.16);
+    border-radius:6px; background:rgba(8,15,25,.75);
+    color:#94a3b8; font:11px monospace;
+    transition:.08s;
+}
+.keyboard-key.active{
+    color:#000; background:var(--accent);
+    box-shadow:0 0 18px rgba(56,189,248,.8);
+    transform:translateY(1px);
+}
+#typing-chart{
+    display:block; width:100%; height:180px;
+}
+.typing-result{
+    margin-top:18px; padding:18px;
+    border:1px solid rgba(56,189,248,.3);
+    border-radius:12px;
+    background:rgba(2,10,20,.65);
+    text-align:center;
+}
+.typing-result-title{
+    color:var(--accent); font:14px monospace;
+    letter-spacing:2px; margin-bottom:15px;
+}
+.typing-result-grid{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:8px;
+}
+.typing-result-grid div{
+    padding:10px; border-radius:9px;
+    background:rgba(255,255,255,.035);
+}
+.typing-result-grid b{
+    display:block; color:var(--accent);
+    font:22px monospace;
+}
+.typing-result-grid small{
+    color:#94a3b8; font:9px monospace; letter-spacing:1px;
+}
+.typing-result-level{
+    margin-top:12px; color:#e5e7eb;
+    font:bold 11px monospace; letter-spacing:3px;
+}
+.typing-btn:disabled{opacity:.35; cursor:not-allowed;}
+@media(max-width:650px){
+    #typing-card{padding:18px;}
+    .typing-record{width:100%; margin-left:0;}
+    .typing-controls{gap:8px;}
+    .typing-control{width:100%; justify-content:space-between;}
+    .typing-control select{flex:1;}
+    .typing-live{font-size:9px;}
+    .keyboard-row{gap:2px;}
+    .keyboard-key{
+        min-width:20px; height:27px; padding:0 4px; font-size:9px;
+    }
+    .typing-result-grid{grid-template-columns:repeat(2,1fr);}
+    .typing-btns{flex-wrap:wrap;}
+    .typing-btn{flex:1; min-width:140px;}
+}
+
+
+/* GOOGLE SHEETS LEADERBOARD */
+#leaderboard-card{padding:20px;border:1px solid rgba(56,189,248,.18);border-radius:16px;background:rgba(4,10,18,.55);box-shadow:0 0 30px rgba(0,100,180,.08)}
+.leader-top{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}.leader-top>div{padding:13px;text-align:center;border:1px solid rgba(56,189,248,.12);border-radius:10px;background:rgba(0,0,0,.18)}.leader-top b{display:block;color:var(--accent);font:700 25px monospace}.leader-top span{display:block;margin-top:4px;color:#94a3b8;font:8px monospace;letter-spacing:1px}.leader-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:11px;border-bottom:1px solid rgba(56,189,248,.12);color:#cbd5e1;font:10px monospace;letter-spacing:2px}.leader-head button{background:rgba(7,16,28,.8);color:#9ca3af;border:1px solid rgba(56,189,248,.2);border-radius:8px;padding:7px 10px;cursor:pointer;font:9px monospace}.leader-head button:hover{color:#fff;border-color:var(--accent)}#leader-list{display:grid;gap:7px;margin-top:11px}.lb-row{display:grid;grid-template-columns:42px 1fr 85px 65px;gap:8px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.05);border-radius:9px;background:rgba(255,255,255,.018)}.lb-rank{text-align:center;color:var(--accent);font:700 13px monospace}.lb-name{display:flex;align-items:center;gap:8px;min-width:0}.lb-name img{width:32px;height:32px;border-radius:50%;object-fit:cover;display:block;background:#07101c;border:1px solid rgba(56,189,248,.25);box-shadow:0 0 10px rgba(56,189,248,.12)}.lb-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e5e7eb;font:600 11px Inter,sans-serif}.lb-score{text-align:right;color:var(--accent);font:700 12px monospace}.lb-percent{text-align:right;color:#94a3b8;font:9px monospace}.lb-loading,.lb-empty{text-align:center;color:#64748b;padding:22px;font:10px monospace}@media(max-width:600px){.lb-row{grid-template-columns:30px 1fr 62px 48px}.lb-name b{font-size:10px}.leader-top b{font-size:19px}.leader-top span{font-size:7px}.leader-head{font-size:9px}}
+
+</style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+
+/* ===== IT SHAKH GOOGLE LOGIN — CLEAN PROFESSIONAL LION LAYERS ===== */
+#google-login-screen{
+ position:fixed; inset:0; z-index:100000; overflow:hidden;
+ display:flex; align-items:center; justify-content:center;
+ background:#02070e;
+ isolation:isolate;
+}
+#google-login-screen::before{
+ content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+ background:radial-gradient(ellipse at center,rgba(0,125,255,.14) 0%,rgba(0,20,45,.05) 48%,rgba(0,0,0,.30) 100%);
+}
+/* PURE CSS CYBER VISUALS — no lion images */
+.side-visual{display:none;position:absolute;top:0;bottom:0;width:min(31vw,470px);pointer-events:none;z-index:0;overflow:hidden;opacity:.9;}
+.side-visual.left{left:0;}
+.side-visual.right{right:0;transform:scaleX(-1);}
+.side-visual .aura{position:absolute;width:360px;height:620px;left:-105px;top:50%;transform:translateY(-50%);border-radius:50%;background:radial-gradient(ellipse at 62% 50%,rgba(0,174,255,.28) 0%,rgba(0,92,255,.14) 24%,rgba(0,20,50,0) 68%);filter:blur(18px);animation:visualPulse 4s ease-in-out infinite;}
+.side-visual .ring{position:absolute;left:-155px;top:50%;width:500px;height:500px;transform:translateY(-50%) rotate(-18deg);border:1px solid rgba(56,189,248,.16);border-radius:50%;box-shadow:0 0 40px rgba(0,174,255,.08),inset 0 0 35px rgba(0,174,255,.05);animation:visualRotate 16s linear infinite;}
+.side-visual .ring::before,.side-visual .ring::after{content:"";position:absolute;inset:34px;border:1px solid rgba(56,189,248,.10);border-radius:50%;}
+.side-visual .ring::after{inset:78px;border-color:rgba(124,77,255,.12);}
+.side-visual .eye{position:absolute;left:82px;top:43%;width:13px;height:13px;border-radius:50%;background:#bff6ff;box-shadow:0 0 8px #38bdf8,0 0 24px #38bdf8,0 0 55px rgba(56,189,248,.8);animation:eyePulse 2s ease-in-out infinite;}
+.side-visual .eye::after{content:"";position:absolute;left:-18px;top:6px;width:70px;height:2px;background:linear-gradient(90deg,transparent,rgba(56,189,248,.55),transparent);filter:blur(1px);}
+.side-visual .wave{position:absolute;left:-40px;top:50%;width:330px;height:180px;border-radius:50%;border:2px solid rgba(56,189,248,.20);filter:blur(.2px);transform:rotate(-22deg);animation:waveDrift 3.8s ease-in-out infinite;}
+.side-visual .wave.w2{left:-75px;width:400px;height:220px;border-color:rgba(0,174,255,.12);animation-delay:-1.2s;}
+.side-visual .wave.w3{left:-120px;width:470px;height:260px;border-color:rgba(124,77,255,.10);animation-delay:-2.3s;}
+.side-visual .grid{position:absolute;left:0;bottom:3%;width:100%;height:34%;opacity:.22;background:linear-gradient(rgba(56,189,248,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(56,189,248,.10) 1px,transparent 1px);background-size:34px 34px;mask-image:linear-gradient(to top,rgba(0,0,0,.9),transparent);-webkit-mask-image:linear-gradient(to top,rgba(0,0,0,.9),transparent);transform:perspective(260px) rotateX(58deg);transform-origin:bottom;}
+.side-visual .spark{position:absolute;width:3px;height:3px;border-radius:50%;background:#7ddfff;box-shadow:0 0 8px #38bdf8,0 0 18px #38bdf8;animation:sparkFloat 5s linear infinite;}
+.side-visual .s1{left:28%;top:70%;animation-delay:-1s}.side-visual .s2{left:42%;top:62%;animation-delay:-3s}.side-visual .s3{left:17%;top:78%;animation-delay:-4s}.side-visual .s4{left:54%;top:74%;animation-delay:-2s}
+@keyframes visualPulse{0%,100%{transform:translateY(-50%) scale(.92);opacity:.65}50%{transform:translateY(-50%) scale(1.08);opacity:1}}
+@keyframes visualRotate{to{transform:translateY(-50%) rotate(342deg)}}
+@keyframes eyePulse{0%,100%{opacity:.55;transform:scale(.8)}50%{opacity:1;transform:scale(1.25)}}
+@keyframes waveDrift{0%,100%{transform:rotate(-22deg) translateX(0);opacity:.25}50%{transform:rotate(-18deg) translateX(35px);opacity:.7}}
+@keyframes sparkFloat{0%{transform:translate3d(0,35px,0) scale(.4);opacity:0}20%{opacity:1}100%{transform:translate3d(35px,-170px,0) scale(1.4);opacity:0}}
+
+#google-login-card{
+ position:relative;z-index:5;
+ position:relative; z-index:3;
+ width:min(88vw,540px); min-height:600px;
+ padding:34px 34px 28px;
+ border:1px solid rgba(56,189,248,.48); border-radius:24px;
+ background:rgba(2,10,20,.76);
+ box-shadow:0 0 42px rgba(0,150,255,.18), inset 0 0 45px rgba(0,100,255,.07);
+ backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+ display:flex; flex-direction:column; align-items:center; justify-content:center;
+}
+.login-logo-wrap{
+ width:150px;height:150px;border-radius:50%;padding:5px;position:relative;
+ background:conic-gradient(#38bdf8,#7c4dff,#38bdf8);
+ animation:loginRingRotate 3s linear infinite;
+ box-shadow:0 0 28px rgba(56,189,248,.48);
+ display:flex;align-items:center;justify-content:center;
+}
+.login-logo-wrap::before{content:"";position:absolute;inset:7px;border-radius:50%;background:#030914;}
+.login-logo{width:112px;height:112px;object-fit:contain;z-index:2;filter:drop-shadow(0 0 18px rgba(56,189,248,.8));}
+#google-login-card h1{margin:24px 0 7px;font-size:clamp(34px,7vw,50px);line-height:1;letter-spacing:4px;color:#38bdf8;text-shadow:0 0 22px rgba(56,189,248,.75);}
+.login-subtitle{font-family:monospace;font-size:12px;letter-spacing:3px;color:#cbd5e1;margin-bottom:26px;text-align:center;}
+#google-signin-button{width:100%;max-width:400px;min-height:50px;display:flex;justify-content:center;align-items:center;overflow:hidden;}
+#google-signin-button > div{max-width:100% !important;}
+#google-signin-button iframe{max-width:100% !important;}
+.login-features{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:min(100%,440px);margin-top:28px;}
+.login-feature{appearance:none;width:100%;min-height:92px;padding:14px 8px;border:1px solid rgba(56,189,248,.28);border-radius:12px;background:rgba(3,15,28,.62);color:#cbd5e1;cursor:pointer;text-align:center;font:11px monospace;letter-spacing:2px;transition:.25s;box-shadow:inset 0 0 18px rgba(0,120,255,.03);}
+.login-feature:hover,.login-feature:focus-visible{border-color:#38bdf8;transform:translateY(-3px);box-shadow:0 0 20px rgba(56,189,248,.22);color:#fff;outline:none;}
+.login-feature b{display:block;color:#38bdf8;font-size:27px;margin-bottom:7px;text-shadow:0 0 12px rgba(56,189,248,.7);}
+.login-welcome{margin-top:25px;padding-top:16px;width:85%;border-top:1px solid rgba(56,189,248,.2);text-align:center;color:#38bdf8;font:10px monospace;letter-spacing:4px;}
+.login-info-backdrop{position:fixed;inset:0;z-index:100010;display:none;align-items:center;justify-content:center;background:rgba(0,3,8,.7);backdrop-filter:blur(6px);padding:20px;}
+.login-info-backdrop.open{display:flex;}
+.login-info-modal{width:min(92vw,460px);padding:28px;border:1px solid rgba(56,189,248,.55);border-radius:18px;background:rgba(3,12,24,.96);box-shadow:0 0 35px rgba(56,189,248,.25);color:#dbeafe;text-align:center;}
+.login-info-modal h2{margin:0 0 12px;color:#38bdf8;text-shadow:0 0 15px rgba(56,189,248,.6);font-size:24px;letter-spacing:2px;}
+.login-info-modal p{margin:0 0 20px;color:#a8b7ca;line-height:1.7;font-size:14px;}
+.login-info-close{border:0;border-radius:20px;padding:9px 22px;background:#38bdf8;color:#001018;font-weight:800;cursor:pointer;}
+@keyframes loginRingRotate{to{transform:rotate(360deg)}}
+@media(max-width:850px){
+ #google-login-card{width:min(88vw,500px);min-height:540px;padding:28px 20px;}
+ .login-logo-wrap{width:125px;height:125px}.login-logo{width:92px;height:92px;}
+}
+@media(max-width:560px){
+ #google-login-card{width:92vw;min-height:500px;padding:25px 14px;border-radius:20px;}
+ .login-features{gap:6px;}
+ .login-feature{min-height:78px;font-size:8px;letter-spacing:1px;padding:10px 4px;}
+ .login-feature b{font-size:22px;}
+ .login-welcome{letter-spacing:2px;}
+ #google-signin-button{width:100%;max-width:340px;overflow:hidden;}
+}
+
+/* Professional lion-edge cleanup + feature interaction */
+.login-feature:active{transform:translateY(-1px) scale(.98);}
+.login-feature.is-active{border-color:#38bdf8;box-shadow:0 0 24px rgba(56,189,248,.28),inset 0 0 18px rgba(56,189,248,.08);}
+</style>
+<style>
+/* HACKER BACKGROUND — login background only */
+#google-login-screen{
+    background:#02070e !important;
+    background-image:none !important;
+}
+@media (max-width:700px){
+    #google-login-screen{
+        background-position:center center !important;
+    }
+}
+</style>
+<style>
+/* SIDE HACKER VISUALS — no center artwork */
+#google-login-screen .side-visual{
+    display:block !important;
+    position:absolute !important;
+    top:0 !important;
+    bottom:0 !important;
+    width:34vw !important;
+    max-width:560px !important;
+    min-width:260px !important;
+    opacity:1 !important;
+    overflow:hidden !important;
+    z-index:0 !important;
+    background-repeat:no-repeat !important;
+    background-position:center !important;
+    background-size:cover !important;
+    pointer-events:none !important;
+}
+#google-login-screen .side-visual.left{
+    left:0 !important;
+    right:auto !important;
+    transform:none !important;
+    background-image:url("hacker-left.png") !important;
+}
+#google-login-screen .side-visual.right{
+    right:0 !important;
+    left:auto !important;
+    transform:none !important;
+    background-image:url("hacker-right.png") !important;
+}
+#google-login-screen .side-visual > *{display:none !important;}
+#google-login-screen::before{
+    z-index:0 !important;
+    background:radial-gradient(circle at center,rgba(0,130,255,.10),rgba(0,5,15,.12) 52%,rgba(0,0,0,.42) 100%) !important;
+}
+#google-login-card{z-index:5 !important;}
+@media(max-width:900px){
+    #google-login-screen .side-visual{width:29vw !important;min-width:130px !important;opacity:.72 !important;}
+}
+@media(max-width:600px){
+    #google-login-screen .side-visual{width:24vw !important;min-width:90px !important;opacity:.55 !important;}
+}
+</style>
+
+<style>
+/* ===== FILE CENTER MODAL ===== */
+#file-center-section{display:none;position:fixed;inset:0;z-index:99990;margin:0 !important;padding:28px 18px !important;background:rgba(0,4,12,.76);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);align-items:center;justify-content:center;overflow:auto;}
+#file-center-section.file-modal-open{display:flex;}
+#file-center-section .section-title{width:min(900px,100%);margin:0 auto 12px;}
+#file-center-section .file-modal-shell{width:min(900px,100%);max-height:calc(100vh - 56px);overflow:auto;}
+#file-center-section .file-center-card-wrap{position:relative;}
+#file-center-close{position:absolute;top:10px;right:10px;z-index:3;width:38px;height:38px;border:1px solid rgba(56,189,248,.35);border-radius:10px;background:rgba(3,12,24,.9);color:#cbd5e1;font:700 18px monospace;cursor:pointer;transition:.2s;}
+#file-center-close:hover{color:#fff;border-color:var(--accent);box-shadow:0 0 18px rgba(56,189,248,.18);transform:scale(1.04);}
+body.file-modal-active{overflow:hidden;}
+#file-center-card{background:rgba(4,10,18,.62);border:1px solid rgba(56,189,248,.20);border-radius:18px;padding:22px;box-shadow:0 0 32px rgba(0,100,180,.08);backdrop-filter:blur(8px);}
+.file-center-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;}
+.file-center-user{color:#94a3b8;font:10px monospace;letter-spacing:1px;}
+.file-center-user b{color:var(--accent);}
+.file-upload-zone{position:relative;min-height:210px;border:1px dashed rgba(56,189,248,.42);border-radius:14px;padding:34px 18px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,20,38,.28);transition:.25s;cursor:pointer;}
+.file-upload-zone:hover,.file-upload-zone.dragover{border-color:var(--accent);background:rgba(56,189,248,.06);box-shadow:0 0 25px rgba(56,189,248,.10);transform:translateY(-1px);}
+.file-upload-zone input{display:none;}
+.file-upload-icon{font-size:34px;filter:drop-shadow(0 0 10px rgba(56,189,248,.55));}
+.file-upload-title{margin-top:9px;color:#e5e7eb;font:700 13px Inter,sans-serif;}
+.file-upload-hint{margin-top:6px;color:#64748b;font:10px monospace;line-height:1.6;}
+.file-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px;align-items:center;}
+.file-btn{border:1px solid rgba(56,189,248,.28);border-radius:10px;padding:9px 14px;cursor:pointer;background:rgba(7,16,28,.85);color:#cbd5e1;font:700 10px monospace;letter-spacing:1px;transition:.2s;}
+.file-btn:hover{border-color:var(--accent);color:#fff;box-shadow:0 0 16px rgba(56,189,248,.15);}
+.file-btn.primary{background:var(--accent);color:#001018;border-color:var(--accent);}
+.file-btn.danger:hover{border-color:#ff5f57;color:#ff8f8a;}
+.file-btn:disabled{opacity:.35;cursor:not-allowed;}
+.file-progress-wrap{display:none;margin-top:13px;border:1px solid rgba(56,189,248,.14);border-radius:10px;padding:10px;background:rgba(0,0,0,.2);}
+.file-progress-wrap.show{display:block;}
+.file-progress-head{display:flex;justify-content:space-between;color:#94a3b8;font:9px monospace;margin-bottom:7px;}
+.file-progress{height:4px;border-radius:9px;background:rgba(255,255,255,.08);overflow:hidden;}
+.file-progress > div{height:100%;width:0;background:var(--accent);box-shadow:var(--glow);transition:width .15s;}
+.file-status{min-height:18px;margin-top:11px;color:#94a3b8;font:10px monospace;}
+.file-status.ok{color:#28ca41}.file-status.err{color:#ff5f57}.file-status.info{color:#38bdf8;}
+.file-list-wrap{margin-top:18px;border-top:1px solid rgba(56,189,248,.12);padding-top:15px;}
+.file-list-head{display:flex;justify-content:space-between;align-items:center;gap:10px;color:#cbd5e1;font:10px monospace;letter-spacing:2px;margin-bottom:10px;}
+#file-list{display:grid;gap:7px;}
+.file-row{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.055);border-radius:10px;background:rgba(255,255,255,.018);}
+.file-icon{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:rgba(56,189,248,.07);border:1px solid rgba(56,189,248,.13);}
+.file-meta{min-width:0;}
+.file-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e5e7eb;font:600 11px Inter,sans-serif;}
+.file-size{margin-top:3px;color:#64748b;font:9px monospace;}
+.file-row-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+.file-row-actions button{padding:7px 9px;font-size:9px;}
+.file-empty{text-align:center;color:#64748b;padding:18px;font:10px monospace;}
+.file-note{margin-top:10px;color:#475569;font:9px monospace;line-height:1.6;}
+@media(max-width:600px){#file-center-card{padding:16px;}.file-upload-zone{min-height:190px;padding:28px 12px;}.file-row{grid-template-columns:34px minmax(0,1fr);}.file-row-actions{grid-column:1 / -1;justify-content:flex-start;}.file-row-actions button{flex:1;min-width:95px;}}
+@media(max-width:600px){#file-center-section{padding:14px 10px !important;align-items:flex-start;}#file-center-section .file-modal-shell{max-height:calc(100vh - 28px);margin-top:8px;}#file-center-section .section-title{font-size:16px;}}
+
+/* ===== IT SHAKH LIVE STATUS ===== */
+
+#live-status-admin{
+    display:none;
+    margin:10px auto 0;
+    text-align:center;
+}
+
+#live-status-open-editor{
+    border:1px solid rgba(56,189,248,.35);
+    border-radius:9px;
+    padding:8px 15px;
+    background:rgba(56,189,248,.08);
+    color:var(--accent);
+    font:700 10px monospace;
+    letter-spacing:1px;
+    cursor:pointer;
+}
+#live-status-open-editor:hover{box-shadow:0 0 18px rgba(56,189,248,.18);}
+#live-status-editor{
+    display:none;
+    position:fixed;
+    inset:0;
+    z-index:99999;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    background:rgba(0,0,0,.72);
+    backdrop-filter:blur(7px);
+}
+#live-status-editor.open{display:flex;}
+.live-status-editor-box{
+    width:min(520px,94vw);
+    padding:20px;
+    border:1px solid rgba(56,189,248,.3);
+    border-radius:15px;
+    background:#07101c;
+    box-shadow:0 0 35px rgba(0,100,180,.18);
+}
+.live-status-editor-title{
+    margin-bottom:12px;
+    color:var(--accent);
+    font:700 11px monospace;
+    letter-spacing:2px;
+}
+#live-status-input{
+    width:100%;
+    min-height:110px;
+    resize:vertical;
+    box-sizing:border-box;
+    padding:12px;
+    border:1px solid rgba(56,189,248,.25);
+    border-radius:9px;
+    outline:none;
+    background:rgba(0,0,0,.35);
+    color:#e5e7eb;
+    font:14px monospace;
+}
+.live-status-editor-actions{
+    display:flex;
+    gap:8px;
+    margin-top:9px;
+}
+#live-status-save,#live-status-close{
+    border-radius:9px;
+    padding:9px 15px;
+    cursor:pointer;
+    font:700 10px monospace;
+}
+#live-status-save{
+    border:1px solid rgba(56,189,248,.5);
+    background:rgba(56,189,248,.12);
+    color:var(--accent);
+}
+#live-status-close{
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.04);
+    color:#94a3b8;
+}
+#live-status-msg{
+    margin-top:7px;
+    color:#94a3b8;
+    font:10px monospace;
+}
+#live-status-wrap{
+    margin:14px auto 0;
+    width:min(760px,92vw);
+    text-align:center;
+}
+#live-status-time{
+    display:none !important;
+    color:var(--accent);
+    font:700 12px monospace;
+    letter-spacing:2px;
+    text-shadow:var(--glow);
+    opacity:.9;
+}
+#live-status-text{
+    margin-top:8px;
+    min-height:24px;
+    color:#e5e7eb;
+    font:600 15px Inter,sans-serif;
+    line-height:1.5;
+    text-shadow:0 0 12px rgba(56,189,248,.18);
+    white-space:pre-wrap;
+    word-break:break-word;
+}
+#live-status-admin{
+    display:none;
+    margin:12px auto 0;
+    width:min(560px,92vw);
+    padding:10px;
+    border:1px solid rgba(56,189,248,.25);
+    border-radius:12px;
+    background:rgba(3,12,24,.72);
+}
+#live-status-admin.show{display:block !important;}
+
+#live-status-input{
+    width:100%;
+    min-height:58px;
+    resize:vertical;
+    padding:10px 12px;
+    border:1px solid rgba(56,189,248,.28);
+    border-radius:9px;
+    outline:none;
+    background:rgba(0,0,0,.35);
+    color:#e5e7eb;
+    font:13px monospace;
+}
+#live-status-save{
+    margin-top:8px;
+    border:1px solid rgba(56,189,248,.5);
+    border-radius:9px;
+    padding:9px 18px;
+    background:rgba(56,189,248,.12);
+    color:var(--accent);
+    font:700 11px monospace;
+    letter-spacing:1px;
+    cursor:pointer;
+}
+#live-status-save:hover{box-shadow:0 0 18px rgba(56,189,248,.18);}
+#live-status-msg{
+    margin-top:6px;
+    color:#94a3b8;
+    font:10px monospace;
+}
+
+/* ===== MOBILE FIXES ===== */
+@media (max-width:600px){
+  #google-login-card{
+    width:88vw !important;
+    max-width:420px !important;
+    min-height:0 !important;
+    max-height:88vh !important;
+    padding:20px 14px 18px !important;
+    border-radius:20px !important;
+    overflow:auto !important;
+  }
+  .login-logo-wrap{width:100px !important;height:100px !important;padding:4px !important;}
+  .login-logo{width:74px !important;height:74px !important;}
+  #google-login-card h1{font-size:30px !important;letter-spacing:3px !important;margin:15px 0 5px !important;}
+  .login-subtitle{font-size:9px !important;letter-spacing:2px !important;margin-bottom:16px !important;}
+  #google-signin-button{min-height:44px !important;max-width:100% !important;}
+  .login-features{margin-top:16px !important;gap:6px !important;width:100% !important;}
+  .login-feature{min-height:62px !important;padding:7px 3px !important;font-size:8px !important;letter-spacing:1px !important;}
+  .login-feature b{font-size:19px !important;margin-bottom:4px !important;}
+  .login-welcome{margin-top:15px !important;padding-top:11px !important;font-size:8px !important;letter-spacing:2px !important;}
+
+  #math-screen{padding:12px !important;}
+  .math-logo{width:58px !important;height:58px !important;}
+  .math-card{
+    width:92vw !important;
+    max-width:430px !important;
+    padding:24px 18px !important;
+    border-radius:18px !important;
+    max-height:82vh !important;
+  }
+  .math-title{font-size:10px !important;letter-spacing:2px !important;margin-bottom:14px !important;}
+  .math-question{font-size:32px !important;letter-spacing:2px !important;margin-bottom:18px !important;}
+  .math-input{font-size:18px !important;padding:12px !important;margin-bottom:10px !important;}
+  .math-btn{padding:12px !important;font-size:12px !important;}
+
+  /* The public date/time at the very bottom is intentionally hidden. */
+  #live-status-time{display:none !important;}
+  #live-status-wrap{margin:8px auto 0 !important;}
+
+  .typing-keyboard-wrap{padding:10px !important;overflow:hidden !important;}
+  .keyboard-row{gap:3px !important;margin:4px 0 !important;}
+  .keyboard-key{min-width:24px !important;height:32px !important;padding:0 5px !important;font-size:10px !important;cursor:pointer !important;touch-action:manipulation !important;user-select:none !important;}
+  .keyboard-key:active,.keyboard-key.active{transform:scale(.94) !important;}
+}
+@media (max-width:380px){
+  #google-login-card{width:91vw !important;padding:17px 10px 15px !important;}
+  .login-logo-wrap{width:88px !important;height:88px !important;}
+  .login-logo{width:66px !important;height:66px !important;}
+  #google-login-card h1{font-size:27px !important;}
+  .login-feature{min-height:58px !important;}
+  .math-card{width:94vw !important;padding:20px 14px !important;}
+  .math-question{font-size:28px !important;}
+  .keyboard-key{min-width:21px !important;padding:0 3px !important;font-size:9px !important;}
+}
+
+</style>
+</head>
+<body>
+
+<!-- GOOGLE LOGIN: SEPARATE BACKGROUND + LIONS + LOGO -->
+<div id="google-login-screen">
+  <div class="side-visual left" aria-hidden="true">
+    <div class="aura"></div><div class="ring"></div><div class="eye"></div>
+    <div class="wave"></div><div class="wave w2"></div><div class="wave w3"></div><div class="grid"></div>
+    <i class="spark s1"></i><i class="spark s2"></i><i class="spark s3"></i><i class="spark s4"></i>
+  </div>
+  <div class="side-visual right" aria-hidden="true">
+    <div class="aura"></div><div class="ring"></div><div class="eye"></div>
+    <div class="wave"></div><div class="wave w2"></div><div class="wave w3"></div><div class="grid"></div>
+    <i class="spark s1"></i><i class="spark s2"></i><i class="spark s3"></i><i class="spark s4"></i>
+  </div>
+  <div id="google-login-card">
+    <div class="login-logo-wrap"><img class="login-logo" src="logo.png" alt="IT SHAKH"></div>
+    <h1>IT SHAKH</h1>
+    <div class="login-subtitle">GOOGLE ACCOUNT BILAN KIRING</div>
+    <div id="google-signin-button"></div>
+    <div class="login-features">
+      <button class="login-feature" type="button" data-info="secure"><b>⌁</b>SECURE</button>
+      <button class="login-feature" type="button" data-info="fast"><b>ϟ</b>FAST</button>
+      <button class="login-feature" type="button" data-info="private"><b>♙</b>PRIVATE</button>
+    </div>
+    <div class="login-info-backdrop" id="loginInfoBackdrop" aria-hidden="true">
+      <div class="login-info-modal" role="dialog" aria-modal="true">
+        <h2 id="loginInfoTitle"></h2>
+        <p id="loginInfoText"></p>
+        <button class="login-info-close" type="button" id="loginInfoClose">YOPISH</button>
+      </div>
+    </div>
+    <div class="login-welcome">WELCOME TO IT SHAKH</div>
+  </div>
+</div>
+
+<audio id="shakhMusic" src="SHAKH.mp3" loop preload="auto"></audio>
+
+
+<!-- START SCREEN -->
+<div id="loading-screen" class="start-screen">
+    <div class="loading-logo">
+        <img src="logo.png" alt="Logo">
+    </div>
+    <div class="loading-text">IT SHAKH</div>
+    <button id="startButton" class="start-button">▶ START</button>
+    <div class="start-hint">ENTER THE SYSTEM</div>
+</div>
+
+<!-- MATH CAPTCHA -->
+<div id="math-screen">
+    <div class="math-logo">
+        <img src="logo.png" alt="Logo">
+    </div>
+    <div class="math-card">
+        <div class="math-title">// KIRISH TEKSHIRUVI</div>
+        <div class="math-question" id="math-question">? + ? = ?</div>
+        <input type="number" class="math-input" id="math-input" placeholder="Javobni kiriting" autocomplete="off">
+        <button class="math-btn" onclick="checkMath()">KIRISH →</button>
+        <div class="math-error" id="math-error"></div>
+        <div class="math-attempts" id="math-attempts">
+            <div class="math-dot" id="dot-1"></div>
+            <div class="math-dot" id="dot-2"></div>
+            <div class="math-dot" id="dot-3"></div>
+        </div>
+    </div>
+</div>
+
+<canvas id="matrixCanvas"></canvas>
+<div class="lion-bg"></div>
+<div id="datetime-bar"></div>
+
+<header>
+    <div class="logo-text">SHAKH TASHKENTSKI</div>
+    <div class="nav-links">
+        <a href="about.html">BIO</a>
+        <a href="music.html">BASS</a>
+        <a href="files.html">FILES</a>
+        <details class="tools-menu">
+            <summary>TOOLS ▾</summary>
+            <div class="tools-dropdown">
+                <a href="ip-scanner.html">IP SCANNER</a>
+                <a href="qr-generator.html">QR MAKER</a>
+                <a href="speed-test.html">SPEED TEST</a>
+                <a href="world-map.html">WORLD MAP</a>
+                <a href="translator.html">TRANSLATE</a>
+                <a href="image-to-code.html">IMAGE TO CODE</a>
+                <a href="image-converter.html">IMAGE CONVERTER</a>
+            </div>
+        </details>
+        <button class="mode-toggle" id="modeToggle">NIGHT MODE</button>
+    </div>
+</header>
+
+<section class="hero">
+    <div class="hero-container">
+        <div class="hero-text">
+            <h1>IT SHAKH<br><span>HACKING</span></h1>
+            <p>IT sohasida yuqori darajadagi yechimlar va professional raqamli xavfsizlik. IT olamiga xush kelibsiz.</p>
+            <div class="socials">
+                <a href="https://t.me/The_Only_One_Shakh" target="_blank">
+                    <img src="https://cdn-icons-png.flaticon.com/512/2111/2111646.png" alt="Telegram">
+                </a>
+                <a href="https://www.instagram.com/anonimshakh66" target="_blank">
+                    <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram">
+                </a>
+                <a href="https://www.facebook.com/share/1DHz52PPyw/" target="_blank">
+                    <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook">
+                </a>
+                <a href="https://www.youtube.com/channel/UCxnOATvbnPh5x6QRmJxtujg" target="_blank">
+                    <img src="https://cdn-icons-png.flaticon.com/512/1384/1384060.png" alt="YouTube">
+                </a>
+            </div>
+        </div>
+        <div class="logo-wrap">
+            <div class="logo-ring">
+                <img src="logo.png" alt="Lion Logo" class="main-logo">
+            </div>
+        </div>
+    </div>
+</section>
+
+
+
+<!-- TERMINAL -->
+<div class="section">
+    <div class="section-title">// TERMINAL SIMULYATOR</div>
+    <div id="terminal">
+        <div class="terminal-header">
+            <div class="t-dot red"></div>
+            <div class="t-dot yellow"></div>
+            <div class="t-dot green"></div>
+            <span class="terminal-title">shakh@itshakh:~$</span>
+        </div>
+        <div id="terminal-output">
+            <div class="t-success">IT SHAKH Terminal v1.0 — Xush kelibsiz!</div>
+            <div class="t-info">Yordam uchun "help" buyrug'ini yozing.</div>
+        </div>
+        <div class="terminal-input-line">
+            <span class="terminal-prompt">shakh@itshakh:~$</span>
+            <input type="text" id="terminal-input" placeholder="buyruq kiriting..." autocomplete="off" spellcheck="false">
+        </div>
+    </div>
+</div>
+
+<!-- QUIZ -->
+<div class="section">
+    <div class="section-title">// IT BILIMINGIZNI SINANG</div>
+    <div id="quiz-card">
+        <div class="quiz-number" id="quiz-num">SAVOL 1 / 300</div>
+        <div class="quiz-question" id="quiz-q"></div>
+        <div class="quiz-options" id="quiz-opts"></div>
+        <div class="quiz-result" id="quiz-result"></div>
+        <div class="quiz-nav">
+            <span class="quiz-score" id="quiz-score">Ball: 0</span>
+            <button class="quiz-btn" id="quiz-next" disabled>KEYINGISI →</button>
+        </div>
+    </div>
+</div>
+
+
+
+<!-- GOOGLE SHEETS LEADERBOARD -->
+<div class="section" id="leaderboard-section">
+  <div class="section-title">// TEST NATIJALARI</div>
+  <div id="leaderboard-card">
+    <div class="leader-top">
+      <div><b id="lb-total">0</b><span>QATNASHGAN</span></div>
+      <div><b id="lb-high">0</b><span>ENG YUQORI</span></div>
+      <div><b id="lb-low">0</b><span>ENG PAST</span></div>
+    </div>
+    <div class="leader-head"><span>🏆 ISHTIROKCHILAR</span><button id="lb-refresh">↻ YANGILASH</button></div>
+    <div id="leader-list"><div class="lb-loading">YUKLANMOQDA...</div></div>
+  </div>
+</div>
+
+
+<script>
+/* GOOGLE SHEETS LEADERBOARD */
+const SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbwwSCvjGZGeI0g8szN62g8NVVzVKI6atqu1lUoF_W4FfhenqS-cpn27liDJU52gFHvN0Q/exec';
+function getGoogleUser(){try{return JSON.parse(localStorage.getItem('it_shakh_google_user')||'null')}catch(e){return null}}
+function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function renderLeaderboard(rows){
+ const list=document.getElementById('leader-list');
+ if(!rows||!rows.length){list.innerHTML='<div class="lb-empty">HOZIRCHA NATIJA YO\'Q.</div>';return;}
+ const cleanRows=rows.filter(r=>{const n=String(r.name||'').trim().toLowerCase();return n&&n!=='name'&&n!=='foydalanuvchi';}); list.innerHTML=cleanRows.map((r,i)=>{const pic=r.picture?esc(r.picture):'logo.png';return `<div class="lb-row"><div class="lb-rank">${i+1}</div><div class="lb-name"><img src="${pic}" alt="" onerror="this.onerror=null;this.src='logo.png';"><b>${esc(r.name)}</b></div><div class="lb-score">${Number(r.score)||0}/${Number(r.total)||300}</div><div class="lb-percent">${Number(r.percent)||0}%</div></div>`}).join('');
+}
+function loadLeaderboard(){
+ if(SHEETS_API_URL.indexOf('PASTE_')===0){document.getElementById('leader-list').innerHTML='<div class="lb-empty">GOOGLE SHEETS URL KIRITILMAGAN.</div>';return;}
+ const cb='lbcb_'+Date.now(); window[cb]=function(data){try{const rows=data.rows||[];document.getElementById('lb-total').textContent=rows.length;document.getElementById('lb-high').textContent=rows.length?Math.max(...rows.map(x=>Number(x.score)||0)):0;document.getElementById('lb-low').textContent=rows.length?Math.min(...rows.map(x=>Number(x.score)||0)):0;renderLeaderboard(rows)}finally{delete window[cb]}};
+ const s=document.createElement('script');s.src=SHEETS_API_URL+'?action=list&callback='+cb+'&_='+Date.now();s.onerror=()=>{document.getElementById('leader-list').innerHTML='<div class="lb-empty">SHEETS BILAN ULANIB BO\'LMADI.</div>';delete window[cb]};document.body.appendChild(s);
+}
+let lbRefreshTimer=null;
+function scheduleLeaderboardRefresh(){
+ clearTimeout(lbRefreshTimer);
+ lbRefreshTimer=setTimeout(loadLeaderboard,1200);
+}
+function saveQuizToSheets(score,total){
+ if(SHEETS_API_URL.indexOf('PASTE_')===0)return;
+ const u=getGoogleUser()||{};
+ const displayName=(u.name&&String(u.name).trim()&&String(u.name).trim().toLowerCase()!=='name')?String(u.name).trim():'Foydalanuvchi';
+ const payload={action:'save',name:displayName,email:u.email||'',picture:u.picture||'',score:Number(score)||0,total:Number(total)||300};
+ fetch(SHEETS_API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)}).catch(()=>{});
+ scheduleLeaderboardRefresh();
+}
+document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);loadLeaderboard();
+</script>
+
+<!-- TYPING TEST -->
+<div class="section">
+    <div class="section-title">// YOZISH TEZLIGI TESTI</div>
+    <div id="typing-card">
+        <div class="typing-controls">
+            <div class="typing-control">
+                <span>VAQT</span>
+                <select id="t-time-select">
+                    <option value="30">30 SONIYA</option>
+                    <option value="60" selected>60 SONIYA</option>
+                    <option value="120">120 SONIYA</option>
+                </select>
+            </div>
+            <div class="typing-control">
+                <span>REJIM</span>
+                <select id="t-mode-select">
+                    <option value="easy">📝 OSON</option>
+                    <option value="medium">⚡ O‘RTA</option>
+                    <option value="hard">🔥 QIYIN</option>
+                    <option value="hacker">☠ HACKER</option>
+                </select>
+            </div>
+            <div class="typing-record">🏆 REKORD: <b id="t-best">0 WPM</b></div>
+        </div>
+
+        <div id="typing-timer-bar-wrap"><div id="typing-timer-bar"></div></div>
+        <div id="typing-text"></div>
+
+        <input type="text" id="typing-input"
+               placeholder="Boshlash uchun bu yerga yozing..."
+               autocomplete="off" spellcheck="false" autocapitalize="off">
+
+        <div class="typing-live">
+            <span id="t-combo">COMBO ×0</span>
+            <span id="t-level">BEGINNER</span>
+            <span id="t-errors">XATO: 0</span>
+        </div>
+
+        <div class="typing-stats">
+            <div class="typing-stat">
+                <div class="typing-stat-val" id="t-wpm">0</div>
+                <div class="typing-stat-label">WPM</div>
+            </div>
+            <div class="typing-stat">
+                <div class="typing-stat-val" id="t-acc">100%</div>
+                <div class="typing-stat-label">ANIQLIK</div>
+            </div>
+            <div class="typing-stat">
+                <div class="typing-stat-val" id="t-time">60</div>
+                <div class="typing-stat-label">SONIYA</div>
+            </div>
+            <div class="typing-stat">
+                <div class="typing-stat-val" id="t-chars">0</div>
+                <div class="typing-stat-label">BELGI</div>
+            </div>
+        </div>
+
+        <div class="typing-keyboard-wrap">
+            <div class="typing-keyboard-title">⌨ VIRTUAL KEYBOARD</div>
+            <div id="typing-keyboard"></div>
+        </div>
+
+        <div class="typing-chart-wrap">
+            <div class="typing-chart-head">
+                <span>📊 WPM GRAFIGI</span>
+                <span id="t-chart-value">0 WPM</span>
+            </div>
+            <canvas id="typing-chart" width="900" height="180"></canvas>
+        </div>
+
+        <div id="typing-result" class="typing-result" hidden></div>
+
+        <div class="typing-btns">
+            <button class="typing-btn" id="t-reset">↻ QAYTA BOSHLASH</button>
+            <button class="typing-btn" id="t-copy" disabled>📋 NATIJANI NUSXALASH</button>
+            <button class="typing-btn" id="t-sound">🔊 OVOZ: ON</button>
+        </div>
+    </div>
+</div>
+
+<!-- FILE CENTER MODAL -->
+<div class="section" id="file-center-section" aria-hidden="true">
+    <div class="file-modal-shell">
+    <div class="section-title">// IT SHAKH FILE CENTER</div>
+    <div class="file-center-card-wrap">
+        <button id="file-center-close" onclick="closeFileCenter()" type="button">✕</button>
+        <div id="file-center-card">
+        <div class="file-center-head">
+            <div class="file-center-user">ACCOUNT: <b id="file-center-user">GOOGLE LOGIN</b></div>
+            <button class="file-btn" id="file-refresh" type="button">↻ YANGILASH</button>
+        </div>
+        <label class="file-upload-zone" id="file-drop-zone" for="file-input">
+            <input id="file-input" type="file" multiple>
+            <div class="file-upload-icon">☁</div>
+            <div class="file-upload-title">FAYLLARNI SHU YERGA TASHLANG</div>
+            <div class="file-upload-hint">YOKI BOSIB TANLANG<br>FILE • IMAGE • VIDEO • MUSIC • DOCUMENT • ZIP / RAR<br>MAX: 1 GB / FAYL</div>
+        </label>
+        <div class="file-actions">
+            <button class="file-btn primary" id="file-upload-btn" type="button">⬆ UPLOAD</button>
+            <button class="file-btn" id="file-clear-btn" type="button">✕ TOZALASH</button>
+        </div>
+        <div class="file-progress-wrap" id="file-progress-wrap">
+            <div class="file-progress-head">
+                <span id="file-progress-name">YUKLANMOQDA...</span>
+                <span id="file-progress-percent">0%</span>
+            </div>
+            <div class="file-progress"><div id="file-progress-bar"></div></div>
+        </div>
+        <div class="file-status info" id="file-status">Google orqali kirgandan keyin fayl yuklash mumkin.</div>
+        <div class="file-list-wrap">
+            <div class="file-list-head">
+                <span>☁ FILE STORAGE</span>
+                <span id="file-count">0 FILE</span>
+            </div>
+            <div id="file-list"><div class="file-empty">YUKLANMOQDA...</div></div>
+        </div>
+        <div class="file-note">Secure Google login • Fayllar IT SHAKH File Center'da saqlanadi.</div>
+        </div>
+    </div>
+    </div>
+</div>
+
+<footer>© 2026 Shakh Tashkentski • IT SHAKH</footer>
+
+
+<script>
+/* LOGIN FEATURE CARDS */
+(function(){
+ const data={
+  secure:{title:'SECURE',text:"Google orqali kirish oynasi va saytdagi asosiy ma'lumotlar zamonaviy himoya interfeysi bilan ko'rsatiladi. Login tugmasi Google Identity Services orqali ishlaydi."},
+  fast:{title:'FAST',text:"Interfeys yengil va tez yuklanishi uchun login sahifasi alohida qatlamlarda ishlaydi. Google hisobingizni tanlaganingizdan so'ng START oynasiga o'tasiz."},
+  private:{title:'PRIVATE',text:"Sayt Google hisobingizdan faqat login uchun kerak bo'lgan asosiy ma'lumotlarni oladi. Sessiya ma'lumoti brauzer sessionStorage xotirasida saqlanadi."}
+ };
+ const backdrop=document.getElementById('loginInfoBackdrop');
+ const title=document.getElementById('loginInfoTitle');
+ const text=document.getElementById('loginInfoText');
+ const close=document.getElementById('loginInfoClose');
+ document.querySelectorAll('.login-feature').forEach(btn=>btn.addEventListener('click',()=>{
+   const item=data[btn.dataset.info]; if(!item)return;
+   title.textContent=item.title; text.textContent=item.text;
+   backdrop.classList.add('open'); backdrop.setAttribute('aria-hidden','false');
+ }));
+ function hide(){backdrop.classList.remove('open');backdrop.setAttribute('aria-hidden','true');}
+ close.addEventListener('click',hide);
+ backdrop.addEventListener('click',e=>{if(e.target===backdrop)hide();});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape')hide();});
+})();
+</script>
+
+<script>
+/* GOOGLE LOGIN — unlocks the existing START screen */
+(function(){
+ const CLIENT_ID='506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
+ function decode(t){try{return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){return null}}
+ function success(r){
+   if(!r || !r.credential) return;
+   const u=decode(r.credential);
+   if(u) localStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||'',credential:r.credential}));
+   // Google login yopiladi
+   const gate=document.getElementById('google-login-screen');
+   if(gate){ gate.style.opacity='0'; gate.style.transition='opacity 0.8s'; setTimeout(()=>gate.remove(),800); }
+
+   // ADMIN akkaunt uchun matematika tekshiruvi kerak emas
+   const adminEmail = 'anonimshakh4647@gmail.com';
+   const isAdmin = u && String(u.email || '').toLowerCase() === adminEmail;
+   const mathScreen = document.getElementById('math-screen');
+   const startScreen = document.getElementById('loading-screen');
+   if(isAdmin){
+     if(mathScreen) mathScreen.remove();
+     if(startScreen) startScreen.style.display='flex';
+     return;
+   }
+
+   // Boshqa akkauntlar uchun Math tekshiruvi ochiladi
+   if(mathScreen){ mathScreen.style.display='flex'; }
+ }
+ window.onGoogleLogin=success;
+ function init(){
+   if(!window.google?.accounts?.id){setTimeout(init,200);return;}
+   google.accounts.id.initialize({client_id:CLIENT_ID,callback:success,auto_select:false,cancel_on_tap_outside:false,context:'signin'});
+   const box=document.getElementById('google-signin-button');
+   if(box){ const w=Math.max(240,Math.min(400,Math.floor(box.getBoundingClientRect().width))); google.accounts.id.renderButton(box,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',logo_alignment:'left',width:w}); }
+ }
+ document.addEventListener('DOMContentLoaded',function(){
+   const start=document.getElementById('loading-screen');
+   if(start) start.style.display='none';
+   init();
+ });
+})();
+</script>
+
+<script>
+    // MATH CAPTCHA
+    let mathAnswer = 0;
+    let mathAttempts = 0;
+    const MAX_ATTEMPTS = 3;
+    const LOCKOUT_TIME = 5 * 60;
+
+    function generateMath() {
+        const ops = ['+', '-'];
+        const op = ops[Math.floor(Math.random() * ops.length)];
+        let a, b;
+        if (op === '+') {
+            a = Math.floor(Math.random() * 50) + 1;
+            b = Math.floor(Math.random() * 50) + 1;
+            mathAnswer = a + b;
+        } else {
+            a = Math.floor(Math.random() * 50) + 20;
+            b = Math.floor(Math.random() * a) + 1;
+            mathAnswer = a - b;
+        }
+        document.getElementById('math-question').textContent = `${a} ${op} ${b} = ?`;
+        document.getElementById('math-input').value = '';
+        document.getElementById('math-error').textContent = '';
+    }
+
+    function checkLockout() {
+        const lockUntil = Number(localStorage.getItem('mathLockUntil') || 0);
+        if (Date.now() < lockUntil) {
+            showLockout(Math.ceil((lockUntil - Date.now()) / 1000));
+            return true;
+        }
+        return false;
+    }
+
+    function showLockout(seconds) {
+        const card = document.querySelector('.math-card');
+        card.innerHTML = `
+            <div class="math-title">// KIRISH BLOKLANDI</div>
+            <div class="math-lockout" id="lockout-timer">${formatTime(seconds)}</div>
+            <div class="math-lockout-msg">3 ta noto'g'ri javobdan so'ng<br>5 daqiqa kuting</div>
+        `;
+        const interval = setInterval(() => {
+            seconds--;
+            const el = document.getElementById('lockout-timer');
+            if (!el) { clearInterval(interval); return; }
+            if (seconds <= 0) {
+                clearInterval(interval);
+                localStorage.removeItem('mathLockUntil');
+                mathAttempts = 0;
+                location.reload();
+            } else {
+                el.textContent = formatTime(seconds);
+            }
+        }, 1000);
+    }
+
+    function formatTime(s) {
+        const m = Math.floor(s / 60);
+        const sec = s % 60;
+        return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    }
+
+    function checkMath() {
+        const val = parseInt(document.getElementById('math-input').value);
+        if (isNaN(val)) {
+            document.getElementById('math-error').textContent = '⚠ Iltimos javobni kiriting!';
+            return;
+        }
+        if (val === mathAnswer) {
+            localStorage.removeItem('mathLockUntil');
+            const screen = document.getElementById('math-screen');
+            screen.style.opacity = '0';
+            screen.style.transition = 'opacity 0.8s';
+            setTimeout(() => screen.remove(), 800);
+            // START ekrani ochiladi
+            const startScreen = document.getElementById('loading-screen');
+            if(startScreen) startScreen.style.display = 'flex';
+        } else {
+            mathAttempts++;
+            const dot = document.getElementById(`dot-${mathAttempts}`);
+            if (dot) dot.classList.add('used');
+            if (mathAttempts >= MAX_ATTEMPTS) {
+                const lockUntil = Date.now() + LOCKOUT_TIME * 1000;
+                localStorage.setItem('mathLockUntil', String(lockUntil));
+                showLockout(LOCKOUT_TIME);
+            } else {
+                document.getElementById('math-error').textContent =
+                    `✗ Noto'g'ri! ${MAX_ATTEMPTS - mathAttempts} ta urinish qoldi.`;
+                generateMath();
+            }
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // Math ekrani boshlanganda yashirin
+        const mathScreen = document.getElementById('math-screen');
+        if (mathScreen) mathScreen.style.display = 'none';
+
+        const mathInput = document.getElementById('math-input');
+        if (mathInput) {
+            mathInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') checkMath();
+            });
+        }
+        if (!checkLockout()) generateMath();
+    });
+
+    // START SCREEN + MUSIC
+    window.addEventListener('load', () => {
+        const startScreen = document.getElementById('loading-screen');
+        const startButton = document.getElementById('startButton');
+        const music = document.getElementById('shakhMusic');
+
+        startButton.addEventListener('click', async () => {
+            try {
+                music.volume = 0.65;
+                music.currentTime = 0;
+                await music.play();
+            } catch (e) {
+                console.log('Music playback was blocked:', e);
+            }
+
+            startButton.disabled = true;
+            startButton.textContent = 'LOADING...';
+
+            setTimeout(() => {
+                startScreen.classList.add('hide');
+                setTimeout(() => startScreen.remove(), 800);
+            }, 500);
+        });
+    });
+
+    // VAQT VA SANA
+    function updateDateTime() {
+        const now = new Date();
+        const days = ['Yakshanba','Dushanba','Seshanba','Chorshanba','Payshanba','Juma','Shanba'];
+        const months = ['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentabr','Oktabr','Noyabr','Dekabr'];
+        const h = String(now.getHours()).padStart(2,'0');
+        const m = String(now.getMinutes()).padStart(2,'0');
+        const s = String(now.getSeconds()).padStart(2,'0');
+        document.getElementById('datetime-bar').textContent =
+            `${days[now.getDay()]}, ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}  |  ${h}:${m}:${s}`;
+    }
+    updateDateTime();
+    setInterval(updateDateTime, 1000);
+
+
+
+    // TERMINAL
+    const commands = {
+        help: () => `<div class="t-info">Mavjud buyruqlar:</div>
+<div>help — yordam</div>
+<div>whoami — kim men</div>
+<div>skills — ko'nikmalar</div>
+<div>contact — aloqa</div>
+<div>date — sana</div>
+<div>clear — tozalash</div>`,
+        whoami: () => `<div class="t-success">IT SHAKH — Senior IT Specialist</div>
+<div>Cybersecurity | Linux | Networking</div>`,
+        skills: () => `<div class="t-info">Ko'nikmalar:</div>
+<div>▸ Linux Administration ████████░░ 80%</div>
+<div>▸ Cybersecurity       ███████░░░ 70%</div>
+<div>▸ Networking          ████████░░ 80%</div>
+<div>▸ Python              ██████░░░░ 60%</div>`,
+        contact: () => `<div class="t-info">Aloqa:</div>
+<div>▸ Telegram: @The_Only_One_Shakh</div>
+<div>▸ Instagram: @anonimshakh66</div>`,
+        date: () => `<div>${new Date().toLocaleString('uz-UZ')}</div>`,
+        clear: () => null
+    };
+
+    const input = document.getElementById('terminal-input');
+    const output = document.getElementById('terminal-output');
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            const cmd = input.value.trim().toLowerCase();
+            input.value = '';
+            const line = document.createElement('div');
+            line.innerHTML = `<span style="color:#9ca3af">shakh@itshakh:~$</span> ${cmd}`;
+            output.appendChild(line);
+            if (cmd === 'clear') {
+                output.innerHTML = '';
+            } else if (commands[cmd]) {
+                const res = document.createElement('div');
+                res.innerHTML = commands[cmd]();
+                output.appendChild(res);
+            } else if (cmd) {
+                const err = document.createElement('div');
+                err.innerHTML = `<span class="t-error">Xato: "${cmd}" — noma'lum buyruq. "help" yozing.</span>`;
+                output.appendChild(err);
+            }
+            output.scrollTop = output.scrollHeight;
+        }
+    });
+
+    // QUIZ
+    const questions = [
+        {
+            "q": "OSI modelida nechta qatlam bor?",
+            "opts": [
+                "7",
+                "6",
+                "8",
+                "5"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "TCP qaysi transport xususiyatini ta'minlaydi?",
+            "opts": [
+                "Fayl siqish",
+                "DNS tarjimasi",
+                "Ishonchli ulanish",
+                "Faqat broadcast"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "UDP ning asosiy xususiyati qaysi?",
+            "opts": [
+                "Har doim retransmission",
+                "IP manzil berish",
+                "Fayl tizimi",
+                "Ulanishsiz uzatish"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "IPv4 manzili nechta bitdan iborat?",
+            "opts": [
+                "32",
+                "64",
+                "16",
+                "128"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "IPv6 manzili nechta bitdan iborat?",
+            "opts": [
+                "64",
+                "96",
+                "128",
+                "32"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "HTTP ning standart porti qaysi?",
+            "opts": [
+                "22",
+                "443",
+                "80",
+                "21"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "HTTPS ning standart porti qaysi?",
+            "opts": [
+                "443",
+                "110",
+                "80",
+                "8080"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "SSH ning standart porti qaysi?",
+            "opts": [
+                "21",
+                "25",
+                "20",
+                "22"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "DNS odatda nimani IP manzilga moslaydi?",
+            "opts": [
+                "Domen nomini",
+                "MAC manzilni",
+                "Faylni",
+                "Parolni"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "DHCP ning vazifasi nima?",
+            "opts": [
+                "Web sahifa chizish",
+                "Virus o'chirish",
+                "Avtomatik IP sozlash",
+                "Fayl shifrlash"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Router asosan nima qiladi?",
+            "opts": [
+                "Audio yozadi",
+                "Matn tahrirlaydi",
+                "RAM tozalaydi",
+                "Tarmoqlar orasida paket yo'naltiradi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Switch odatda qaysi manzil asosida frame yo'naltiradi?",
+            "opts": [
+                "Fayl nomi",
+                "Port nomi",
+                "URL",
+                "MAC"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "MAC manzil odatda nechta bit?",
+            "opts": [
+                "128",
+                "48",
+                "32",
+                "64"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Ping ko'pincha qaysi protokoldan foydalanadi?",
+            "opts": [
+                "SMTP",
+                "SSH",
+                "FTP",
+                "ICMP"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Loopback IPv4 manzili qaysi?",
+            "opts": [
+                "127.0.0.1",
+                "192.168.1.1",
+                "255.255.255.255",
+                "8.8.8.8"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Private IPv4 diapazonlaridan biri qaysi?",
+            "opts": [
+                "100.64.0.0/30",
+                "10.0.0.0/8",
+                "8.8.8.0/24",
+                "1.1.1.0/24"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "NAT nimaga xizmat qiladi?",
+            "opts": [
+                "Diskni formatlash",
+                "DNS yozuvini o'chirish",
+                "CPU tezlatish",
+                "Manzillarni tarjima qilish"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Default gateway nima?",
+            "opts": [
+                "Antivirus",
+                "Monitor drayveri",
+                "Tashqi tarmoqqa chiqish uchun yo'riqnoma",
+                "Fayl serveri"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "FTP ning standart boshqaruv porti qaysi?",
+            "opts": [
+                "53",
+                "25",
+                "22",
+                "21"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "SMTP odatda nima uchun ishlatiladi?",
+            "opts": [
+                "Email yuborish",
+                "Web sahifa ko'rish",
+                "DNS so'rovi",
+                "SSH ulanishi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "DNS ning standart porti qaysi?",
+            "opts": [
+                "25",
+                "67",
+                "110",
+                "53"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "ARP nima uchun ishlatiladi?",
+            "opts": [
+                "IPv4 manzilni MAC ga aniqlash",
+                "HTTPS shifrlash",
+                "Email yuborish",
+                "Domen yaratish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Subnet mask nimani belgilashga yordam beradi?",
+            "opts": [
+                "CPU yadrolarini",
+                "Parol uzunligini",
+                "Disk bo'limini",
+                "Tarmoq va host qismini"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "/24 IPv4 subnetda jami nechta manzil bor?",
+            "opts": [
+                "256",
+                "512",
+                "128",
+                "254"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Broadcast manzil nima?",
+            "opts": [
+                "DNS server",
+                "Tarmoqdagi barcha hostlarga yo'naltirilgan manzil",
+                "Faqat router manzili",
+                "Loopback"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "VLAN nima?",
+            "opts": [
+                "Antivirus turi",
+                "VPN protokoli",
+                "Mantiqiy ajratilgan LAN",
+                "SSD formati"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "VPN nimani ta'minlashi mumkin?",
+            "opts": [
+                "DNS rekordini yaratish",
+                "Disk defragmentatsiya",
+                "CPU overclock",
+                "Shifrlangan tunnel"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "TLS asosan nimani himoyalaydi?",
+            "opts": [
+                "RAMni",
+                "USB portini",
+                "Tarmoqdagi ma'lumot almashinuvini",
+                "GPU haroratini"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Bandwidth nimani bildiradi?",
+            "opts": [
+                "Disk hajmini",
+                "Kechikishni",
+                "Kanal sig'imini",
+                "CPU haroratini"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Latency nimani bildiradi?",
+            "opts": [
+                "Kechikishni",
+                "Kanal sig'imini",
+                "Disk tezligini",
+                "RAM hajmini"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Linux da fayllarni ro'yxatlash buyrug'i?",
+            "opts": [
+                "list",
+                "dir",
+                "show",
+                "ls"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Linux da katalogga o'tish buyrug'i?",
+            "opts": [
+                "cd",
+                "cat",
+                "pwd",
+                "mv"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Joriy katalogni ko'rsatish buyrug'i?",
+            "opts": [
+                "pwd",
+                "whoami",
+                "where",
+                "path"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Linux da fayl nusxalash buyrug'i?",
+            "opts": [
+                "mv",
+                "touch",
+                "cp",
+                "rm"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Faylni ko'chirish yoki nomini o'zgartirish buyrug'i?",
+            "opts": [
+                "cp",
+                "ln",
+                "mv",
+                "grep"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Faylni o'chirish buyrug'i?",
+            "opts": [
+                "del",
+                "erase",
+                "drop",
+                "rm"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Bo'sh fayl yaratish uchun odatda qaysi buyruq ishlatiladi?",
+            "opts": [
+                "make",
+                "touch",
+                "new",
+                "file"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Fayl mazmunini terminalda ko'rsatish buyrug'i?",
+            "opts": [
+                "cat",
+                "open",
+                "read",
+                "view"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Matndan naqsh qidirish buyrug'i?",
+            "opts": [
+                "find",
+                "grep",
+                "seek",
+                "scan"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Fayl va kataloglarni qidirish uchun buyruq?",
+            "opts": [
+                "search",
+                "grep",
+                "locate-ip",
+                "find"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Jarayonlarni ko'rish uchun klassik buyruq?",
+            "opts": [
+                "task",
+                "proc",
+                "ps",
+                "jobsall"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Jarayonni signal bilan tugatish buyrug'i?",
+            "opts": [
+                "end",
+                "stop",
+                "kill",
+                "close"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Superuser hisobining odatiy nomi?",
+            "opts": [
+                "super",
+                "admin",
+                "system",
+                "root"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Fayl egasini o'zgartirish buyrug'i?",
+            "opts": [
+                "owner",
+                "chown",
+                "chgrp",
+                "chmod"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Fayl ruxsatlarini o'zgartirish buyrug'i?",
+            "opts": [
+                "chown",
+                "chmod",
+                "access",
+                "permit"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Guruhni o'zgartirish buyrug'i?",
+            "opts": [
+                "chmod",
+                "chgrp",
+                "chown-only",
+                "groupmod-file"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Disk bo'sh joyini ko'rsatish buyrug'i?",
+            "opts": [
+                "disk",
+                "du",
+                "free",
+                "df"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Katalog hajmini ko'rsatish uchun ko'p ishlatiladigan buyruq?",
+            "opts": [
+                "df",
+                "size",
+                "du",
+                "space"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "RAM/swap holatini ko'rsatish buyrug'i?",
+            "opts": [
+                "topmem",
+                "free",
+                "ram",
+                "mem"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Linux tizimida paket menejeri misoli qaysi?",
+            "opts": [
+                "paint",
+                "explorer",
+                "notepad",
+                "apt"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Ubuntu/Debian tizimlarida paket o'rnatish uchun qaysi buyruq ishlatiladi?",
+            "opts": [
+                "install.exe",
+                "apt play",
+                "pkg run",
+                "apt install"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Loglarni kuzatishda qaysi buyruq foydali?",
+            "opts": [
+                "headonly",
+                "watchlog",
+                "logread",
+                "tail"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Matn faylining bosh qismini ko'rsatish buyrug'i?",
+            "opts": [
+                "head",
+                "first",
+                "begin",
+                "top"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Matn faylining oxirgi qismini ko'rsatish buyrug'i?",
+            "opts": [
+                "tail",
+                "last",
+                "end",
+                "bottom"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Shell o'zgaruvchisini ko'rsatish uchun odatda nima ishlatiladi?",
+            "opts": [
+                "showvar",
+                "echo",
+                "say",
+                "printscreen"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Linux shell skriptlarida keng tarqalgan interpreter qaysi?",
+            "opts": [
+                "bash",
+                "powershell-only",
+                "word",
+                "cmdonly"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Cron nima uchun ishlatiladi?",
+            "opts": [
+                "Rejalashtirilgan vazifalar",
+                "Disk shifrlash",
+                "Web server",
+                "Grafika"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "SSH orqali Linux serveriga ulanish uchun odatiy buyruq?",
+            "opts": [
+                "connect",
+                "remote",
+                "telnet-only",
+                "ssh"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Linux da joriy foydalanuvchini ko'rsatish buyrug'i?",
+            "opts": [
+                "idname",
+                "me",
+                "user",
+                "whoami"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Linux fayl tizimining ildiz katalogi qaysi?",
+            "opts": [
+                "\\",
+                "/",
+                "root:",
+                "C:\\"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Firewall nima vazifa bajaradi?",
+            "opts": [
+                "Fayllarni siqadi",
+                "Monitorni sozlaydi",
+                "CPUni sovitadi",
+                "Tarmoq trafikini filtrlaydi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Phishing nima?",
+            "opts": [
+                "Antivirus yangilanishi",
+                "Tarmoq kabeli",
+                "Aldov orqali ma'lumot olish",
+                "Diskni formatlash"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Malware nimani anglatadi?",
+            "opts": [
+                "Tarmoq kabeli",
+                "Fayl tizimi",
+                "Zararli dastur",
+                "Backup turi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Ransomware odatda nima qiladi?",
+            "opts": [
+                "Fayllarni shifrlab to'lov talab qiladi",
+                "RAMni oshiradi",
+                "Printer o'rnatadi",
+                "DNSni tezlatadi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Brute-force hujumining asosiy usuli?",
+            "opts": [
+                "Patch o'rnatish",
+                "Ko'p parollarni sinab ko'rish",
+                "Portni yopish",
+                "Faylni zaxiralash"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "MFA nima?",
+            "opts": [
+                "Tarmoq adapteri",
+                "Fayl formatlash algoritmi",
+                "Ko'p faktorli autentifikatsiya",
+                "Disk turi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Hashingning asosiy xususiyati?",
+            "opts": [
+                "Har doim qayta tiklash",
+                "Internet tezligini oshirish",
+                "Bir tomonlama qiymat olish",
+                "Video siqish"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Encryption nima?",
+            "opts": [
+                "DNSni almashtirish",
+                "Faylni o'chirish",
+                "CPUni bloklash",
+                "Ma'lumotni shifrlash"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Least privilege prinsipi nima?",
+            "opts": [
+                "Minimal zarur huquq berish",
+                "Barcha portlarni ochish",
+                "Hammaga admin berish",
+                "Parolsiz kirish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Patch management nima uchun kerak?",
+            "opts": [
+                "Monitor yorqinligini sozlash",
+                "Yangilanish va xavfsizlik tuzatishlarini boshqarish",
+                "Musiqa tahrirlash",
+                "Disk hajmini oshirish"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Vulnerability nima?",
+            "opts": [
+                "CPU yadrosi",
+                "Backup fayli",
+                "IP protokoli",
+                "Xavfsizlik zaifligi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Exploit nima?",
+            "opts": [
+                "Antivirus bazasi",
+                "Tarmoq adapteri",
+                "Zaiflikdan foydalanuvchi kod/usul",
+                "Backup qurilmasi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "DDoS hujumi nimaga qaratiladi?",
+            "opts": [
+                "Diskni tozalash",
+                "DNS rekordini tuzatish",
+                "Xizmatni ortiqcha trafik bilan band qilish",
+                "Parol yaratish"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "IDS nima?",
+            "opts": [
+                "Identity Data Service",
+                "Intrusion Detection System",
+                "Internal DNS Server",
+                "Internet Disk Storage"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "IPS nima?",
+            "opts": [
+                "Internal Process Shell",
+                "Intrusion Prevention System",
+                "Internet Port Service",
+                "IP Password System"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "SOC nimani anglatadi?",
+            "opts": [
+                "Secure Office Computer",
+                "Server Operations Command",
+                "System Online Cache",
+                "Security Operations Center"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "SIEM nima uchun ishlatiladi?",
+            "opts": [
+                "Video montaj",
+                "Wi-Fi tezlatish",
+                "Disk formatlash",
+                "Xavfsizlik hodisalarini yig'ish va tahlil qilish"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Zero Trust g'oyasi nimaga asoslanadi?",
+            "opts": [
+                "Faqat lokal tarmoqqa ishonish",
+                "Barcha trafikni ochish",
+                "Parolsiz ishlash",
+                "Hech kimga avtomatik ishonmaslik va doim tekshirish"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "CIA triadasidagi C nimani bildiradi?",
+            "opts": [
+                "Confidentiality",
+                "Connection",
+                "Control",
+                "Certificate"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "CIA triadasidagi I nimani bildiradi?",
+            "opts": [
+                "Internet",
+                "Integrity",
+                "Inspection",
+                "Identity"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "CIA triadasidagi A nimani bildiradi?",
+            "opts": [
+                "Access",
+                "Availability",
+                "Authorization",
+                "Authentication"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Backupning xavfsizlikdagi foydasi?",
+            "opts": [
+                "Ma'lumotni tiklash imkonini beradi",
+                "CPUni sovitadi",
+                "Parolni uzaytiradi",
+                "IPni o'zgartiradi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Antivirusning asosiy vazifasi?",
+            "opts": [
+                "Zararli dasturlarni aniqlash va bloklash",
+                "DNS yaratish",
+                "Internetni ulash",
+                "RAM qo'shish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Social engineering nimaga tayanadi?",
+            "opts": [
+                "Disk tezligiga",
+                "GPU drayveriga",
+                "Inson psixologiyasidan foydalanishga",
+                "Faqat apparat nosozligiga"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Credential stuffing nima?",
+            "opts": [
+                "Port skanerlash",
+                "Backup qilish",
+                "O'g'irlangan login-parollarni boshqa xizmatlarda sinash",
+                "Faylni shifrlash"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Security audit nima?",
+            "opts": [
+                "O'yin test qilish",
+                "Email yuborish",
+                "Xavfsizlik holatini tekshirish",
+                "Diskni bo'lish"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Incident response nima?",
+            "opts": [
+                "Kompyuter yig'ish",
+                "Xavfsizlik hodisasiga javob berish jarayoni",
+                "Web dizayn",
+                "Fayl siqish"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Authentication nimani tekshiradi?",
+            "opts": [
+                "Foydalanuvchi huquqini",
+                "IP tezligini",
+                "Disk hajmini",
+                "Foydalanuvchi kimligini"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Authorization nimani belgilaydi?",
+            "opts": [
+                "MAC manzilni",
+                "CPU tezligini",
+                "Foydalanuvchi nimaga ruxsat olganini",
+                "Kimligini"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Password manager nima uchun?",
+            "opts": [
+                "Diskni formatlash",
+                "Parollarni xavfsiz saqlash va boshqarish",
+                "VPN kabeli",
+                "Antivirus o'rnatish"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Windowsda Task Manager ochish uchun keng tarqalgan kombinatsiya?",
+            "opts": [
+                "Win+Q",
+                "Ctrl+Shift+Esc",
+                "Alt+Shift+T",
+                "Ctrl+Alt+F1"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Windowsda Run oynasi qaysi tugmalar bilan ochiladi?",
+            "opts": [
+                "Alt+R",
+                "Ctrl+R",
+                "Win+L",
+                "Win+R"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Windowsda fayl Explorer ochish kombinatsiyasi?",
+            "opts": [
+                "Alt+E",
+                "Win+F",
+                "Win+E",
+                "Ctrl+E"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Windowsda kompyuterni qulflash kombinatsiyasi?",
+            "opts": [
+                "Win+L",
+                "Ctrl+L",
+                "Alt+L",
+                "Win+K"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Windowsning buyruq satri dasturi qaysi?",
+            "opts": [
+                "cmd",
+                "shell32",
+                "terminal-only",
+                "bash.exe"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "PowerShell nima?",
+            "opts": [
+                "BIOS turi",
+                "Windows uchun kuchli shell va skript muhiti",
+                "Antivirus",
+                "GPU drayveri"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Device Manager nima uchun?",
+            "opts": [
+                "Email yuborish",
+                "Brauzer ochish",
+                "Diskni defragmentatsiya qilish",
+                "Qurilmalar va drayverlarni boshqarish"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Windows Update nima qiladi?",
+            "opts": [
+                "RAMni oshiradi",
+                "Faylni siqadi",
+                "Monitorni almashtiradi",
+                "Tizim yangilanishlarini o'rnatadi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "BIOS/UEFI nima bilan bog'liq?",
+            "opts": [
+                "Office",
+                "Web brauzer",
+                "Kompyuterning dastlabki yuklanishi va apparat sozlamalari",
+                "Antivirus bazasi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Secure Boot nima uchun?",
+            "opts": [
+                "RAMni formatlaydi",
+                "Internet tezligini oshiradi",
+                "Diskni siqadi",
+                "Ishonchli boot dasturlarini tekshirishga yordam beradi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "NTFS nima?",
+            "opts": [
+                "CPU turi",
+                "Antivirus",
+                "Windows fayl tizimi",
+                "Tarmoq protokoli"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Windowsdagi Event Viewer nima ko'rsatadi?",
+            "opts": [
+                "Video kartani",
+                "Tizim va ilova hodisalari jurnallarini",
+                "Diskni fizik tekshiradi",
+                "Wi-Fi parolini"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Services.msc nimani boshqaradi?",
+            "opts": [
+                "Disk bo'limlarini",
+                "Windows xizmatlarini",
+                "BIOSni",
+                "Brauzer plaginlarini"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "msconfig nima uchun ishlatilishi mumkin?",
+            "opts": [
+                "Wi-Fi paroli",
+                "Tizim yuklanishi va ayrim konfiguratsiyalarni boshqarish",
+                "Fayl siqish",
+                "Video montaj"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "ipconfig buyrug'i nima ko'rsatadi?",
+            "opts": [
+                "CPU haroratini",
+                "Windows litsenziyasini",
+                "Disk sog'ligini",
+                "Tarmoq konfiguratsiyasini"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Windowsda ping buyrug'i nima uchun?",
+            "opts": [
+                "Drayver o'rnatish",
+                "Tarmoq ulanishini tekshirish",
+                "Fayl nusxalash",
+                "Disk formatlash"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Windows Firewall nima?",
+            "opts": [
+                "RAM drayveri",
+                "Disk turi",
+                "Tarmoq trafikini boshqaruvchi xavfsizlik komponenti",
+                "Media player"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Recycle Bin nima?",
+            "opts": [
+                "Antivirus",
+                "O'chirilgan fayllar vaqtincha saqlanadigan joy",
+                "Backup server",
+                "BIOS menyusi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Windowsda administrator huquqi nimani beradi?",
+            "opts": [
+                "GPU quvvati",
+                "Internet tezligi",
+                "Ko'proq RAM",
+                "Ko'proq tizim boshqaruv imkoniyatlari"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Blue Screen of Death odatda nimani bildiradi?",
+            "opts": [
+                "Wi-Fi paroli noto'g'ri",
+                "Brauzer yopilgan",
+                "Jiddiy tizim xatosi",
+                "Monitor o'chgan"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Windowsda PATH nima?",
+            "opts": [
+                "RAM turi",
+                "Disk bo'limi",
+                "Dasturlarni qidirish uchun kataloglar ro'yxati",
+                "Wi-Fi protokoli"
+            ],
+            "ans": 2
+        },
+        {
+            "q": ".exe fayli odatda nima?",
+            "opts": [
+                "Bajariladigan dastur fayli",
+                "Matn",
+                "Audio",
+                "Rasm"
+            ],
+            "ans": 0
+        },
+        {
+            "q": ".dll fayli odatda nima?",
+            "opts": [
+                "Disk image",
+                "Dinamik kutubxona",
+                "Video",
+                "Backup"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Windows Registry nima?",
+            "opts": [
+                "Antivirus server",
+                "Disk turi",
+                "Web brauzer",
+                "Tizim va dastur konfiguratsiya ma'lumotlar bazasi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "System Restore nima uchun?",
+            "opts": [
+                "Faylni shifrlaydi",
+                "Internetni tezlatadi",
+                "RAMni oshiradi",
+                "Tizim holatini avvalgi nuqtaga qaytarishga yordam beradi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Windowsda screenshot olish uchun Win+Shift+S nima qiladi?",
+            "opts": [
+                "Kompyuterni o'chiradi",
+                "Task Manager ochadi",
+                "Ekran qismini tanlab olish vositasini ochadi",
+                "Wi-Fi uzadi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Windowsda Alt+Tab nima qiladi?",
+            "opts": [
+                "Task Manager ochadi",
+                "Oynalar orasida almashadi",
+                "Kompyuterni qulflaydi",
+                "Faylni o'chiradi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Windowsda Ctrl+Shift+Esc nima ochadi?",
+            "opts": [
+                "Settings",
+                "Run",
+                "Task Manager",
+                "File Explorer"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Windowsda Win+I nima ochadi?",
+            "opts": [
+                "Explorer",
+                "Run",
+                "Task Manager",
+                "Settings"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Windowsda Win+X nima ochadi?",
+            "opts": [
+                "Recycle Bin",
+                "Brauzer",
+                "Quick Link menyusi",
+                "BIOS"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Python fayllarining odatiy kengaytmasi?",
+            "opts": [
+                ".python",
+                ".py",
+                ".pyt",
+                ".pt"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "JavaScript asosan qayerda ishlatiladi?",
+            "opts": [
+                "Web sahifalarda va boshqa muhitlarda dasturlash uchun",
+                "Faqat BIOS chipida",
+                "Faqat printerda",
+                "Faqat BIOSda"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "HTML nimani belgilaydi?",
+            "opts": [
+                "CPU arxitekturasini",
+                "Web sahifa tuzilmasini",
+                "Disk bo'limini",
+                "Tarmoq kabelini"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "CSS nimani boshqaradi?",
+            "opts": [
+                "Ma'lumotlar bazasini",
+                "IP marshrutini",
+                "Web sahifa ko'rinishi va uslubini",
+                "BIOSni"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "JavaScriptda o'zgaruvchi e'lon qilishning zamonaviy usullaridan biri?",
+            "opts": [
+                "define",
+                "varx",
+                "let",
+                "dim"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Python ro'yxat turi qaysi?",
+            "opts": [
+                "vectoronly",
+                "sequencefile",
+                "list",
+                "arrayx"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Python lug'at turi qaysi?",
+            "opts": [
+                "objectmap",
+                "dict",
+                "mapfile",
+                "hashonly"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Python funksiyasi qaysi kalit so'z bilan boshlanadi?",
+            "opts": [
+                "method",
+                "function",
+                "def",
+                "func"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Git nima?",
+            "opts": [
+                "Versiya nazorati tizimi",
+                "Operatsion tizim",
+                "Antivirus",
+                "Web server"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Git repository nima?",
+            "opts": [
+                "GPU drayveri",
+                "DNS server",
+                "RAM bo'limi",
+                "Loyiha versiya tarixi va fayllari saqlanadigan joy"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "git clone nima qiladi?",
+            "opts": [
+                "Repository nusxasini lokalga oladi",
+                "Faylni o'chiradi",
+                "Commitni bekor qiladi",
+                "Branchni yopadi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "git commit nima qiladi?",
+            "opts": [
+                "Repositoryni o'chiradi",
+                "Internetga chiqaradi",
+                "Serverni o'chiradi",
+                "O'zgarishlarni versiya tarixiga saqlaydi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "git push nima qiladi?",
+            "opts": [
+                "Lokal commitlarni remote repositoryga yuboradi",
+                "Gitni o'rnatadi",
+                "Branch yaratadi",
+                "Remote faylni o'chiradi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "git pull nima qiladi?",
+            "opts": [
+                "Repository o'chiradi",
+                "Commit yaratadi",
+                "Fayl siqadi",
+                "Remote o'zgarishlarni olib kelib birlashtiradi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "API nima?",
+            "opts": [
+                "Dasturlar o'zaro muloqot qilishi uchun interfeys",
+                "Disk formati",
+                "Antivirus",
+                "CPU turi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "JSON nimaga o'xshash ma'lumot formatidir?",
+            "opts": [
+                "Rasm formatiga",
+                "Strukturali ma'lumot almashish formatiga",
+                "Audio formatiga",
+                "Disk imagega"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "HTTP GET so'rovi odatda nima uchun?",
+            "opts": [
+                "Serverni formatlash",
+                "Ma'lumot olish",
+                "Parolni shifrlash",
+                "Faylni kompress qilish"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "HTTP POST odatda nima uchun?",
+            "opts": [
+                "IP olish",
+                "Faqat ma'lumot o'qish",
+                "Ma'lumot yuborish",
+                "DNS yaratish"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "HTTP 404 nimani bildiradi?",
+            "opts": [
+                "Muvaffaqiyat",
+                "Ruxsat berildi",
+                "Server xatosi 500",
+                "Resurs topilmadi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "HTTP 200 nimani bildiradi?",
+            "opts": [
+                "Redirect",
+                "Muvaffaqiyatli javob",
+                "Topilmadi",
+                "Server xatosi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "HTTP 500 nimani bildiradi?",
+            "opts": [
+                "Server ichki xatosi",
+                "Muvaffaqiyat",
+                "Unauthorized",
+                "Topilmadi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "SQL nima?",
+            "opts": [
+                "GPU API",
+                "Operatsion tizim",
+                "Antivirus",
+                "Ma'lumotlar bazasi bilan ishlash tili"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Algoritm nima?",
+            "opts": [
+                "Muammoni yechish bosqichlari",
+                "Faqat kod fayli",
+                "Tarmoq kabeli",
+                "Kompyuter virusi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Loop nima?",
+            "opts": [
+                "Takrorlanuvchi kod tuzilmasi",
+                "Database server",
+                "Fayl tizimi",
+                "IP manzil"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "if operatori nima uchun?",
+            "opts": [
+                "Tarmoq ulash",
+                "CPU sovitish",
+                "Shart tekshirish",
+                "Fayl siqish"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Boolean odatda nechta asosiy qiymatga ega?",
+            "opts": [
+                "3",
+                "2",
+                "4",
+                "8"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Array/list indekslari ko'p tillarda qaysi sondan boshlanadi?",
+            "opts": [
+                "10",
+                "0",
+                "1",
+                "-1"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Bug dasturlashda nimani anglatadi?",
+            "opts": [
+                "Fayl formati",
+                "Dasturdagi xato",
+                "Yangi funksiya",
+                "Server"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Debugging nima?",
+            "opts": [
+                "Xatolarni topish va tuzatish jarayoni",
+                "Kod shifrlash",
+                "Disk tozalash",
+                "Server o'chirish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "IDE nima?",
+            "opts": [
+                "Dasturlash uchun integratsiyalashgan muhit",
+                "Disk formati",
+                "Internet protokoli",
+                "Antivirus"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "CPU ning asosiy vazifasi nima?",
+            "opts": [
+                "Buyruqlarni bajarish va hisoblash",
+                "Internet tarqatish",
+                "Faqat grafik chiqarish",
+                "Faqat saqlash"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "RAM nima uchun ishlatiladi?",
+            "opts": [
+                "Tarmoq ulanishi",
+                "Vaqtinchalik ishchi xotira",
+                "Faqat video chiqish",
+                "Doimiy arxiv"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "SSD qanday qurilma?",
+            "opts": [
+                "Ma'lumot saqlash qurilmasi",
+                "CPU turi",
+                "Router",
+                "Monitor"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "GPU ning asosiy vazifasi?",
+            "opts": [
+                "Internet tarqatish",
+                "Fayl tizimini boshqarish",
+                "BIOS yangilash",
+                "Grafik hisoblash"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "VRAM nima?",
+            "opts": [
+                "Wi-Fi xotira",
+                "SSD turi",
+                "GPUga tegishli video xotira",
+                "CPU cache"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Motherboard nima?",
+            "opts": [
+                "Faqat RAM",
+                "Faqat GPU",
+                "Router",
+                "Kompyuter komponentlarini bog'lovchi plata"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "PSU nima?",
+            "opts": [
+                "CPU sovutgich",
+                "Quvvat manbai",
+                "SSD",
+                "Monitor"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "CPU core nima?",
+            "opts": [
+                "USB port",
+                "Protsessorning hisoblash yadrosi",
+                "RAM moduli",
+                "Disk bo'limi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "CPU clock speed odatda nimada o'lchanadi?",
+            "opts": [
+                "GHz",
+                "TB",
+                "GB",
+                "FPS"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "RAM hajmi odatda nimada o'lchanadi?",
+            "opts": [
+                "V",
+                "FPS",
+                "GB",
+                "GHz"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "SSD hajmi odatda nimada o'lchanadi?",
+            "opts": [
+                "FPS",
+                "dB",
+                "GHz",
+                "GB yoki TB"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "USB nima?",
+            "opts": [
+                "Universal ulanish interfeysi",
+                "OS turi",
+                "Disk formati",
+                "CPU arxitekturasi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "HDMI odatda nima uzatadi?",
+            "opts": [
+                "Faqat elektr",
+                "Faqat Wi-Fi",
+                "Faqat fayl",
+                "Raqamli audio va video"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Ethernet porti odatda nima uchun?",
+            "opts": [
+                "GPU ulash",
+                "RAM qo'shish",
+                "Audio yozish",
+                "Simli tarmoq ulanishi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Cooling fan nima qiladi?",
+            "opts": [
+                "Issiqlikni chiqarishga yordam beradi",
+                "Diskni formatlaydi",
+                "Internet beradi",
+                "RAMni oshiradi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Thermal paste qayerda ishlatiladi?",
+            "opts": [
+                "CPU/GPU va sovutgich orasida issiqlik uzatishda",
+                "SSD ichida",
+                "Routerda",
+                "RAM slotida"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "PCIe nima?",
+            "opts": [
+                "OS",
+                "Fayl tizimi",
+                "Komponentlarni ulash uchun kengaytma interfeysi",
+                "Antivirus"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "NVMe odatda qaysi interfeys/protokol oilasi bilan bog'liq?",
+            "opts": [
+                "HDMI",
+                "PCIe orqali tezkor SSDlar",
+                "USB audio",
+                "Ethernet"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "DisplayPort nima?",
+            "opts": [
+                "Audio/video chiqish interfeysi",
+                "Disk formati",
+                "RAM turi",
+                "Tarmoq protokoli"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Bluetooth nima?",
+            "opts": [
+                "Qisqa masofali simsiz aloqa texnologiyasi",
+                "CPU modeli",
+                "Web server",
+                "Disk turi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Wi-Fi nima?",
+            "opts": [
+                "BIOS turi",
+                "SSD turi",
+                "GPU interfeysi",
+                "Simsiz lokal tarmoq texnologiyasi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "UPS nima uchun?",
+            "opts": [
+                "Elektr uzilishida vaqtincha quvvat berish",
+                "GPUni oshirish",
+                "RAMni tozalash",
+                "Internetni tezlatish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Monitor refresh rate nimada o'lchanadi?",
+            "opts": [
+                "GB",
+                "Hz",
+                "GHz",
+                "W"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "FPS nimani bildiradi?",
+            "opts": [
+                "Tarmoq porti",
+                "CPU yadrosi",
+                "Sekundiga kadrlar soni",
+                "Disk hajmi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Resolution nimani bildiradi?",
+            "opts": [
+                "RAM tezligi",
+                "Tasvirdagi piksel o'lchami",
+                "CPU chastotasi",
+                "Disk hajmi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Laptop batareyasi odatda nimani saqlaydi?",
+            "opts": [
+                "IP manzilni",
+                "BIOSni",
+                "Elektr energiyasini",
+                "Fayllarni"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "M.2 nima?",
+            "opts": [
+                "Saqlash yoki boshqa qurilmalar uchun form-factor/interfeys turi",
+                "Windows versiyasi",
+                "CPU modeli",
+                "Tarmoq protokoli"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "DDR5 nimaga tegishli?",
+            "opts": [
+                "SSD protokoli",
+                "GPU interfeysi",
+                "RAM avlodi",
+                "Wi-Fi turi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Ray Tracing nimani hisoblashga qaratilgan?",
+            "opts": [
+                "Tarmoq paketlarini",
+                "Yorug'lik nurlarining realistik tarqalishini",
+                "Diskni formatlashni",
+                "Audio siqishni"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "DLSS nima bilan bog'liq?",
+            "opts": [
+                "SSD firmware",
+                "NVIDIA AI asosidagi tasvirni qayta tiklash/upscaling texnologiyasi",
+                "Windows boot",
+                "Router protokoli"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "URL nima?",
+            "opts": [
+                "Web resurs manzili",
+                "RAM turi",
+                "CPU modeli",
+                "Disk turi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Domain nima?",
+            "opts": [
+                "GPU drayveri",
+                "Internetdagi nom manzili",
+                "Fayl tizimi",
+                "BIOS kodi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Web server nima qiladi?",
+            "opts": [
+                "CPUni sovitadi",
+                "RAMni oshiradi",
+                "Web resurslarga HTTP kabi protokollar orqali xizmat ko'rsatadi",
+                "Diskni formatlaydi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Browser nima?",
+            "opts": [
+                "OS",
+                "Web sahifalarni ko'rish dasturi",
+                "Antivirus",
+                "Database"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "HTTPS nimani qo'shimcha ta'minlaydi?",
+            "opts": [
+                "TLS orqali shifrlangan aloqa",
+                "RAM kengligi",
+                "GPU tezligi",
+                "Disk hajmi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Cookie nima?",
+            "opts": [
+                "CPU cache",
+                "Brauzerda saqlanishi mumkin bo'lgan kichik ma'lumot",
+                "Router",
+                "Virus turi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Session nima?",
+            "opts": [
+                "GPU xotirasi",
+                "DNS server",
+                "Disk bo'limi",
+                "Foydalanuvchi bilan bog'liq vaqtinchalik server/client holati"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Responsive design nima?",
+            "opts": [
+                "Antivirus",
+                "Faqat desktop dizayn",
+                "Server optimizatsiyasi",
+                "Turli ekran o'lchamlariga moslashuvchi dizayn"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "DOM nima?",
+            "opts": [
+                "CPU arxitekturasi",
+                "Web hujjatning dasturiy obyekt modeli",
+                "DNS turi",
+                "Disk modeli"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "CSS selector nima?",
+            "opts": [
+                "Disk formati",
+                "Database query",
+                "IP manzil",
+                "HTML elementlarini tanlash qoidasi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "HTMLdagi <a> elementi nima uchun?",
+            "opts": [
+                "Script serverini ishga tushirish",
+                "Rasm siqish",
+                "Havola yaratish",
+                "Audio yozish"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "HTMLdagi <img> elementi nima uchun?",
+            "opts": [
+                "Rasm joylash",
+                "Parol saqlash",
+                "Video tahrirlash",
+                "DNS yaratish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "HTMLdagi <form> nima uchun?",
+            "opts": [
+                "Foydalanuvchi ma'lumot kiritish shakli",
+                "Router sozlash",
+                "Disk formatlash",
+                "CPU boshqarish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "CSS flexbox nima?",
+            "opts": [
+                "OS",
+                "Antivirus",
+                "Database",
+                "Layout tizimi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "CSS grid nima?",
+            "opts": [
+                "Disk formati",
+                "JavaScript kutubxonasi",
+                "Tarmoq protokoli",
+                "Ikki o'lchamli layout tizimi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "JavaScript event nima?",
+            "opts": [
+                "Disk bo'limi",
+                "CPU flag",
+                "IP manzil",
+                "Brauzer yoki kodda yuz beradigan hodisa"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "localStorage nima?",
+            "opts": [
+                "Server RAM",
+                "DNS cache server",
+                "GPU memory",
+                "Brauzerda ma'lumotni saqlash mexanizmi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "CORS nimaga tegishli?",
+            "opts": [
+                "CPU sovutish",
+                "Wi-Fi tezligi",
+                "Disk format",
+                "Brauzerlararo originlar bo'yicha resurslarga kirish siyosati"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "CDN nima?",
+            "opts": [
+                "CPU modeli",
+                "Antivirus",
+                "Kontentni foydalanuvchiga yaqin serverlardan yetkazish tarmog'i",
+                "Database turi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "SEO nima?",
+            "opts": [
+                "SSD optimizatsiyasi",
+                "GPU overclock",
+                "Wi-Fi protokoli",
+                "Qidiruv tizimlarida ko'rinishni yaxshilash amaliyoti"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Meta description nima?",
+            "opts": [
+                "Sahifa haqida qidiruv tizimlariga beriladigan tavsif",
+                "CPU cache",
+                "DNS server",
+                "CSS animatsiya"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Favicon nima?",
+            "opts": [
+                "Video formati",
+                "Server logi",
+                "Brauzer tabidagi kichik sayt belgisi",
+                "IP manzil"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "HTTP redirect nima?",
+            "opts": [
+                "RAMni tozalash",
+                "So'rovni boshqa URLga yo'naltirish",
+                "CPUni qayta ishga tushirish",
+                "Diskni o'chirish"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "301 status kodi nimani bildiradi?",
+            "opts": [
+                "Topilmadi",
+                "Server xatosi",
+                "Muvaffaqiyatli POST",
+                "Doimiy redirect"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "302 status kodi odatda nimani bildiradi?",
+            "opts": [
+                "Muvaffaqiyat",
+                "Vaqtinchalik redirect",
+                "Topilmadi",
+                "Unauthorized"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "403 status kodi nimani bildiradi?",
+            "opts": [
+                "Muvaffaqiyat",
+                "Redirect",
+                "Topilmadi",
+                "Forbidden — ruxsat yo'q"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "401 status kodi nimani bildiradi?",
+            "opts": [
+                "Redirect",
+                "Muvaffaqiyat",
+                "Server topilmadi",
+                "Unauthorized — autentifikatsiya talab qilinadi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "500 status kodi qaysi tur?",
+            "opts": [
+                "Client muvaffaqiyati",
+                "DNS yozuvi",
+                "Redirect",
+                "Server tomondagi xato"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "WebSocket nimaga mos?",
+            "opts": [
+                "Ikki tomonlama doimiy real-time aloqa",
+                "Faqat disk saqlash",
+                "RAM boshqaruvi",
+                "BIOS update"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "PWA nimani anglatadi?",
+            "opts": [
+                "Public Web Archive",
+                "Private Web Address",
+                "Progressive Web App",
+                "Programmed Windows API"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Database nima?",
+            "opts": [
+                "Monitor",
+                "Router",
+                "CPU",
+                "Strukturali ma'lumotlarni saqlash va boshqarish tizimi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "SQL SELECT nima uchun?",
+            "opts": [
+                "Diskni formatlash",
+                "Serverni o'chirish",
+                "Jadvalni o'chirish",
+                "Ma'lumotlarni tanlab olish"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "SQL INSERT nima qiladi?",
+            "opts": [
+                "Qatorni o'chiradi",
+                "Yangi qator qo'shadi",
+                "Jadvalni o'zgartirmaydi",
+                "Database yaratmaydi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "SQL UPDATE nima qiladi?",
+            "opts": [
+                "Serverni restart qiladi",
+                "Jadvalni o'chiradi",
+                "Mavjud ma'lumotlarni yangilaydi",
+                "Indexni o'chiradi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "SQL DELETE nima qiladi?",
+            "opts": [
+                "Qatorlarni o'chiradi",
+                "Serverni yoqadi",
+                "Database yaratadi",
+                "Backup oladi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "SQL CREATE TABLE nima qiladi?",
+            "opts": [
+                "Indexni tekshiradi",
+                "Jadval yaratadi",
+                "Qatorni o'chiradi",
+                "Userni bloklaydi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Primary key nima?",
+            "opts": [
+                "Backup fayli",
+                "Server manzili",
+                "Parol",
+                "Qatorni noyob aniqlovchi kalit"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Foreign key nima?",
+            "opts": [
+                "Jadvallar orasidagi bog'lanishni ifodalovchi kalit",
+                "Admin parol",
+                "Disk key",
+                "CPU key"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Index database'da nima uchun?",
+            "opts": [
+                "Diskni formatlash uchun",
+                "Parolni yashirish uchun",
+                "Qidiruvni tezlashtirish uchun",
+                "Serverni o'chirish uchun"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "JOIN nima?",
+            "opts": [
+                "Backup qilish",
+                "Database o'chirish",
+                "Jadvallardan bog'liq ma'lumotlarni birlashtirish",
+                "User yaratish"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "INNER JOIN nima qaytaradi?",
+            "opts": [
+                "Mos kelgan qatorlarni",
+                "Faqat o'ng jadvalni",
+                "Barcha mumkin bo'lgan kombinatsiyani",
+                "Faqat chap jadvalni"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "LEFT JOIN nimani saqlab qoladi?",
+            "opts": [
+                "Chap jadvalning barcha qatorlarini",
+                "Faqat null qatorlarni",
+                "Faqat o'ng jadvalni",
+                "Faqat mos qatorlarni"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "GROUP BY nima uchun?",
+            "opts": [
+                "Database o'chirish",
+                "User parolini almashtirish",
+                "Index yaratish",
+                "Qatorlarni guruhlash"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "ORDER BY nima uchun?",
+            "opts": [
+                "Jadval yaratish",
+                "Qator qo'shish",
+                "Backup olish",
+                "Natijani saralash"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "WHERE nima uchun?",
+            "opts": [
+                "Jadval yaratish",
+                "Qatorlarni shart bo'yicha filtrlash",
+                "Database backup",
+                "Index o'chirish"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "HAVING nima uchun?",
+            "opts": [
+                "Guruhlangan natijalarni shart bilan filtrlash",
+                "User yaratish",
+                "Jadvalni formatlash",
+                "Serverni restart qilish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "NULL nimani anglatadi?",
+            "opts": [
+                "0 raqami",
+                "Bo'sh stringning aynan o'zi",
+                "Qiymat mavjud emas/aniqlanmagan",
+                "False"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Normalization nima uchun?",
+            "opts": [
+                "Internetni ulash",
+                "GPU tezlatish",
+                "Ma'lumot takrorlanishini kamaytirish va tuzilmani yaxshilash",
+                "Disk formatlash"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Transaction nima?",
+            "opts": [
+                "Bir butun bajariladigan ma'lumotlar bazasi operatsiyalari to'plami",
+                "CPU jarayoni",
+                "Router protokoli",
+                "Web sahifa"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "COMMIT nima qiladi?",
+            "opts": [
+                "Transaction o'zgarishlarini tasdiqlaydi",
+                "O'zgarishni bekor qiladi",
+                "Database o'chiradi",
+                "Serverni to'xtatadi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "ROLLBACK nima qiladi?",
+            "opts": [
+                "Transactiondagi o'zgarishlarni qaytaradi",
+                "Commit qiladi",
+                "Index yaratadi",
+                "User qo'shadi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "ACIDdagi A nimani bildiradi?",
+            "opts": [
+                "Atomicity",
+                "Availability",
+                "Address",
+                "Authentication"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "ACIDdagi C nimani bildiradi?",
+            "opts": [
+                "Consistency",
+                "Connection",
+                "Confidentiality",
+                "Control"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "ACIDdagi I nimani bildiradi?",
+            "opts": [
+                "Index",
+                "Identity",
+                "Isolation",
+                "Integrity"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "ACIDdagi D nimani bildiradi?",
+            "opts": [
+                "Data",
+                "Dependency",
+                "Durability",
+                "Domain"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "NoSQL nima?",
+            "opts": [
+                "Operatsion tizim",
+                "Web server",
+                "Relatsion bo'lmagan database yondashuvlari oilasi",
+                "Faqat SQL query"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "MongoDB qanday database?",
+            "opts": [
+                "Document-oriented NoSQL",
+                "Faqat relational SQL",
+                "Keylogger",
+                "Graph-only"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Redis ko'pincha nima sifatida ishlatiladi?",
+            "opts": [
+                "Web browser",
+                "GPU driver",
+                "BIOS",
+                "In-memory data store/cache"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Backup database uchun nima beradi?",
+            "opts": [
+                "Internet tezligini",
+                "Ma'lumotni tiklash imkonini",
+                "RAM hajmini",
+                "CPU tezligini"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Database schema nima?",
+            "opts": [
+                "Server elektr ta'minoti",
+                "Antivirus",
+                "Ma'lumotlar bazasi tuzilmasi",
+                "IP manzil"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Cloud computing nima?",
+            "opts": [
+                "Faqat lokal disk",
+                "Antivirus",
+                "Hisoblash resurslarini tarmoq orqali xizmat sifatida ishlatish",
+                "BIOS turi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "IaaS nimani anglatadi?",
+            "opts": [
+                "Internet as a Server",
+                "Infrastructure as a Service",
+                "Interface as a Storage",
+                "Identity as a System"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "PaaS nimani anglatadi?",
+            "opts": [
+                "Program as a Server",
+                "Private as a Service",
+                "Platform as a Service",
+                "Protocol as a System"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "SaaS nimani anglatadi?",
+            "opts": [
+                "Software as a Service",
+                "Script as a Service",
+                "Server as a Storage",
+                "Security as a System"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Virtual machine nima?",
+            "opts": [
+                "Router",
+                "Dasturiy emulyatsiya/virtualizatsiya qilingan kompyuter muhiti",
+                "Faqat SSD",
+                "USB qurilma"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Container nima?",
+            "opts": [
+                "Wi-Fi protokoli",
+                "CPU cache",
+                "Disk bo'limi",
+                "Ilovani va bog'liqliklarini izolyatsiyalangan muhitda ishga tushirish usuli"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Docker nima?",
+            "opts": [
+                "Antivirus",
+                "BIOS",
+                "Database",
+                "Containerlar bilan ishlash platformasi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Kubernetes nima?",
+            "opts": [
+                "Disk formati",
+                "Web browser",
+                "Container orchestration platformasi",
+                "CPU driver"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "CI nima?",
+            "opts": [
+                "Cloud Identity",
+                "Code Installation",
+                "Continuous Integration",
+                "Computer Internet"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "CD DevOpsda ko'pincha nimani anglatadi?",
+            "opts": [
+                "Computer Driver",
+                "Cloud Disk",
+                "Code Database",
+                "Continuous Delivery/Deployment"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Pipeline nima?",
+            "opts": [
+                "Disk bo'limi",
+                "Avtomatlashtirilgan build/test/deploy jarayoni",
+                "Router porti",
+                "RAM turi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Infrastructure as Code nima?",
+            "opts": [
+                "Infratuzilmani kod orqali ta'riflash va boshqarish",
+                "Web dizayn",
+                "CPU dasturi",
+                "Antivirus"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Terraform nima?",
+            "opts": [
+                "Infrastructure as Code vositasi",
+                "Database",
+                "Browser",
+                "OS"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Ansible nima?",
+            "opts": [
+                "GPU",
+                "Avtomatlashtirish va konfiguratsiya boshqaruvi vositasi",
+                "Web server only",
+                "Disk"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "GitHub nima?",
+            "opts": [
+                "Antivirus",
+                "OS",
+                "Router",
+                "Git repository hosting va hamkorlik platformasi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "GitHub Actions nima?",
+            "opts": [
+                "Disk format",
+                "Repository ichida avtomatlashtirish/CI-CD workflowlari",
+                "GPU driver",
+                "DNS server"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Load balancer nima?",
+            "opts": [
+                "DNSni o'chiradi",
+                "RAMni oshiradi",
+                "Trafikni bir nechta serverlarga taqsimlaydi",
+                "Diskni formatlaydi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Auto scaling nima?",
+            "opts": [
+                "Fayl nomini o'zgartirish",
+                "Parolni almashtirish",
+                "Diskni bo'lish",
+                "Yuklamaga qarab resurs/instansiyalarni avtomatik o'zgartirish"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Object storage nima?",
+            "opts": [
+                "Obyekt ko'rinishida fayl va metadata saqlash xizmati",
+                "RAM turi",
+                "CPU cache",
+                "Router"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "CDN cloud muhitida nima uchun?",
+            "opts": [
+                "CPUni sovitish",
+                "BIOS update",
+                "Kontentni foydalanuvchiga yaqin joydan yetkazish",
+                "Database o'chirish"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Region cloud platformada nimani bildiradi?",
+            "opts": [
+                "Geografik joylashuvdagi resurs hududi",
+                "CPU chastotasi",
+                "Parol darajasi",
+                "Disk turi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Availability Zone nima?",
+            "opts": [
+                "DNS porti",
+                "CPU core",
+                "Region ichidagi alohida infratuzilma zonasi",
+                "Backup fayli"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Monitoring nima uchun?",
+            "opts": [
+                "Faylni formatlash",
+                "Tizim holati va metrikalarni kuzatish",
+                "Web dizayn",
+                "Parol yaratish"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Logging nima?",
+            "opts": [
+                "RAMni oshirish",
+                "GPU overclock",
+                "Hodisalar va tizim xabarlarini yozib borish",
+                "DNS yaratish"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Alert nima?",
+            "opts": [
+                "Disk bo'limi",
+                "Muayyan shart yuz berganda xabar berish",
+                "CPU modeli",
+                "Database turi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Blue-green deployment nima?",
+            "opts": [
+                "GPU rejimi",
+                "Disk formati",
+                "Wi-Fi turi",
+                "Ikki muhit orqali xavfi kamaytirilgan release usuli"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Rollback deployment nima?",
+            "opts": [
+                "Yangi versiyadan oldingi versiyaga qaytish",
+                "Database backupni o'chirish",
+                "DNS yaratish",
+                "CPUni almashtirish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Secret management nima uchun?",
+            "opts": [
+                "Disk format",
+                "Video siqish",
+                "API key, parol kabi maxfiy ma'lumotlarni himoyalash",
+                "CPU tezlatish"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Scalability nima?",
+            "opts": [
+                "Tizim yuklama oshishiga mos ravishda kengaya olish qobiliyati",
+                "Parol uzunligi",
+                "GPU harorati",
+                "Disk formati"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "High availability nima?",
+            "opts": [
+                "Xizmatning yuqori darajada uzluksiz mavjudligi",
+                "Faqat yuqori CPU chastotasi",
+                "Ko'p RAM",
+                "Katta disk"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Binary sanoq tizimida nechta raqam ishlatiladi?",
+            "opts": [
+                "8",
+                "10",
+                "2",
+                "16"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Hexadecimal sanoq tizimining asosi nechchi?",
+            "opts": [
+                "2",
+                "8",
+                "10",
+                "16"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "1 byte nechta bit?",
+            "opts": [
+                "8",
+                "32",
+                "4",
+                "16"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "1 KB odatda nechta byte deb olinadi (binary hisobda)?",
+            "opts": [
+                "2048",
+                "100",
+                "1024",
+                "512"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "IP manzil nima?",
+            "opts": [
+                "CPU cache",
+                "Tarmoqdagi qurilmani adreslash qiymati",
+                "Monitor modeli",
+                "Fayl kengaytmasi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "MAC address nimani aniqlaydi?",
+            "opts": [
+                "Tarmoq interfeysining apparat manzilini",
+                "CPUni",
+                "Faylni",
+                "Domen nomini"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Open-source nima?",
+            "opts": [
+                "Hardware",
+                "Faqat pullik dastur",
+                "Manba kodi ochiq bo'lishi mumkin bo'lgan dasturiy ta'minot modeli",
+                "Antivirus"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Backup nima?",
+            "opts": [
+                "Tarmoq porti",
+                "CPU modeli",
+                "Ma'lumotning zaxira nusxasi",
+                "Monitor turi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Compression nima?",
+            "opts": [
+                "Ma'lumot hajmini kamaytirish",
+                "IPni almashtirish",
+                "Parolni ochish",
+                "CPUni sovitish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Lossless compression nima?",
+            "opts": [
+                "Ma'lumotni yo'qotuvchi siqish",
+                "Asl ma'lumotni to'liq tiklash mumkin bo'lgan siqish",
+                "Hashing",
+                "Encryption"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Lossy compression nima?",
+            "opts": [
+                "Ma'lumotning bir qismi yo'qolishi mumkin bo'lgan siqish",
+                "Backup",
+                "Hash",
+                "To'liq tiklanadigan siqish"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Virtualization nima?",
+            "opts": [
+                "Fizik resurslar ustida virtual muhitlar yaratish",
+                "Antivirus",
+                "Fayl o'chirish",
+                "DNS"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Firmware nima?",
+            "opts": [
+                "Database",
+                "RAM",
+                "Faqat web sahifa",
+                "Qurilmada ishlaydigan past darajadagi dasturiy ta'minot"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Driver nima?",
+            "opts": [
+                "OS va qurilma o'rtasidagi dasturiy interfeys",
+                "Backup",
+                "CPU",
+                "Router"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Kernel nima?",
+            "opts": [
+                "Antivirus",
+                "Disk",
+                "Brauzer",
+                "Operatsion tizimning asosiy yadrosi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Process nima?",
+            "opts": [
+                "IP manzil",
+                "Ishlayotgan dastur nusxasi",
+                "Fayl formati",
+                "RAM chipi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Thread nima?",
+            "opts": [
+                "Process ichidagi bajarilish oqimi",
+                "DNS rekord",
+                "Router",
+                "Disk bo'limi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Cache nima?",
+            "opts": [
+                "Tezkor vaqtinchalik saqlash qatlami",
+                "Backup disk",
+                "OS",
+                "IP protokol"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Latency va bandwidth farqi nimada?",
+            "opts": [
+                "Ikkalasi disk hajmi",
+                "Ikkalasi bir xil",
+                "Ikkalasi CPU chastotasi",
+                "Latency kechikish, bandwidth kanal sig'imi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "Uptime nima?",
+            "opts": [
+                "Xizmat/tizim ishlagan vaqt ulushi yoki davomiyligi",
+                "RAM tezligi",
+                "CPU harorati",
+                "Disk hajmi"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "Downtime nima?",
+            "opts": [
+                "Backup vaqti",
+                "CPU ishlash tezligi",
+                "Xizmat ishlamagan vaqt",
+                "Tarmoq tezligi"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Scam nima?",
+            "opts": [
+                "Router",
+                "Aldovga asoslangan firibgarlik sxemasi",
+                "Database",
+                "OS turi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Spam nima?",
+            "opts": [
+                "Virusning yagona turi",
+                "Keraksiz yoki ommaviy xabarlar",
+                "Disk formati",
+                "CPU xatosi"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Two-factor authentication nima?",
+            "opts": [
+                "Ikki parolni bir xil qilish",
+                "Ikki antivirus",
+                "Ikki xil autentifikatsiya omilidan foydalanish",
+                "Ikki monitor"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "CAPTCHA nima uchun?",
+            "opts": [
+                "CPUni tezlatadi",
+                "DNSni almashtiradi",
+                "Diskni formatlaydi",
+                "Botlarni odamdan ajratishga yordam beradi"
+            ],
+            "ans": 3
+        },
+        {
+            "q": "QR code nima?",
+            "opts": [
+                "Ikki o'lchamli kod",
+                "RAM turi",
+                "Tarmoq porti",
+                "CPU cache"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "ASCII nima?",
+            "opts": [
+                "Belgilarni kodlash standarti",
+                "Router protokoli",
+                "Disk turi",
+                "OS"
+            ],
+            "ans": 0
+        },
+        {
+            "q": "UTF-8 nima?",
+            "opts": [
+                "CPU arxitekturasi",
+                "Antivirus",
+                "Unicode belgilarini kodlash usuli",
+                "Disk formati"
+            ],
+            "ans": 2
+        },
+        {
+            "q": "Open-source loyihada pull request nima?",
+            "opts": [
+                "Server restart",
+                "O'zgarishlarni ko'rib chiqish va qo'shishni taklif qiluvchi so'rov",
+                "DNS query",
+                "Database backup"
+            ],
+            "ans": 1
+        },
+        {
+            "q": "Documentation nima uchun?",
+            "opts": [
+                "Diskni formatlash",
+                "Router sozlash",
+                "Tizim yoki koddan foydalanish va tushunishni osonlashtirish",
+                "CPUni sovitish"
+            ],
+            "ans": 2
+        }
+    ];
+
+    let qIndex = 0, score = 0, answered = false;
+
+    function loadQuestion() {
+        const q = questions[qIndex];
+        document.getElementById('quiz-num').textContent = `SAVOL ${qIndex+1} / ${questions.length}`;
+        document.getElementById('quiz-q').textContent = q.q;
+        document.getElementById('quiz-result').textContent = '';
+        document.getElementById('quiz-next').disabled = true;
+        answered = false;
+        const opts = document.getElementById('quiz-opts');
+        opts.innerHTML = '';
+        q.opts.forEach((opt, i) => {
+            const btn = document.createElement('div');
+            btn.className = 'quiz-option';
+            btn.textContent = opt;
+            btn.onclick = () => {
+                if (answered) return;
+                answered = true;
+                document.querySelectorAll('.quiz-option').forEach(b => b.onclick = null);
+                if (i === q.ans) {
+                    btn.classList.add('correct');
+                    score++;
+                    document.getElementById('quiz-result').innerHTML = '<span style="color:#28ca41">✓ To\'g\'ri!</span>';
+                } else {
+                    btn.classList.add('wrong');
+                    opts.children[q.ans].classList.add('correct');
+                    document.getElementById('quiz-result').innerHTML = '<span style="color:#ff5f57">✗ Noto\'g\'ri!</span>';
+                }
+                document.getElementById('quiz-score').textContent = `Ball: ${score}`;
+                // Har bir savolga javob berilgandan keyin natijani saqlash.
+                saveQuizToSheets(score, qIndex + 1);
+                document.getElementById('quiz-next').disabled = false;
+                if (qIndex === questions.length - 1) {
+                    document.getElementById('quiz-next').textContent = 'NATIJA →';
+                }
+            };
+            opts.appendChild(btn);
+        });
+    }
+
+    document.getElementById('quiz-next').onclick = () => {
+        qIndex++;
+        if (qIndex >= questions.length) {
+            saveQuizToSheets(score, questions.length);
+            document.getElementById('quiz-card').innerHTML = `
+                <div style="text-align:center; font-family:monospace; padding:20px;">
+                    <div style="font-size:40px; margin-bottom:20px;">🏆</div>
+                    <div style="font-size:24px; color:var(--accent); margin-bottom:10px;">${score} / ${questions.length}<div style="font-size:14px;color:#38bdf8;margin-top:8px;">${Math.round(score / questions.length * 100)}%</div></div>
+                    <div style="color:#9ca3af; margin-bottom:20px;">${score >= 270 ? 'Ajoyib natija! IT bilimlaringiz juda yuqori!' : score >= 210 ? 'Yaxshi natija! Davom eting!' : 'Ko\'proq mashq qilish kerak!'}</div>
+                    <button class="quiz-btn" onclick="location.reload()">QAYTA URINISH</button>
+                </div>`;
+        } else {
+            loadQuestion();
+        }
+    };
+    loadQuestion();
+
+    // TYPING TEST — PRO VERSION
+    const typingModes = {
+        easy: [
+            "Bu oddiy matn yozish testi. Tezroq yozing va natijangizni ko'ring.",
+            "Kompyuter sohasida bilim olish kelajak uchun eng yaxshi investitsiya.",
+            "Linux tizimi dasturchilar va IT mutaxassislari uchun eng qulay muhit.",
+            "Internet texnologiyalari kundalik hayotimizni tez va qulay qiladi.",
+            "Dasturlash mantiqiy fikrlashni rivojlantirishga yordam beradi."
+        ],
+        medium: [
+            "Serverlarni boshqarish, tarmoqlarni sozlash va tizimlarni monitoring qilish IT mutaxassisining muhim vazifalaridir.",
+            "Algoritmlar masalani bosqichma-bosqich yechish uchun aniq va samarali yo'l ko'rsatadi.",
+            "Ma'lumotlarni zaxiralash tizimdagi muhim fayllarni yo'qotish xavfini kamaytiradi.",
+            "Bulutli texnologiyalar server va xizmatlardan masofadan foydalanish imkonini beradi."
+        ],
+        hard: [
+            "Network security requires understanding of TCP/IP protocols, firewall configurations, encryption, authentication and secure access control.",
+            "Python scripting enables automation of repetitive system administration tasks efficiently while reducing human error.",
+            "Cybersecurity professionals must analyze vulnerabilities and implement robust defense mechanisms against evolving threats.",
+            "Modern infrastructure combines virtualization, containers, monitoring, logging and automated deployment pipelines."
+        ],
+        hacker: [
+            "SHAKH@SYSTEM:~$ sudo monitor --network --secure && firewall --status ACTIVE",
+            "[ACCESS GRANTED] Initializing encrypted channel... decrypting packet stream... integrity check: 100%.",
+            "root@itshakh:~$ nmap -sV 192.168.1.1 && grep -i security /var/log/auth.log",
+            "CYBER NODE ONLINE // FIREWALL ACTIVE // ENCRYPTION AES-256 // CONNECTION SECURE // SHAKH"
+        ]
+    };
+
+    let typingMode = 'easy';
+    let typingDuration = 60;
+    let currentText = '';
+    let currentIndex = 0;
+    let startTime = null;
+    let timerInterval = null;
+    let timeLeft = 60;
+    let totalTyped = 0;
+    let correctTyped = 0;
+    let errorCount = 0;
+    let combo = 0;
+    let bestCombo = 0;
+    let isFinished = false;
+    let soundOn = true;
+    let chartData = [];
+    let lastChartSecond = -1;
+    let typingAudioCtx = null;
+
+    const typingInput = document.getElementById('typing-input');
+    const typingText = document.getElementById('typing-text');
+    const typingBar = document.getElementById('typing-timer-bar');
+    const typingChart = document.getElementById('typing-chart');
+    const typingChartCtx = typingChart ? typingChart.getContext('2d') : null;
+
+    function getTypingRandomText() {
+        const arr = typingModes[typingMode] || typingModes.easy;
+        return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    function renderTypingText() {
+        typingText.innerHTML = '';
+        [...currentText].forEach((char, i) => {
+            const span = document.createElement('span');
+            span.className = 'typing-char' + (i === currentIndex ? ' current' : '');
+            span.textContent = char;
+            typingText.appendChild(span);
+        });
+    }
+
+    function updateTypingLevel(wpm) {
+        let level = 'BEGINNER';
+        if (wpm >= 80) level = 'LEGEND';
+        else if (wpm >= 60) level = 'PRO';
+        else if (wpm >= 40) level = 'SKILLED';
+        else if (wpm >= 20) level = 'BASIC';
+        document.getElementById('t-level').textContent = level;
+    }
+
+    function updateTypingStats() {
+        const elapsedMinutes = startTime ? Math.max((Date.now() - startTime) / 60000, 1/60) : 0;
+        const wpm = elapsedMinutes ? Math.round((correctTyped / 5) / elapsedMinutes) : 0;
+        const acc = totalTyped ? Math.round((correctTyped / totalTyped) * 100) : 100;
+
+        document.getElementById('t-wpm').textContent = wpm;
+        document.getElementById('t-acc').textContent = acc + '%';
+        document.getElementById('t-chars').textContent = correctTyped;
+        document.getElementById('t-combo').textContent = `COMBO ×${combo}`;
+        document.getElementById('t-errors').textContent = `XATO: ${errorCount}`;
+        document.getElementById('t-chart-value').textContent = `${wpm} WPM`;
+        updateTypingLevel(wpm);
+
+        if (startTime && wpm > 0) {
+            const sec = Math.floor((Date.now() - startTime) / 1000);
+            if (sec !== lastChartSecond) {
+                lastChartSecond = sec;
+                chartData.push(wpm);
+                drawTypingChart();
+            }
+        }
+        return { wpm, acc };
+    }
+
+    function initTypingAudio() {
+        if (!typingAudioCtx) {
+            typingAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (typingAudioCtx.state === 'suspended') typingAudioCtx.resume();
+    }
+
+    function typingClickSound(correct) {
+        if (!soundOn) return;
+        try {
+            initTypingAudio();
+            const osc = typingAudioCtx.createOscillator();
+            const gain = typingAudioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.value = correct ? 520 : 180;
+            gain.gain.setValueAtTime(0.018, typingAudioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, typingAudioCtx.currentTime + 0.045);
+            osc.connect(gain);
+            gain.connect(typingAudioCtx.destination);
+            osc.start();
+            osc.stop(typingAudioCtx.currentTime + 0.045);
+        } catch (_) {}
+    }
+
+    function buildTypingKeyboard() {
+        const keyboard = document.getElementById('typing-keyboard');
+        const rows = ["1234567890-=", "QWERTYUIOP[]", "ASDFGHJKL;", "ZXCVBNM,./"];
+        keyboard.innerHTML = '';
+        rows.forEach(row => {
+            const rowEl = document.createElement('div');
+            rowEl.className = 'keyboard-row';
+            [...row].forEach(key => {
+                const k = document.createElement('span');
+                k.className = 'keyboard-key';
+                k.dataset.key = key.toLowerCase();
+                k.textContent = key;
+                rowEl.appendChild(k);
+            });
+            keyboard.appendChild(rowEl);
+        });
+    }
+
+    function setupVirtualKeyboard() {
+        document.querySelectorAll('.keyboard-key').forEach((keyEl) => {
+            const press = (e) => {
+                e.preventDefault();
+                if (typingInput.disabled || isFinished) return;
+                const key = keyEl.dataset.key || '';
+                if (!key) return;
+                typingInput.focus();
+                // Feed the same input path used by the physical keyboard.
+                const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+                if (nativeSetter) nativeSetter.call(typingInput, key);
+                else typingInput.value = key;
+                typingInput.dispatchEvent(new Event('input', {bubbles:true}));
+                flashKeyboardKey(key);
+                typingClickSound(key === currentText[currentIndex]);
+            };
+            keyEl.addEventListener('pointerdown', press, {passive:false});
+        });
+    }
+
+    function flashKeyboardKey(key) {
+        const normalized = (key || '').toLowerCase();
+        const el = document.querySelector(`.keyboard-key[data-key="${CSS.escape(normalized)}"]`);
+        if (!el) return;
+        el.classList.add('active');
+        clearTimeout(el._typingKeyTimer);
+        el._typingKeyTimer = setTimeout(() => el.classList.remove('active'), 110);
+    }
+
+    function drawTypingChart() {
+        if (!typingChartCtx) return;
+        const w = typingChart.width;
+        const h = typingChart.height;
+        typingChartCtx.clearRect(0, 0, w, h);
+
+        typingChartCtx.strokeStyle = 'rgba(56,189,248,.12)';
+        typingChartCtx.lineWidth = 1;
+        for (let y = 20; y < h; y += 40) {
+            typingChartCtx.beginPath();
+            typingChartCtx.moveTo(0, y);
+            typingChartCtx.lineTo(w, y);
+            typingChartCtx.stroke();
+        }
+
+        if (!chartData.length) return;
+        const max = Math.max(20, ...chartData) * 1.15;
+        const step = chartData.length > 1 ? w / (chartData.length - 1) : w;
+
+        typingChartCtx.beginPath();
+        chartData.forEach((value, i) => {
+            const x = i * step;
+            const y = h - 15 - (value / max) * (h - 30);
+            if (i === 0) typingChartCtx.moveTo(x, y);
+            else typingChartCtx.lineTo(x, y);
+        });
+        typingChartCtx.strokeStyle = '#38bdf8';
+        typingChartCtx.lineWidth = 3;
+        typingChartCtx.shadowBlur = 10;
+        typingChartCtx.shadowColor = '#38bdf8';
+        typingChartCtx.stroke();
+        typingChartCtx.shadowBlur = 0;
+    }
+
+    function resetTyping() {
+        clearInterval(timerInterval);
+        currentText = getTypingRandomText();
+        currentIndex = 0;
+        startTime = null;
+        timeLeft = typingDuration;
+        totalTyped = 0;
+        correctTyped = 0;
+        errorCount = 0;
+        combo = 0;
+        bestCombo = 0;
+        isFinished = false;
+        chartData = [];
+        lastChartSecond = -1;
+
+        typingInput.value = '';
+        typingInput.disabled = false;
+        typingInput.placeholder = 'Boshlash uchun bu yerga yozing...';
+
+        document.getElementById('t-wpm').textContent = '0';
+        document.getElementById('t-acc').textContent = '100%';
+        document.getElementById('t-time').textContent = String(typingDuration);
+        document.getElementById('t-chars').textContent = '0';
+        document.getElementById('t-combo').textContent = 'COMBO ×0';
+        document.getElementById('t-errors').textContent = 'XATO: 0';
+        document.getElementById('t-level').textContent = 'BEGINNER';
+        document.getElementById('t-chart-value').textContent = '0 WPM';
+        document.getElementById('t-copy').disabled = true;
+        document.getElementById('typing-result').hidden = true;
+        document.getElementById('typing-result').innerHTML = '';
+        typingBar.style.width = '100%';
+        drawTypingChart();
+        renderTypingText();
+    }
+
+    function startTypingTimer() {
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            document.getElementById('t-time').textContent = String(Math.max(timeLeft, 0));
+            typingBar.style.width = Math.max(0, (timeLeft / typingDuration) * 100) + '%';
+            updateTypingStats();
+            if (timeLeft <= 0) finishTyping();
+        }, 1000);
+    }
+
+    function finishTyping() {
+        if (isFinished) return;
+        clearInterval(timerInterval);
+        isFinished = true;
+        typingInput.disabled = true;
+        const stats = updateTypingStats();
+        const result = document.getElementById('typing-result');
+
+        let medal = '💻';
+        if (stats.wpm >= 80) medal = '🏆';
+        else if (stats.wpm >= 60) medal = '🥇';
+        else if (stats.wpm >= 40) medal = '🥈';
+        else if (stats.wpm >= 20) medal = '🥉';
+
+        const best = Math.max(Number(localStorage.getItem('itShakhTypingBest') || 0), stats.wpm);
+        localStorage.setItem('itShakhTypingBest', String(best));
+        document.getElementById('t-best').textContent = `${best} WPM`;
+
+        result.innerHTML = `
+            <div class="typing-result-title">${medal} TEST YAKUNLANDI</div>
+            <div class="typing-result-grid">
+                <div><b>${stats.wpm}</b><small>WPM</small></div>
+                <div><b>${stats.acc}%</b><small>ANIQLIK</small></div>
+                <div><b>${errorCount}</b><small>XATO</small></div>
+                <div><b>${bestCombo}</b><small>MAX COMBO</small></div>
+            </div>
+            <div class="typing-result-level">${document.getElementById('t-level').textContent}</div>
+        `;
+        result.hidden = false;
+        document.getElementById('t-copy').disabled = false;
+    }
+
+    function copyTypingResult() {
+        const stats = updateTypingStats();
+        const best = localStorage.getItem('itShakhTypingBest') || '0';
+        const text = `IT SHAKH — Yozish tezligi testi\nWPM: ${stats.wpm}\nAniqlik: ${stats.acc}%\nXato: ${errorCount}\nMax Combo: ${bestCombo}\nRekord: ${best} WPM\nRejim: ${typingMode.toUpperCase()}\nVaqt: ${typingDuration} soniya`;
+        navigator.clipboard?.writeText(text).then(() => {
+            const btn = document.getElementById('t-copy');
+            const old = btn.textContent;
+            btn.textContent = '✓ NUSXALANDI';
+            setTimeout(() => btn.textContent = old, 1300);
+        }).catch(() => {
+            const area = document.createElement('textarea');
+            area.value = text;
+            document.body.appendChild(area);
+            area.select();
+            document.execCommand('copy');
+            area.remove();
+        });
+    }
+
+    function updateTypingBest() {
+        const best = Number(localStorage.getItem('itShakhTypingBest') || 0);
+        document.getElementById('t-best').textContent = `${best} WPM`;
+    }
+
+    typingInput.addEventListener('keydown', (e) => {
+        if (e.key.length === 1) {
+            flashKeyboardKey(e.key);
+            typingClickSound(e.key === currentText[currentIndex]);
+        }
+        if (e.key === ' ') e.stopPropagation();
+    });
+
+    typingInput.addEventListener('input', (e) => {
+        if (isFinished) return;
+
+        if (!startTime) {
+            startTime = Date.now();
+            initTypingAudio();
+            startTypingTimer();
+        }
+
+        const val = e.target.value;
+        const lastChar = val[val.length - 1];
+        e.target.value = '';
+        if (lastChar === undefined) return;
+
+        totalTyped++;
+        const spans = typingText.querySelectorAll('.typing-char');
+        if (currentIndex >= spans.length) return;
+
+        const correct = lastChar === currentText[currentIndex];
+        if (correct) {
+            spans[currentIndex].className = 'typing-char correct';
+            correctTyped++;
+            combo++;
+            bestCombo = Math.max(bestCombo, combo);
+        } else {
+            spans[currentIndex].className = 'typing-char wrong';
+            errorCount++;
+            combo = 0;
+        }
+
+        currentIndex++;
+
+        if (currentIndex < currentText.length) {
+            spans[currentIndex].classList.add('current');
+        } else {
+            currentText = getTypingRandomText();
+            currentIndex = 0;
+            renderTypingText();
+        }
+
+        updateTypingStats();
+    });
+
+    document.getElementById('t-reset').addEventListener('click', resetTyping);
+
+    document.getElementById('t-copy').addEventListener('click', copyTypingResult);
+
+    document.getElementById('t-sound').addEventListener('click', () => {
+        soundOn = !soundOn;
+        document.getElementById('t-sound').textContent = soundOn ? '🔊 OVOZ: ON' : '🔇 OVOZ: OFF';
+        if (soundOn) initTypingAudio();
+    });
+
+    document.getElementById('t-time-select').addEventListener('change', (e) => {
+        typingDuration = Number(e.target.value);
+        resetTyping();
+    });
+
+    document.getElementById('t-mode-select').addEventListener('change', (e) => {
+        typingMode = e.target.value;
+        resetTyping();
+    });
+
+    window.addEventListener('resize', () => {
+        if (typingChart) {
+            const ratio = window.devicePixelRatio || 1;
+            const width = Math.max(300, typingChart.clientWidth || 900);
+            typingChart.width = Math.floor(width * ratio);
+            typingChart.height = Math.floor(180 * ratio);
+            typingChartCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+            drawTypingChart();
+        }
+    });
+
+    buildTypingKeyboard();
+    setupVirtualKeyboard();
+    updateTypingBest();
+    resetTyping();
+
+
+    // FILE CENTER
+    function openFileCenter(){
+        const s=document.getElementById('file-center-section');
+        if(s){s.classList.add('file-modal-open');document.body.classList.add('file-modal-active');}
+    }
+    function closeFileCenter(){
+        const s=document.getElementById('file-center-section');
+        if(s){s.classList.remove('file-modal-open');document.body.classList.remove('file-modal-active');}
+    }
+    document.addEventListener('keydown',e=>{if(e.key==='Escape')closeFileCenter();});
+
+    (function(){
+        const FILE_API = 'https://files.shakhtashkentski66.uz';
+        const MAX_FILE_SIZE = 1024 * 1024 * 1024;
+        const SIMPLE_UPLOAD_LIMIT = 80 * 1024 * 1024;
+        const MULTIPART_PART_SIZE = 50 * 1024 * 1024;
+
+        const input = document.getElementById('file-input');
+        const zone = document.getElementById('file-drop-zone');
+        const uploadBtn = document.getElementById('file-upload-btn');
+        const clearBtn = document.getElementById('file-clear-btn');
+        const refreshBtn = document.getElementById('file-refresh');
+        const list = document.getElementById('file-list');
+        const progressWrap = document.getElementById('file-progress-wrap');
+        const progressBar = document.getElementById('file-progress-bar');
+        const progressPercent = document.getElementById('file-progress-percent');
+        const progressName = document.getElementById('file-progress-name');
+        const userBox = document.getElementById('file-center-user');
+
+        function getUser(){try{const u=localStorage.getItem('it_shakh_google_user');return u?JSON.parse(u):null;}catch(e){return null;}}
+        function getToken(){const u=getUser();return u?btoa(JSON.stringify(u)):'';}
+        function authHeaders(){return{'X-Google-Token':getToken()};}
+        function requireLogin(){const u=getUser();if(!u){setStatus('Avval Google orqali kiring!','err');return false;}return true;}
+        function setStatus(msg,type){const el=document.getElementById('file-status');if(el){el.textContent=msg;el.className='file-status '+(type||'info');}}
+
+        function fileIcon(name){
+            const ext=(name.split('.').pop()||'').toLowerCase();
+            if(['jpg','jpeg','png','gif','webp','svg','bmp'].includes(ext)) return '🖼';
+            if(['mp4','mov','avi','mkv','webm'].includes(ext)) return '🎬';
+            if(['mp3','wav','ogg','flac','m4a'].includes(ext)) return '🎵';
+            if(['pdf'].includes(ext)) return '📄';
+            if(['zip','rar','7z','tar','gz'].includes(ext)) return '🗜';
+            if(['doc','docx','xls','xlsx','ppt','pptx'].includes(ext)) return '📊';
+            return '📁';
+        }
+        function fmtSize(b){if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';if(b<1073741824)return(b/1048576).toFixed(1)+'MB';return(b/1073741824).toFixed(2)+'GB';}
+
+        async function loadFiles(){
+            if(!list) return;
+            list.innerHTML='<div class="file-empty">YUKLANMOQDA...</div>';
+            try{
+                const r=await fetch(FILE_API+'/list',{headers:authHeaders()});
+                if(!r.ok) throw new Error('Server javobi: '+r.status);
+                const data=await r.json();
+                const files=data.files||[];
+                const countEl=document.getElementById('file-count');
+                if(countEl) countEl.textContent=files.length+' FILE';
+                if(!files.length){list.innerHTML='<div class="file-empty">FAYLLAR YO\'Q</div>';return;}
+                list.innerHTML=files.map(f=>`
+                    <div class="file-row">
+                        <div class="file-icon">${fileIcon(f.name)}</div>
+                        <div class="file-meta">
+                            <div class="file-name">${f.name}</div>
+                            <div class="file-size">${fmtSize(f.size||0)}</div>
+                        </div>
+                        <div class="file-row-actions">
+                            <button class="file-btn" data-download="${encodeURIComponent(f.name)}" type="button">⬇ YUKLAB OLISH</button>
+                            <button class="file-btn danger" data-delete="${encodeURIComponent(f.name)}" type="button">🗑</button>
+                        </div>
+                    </div>`).join('');
+            }catch(e){list.innerHTML='<div class="file-empty">Xato: '+e.message+'</div>';}
+        }
+
+        function xhrUpload(url,method,body,token,contentType,onProgress,extraHeaders){
+            return new Promise((res,rej)=>{
+                const xhr=new XMLHttpRequest();
+                xhr.open(method,url);
+                xhr.setRequestHeader('X-Google-Token',token);
+                if(contentType) xhr.setRequestHeader('Content-Type',contentType);
+                if(extraHeaders) Object.entries(extraHeaders).forEach(([k,v])=>xhr.setRequestHeader(k,v));
+                if(onProgress && xhr.upload) xhr.upload.onprogress=e=>{if(e.lengthComputable)onProgress(e.loaded,e.total);};
+                xhr.onload=()=>{try{res(JSON.parse(xhr.responseText));}catch(e){res({});}};
+                xhr.onerror=()=>rej(new Error('Tarmoq xatosi'));
+                xhr.send(body);
+            });
+        }
+
+        async function uploadSimple(file){
+            const token=getToken();
+            const key=encodeURIComponent(file.name);
+            return xhrUpload(FILE_API+'/upload/'+key,'PUT',file,token,file.type||'application/octet-stream',
+                (loaded,total)=>{const pct=Math.round((loaded/total)*100);progressBar.style.width=pct+'%';progressPercent.textContent=pct+'%';});
+        }
+
+        async function uploadMultipart(file){
+            const token=getToken();
+            const key=encodeURIComponent(file.name);
+            const create=await xhrUpload(FILE_API+'/multipart/'+key+'?action=mpu-create','POST',null,token,'application/json',null,{'X-File-Type':file.type||'application/octet-stream'});
+            if(!create.uploadId) throw new Error('Multipart upload ID olinmadi.');
+            const uploadId=create.uploadId;
+            const totalParts=Math.ceil(file.size/MULTIPART_PART_SIZE);
+            const parts=[];
+            let completedBytes=0;
+            for(let i=0;i<totalParts;i++){
+                const start=i*MULTIPART_PART_SIZE;
+                const end=Math.min(start+MULTIPART_PART_SIZE,file.size);
+                const chunk=file.slice(start,end);
+                const partNo=i+1;
+                const result=await xhrUpload(FILE_API+'/multipart/'+key+'?action=mpu-uploadpart&uploadId='+encodeURIComponent(uploadId)+'&partNumber='+partNo,'PUT',chunk,token,'application/octet-stream',(loaded)=>{const pct=Math.round(((completedBytes+loaded)/file.size)*100);progressBar.style.width=pct+'%';progressPercent.textContent=pct+'%';});
+                if(!result.etag) throw new Error('Part '+partNo+' ETag olinmadi.');
+                parts.push({partNumber:result.partNumber||partNo,etag:result.etag});
+                completedBytes=end;
+            }
+            return xhrUpload(FILE_API+'/multipart/'+key+'?action=mpu-complete&uploadId='+encodeURIComponent(uploadId),'POST',JSON.stringify({parts}),token,'application/json');
+        }
+
+        async function uploadOne(file){
+            if(file.size>MAX_FILE_SIZE) throw new Error(file.name+' — 1 GB dan katta.');
+            if(file.size>SIMPLE_UPLOAD_LIMIT) return uploadMultipart(file);
+            return uploadSimple(file);
+        }
+
+        async function uploadSelected(){
+            if(!requireLogin()) return;
+            const files=Array.from(input.files||[]);
+            if(!files.length){setStatus('Avval fayl tanlang.','err');return;}
+            uploadBtn.disabled=true;clearBtn.disabled=true;
+            progressWrap.classList.add('show');
+            let done=0;
+            for(const file of files){
+                progressBar.style.width='0%';progressPercent.textContent='0%';progressName.textContent=file.name;
+                setStatus('Yuklanmoqda: '+file.name,'info');
+                try{await uploadOne(file);done++;setStatus('✓ '+file.name+' yuklandi.','ok');}
+                catch(e){setStatus('✕ '+e.message,'err');}
+            }
+            input.value='';uploadBtn.disabled=false;clearBtn.disabled=false;
+            progressWrap.classList.remove('show');
+            await loadFiles();
+            if(done) setStatus(done+' ta fayl muvaffaqiyatli yuklandi.','ok');
+        }
+
+        zone&&zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('dragover');});
+        zone&&zone.addEventListener('dragleave',()=>zone.classList.remove('dragover'));
+        zone&&zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('dragover');try{input.files=e.dataTransfer.files;setStatus(input.files.length+' ta fayl tanlandi.','info');}catch(err){}});
+        input&&input.addEventListener('change',()=>{if(input.files.length)setStatus(input.files.length+' ta fayl tanlandi.','info');});
+        uploadBtn&&uploadBtn.addEventListener('click',uploadSelected);
+        clearBtn&&clearBtn.addEventListener('click',()=>{input.value='';progressWrap.classList.remove('show');setStatus('Tanlangan fayllar tozalandi.','info');});
+        refreshBtn&&refreshBtn.addEventListener('click',loadFiles);
+
+        list&&list.addEventListener('click',async e=>{
+            const open=e.target.closest('[data-download]');
+            const del=e.target.closest('[data-delete]');
+            if(open){
+                if(!requireLogin()) return;
+                const name=decodeURIComponent(open.dataset.download);
+                open.disabled=true;setStatus('Yuklanmoqda: '+name,'info');
+                try{
+                    const r=await fetch(FILE_API+'/file/'+encodeURIComponent(name),{headers:authHeaders()});
+                    if(!r.ok) throw new Error('Faylni ochishda xato ('+r.status+')');
+                    const blob=await r.blob();
+                    const url=URL.createObjectURL(blob);
+                    const a=document.createElement('a');a.href=url;a.download=name.split('/').pop()||name;
+                    document.body.appendChild(a);a.click();a.remove();
+                    setTimeout(()=>URL.revokeObjectURL(url),1500);
+                    setStatus('✓ Fayl tayyor: '+name,'ok');
+                }catch(err){setStatus('✕ '+(err.message||'Faylni ochishda xato'),'err');}
+                finally{open.disabled=false;}
+            }
+            if(del){
+                if(!requireLogin()) return;
+                const name=decodeURIComponent(del.dataset.delete);
+                if(!confirm('"'+name+'" faylini o\'chirishni xohlaysizmi?')) return;
+                del.disabled=true;
+                try{
+                    const r=await fetch(FILE_API+'/file/'+encodeURIComponent(name),{method:'DELETE',headers:authHeaders()});
+                    const data=await r.json();
+                    if(!r.ok||!data.success) throw new Error(data.error||'O\'chirishda xato');
+                    setStatus('✓ Fayl o\'chirildi: '+name,'ok');loadFiles();
+                }catch(err){del.disabled=false;setStatus('✕ '+(err.message||'O\'chirishda xato'),'err');}
+            }
+        });
+
+        function updateUser(){const u=getUser();if(userBox)userBox.textContent=u&&u.name?u.name:'GOOGLE LOGIN';}
+        updateUser();
+        window.addEventListener('storage',updateUser);
+
+        // File center ochilganda fayllarni yuklash
+        document.getElementById('files-nav-btn')&&document.getElementById('files-nav-btn').addEventListener('click',()=>setTimeout(loadFiles,300));
+    })();
+
+    // MATRIX
+    const modeToggle = document.getElementById('modeToggle');
+    const body = document.body;
+    const canvas = document.getElementById('matrixCanvas');
+    const ctx = canvas.getContext('2d');
+    let matrixInterval;
+    let drops = [];
+
+    function drawMatrix() {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = body.classList.contains('night-mode') ? '#00ff41' : '#38bdf8';
+        ctx.font = '15px monospace';
+        for (let i = 0; i < drops.length; i++) {
+            const text = Math.floor(Math.random() * 2).toString();
+            ctx.fillText(text, i * 20, drops[i] * 20);
+            if (drops[i] * 20 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+            drops[i]++;
+        }
+    }
+
+    modeToggle.onclick = () => {
+        body.classList.toggle('night-mode');
+        if (body.classList.contains('night-mode')) {
+            modeToggle.innerText = "LIGHT MODE";
+            initMatrix();
+            clearInterval(matrixInterval);
+            matrixInterval = setInterval(drawMatrix, 50);
+        } else {
+            modeToggle.innerText = "NIGHT MODE";
+            clearInterval(matrixInterval);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    };
+
+    function initMatrix() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        drops = Array(Math.floor(canvas.width / 20)).fill(0);
+    }
+
+    window.onresize = () => {
+        if (body.classList.contains('night-mode')) initMatrix();
+    };
+</script>
+
+
+<!-- ===== IT SHAKH LIVE STATUS ===== -->
+<div id="live-status-wrap">
+    <div id="live-status-time"></div>
+    <div id="live-status-text">...</div>
+
+    <div id="live-status-admin">
+        <button id="live-status-open-editor" type="button">✎ YANGI YOZUV</button>
+    </div>
+
+    <div id="live-status-editor" aria-hidden="true">
+        <div class="live-status-editor-box">
+            <div class="live-status-editor-title">// SAYTGA YOZUV QO‘SHISH</div>
+            <textarea id="live-status-input" maxlength="500"
+                placeholder="Bu yerga yozing..."></textarea>
+            <div class="live-status-editor-actions">
+                <button id="live-status-save" type="button">SAQLASH →</button>
+                <button id="live-status-close" type="button">BEKOR QILISH</button>
+            </div>
+            <div id="live-status-msg"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* ===== IT SHAKH LIVE STATUS ===== */
+(function(){
+    const ADMIN_EMAIL = 'anonimshakh4647@gmail.com';
+    const CLIENT_ID = '506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
+    const API = 'https://script.google.com/macros/s/AKfycbwwSCvjGZGeI0g8szN62g8NVVzVKI6atqu1lUoF_W4FfhenqS-cpn27liDJU52gFHvN0Q/exec';
+    const STORE_KEY = 'it_shakh_live_status';
+
+    const timeEl = document.getElementById('live-status-time');
+    const textEl = document.getElementById('live-status-text');
+    const adminEl = document.getElementById('live-status-admin');
+    const inputEl = document.getElementById('live-status-input');
+    const saveEl = document.getElementById('live-status-save');
+    const msgEl = document.getElementById('live-status-msg');
+    const openEditorEl = document.getElementById('live-status-open-editor');
+    const closeEditorEl = document.getElementById('live-status-close');
+    const editorEl = document.getElementById('live-status-editor');
+
+    function localTime(){
+        const d = new Date();
+        const date = d.toLocaleDateString('uz-UZ',{day:'2-digit',month:'2-digit',year:'numeric'});
+        const time = d.toLocaleTimeString('uz-UZ',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        timeEl.textContent = time + '  •  ' + date;
+    }
+    localTime();
+    setInterval(localTime,1000);
+
+    function getUser(){
+        try{
+            return JSON.parse(localStorage.getItem('it_shakh_google_user') || 'null');
+        }catch(e){ return null; }
+    }
+
+    function getToken(){
+        const u=getUser();
+        return u && u.credential ? u.credential : '';
+    }
+
+    function isAdmin(){
+        const u=getUser();
+        return !!u && String(u.email||'').toLowerCase()===ADMIN_EMAIL;
+    }
+
+    function showAdmin(){
+        if(isAdmin()){
+            adminEl.classList.add('show');
+            inputEl.value = localStorage.getItem(STORE_KEY) || '';
+        }
+    }
+
+    function render(text){
+        textEl.textContent = text || '';
+        textEl.style.display = text ? 'block' : 'none';
+    }
+
+    render(localStorage.getItem(STORE_KEY) || '');
+
+    async function loadRemote(){
+        try{
+            const r=await fetch(API+'?action=status&_='+Date.now(),{cache:'no-store'});
+            if(!r.ok) return;
+            const data=await r.json();
+            if(data && typeof data.text==='string'){
+                render(data.text);
+                localStorage.setItem(STORE_KEY,data.text);
+                showAdmin();
+            }
+        }catch(e){}
+    }
+
+    function saveRemote(text){
+        if(!isAdmin()){
+            msgEl.textContent='RUXSAT YO‘Q';
+            return false;
+        }
+        const token=getToken();
+        if(!token){
+            msgEl.textContent='GOOGLE LOGIN TOKEN TOPILMADI';
+            return false;
+        }
+        const clean=String(text||'').trim().slice(0,500);
+        msgEl.textContent='SAQLANMOQDA...';
+        try{
+            // GET beacon: CORS/iframe cheklovlarisiz Apps Script'ga yuboriladi.
+            const q=new URLSearchParams({
+                action:'statusSave',
+                token:token,
+                clientId:CLIENT_ID,
+                text:clean,
+                _:String(Date.now())
+            });
+            const beacon=new Image();
+            beacon.src=API+'?'+q.toString();
+            beacon.style.display='none';
+            document.body.appendChild(beacon);
+            setTimeout(()=>{try{beacon.remove()}catch(e){}},10000);
+
+            localStorage.setItem(STORE_KEY,clean);
+            render(clean);
+            msgEl.textContent='✓ SAQLANMOQDA';
+            setTimeout(async()=>{
+                await loadRemote();
+                msgEl.textContent='✓ SAQLANDI';
+            },1800);
+            return true;
+        }catch(e){
+            msgEl.textContent='API BILAN ULANISHDA XATO';
+            return false;
+        }
+    }
+
+    openEditorEl && openEditorEl.addEventListener('click',()=>{
+        editorEl.classList.add('open');
+        editorEl.setAttribute('aria-hidden','false');
+        inputEl.focus();
+    });
+
+    closeEditorEl && closeEditorEl.addEventListener('click',()=>{
+        editorEl.classList.remove('open');
+        editorEl.setAttribute('aria-hidden','true');
+    });
+
+    editorEl && editorEl.addEventListener('click',e=>{
+        if(e.target===editorEl){
+            editorEl.classList.remove('open');
+            editorEl.setAttribute('aria-hidden','true');
+        }
+    });
+
+    saveEl && saveEl.addEventListener('click',async()=>{
+        await saveRemote((inputEl.value||'').trim());
+        if(msgEl.textContent.indexOf('✓')===0){
+            setTimeout(()=>{
+                editorEl.classList.remove('open');
+                editorEl.setAttribute('aria-hidden','true');
+            },500);
+        }
+    });
+
+    inputEl && inputEl.addEventListener('keydown',e=>{
+        if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){
+            saveRemote((inputEl.value||'').trim());
+        }
+    });
+
+    showAdmin();
+    loadRemote();
+    setInterval(loadRemote,30000);
+})();
+</script>
+
+</body>
+</html>
