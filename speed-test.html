@@ -1,3 +1,38 @@
 <!doctype html><html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Speed Test | IT SHAKH</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="tools.css"></head><body><header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="index.html">← BOSH SAHIFA</a></header><main><div class="eyebrow">// CONNECTION ANALYSIS</div><h1>SPEED TEST</h1><p class="intro">Ulanishingizning kechikishi va yuklab olish tezligini tekshiring. Natija server yuklamasi va Wi‑Fi holatiga qarab o‘zgaradi.</p><section class="panel"><button id="start">TESTNI BOSHLASH</button><div class="progress"><i id="bar"></i></div><div class="meters"><div class="meter"><div class="label">PING</div><div class="metric" id="ping">—</div><div class="unit">ms</div></div><div class="meter"><div class="label">DOWNLOAD</div><div class="metric" id="download">—</div><div class="unit">Mbps</div></div><div class="meter"><div class="label">STATUS</div><div class="metric" id="state">READY</div><div class="unit">internet connection</div></div></div><p id="note" class="notice">Test internet orqali kichik nazorat faylini yuklaydi.</p></section></main><script>
-const $=id=>document.querySelector(id);async function run(){const b=$('#start');b.disabled=true;$('#bar').style.width='8%';$('#state').textContent='PING';$('#note').textContent='Kechikish o‘lchanmoqda…';try{let t=performance.now();await fetch('https://speed.cloudflare.com/__down?bytes=1&x='+Date.now(),{cache:'no-store'});let ping=Math.round(performance.now()-t);$('#ping').textContent=ping;$('#bar').style.width='35%';$('#state').textContent='DOWNLOAD';$('#note').textContent='Yuklab olish tezligi o‘lchanmoqda…';t=performance.now();const r=await fetch('https://speed.cloudflare.com/__down?bytes=5000000&x='+Date.now(),{cache:'no-store'});const blob=await r.blob();const secs=(performance.now()-t)/1000;const mbps=((blob.size*8)/secs/1000000).toFixed(1);$('#download').textContent=mbps;$('#bar').style.width='100%';$('#state').textContent='DONE';$('#note').textContent='✓ Test tugadi. Bu taxminiy natija.'}catch(e){$('#state').textContent='ERROR';$('#note').textContent='✕ Test bajarilmadi. Internet ulanishingizni tekshiring.'}b.disabled=false}$('#start').onclick=run;
+const $ = (id) => document.querySelector(id);
+function measureDownload(bytes) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const started = performance.now();
+    const done = () => resolve((performance.now() - started) / 1000);
+    // The endpoint returns random bytes rather than an image, so loading ends in
+    // onerror after the bytes have arrived. This avoids CORS restrictions.
+    image.onload = done;
+    image.onerror = done;
+    image.src = 'https://speed.cloudflare.com/__down?bytes=' + bytes + '&x=' + Date.now();
+    setTimeout(() => reject(new Error('Vaqt tugadi')), 20000);
+  });
+}
+async function run() {
+  const button = $('#start');
+  button.disabled = true;
+  $('#ping').textContent = '…'; $('#download').textContent = '…';
+  $('#bar').style.width = '8%'; $('#state').textContent = 'PING';
+  $('#note').textContent = 'Kechikish o‘lchanmoqda…';
+  try {
+    const pingSeconds = await measureDownload(1);
+    $('#ping').textContent = Math.max(1, Math.round(pingSeconds * 1000));
+    $('#bar').style.width = '36%'; $('#state').textContent = 'DOWNLOAD';
+    $('#note').textContent = 'Yuklab olish tezligi o‘lchanmoqda…';
+    const bytes = 5000000;
+    const seconds = await measureDownload(bytes);
+    $('#download').textContent = ((bytes * 8) / seconds / 1000000).toFixed(1);
+    $('#bar').style.width = '100%'; $('#state').textContent = 'DONE';
+    $('#note').textContent = '✓ Test tugadi. Bu taxminiy natija.';
+  } catch (_) {
+    $('#state').textContent = 'ERROR';
+    $('#note').textContent = '✕ Test bajarilmadi. Internet ulanishingizni tekshiring va yana urinib ko‘ring.';
+  } finally { button.disabled = false; }
+}
+$('#start').addEventListener('click', run);
 </script></body></html>
