@@ -190,9 +190,6 @@
         }
         .tools-dropdown a { padding: 9px; border-radius: 6px; }
         .tools-dropdown a:hover { background: rgba(56,189,248,.14); color: var(--accent); }
-        .files-lock-toggle { width:100%; padding:9px; border:1px solid rgba(56,189,248,.45); border-radius:6px; background:rgba(3,12,24,.75); color:var(--text-color); cursor:pointer; font:600 11px Inter,sans-serif; text-align:left; transition:.2s; }
-        .files-lock-toggle:hover { border-color:var(--accent); color:var(--accent); box-shadow:0 0 12px rgba(56,189,248,.18); }
-        .files-lock-toggle.locked { border-color:#ff5f57; color:#ff8b84; }
 
         .hero {
             min-height: 100vh; display: flex;
@@ -1074,6 +1071,7 @@ body.file-modal-active{overflow:hidden;}
                 <a href="translator.html">TRANSLATE</a>
                 <a href="image-to-code.html">IMAGE TO CODE</a>
                 <a href="image-converter.html">IMAGE CONVERTER</a>
+                <a href="image-enhancer.html">IMAGE ENHANCER</a>
                 <a href="ai-prompt-generator.html">AI PROMPT GENERATOR</a>
                 <a href="gif-maker.html">GIF MAKER</a>
                 <a href="number-base-converter.html">NUMBER BASE CONVERTER</a>
@@ -1082,7 +1080,6 @@ body.file-modal-active{overflow:hidden;}
                 <a href="text-to-speech.html">TEXT → SPEECH</a>
                 <a href="speech-to-text.html">SPEECH → TEXT</a>
                 <a href="world-clock.html">WORLD CLOCK</a>
-                <button id="files-lock-toggle" class="files-lock-toggle" type="button" hidden>🔓 FILES: OPEN</button>
             </div>
         </details>
         <button class="mode-toggle" id="modeToggle">NIGHT MODE</button>
@@ -1361,7 +1358,6 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
    if(!r || !r.credential) return;
    const u=decode(r.credential);
    if(u) localStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||'',credential:r.credential}));
-   window.dispatchEvent(new Event('it-shakh-auth'));
    // Google login yopiladi
    const gate=document.getElementById('google-login-screen');
    if(gate){ gate.style.opacity='0'; gate.style.transition='opacity 0.8s'; setTimeout(()=>gate.remove(),800); }
@@ -5364,24 +5360,14 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 
     render(localStorage.getItem(STORE_KEY) || '');
 
-    function parseStatusPayload(raw){
-        try{
-            const x=JSON.parse(String(raw||''));
-            if(x&&x.__itShakh==='files-control') return {text:String(x.text||''),filesLocked:x.locked===true};
-        }catch(e){}
-        return {text:String(raw||''),filesLocked:false};
-    }
-
     async function loadRemote(){
         try{
             const r=await fetch(API+'?action=status&_='+Date.now(),{cache:'no-store'});
             if(!r.ok) return;
             const data=await r.json();
             if(data && typeof data.text==='string'){
-                const state=parseStatusPayload(data.text);
-                render(state.text);
-                localStorage.setItem(STORE_KEY,state.text);
-                localStorage.setItem('it_shakh_files_lock_state',JSON.stringify({locked:state.filesLocked,text:state.text}));
+                render(data.text);
+                localStorage.setItem(STORE_KEY,data.text);
                 showAdmin();
             }
         }catch(e){}
@@ -5400,16 +5386,12 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
         const clean=String(text||'').trim().slice(0,500);
         msgEl.textContent='SAQLANMOQDA...';
         try{
-            // Files lock holatini saqlab qolamiz; live status matni esa alohida ko‘rsatiladi.
-            let filesLocked=false;
-            try{filesLocked=JSON.parse(localStorage.getItem('it_shakh_files_lock_state')||'{}').locked===true}catch(e){}
-            const payload=JSON.stringify({__itShakh:'files-control',locked:filesLocked,text:clean});
             // GET beacon: CORS/iframe cheklovlarisiz Apps Script'ga yuboriladi.
             const q=new URLSearchParams({
                 action:'statusSave',
                 token:token,
                 clientId:CLIENT_ID,
-                text:payload,
+                text:clean,
                 _:String(Date.now())
             });
             const beacon=new Image();
@@ -5472,47 +5454,5 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 })();
 </script>
 
-<script>
-/* ===== ADMIN FILES ACCESS TOGGLE ===== */
-(function(){
-    const ADMIN_EMAIL='anonimshakh4647@gmail.com';
-    const API='https://script.google.com/macros/s/AKfycbwwSCvjGZGeI0g8szN62g8NVVzVKI6atqu1lUoF_W4FfhenqS-cpn27liDJU52gFHvN0Q/exec';
-    const KEY='it_shakh_files_lock_state';
-    const btn=document.getElementById('files-lock-toggle');
-    if(!btn)return;
-    function getUser(){try{return JSON.parse(localStorage.getItem('it_shakh_google_user')||'null')}catch(e){return null}}
-    function isAdmin(){const u=getUser();return !!u&&String(u.email||'').toLowerCase()===ADMIN_EMAIL}
-    function getToken(){const u=getUser();return u&&u.credential?u.credential:''}
-    function localState(){try{return JSON.parse(localStorage.getItem(KEY)||'{"locked":false,"text":""}')}catch(e){return {locked:false,text:''}}}
-    function setButton(locked){btn.hidden=!isAdmin();btn.classList.toggle('locked',!!locked);btn.textContent=locked?'🔒 FILES: LOCKED':'🔓 FILES: OPEN'}
-    function parseState(raw){
-        try{const x=JSON.parse(String(raw||''));if(x&&x.__itShakh==='files-control')return {locked:x.locked===true,text:String(x.text||'')}}catch(e){}
-        return {locked:false,text:String(raw||'')};
-    }
-    async function readRemote(){
-        try{
-            const r=await fetch(API+'?action=status&_='+Date.now(),{cache:'no-store'});
-            if(!r.ok)throw new Error('status '+r.status);
-            const d=await r.json();
-            const state=parseState(d&&d.text);
-            localStorage.setItem(KEY,JSON.stringify(state));
-            setButton(state.locked);
-            return state;
-        }catch(e){const state=localState();setButton(state.locked);return state;}
-    }
-    function saveRemote(state){
-        const t=getToken();
-        if(!isAdmin()||!t){alert('RUXSAT YO‘Q');return}
-        const payload=JSON.stringify({__itShakh:'files-control',locked:!!state.locked,text:String(state.text||'')});
-        const q=new URLSearchParams({action:'statusSave',token:t,clientId:'506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com',text:payload,_:String(Date.now())});
-        const beacon=new Image();beacon.onload=beacon.onerror=()=>{try{beacon.remove()}catch(e){}};beacon.src=API+'?'+q.toString();
-        localStorage.setItem(KEY,JSON.stringify(state));setButton(state.locked);
-    }
-    btn.addEventListener('click',async()=>{if(!isAdmin())return;const state=await readRemote();state.locked=!state.locked;saveRemote(state);setButton(state.locked);});
-    window.addEventListener('it-shakh-auth',()=>readRemote());
-    window.addEventListener('storage',()=>readRemote());
-    readRemote();
-})();
-</script>
 </body>
 </html>
