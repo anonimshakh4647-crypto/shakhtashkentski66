@@ -831,16 +831,61 @@ body.files-page{min-height:100vh;}
 body.files-locked>*:not(#files-access-lock){visibility:hidden!important;pointer-events:none!important;}
 </style></head>
 <body class="files-page">
-<div id="files-access-lock" hidden><div class="box"><h2>🔒 FILES YOPIQ</h2><p>IT SHAKH FILES hozircha administrator tomonidan yopilgan.</p><a href="index.html">← BOSH SAHIFA</a></div></div>
+<div id="files-access-lock" hidden>
+  <div class="box">
+    <h2>🔒 FILES YOPIQ</h2>
+    <p id="files-lock-message">IT SHAKH FILES hozircha administrator tomonidan yopilgan.</p>
+    <div id="files-admin-login" style="display:none;margin-top:18px;min-height:44px"></div>
+    <a href="index.html">← BOSH SAHIFA</a>
+  </div>
+</div>
 <script>
 /* ===== FILES ACCESS GATE ===== */
 (function(){
     const ADMIN_EMAIL='anonimshakh4647@gmail.com';
+    const CLIENT_ID='506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
     const API='https://script.google.com/macros/s/AKfycbwwSCvjGZGeI0g8szN62g8NVVzVKI6atqu1lUoF_W4FfhenqS-cpn27liDJU52gFHvN0Q/exec';
     const lockEl=document.getElementById('files-access-lock');
+    const msgEl=document.getElementById('files-lock-message');
+    const loginEl=document.getElementById('files-admin-login');
     function user(){try{return JSON.parse(localStorage.getItem('it_shakh_google_user')||'null')}catch(e){return null}}
     function admin(){const u=user();return !!u&&String(u.email||'').toLowerCase()===ADMIN_EMAIL}
     function parse(raw){try{const x=JSON.parse(String(raw||''));if(x&&x.__itShakh==='files-control')return x}catch(e){}return {locked:false}}
+    function unlockForAdmin(){
+        window.__filesLocked=false;
+        document.body.classList.remove('files-locked');
+        lockEl.hidden=true;
+        loginEl.style.display='none';
+        window.dispatchEvent(new Event('it-shakh-files-unlocked'));
+    }
+    function showGate(){
+        document.body.classList.add('files-locked');
+        lockEl.hidden=false;
+        if(admin()){ unlockForAdmin(); return; }
+        loginEl.style.display='block';
+        msgEl.textContent='FILES yopiq. Faqat administrator akkaunti orqali kirish mumkin.';
+        const wait=()=>{
+            if(!window.google?.accounts?.id){setTimeout(wait,200);return;}
+            try{
+                google.accounts.id.initialize({client_id:CLIENT_ID,callback:(r)=>{
+                    if(!r?.credential)return;
+                    try{
+                        const payload=r.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
+                        const u=JSON.parse(atob(payload));
+                        localStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||'',credential:r.credential}));
+                        if(String(u.email||'').toLowerCase()===ADMIN_EMAIL){
+                            unlockForAdmin();
+                        }else{
+                            msgEl.textContent='Bu akkaunt administrator emas.';
+                        }
+                    }catch(e){msgEl.textContent='Google login ma’lumotini tekshirib bo‘lmadi.';}
+                },auto_select:false,cancel_on_tap_outside:false});
+                loginEl.innerHTML='';
+                google.accounts.id.renderButton(loginEl,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',width:320});
+            }catch(e){}
+        };
+        wait();
+    }
     window.__filesAccessReady=(async()=>{
         try{
             const r=await fetch(API+'?action=status&_='+Date.now(),{cache:'no-store'});
@@ -848,20 +893,15 @@ body.files-locked>*:not(#files-access-lock){visibility:hidden!important;pointer-
             const d=await r.json();
             const state=parse(d&&d.text);
             window.__filesLocked=state.locked===true;
-            if(window.__filesLocked&&!admin()){
-                document.body.classList.add('files-locked');
-                lockEl.hidden=false;
-                return false;
-            }
+            if(window.__filesLocked && !admin()){showGate();return false;}
+            if(window.__filesLocked && admin()){unlockForAdmin();return true;}
+            return true;
         }catch(e){
-            if(!admin()){
-                window.__filesLocked=true;
-                document.body.classList.add('files-locked');
-                lockEl.hidden=false;
-                return false;
-            }
+            /* Server holatini aniqlab bo‘lmasa, xavfsiz tomoni: admin bo‘lmasa yopamiz. */
+            if(admin())return true;
+            showGate();
+            return false;
         }
-        return true;
     })();
 })();
 </script>
@@ -1288,7 +1328,7 @@ body.files-locked>*:not(#files-access-lock){visibility:hidden!important;pointer-
     }
     updateUser();
     window.addEventListener('storage',updateUser);
-    setTimeout(loadFiles,700);
+    Promise.resolve(window.__filesAccessReady).then(ok=>{if(ok)loadFiles();});
 })();
 
     
