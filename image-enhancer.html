@@ -56,16 +56,15 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <div>
 <label>YUZNI TIKLASH</label>
 <select id="face">
-<option value="GFPGANv1.4.pth">GFPGAN v1.4 — yuz detallarini tiklash</option>
-<option value="CodeFormer.pth">CodeFormer — tabiiyroq yuz tiklash</option>
-<option value="RestoreFormer++.ckpt">RestoreFormer++ — kuchli face restoration</option>
+<option value="CodeFormer">CodeFormer — yuzni AI tiklash</option>
 </select>
 </div>
 <div>
 <label>AI UPSCALE</label>
 <select id="upscale">
-<option value="SRVGG, realesr-general-x4v3.pth">Real-ESRGAN General x4 — foto uchun</option>
-<option value="RRDB, RealESRGAN_x4plus.pth">Real-ESRGAN x4plus — kuchli detail</option>
+<option value="4">4× AI — maksimal tiniqlik</option>
+<option value="2">2× AI — yengilroq</option>
+<option value="1">1× AI — faqat yuzni tiklash</option>
 </select>
 </div>
 </div>
@@ -90,16 +89,16 @@ button:disabled{opacity:.45;cursor:not-allowed}
 </div>
 
 <p class="note">
-Bu versiyada oddiy sharpen emas: yuz uchun GFPGAN/CodeFormer/RestoreFormer++,
-fon va umumiy detal uchun Real-ESRGAN ishlatiladi. Bu aynan xira portretlarni
-qayta tiklashga mo‘ljallangan pipeline. AI hisoblash serverdagi model orqali bajariladi.
+Bu versiyada oddiy sharpen emas: CodeFormer yuzni qayta tiklaydi, Real-ESRGAN
+fonni va umumiy tasvirni AI orqali kattalashtiradi. CodeFormer Space hozir
+ZeroGPU’da ishlaydi; juda katta rasmlar server xotirasi sabab cheklanishi mumkin.
 </p>
 </main>
 
 <script type="module">
 import { Client, handle_file } from "https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js";
 
-const SPACE="avans06/Image_Face_Upscale_Restoration-GFPGAN-RestoreFormer-CodeFormer-GPEN";
+const SPACE="sczhou/CodeFormer";
 const fileEl=document.getElementById("file");
 const original=document.getElementById("original");
 const result=document.getElementById("result");
@@ -110,7 +109,7 @@ const bar=document.getElementById("bar");
 const face=document.getElementById("face");
 const upscale=document.getElementById("upscale");
 
-let selected=null, resultUrl=null, client=null;
+let selected=null, resultUrl=null, client=null, apiName=null;
 
 function status(t){statusEl.textContent=t}
 function progress(n){bar.style.width=Math.max(0,Math.min(100,n))+"%"}
@@ -128,45 +127,30 @@ fileEl.addEventListener("change",()=>{
 });
 
 async function connect(){
- if(client)return;
- status("AI serverga ulanmoqda…");
- progress(5);
+ if(client && apiName)return;
+ status("CodeFormer AI serverga ulanmoqda…");
+ progress(8);
  client=await Client.connect(SPACE);
+ const api=await client.view_api(true);
+ const names=Object.keys(api?.named_endpoints||{});
+ apiName=names.find(x=>/infer|predict/i.test(x)) || names[0] || "/inference";
  progress(15);
 }
 
-function extractImage(data){
- if(!Array.isArray(data)) return null;
- // Output is [gallery, zip/file]. The first gallery item is the complete restored image.
- const gallery=data[0];
- if(Array.isArray(gallery) && gallery.length){
-   const item=gallery[0];
-   if(typeof item==="string") return item;
-   if(item?.url) return item.url;
-   if(item?.path) return item.path;
-   if(item?.image?.url) return item.image.url;
-   if(item?.image?.path) return item.image.path;
- }
- for(const x of data){
-   if(typeof x==="string" && /\.(png|jpg|jpeg|webp)(\?|$)/i.test(x)) return x;
-   if(x?.url) return x.url;
-   if(x?.path) return x.path;
- }
+function getUrl(x){
+ if(!x)return null;
+ if(typeof x==="string")return x;
+ if(x.url)return x.url;
+ if(x.path)return x.path;
+ if(x.name)return x.name;
  return null;
 }
 
-async function downloadResult(url){
- const r=await fetch(url);
- if(!r.ok) throw new Error("Natijani yuklab bo‘lmadi.");
- const b=await r.blob();
- resultUrl=URL.createObjectURL(b);
- result.src=resultUrl;
- download.style.display="block";
- download.onclick=()=>{
-   const a=document.createElement("a");
-   a.href=resultUrl;a.download="it-shakh-ai-enhanced.png";
-   document.body.appendChild(a);a.click();a.remove();
- };
+async function runWithTimeout(promise,ms){
+ return await Promise.race([
+   promise,
+   new Promise((_,reject)=>setTimeout(()=>reject(new Error("AI server 90 soniyada javob bermadi.")),ms))
+ ]);
 }
 
 enhance.addEventListener("click",async()=>{
@@ -177,58 +161,68 @@ enhance.addEventListener("click",async()=>{
  progress(2);
  try{
    await connect();
-   status("Rasm AI serverga yuborilmoqda…");
+
+   // CodeFormer is specifically designed for blind face restoration.
+   // Its current public Space accepts a filepath, background enhancement,
+   // face upsample, scale and fidelity.
    const input=handle_file(selected);
-   progress(22);
+   const scale=Math.min(4,Math.max(1,Number(upscale.value)||4));
+   const fidelity=0.35;
 
-   // The Space uses gr.Gallery as its first input. Gallery values are
-   // (image, caption) pairs, so send one uploaded image as [FileData, null].
-   // The public endpoint is auto-generated from the Python method name: /inference.
-   const payload=[
-     [[input, null]],
-     face.value,
-     upscale.value,
-     4,
-     "retinaface_resnet50",
-     10,
-     false,
-     true,
-     true
-   ];
+   status("CodeFormer AI yuz detallarini tiklamoqda…");
+   progress(25);
 
-   status("AI yuzni tiklamoqda va rasmni 4× kattalashtirmoqda…");
-   const job=client.submit("/inference",payload);
-   let last=25;
-   for await(const msg of job){
-     if(msg.type==="status"){
-       if(msg.stage==="pending") status("AI navbatida…");
-       else if(msg.stage==="generating"){
-         const p=msg.progress_data?.[0]?.progress;
-         if(typeof p==="number"){
-           last=25+Math.round(p*65);
-           progress(last);
-         }else progress(Math.min(90,last+2));
-         status(msg.message||"AI ishlamoqda…");
-       }else if(msg.stage==="error"){
-         throw new Error(msg.message||"AI server xatosi");
+   const job=client.submit(apiName,[
+     input,
+     true,                 // face_align
+     true,                 // background_enhance
+     true,                 // face_upsample
+     scale,
+     fidelity
+   ]);
+
+   let got=false;
+   const data=await runWithTimeout((async()=>{
+     let finalData=null;
+     for await(const msg of job){
+       if(msg.type==="status"){
+         if(msg.stage==="pending") status("AI navbatida…");
+         if(msg.stage==="generating") status(msg.message||"AI rasmni tiklamoqda…");
+       }
+       if(msg.type==="data"){
+         finalData=msg.data;
+         progress(90);
        }
      }
-     if(msg.type==="data"){
-       const u=extractImage(msg.data);
-       if(u){
-         status("AI natija tayyorlanmoqda…");
-         progress(94);
-         await downloadResult(u);
-       }
-     }
-   }
-   if(!result.src) throw new Error("AI natija rasmi qaytmadi.");
+     return finalData;
+   })(),90000);
+
+   const url=getUrl(data?.[0]);
+   if(!url)throw new Error("AI natija rasmi qaytmadi.");
+
+   const r=await fetch(url);
+   if(!r.ok)throw new Error("AI natijasini yuklab bo‘lmadi.");
+   const blob=await r.blob();
+   if(!blob.size)throw new Error("AI natijasi bo‘sh.");
+
+   resultUrl=URL.createObjectURL(blob);
+   result.src=resultUrl;
+   download.style.display="block";
+   download.onclick=()=>{
+     const a=document.createElement("a");
+     a.href=resultUrl;
+     a.download="it-shakh-codeformer-enhanced.png";
+     document.body.appendChild(a);
+     a.click();
+     a.remove();
+   };
+
    progress(100);
-   status("✓ AI tiklash tugadi.");
+   status("✓ AI tiniqlashtirish tugadi.");
  }catch(e){
    console.error(e);
    progress(0);
-   status("Xatolik: "+(e?.message||e)+" — AI server javobini tekshiring va qayta urinib ko‘ring.");
+   status("Xatolik: "+(e?.message||e));
  }finally{
    enhance.disabled=false;
  }
