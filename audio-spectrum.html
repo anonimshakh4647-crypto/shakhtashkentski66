@@ -358,8 +358,10 @@ async function download1080Video(){
     recCanvas.width=outW;
     recCanvas.height=outH;
     const rc=recCanvas.getContext('2d',{alpha:false});
+    // 1920×1080 / 60 FPS export: medium filtering avoids unnecessary
+    // per-frame scaling cost while keeping the final image sharp.
     rc.imageSmoothingEnabled=true;
-    rc.imageSmoothingQuality='high';
+    rc.imageSmoothingQuality='medium';
 
     exporting=true;
     const paint=()=>{
@@ -397,9 +399,11 @@ async function download1080Video(){
       ...recordAudioDest.stream.getAudioTracks()
     ]);
 
+    // Prefer VP8 for smoother real-time 60 FPS recording in Chrome.
+    // VP9 can require substantially more CPU during live encoding.
     const mimeCandidates=[
-      'video/webm;codecs=vp9,opus',
       'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=vp9,opus',
       'video/webm'
     ];
     const mime=mimeCandidates.find(x=>window.MediaRecorder && MediaRecorder.isTypeSupported(x));
@@ -409,7 +413,8 @@ async function download1080Video(){
 
     mediaRecorder=new MediaRecorder(recordStream,{
       mimeType:mime,
-      videoBitsPerSecond:16000000,
+      // High-quality 1080p60 without making the real-time encoder excessively heavy.
+      videoBitsPerSecond:14000000,
       audioBitsPerSecond:192000
     });
 
@@ -453,7 +458,7 @@ async function download1080Video(){
 
       $('download1080').disabled=false;
       $('download1080').textContent='⬇ DOWNLOAD 1080P';
-      statusText('1080p video tayyor va yuklab olindi.');
+      statusText('1080p 60 FPS video tayyor va yuklab olindi.');
     };
 
     mediaRecorder.onerror=e=>{
@@ -470,10 +475,10 @@ async function download1080Video(){
     // Restart from the beginning so the entire song is included.
     A.currentTime=0;
 
-    mediaRecorder.start(250);
+    mediaRecorder.start(1000);
     $('download1080').disabled=true;
     $('download1080').textContent='⏳ CREATING 1080P...';
-    statusText('1080p video tayyorlanmoqda... musiqa tugagach avtomatik yuklanadi.');
+    statusText('1080p 60 FPS video tayyorlanmoqda... musiqa tugagach avtomatik yuklanadi.');
 
     await A.play();
 
