@@ -17,10 +17,9 @@
 .text-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.text-field{background:#09131f;border:1px solid #172b42;border-radius:9px;padding:8px}.text-field.wide{grid-column:span 2}.text-field label{display:flex;justify-content:space-between;color:#9eb4ca;font-size:9px;font-weight:800;margin-bottom:6px}.text-field output{color:#00e5ff}
 .text-field input[type=text],.text-field input:not([type]),.text-field select{width:100%;background:#050b12;border:1px solid #1b3048;color:#eef7ff;border-radius:6px;padding:7px;font-size:11px}.text-field input[type=color]{width:100%;height:32px;padding:2px;background:#050b12;border:1px solid #1b3048;border-radius:6px}.text-field input[type=range]{margin:0}
 @media(max-width:1000px){.text-grid{grid-template-columns:repeat(2,1fr)}.text-field.wide{grid-column:span 2}}@media(max-width:600px){.text-grid{grid-template-columns:1fr}.text-field.wide{grid-column:span 1}}
-.text-field.wide select#textPreset{max-height:44px} #download1080:disabled{opacity:.65;cursor:wait}.text-preset-count{color:#00e5ff;font-size:10px;margin-left:6px}<style>
+.text-field.wide select#textPreset{max-height:44px} #download1080:disabled{opacity:.65;cursor:wait}.text-preset-count{color:#00e5ff;font-size:10px;margin-left:6px}
 .visual.it-fs-stage{background:#01040a!important}
 .visual.it-fs-stage canvas{width:100%!important;height:100%!important;display:block!important}
-</style>
 
 /* ===== BACKGROUND PARTICLE STUDIO — additive feature ===== */
 .particle-panel{margin-top:10px;background:#07101a;border:1px solid #1a2d43;border-radius:11px;padding:12px}
@@ -1198,14 +1197,27 @@ function syncParticleControls(){
 }
 
 function resetParticleItems(){
+  const w=C.width||1200,h=C.height||600;
   const n=Math.max(1,Math.min(2200,Math.round(particleState.amount)));
   particleItems=new Array(n);
-  const spread=particleState.spread/100;
+  const spread=Math.max(.1,particleState.spread/100);
   for(let i=0;i<n;i++){
-    const r=particleRand(i),r2=particleRand(i+9001),r3=particleRand(i+18002);
-    const angle=r*Math.PI*2;
-    const radius=Math.sqrt(r2)*Math.min(C.width||1200,C.height||600)*.62*spread;
-    particleItems[i]={x:(C.width||1200)/2+Math.cos(angle)*radius,y:(C.height||600)/2+Math.sin(angle)*radius,vx:(r3-.5)*.55,vy:(r-.5)*.55,z:.25+r2*.75,phase:r3*Math.PI*2,life:r,spin:(r2-.5)*2};
+    const r=particleRand(i),r2=particleRand(i+9001),r3=particleRand(i+18002),r4=particleRand(i+27003);
+    const edge=60;
+    const x=edge+(w-edge*2)*r;
+    const y=edge+(h-edge*2)*r2;
+    const a=r3*Math.PI*2;
+    const base=.18+.55*r4;
+    particleItems[i]={
+      x,y,
+      vx:Math.cos(a)*base*spread,
+      vy:Math.sin(a)*base*spread,
+      z:.18+r4*.82,
+      phase:r*Math.PI*2,
+      life:r2,
+      spin:(r3-.5)*2,
+      sizeSeed:.65+r4*.7
+    };
   }
 }
 
@@ -1242,51 +1254,91 @@ function drawBackgroundParticles(w,h){
   if(!en||!en.checked)return;
   if(!particleItems.length)resetParticleItems();
   const now=performance.now();
-  const dt=Math.min(.04,Math.max(.001,(now-particleLastT)/1000));particleLastT=now;
-  const energy=particleAudioLevel(),bass=particleBassLevel();
-  const pulse=1+energy*particleState.audio/100+((bass>.55)?particleState.beat/100:0);
-  const speed=particleState.speed*dt*60;
-  const spread=Math.max(0.1,particleState.spread/100);
+  const dt=Math.min(.035,Math.max(.001,(now-particleLastT)/1000));
+  particleLastT=now;
+
+  // Audio-reactive energy. The particles cover the whole background and react to
+  // the music instead of clustering around the center.
+  const energy=particleAudioLevel();
+  const bass=particleBassLevel();
+  const audioBoost=1+energy*(particleState.audio/55);
+  const beatKick=(bass>.52)?(1+particleState.beat/70):1;
+  const motion=particleState.speed*dt*60*audioBoost*beatKick;
+  const spread=Math.max(.1,particleState.spread/100);
   const turb=particleState.turbulence/100;
-  const gravity=particleState.gravity*speed;
+  const gravity=particleState.gravity*motion;
   const cx=w/2,cy=h/2;
-  const maxR=Math.min(w,h)*.68*spread;
   const shape=particleState.shape,dir=particleState.direction;
+  const audioWave=Math.sin(now*.006+energy*8)*energy;
+
   X.save();
   X.globalCompositeOperation=particleState.blend;
   for(let i=0;i<particleItems.length;i++){
     const p=particleItems[i];
-    let dx=p.x-cx,dy=p.y-cy;
-    if(dir==='orbit'){const a=.0025*speed*(1+p.z);p.x=cx+Math.cos(Math.atan2(dy,dx)+a)*(Math.hypot(dx,dy)||1);p.y=cy+Math.sin(Math.atan2(dy,dx)+a)*(Math.hypot(dx,dy)||1);}
-    else if(dir==='radial'){const d=Math.max(1,Math.hypot(dx,dy));p.x+=dx/d*.75*speed*p.z;p.y+=dy/d*.75*speed*p.z;}
-    else if(dir==='up')p.y-=.65*speed*p.z;
-    else if(dir==='down')p.y+=.65*speed*p.z;
-    else if(dir==='left')p.x-=.65*speed*p.z;
-    else if(dir==='right')p.x+=.65*speed*p.z;
-    else {p.x+=p.vx*speed*(1+turb*1.8);p.y+=p.vy*speed*(1+turb*1.8);}
-    p.vy+=gravity*.025;
-    p.x+=Math.sin(now*.001*(.5+p.z)+p.phase)*turb*.55*speed;
-    p.y+=Math.cos(now*.001*(.7+p.z)+p.phase)*turb*.55*speed;
-    const d=Math.hypot(p.x-cx,p.y-cy);
-    if(d>maxR||p.x<-50||p.x>w+50||p.y<-50||p.y>h+50){
-      const a=particleRand(i+Math.floor(now/1000));
-      const rr=Math.sqrt(particleRand(i+3333))*maxR*.9;
-      p.x=cx+Math.cos(a*Math.PI*2)*rr;p.y=cy+Math.sin(a*Math.PI*2)*rr;p.vx=(particleRand(i+4444)-.5);p.vy=(particleRand(i+5555)-.5);
+    const dx=p.x-cx,dy=p.y-cy;
+    const dist=Math.max(1,Math.hypot(dx,dy));
+    const nx=dx/dist,ny=dy/dist;
+
+    if(dir==='orbit'){
+      const orbit=.018*motion*(1+p.z*1.5);
+      p.vx += -ny*orbit; p.vy += nx*orbit;
+    }else if(dir==='radial'){
+      const push=.045*motion*(.55+energy*2)*p.z;
+      p.vx += nx*push; p.vy += ny*push;
+    }else if(dir==='up') p.vy-=.035*motion*p.z;
+    else if(dir==='down') p.vy+=.035*motion*p.z;
+    else if(dir==='left') p.vx-=.035*motion*p.z;
+    else if(dir==='right') p.vx+=.035*motion*p.z;
+    else {
+      p.vx += Math.cos(p.phase+now*.0005)*.018*motion*(1+turb*2);
+      p.vy += Math.sin(p.phase+now*.0007)*.018*motion*(1+turb*2);
     }
+
+    // Every beat gives the entire field a subtle outward kick.
+    const beatPush=(bass>.6?0.055:0)*motion*p.z;
+    p.vx += nx*beatPush;
+    p.vy += ny*beatPush;
+
+    p.vx += Math.sin(now*.0011+p.phase)*turb*.012*motion;
+    p.vy += Math.cos(now*.0013+p.phase)*turb*.012*motion;
+    p.vy += gravity*.018;
+
+    const drag=.985;
+    p.vx*=drag;p.vy*=drag;
+    const maxV=.9+particleState.speed*.55;
+    const v=Math.hypot(p.vx,p.vy);
+    if(v>maxV){p.vx=p.vx/v*maxV;p.vy=p.vy/v*maxV;}
+    p.x+=p.vx*motion*2.2;
+    p.y+=p.vy*motion*2.2;
+
+    const margin=70;
+    if(p.x<-margin)p.x=w+margin;
+    else if(p.x>w+margin)p.x=-margin;
+    if(p.y<-margin)p.y=h+margin;
+    else if(p.y>h+margin)p.y=-margin;
+
     const tw=1-(particleState.twinkle/100)*.45+Math.sin(now*.004*(1+p.z*2)+p.phase)*(particleState.twinkle/100)*.45;
-    const depth=.55+p.z*.65*(particleState.depth/100);
-    const size=particleState.size*p.z*Math.max(.2,pulse)*(.75+particleRand(i+7777)*.55);
+    const depth=.45+p.z*.75*(particleState.depth/100);
+    const beatSize=1+(bass>.52?particleState.beat/180:0);
+    const size=particleState.size*p.z*p.sizeSeed*beatSize*(.8+energy*particleState.audio/130);
     const alpha=Math.max(0,Math.min(1,(particleState.opacity/100)*tw*depth));
     const color=mixParticleColor(particleState.color1,particleState.color2,(i/(particleItems.length||1)+p.z*.35)%1);
+
     if(particleState.trail>0){
-      X.globalAlpha=alpha*(particleState.trail/100)*.35;X.strokeStyle=color;X.lineWidth=Math.max(.5,size*.35);X.beginPath();X.moveTo(p.x-p.vx*speed*10,p.y-p.vy*speed*10);X.lineTo(p.x,p.y);X.stroke();
+      X.globalAlpha=alpha*(particleState.trail/100)*.45;
+      X.strokeStyle=color;
+      X.lineWidth=Math.max(.5,size*.32);
+      X.beginPath();
+      X.moveTo(p.x-p.vx*8,p.y-p.vy*8);
+      X.lineTo(p.x,p.y);
+      X.stroke();
     }
-    X.shadowBlur=Math.min(22,size*5*(1+energy));X.shadowColor=color;
-    drawParticleShape(X,p.x,p.y,size,shape,color,alpha,p.phase+p.spin*now*.001);
+    X.shadowBlur=Math.min(24,size*5*(1+energy*1.5));
+    X.shadowColor=color;
+    drawParticleShape(X,p.x,p.y,size,shape,color,alpha,p.phase+p.spin*now*.001+audioWave*.08);
   }
   X.restore();
 }
-
 buildParticlePresetList();
 particleApplyPreset(0);
 
