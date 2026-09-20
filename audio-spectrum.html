@@ -137,12 +137,103 @@ function drawExtraMode(w,h,mode){
   }
 }
 
+
+function draw(){
+  cancelAnimationFrame(raf);
+  const loop=()=>{
+    const w=C.clientWidth,h=C.clientHeight;
+    if(!w||!h){raf=requestAnimationFrame(loop);return}
+    X.clearRect(0,0,w,h);
+    clr(w,h);
+    if(!an||!fd){
+      drawTextOverlay(w,h);
+      raf=requestAnimationFrame(loop);
+      return;
+    }
+
+    an.getByteFrequencyData(fd);
+    an.getByteTimeDomainData(wd);
+
+    const mode=M.value;
+    const bars=Math.max(16,Math.min(180,+$('bars').value||64));
+    const sens=Math.max(.1,+$('sens').value||1);
+    const glow=Math.max(0,+$('glow').value||12);
+    const decay=Math.max(.01,Math.min(.99,+$('decay').value||.8));
+    const rot=(+$('rotation').value||0)*Math.PI/180;
+
+    X.save();
+    X.translate(w/2,h/2);
+    X.rotate(rot);
+    X.translate(-w/2,-h/2);
+    X.shadowBlur=glow;
+
+    if(mode==='bars'||mode==='mirror'){
+      const bw=w/bars;
+      for(let i=0;i<bars;i++){
+        const idx=Math.min(fd.length-1,Math.floor(i/bars*fd.length));
+        const v=Math.min(1,(fd[idx]/255)*sens);
+        const bh=Math.max(2,v*h*.42);
+        X.fillStyle=color(i/Math.max(1,bars-1));
+        X.shadowColor=X.fillStyle;
+        if(mode==='bars'){
+          X.fillRect(i*bw,h*.5-bh,bw*.72,bh);
+        }else{
+          X.fillRect(i*bw,h*.5-bh/2,bw*.72,bh/2);
+          X.fillRect(i*bw,h*.5,bw*.72,bh/2);
+        }
+      }
+    }else if(mode==='wave'){
+      X.shadowColor=color(.5);X.strokeStyle=color(.5);X.lineWidth=2.5;
+      X.beginPath();
+      const step=Math.max(1,Math.floor(wd.length/w));
+      for(let x=0;x<w;x++){
+        const v=(wd[Math.min(wd.length-1,x*step)]-128)/128;
+        const y=h/2+v*h*.32;
+        if(x===0)X.moveTo(x,y);else X.lineTo(x,y);
+      }
+      X.stroke();
+    }else if(mode==='circle'||mode==='radial'){
+      const cx=w/2,cy=h/2,base=Math.min(w,h)*.17,n=Math.min(bars,fd.length);
+      X.translate(cx,cy);
+      for(let i=0;i<n;i++){
+        const v=Math.min(1,(fd[i]/255)*sens);
+        const a=i/n*Math.PI*2-Math.PI/2;
+        const inner=base;
+        const outer=base+v*Math.min(w,h)*(mode==='radial'?.34:.25);
+        X.strokeStyle=color(i/n);X.shadowColor=X.strokeStyle;
+        X.lineWidth=Math.max(1,mode==='radial'?3:2);
+        X.beginPath();X.moveTo(Math.cos(a)*inner,Math.sin(a)*inner);
+        X.lineTo(Math.cos(a)*outer,Math.sin(a)*outer);X.stroke();
+      }
+      X.beginPath();X.arc(0,0,base,0,Math.PI*2);
+      X.strokeStyle=color(.5);X.lineWidth=2;X.stroke();
+      X.translate(-cx,-cy);
+    }else if(mode==='dots'){
+      const cx=w/2,cy=h/2,n=Math.min(140,fd.length);
+      for(let i=0;i<n;i++){
+        const v=Math.min(1,(fd[i]/255)*sens),a=i/n*Math.PI*2;
+        const r=Math.min(w,h)*(.13+.34*v);
+        const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;
+        X.fillStyle=color(i/n);X.shadowColor=X.fillStyle;
+        X.beginPath();X.arc(x,y,1.5+v*5,0,Math.PI*2);X.fill();
+      }
+    }else if(['ring','tunnel','orbit','matrix'].includes(mode)){
+      // Extra renderer uses its own centered coordinate system.
+    }
+    X.restore();
+
+    drawExtraMode(w,h,mode);
+    drawEffectLayer(w,h);
+    drawTextOverlay(w,h);
+
+    if($('peak'))$('peak').textContent='PEAK '+(Math.max(...fd)/2.55-100).toFixed(1)+' dB';
+    raf=requestAnimationFrame(loop);
+  };
+  loop();
+}
+
 // Wrap the original draw function so new modes render after the base frame.
-const __originalDraw = (typeof draw==='function') ? draw : function(){};
-draw = function(){
-  __originalDraw();
-  try{drawEffectLayer(C.clientWidth,C.clientHeight)}catch(e){}
-};
+// Renderer is defined above and already includes the effect/text layers.
 
 // ONE-CLICK 1080P VIDEO EXPORT
 // The user only presses DOWNLOAD 1080P. The visualizer and audio are
