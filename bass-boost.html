@@ -20,6 +20,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);margin-top:15px}
 .status{margin-top:12px;color:var(--muted);white-space:pre-wrap}.note{font-size:12px;color:#7189a4;line-height:1.5;margin-top:15px}
 @media(max-width:720px){.controls{grid-template-columns:1fr}.wrap{width:min(100% - 20px,1050px)}h1{font-size:27px}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
 </head>
 <body>
 <main class="wrap">
@@ -57,6 +58,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);margin-top:15px}
       <button id="apply" class="primary" disabled>APPLY EFFECTS</button>
       <button id="reset">RESET</button>
       <button id="downloadWav" disabled>DOWNLOAD WAV</button>
+<button id="downloadMp3" disabled>DOWNLOAD MP3</button>
     </div>
 
     <div class="player">
@@ -78,7 +80,7 @@ const fileEl=document.getElementById('file'), audio=document.getElementById('aud
 const gainEl=document.getElementById('gain'), bassEl=document.getElementById('bass'), freqEl=document.getElementById('freq'), limiterEl=document.getElementById('limiter');
 const gainVal=document.getElementById('gainVal'), bassVal=document.getElementById('bassVal'), freqVal=document.getElementById('freqVal'), limitVal=document.getElementById('limitVal');
 const applyBtn=document.getElementById('apply'), wavBtn=document.getElementById('downloadWav'), status=document.getElementById('status'), meter=document.getElementById('meter');
-let file=null, url=null, ctx=null, source=null, gainNode=null, bassNode=null, compressor=null, analyser=null, limiter=null, raf=0, renderedBlob=null;
+let file=null, url=null, ctx=null, source=null, gainNode=null, bassNode=null, compressor=null, analyser=null, limiter=null, raf=0, renderedBlob=null, renderedMp3Blob=null;
 
 function updateLabels(){
   gainVal.textContent=Math.round(gainEl.value*100)+'%';
@@ -90,7 +92,7 @@ function updateLabels(){
 updateLabels();
 
 fileEl.addEventListener('change',()=>{
-  file=fileEl.files[0]; renderedBlob=null; wavBtn.disabled=true;
+  file=fileEl.files[0]; renderedBlob=null; renderedMp3Blob=null; wavBtn.disabled=true; document.getElementById('downloadMp3').disabled=true;
   if(url) URL.revokeObjectURL(url);
   if(file){
     url=URL.createObjectURL(file); audio.src=url; applyBtn.disabled=false;
@@ -142,7 +144,7 @@ function drawMeter(){
   let avg=data.reduce((a,b)=>a+b,0)/data.length; meter.style.width=Math.min(100,avg*1.4)+'%';
   raf=requestAnimationFrame(drawMeter);
 }
-applyBtn.addEventListener('click',start);
+applyBtn.addEventListener('click',async()=>{await start(); await renderWav();});
 
 document.getElementById('reset').addEventListener('click',()=>{
   gainEl.value=1;bassEl.value=0;freqEl.value=70;limiterEl.value=1;updateLabels();updateGraph();
@@ -154,28 +156,78 @@ audio.addEventListener('ended',()=>cancelAnimationFrame(raf));
 /* Offline render to WAV: applies the same gain, bass shelf and dynamics. */
 async function renderWav(){
   if(!file)return;
-  status.textContent='Rendering WAV…';
+  status.textContent='Rendering enhanced audio…';
   wavBtn.disabled=true;
+  document.getElementById('downloadMp3').disabled=true;
   try{
     const AC=window.AudioContext||window.webkitAudioContext;
     const temp=new AC();
     const buf=await temp.decodeAudioData(await file.arrayBuffer());
     await temp.close();
+
     const off=new OfflineAudioContext(buf.numberOfChannels,buf.length,buf.sampleRate);
     const src=off.createBufferSource(); src.buffer=buf;
     const g=off.createGain(); g.gain.value=parseFloat(gainEl.value);
-    const b=off.createBiquadFilter(); b.type='lowshelf'; b.frequency.value=parseFloat(freqEl.value); b.gain.value=parseFloat(bassEl.value);
-    const c=off.createDynamicsCompressor(); c.threshold.value=-8;c.knee.value=10;c.ratio.value=10;c.attack.value=.003;c.release.value=.18;
+    const b=off.createBiquadFilter(); b.type='lowshelf';
+    b.frequency.value=parseFloat(freqEl.value); b.gain.value=parseFloat(bassEl.value);
+    const c=off.createDynamicsCompressor();
+    c.threshold.value=-8;c.knee.value=10;c.ratio.value=10;c.attack.value=.003;c.release.value=.18;
     src.connect(g).connect(b).connect(c);
+
     if(limiterEl.value==='1'){
-      const l=off.createDynamicsCompressor(); l.threshold.value=-1;l.knee.value=0;l.ratio.value=20;l.attack.value=.001;l.release.value=.08;
+      const l=off.createDynamicsCompressor();
+      l.threshold.value=-1;l.knee.value=0;l.ratio.value=20;l.attack.value=.001;l.release.value=.08;
       c.connect(l).connect(off.destination);
     }else c.connect(off.destination);
-    src.start(); const rendered=await off.startRendering();
+
+    src.start();
+    const rendered=await off.startRendering();
+
     renderedBlob=audioBufferToWav(rendered);
-    wavBtn.disabled=false; status.textContent='WAV ready. Click DOWNLOAD WAV.';
-  }catch(e){status.textContent='Render error: '+e.message;wavBtn.disabled=true}
+    renderedMp3Blob=audioBufferToMp3(rendered, 192);
+
+    wavBtn.disabled=false;
+    document.getElementById('downloadMp3').disabled=false;
+    status.textContent='Ready. WAV and MP3 versions are available for download.';
+  }catch(e){
+    status.textContent='Render error: '+e.message;
+    wavBtn.disabled=true;
+    document.getElementById('downloadMp3').disabled=true;
+  }
 }
+function audioBufferToMp3(buffer, kbps){
+  if(typeof lamejs==='undefined' || !lamejs.Mp3Encoder){
+    throw new Error('MP3 encoder could not be loaded. Check your internet connection.');
+  }
+  const channels=Math.min(2,buffer.numberOfChannels);
+  const sampleRate=buffer.sampleRate;
+  const kb=Math.max(64,Math.min(320,kbps));
+  const encoder=new lamejs.Mp3Encoder(channels,sampleRate,kb);
+  const left=buffer.getChannelData(0);
+  const right=channels===2 ? buffer.getChannelData(1) : left;
+  const sampleBlock=1152;
+  const mp3Data=[];
+  for(let i=0;i<buffer.length;i+=sampleBlock){
+    const end=Math.min(i+sampleBlock,buffer.length);
+    const left16=new Int16Array(end-i);
+    const right16=channels===2?new Int16Array(end-i):null;
+    for(let j=i;j<end;j++){
+      const n=j-i;
+      const l=Math.max(-1,Math.min(1,left[j]));
+      left16[n]=l<0?l*32768:l*32767;
+      if(right16){
+        const r=Math.max(-1,Math.min(1,right[j]));
+        right16[n]=r<0?r*32768:r*32767;
+      }
+    }
+    const chunk=channels===2 ? encoder.encodeBuffer(left16,right16) : encoder.encodeBuffer(left16);
+    if(chunk.length) mp3Data.push(new Int8Array(chunk));
+  }
+  const end=encoder.flush();
+  if(end.length) mp3Data.push(new Int8Array(end));
+  return new Blob(mp3Data,{type:'audio/mpeg'});
+}
+
 function audioBufferToWav(buffer){
   const ch=buffer.numberOfChannels, len=buffer.length, rate=buffer.sampleRate;
   const out=new ArrayBuffer(44+len*ch*2), v=new DataView(out);
@@ -190,6 +242,14 @@ function audioBufferToWav(buffer){
 wavBtn.addEventListener('click',()=>{
   if(!renderedBlob)return; const a=document.createElement('a');a.href=URL.createObjectURL(renderedBlob);
   a.download=(file.name.replace(/\.[^.]+$/,'')||'bass-boost')+'-bass-boost.wav';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+});
+document.getElementById('downloadMp3').addEventListener('click',()=>{
+  if(!renderedMp3Blob)return;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(renderedMp3Blob);
+  a.download=(file.name.replace(/\.[^.]+$/,'')||'bass-boost')+'-bass-boost.mp3';
+  a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),3000);
 });
 document.getElementById('apply').addEventListener('dblclick',renderWav);
