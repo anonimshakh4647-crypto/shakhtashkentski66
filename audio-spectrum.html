@@ -329,56 +329,63 @@ function draw(){
 // Wrap the original draw function so new modes render after the base frame.
 // Renderer is defined above and already includes the effect/text layers.
 
-// ONE-CLICK 1080P VIDEO EXPORT
-// The user only presses DOWNLOAD 1080P. The visualizer and audio are
-// rendered/recorded internally, and the WebM file is downloaded automatically
-// when the selected audio finishes.
+// ONE-CLICK 1080P H.264 MP4 VIDEO EXPORT
+// Only the export engine is changed. All visualizer/UI code remains untouched.
 let mediaRecorder=null;
 let recordStream=null;
 let recordAudioDest=null;
-let audioRecordConnected=false;
 let recordedChunks=[];
 let exportAnimationId=0;
 let exporting=false;
 
 async function download1080Video(){
   if(exporting) return;
-  try{await ensureFontLoaded(TE.textFont.value||'Arial');}catch(e){}
+
+  const resetExportUI=()=>{
+    exporting=false;
+    cancelAnimationFrame(exportAnimationId);
+    $('download1080').disabled=false;
+    $('download1080').textContent='⬇ DOWNLOAD 1080P';
+  };
+
   try{
+    try{await ensureFontLoaded(TE.textFont.value||'Arial');}catch(e){}
+
     if(!F.files[0]){
       alert('Avval audio fayl tanlang.');
       return;
     }
 
     if(!ac || !an) await init();
-    if(!ac || !an) throw new Error('Audio engine ishga tushmadi.');
+    if(!ac || !an || !src) throw new Error('Audio engine ishga tushmadi.');
+
+    await ac.resume();
 
     const outW=1920, outH=1080;
     const recCanvas=document.createElement('canvas');
     recCanvas.width=outW;
     recCanvas.height=outH;
     const rc=recCanvas.getContext('2d',{alpha:false});
-    // 1920×1080 / 60 FPS export: medium filtering avoids unnecessary
-    // per-frame scaling cost while keeping the final image sharp.
     rc.imageSmoothingEnabled=true;
-    rc.imageSmoothingQuality='medium';
+    rc.imageSmoothingQuality='high';
 
     exporting=true;
+    $('download1080').disabled=true;
+    $('download1080').textContent='⏳ CREATING H.264...';
+    statusText('H.264 High 1080p 60 FPS eksport qilinmoqda...');
+
     const paint=()=>{
       if(!exporting) return;
       rc.fillStyle='#01040a';
       rc.fillRect(0,0,outW,outH);
 
-      // Preserve the preview's aspect ratio during 1920×1080 export.
-      // Never stretch the source canvas independently on X/Y.
       const sw=C.width || C.clientWidth;
       const sh=C.height || C.clientHeight;
-      const scale=Math.min(outW/sw, outH/sh);
-      const dw=sw*scale;
-      const dh=sh*scale;
-      const dx=(outW-dw)/2;
-      const dy=(outH-dh)/2;
+      const scale=Math.min(outW/sw,outH/sh);
+      const dw=sw*scale, dh=sh*scale;
+      const dx=(outW-dw)/2, dy=(outH-dh)/2;
       rc.drawImage(C,0,0,sw,sh,dx,dy,dw,dh);
+
       exportAnimationId=requestAnimationFrame(paint);
     };
     paint();
@@ -386,58 +393,71 @@ async function download1080Video(){
     const fps=60;
     const videoStream=recCanvas.captureStream(fps);
 
-    if(!recordAudioDest){
-      recordAudioDest=ac.createMediaStreamDestination();
-    }
-    if(!audioRecordConnected){
-      src.connect(recordAudioDest);
-      audioRecordConnected=true;
-    }
+    // Create a fresh audio destination for every export.
+    // This prevents stale/duplicate audio tracks on repeated exports.
+    recordAudioDest=ac.createMediaStreamDestination();
+    src.connect(recordAudioDest);
 
-    recordStream=new MediaStream([
-      ...videoStream.getVideoTracks(),
-      ...recordAudioDest.stream.getAudioTracks()
-    ]);
+    const audioTracks=recordAudioDest.stream.getAudioTracks();
+    const videoTracks=videoStream.getVideoTracks();
+    if(!audioTracks.length) throw new Error('Audio track yaratilmadi.');
 
-    // MP4 / H.264 export: use the browser's native MediaRecorder MP4 encoder.
-    // The first candidate requests H.264 High Profile at Level 4.2 with AAC audio.
-    // No WebM fallback is used, so the export is always MP4 or reports unsupported codec.
+    recordStream=new MediaStream([...videoTracks,...audioTracks]);
+
+    // H.264 High Profile + AAC MP4 only.
     const mimeCandidates=[
-      'video/mp4;codecs=avc1.64002A,mp4a.40.2',
-      'video/mp4;codecs=avc1.640028,mp4a.40.2',
+      'video/mp4;codecs="avc1.64002A,mp4a.40.2"',
+      'video/mp4;codecs="avc1.640028,mp4a.40.2"',
+      'video/mp4;codecs="avc1.4D002A,mp4a.40.2"',
       'video/mp4'
     ];
     const mime=mimeCandidates.find(x=>window.MediaRecorder && MediaRecorder.isTypeSupported(x));
-    if(!mime) throw new Error('Bu brauzer H.264 MP4 exportini qo‘llab-quvvatlamaydi. Chrome/Edge ning yangilangan versiyasidan foydalaning.');
+    if(!mime){
+      throw new Error('Bu brauzer H.264/AAC MP4 eksportini qo‘llab-quvvatlamaydi. Chrome/Edge yangilangan versiyasidan foydalaning.');
+    }
 
     recordedChunks=[];
 
     mediaRecorder=new MediaRecorder(recordStream,{
       mimeType:mime,
-      // High-quality 1920×1080 60 FPS H.264 export.
       videoBitsPerSecond:100000000,
       audioBitsPerSecond:320000
     });
 
-    mediaRecorder.ondataavailable=e=>{
-      if(e.data && e.data.size) recordedChunks.push(e.data);
+    let finished=false;
+    let finishTimer=null;
+
+    const cleanupTracks=()=>{
+      try{recordStream?.getTracks().forEach(tr=>tr.stop());}catch(e){}
+      try{src.disconnect(recordAudioDest);}catch(e){}
+      recordAudioDest=null;
+      recordStream=null;
     };
 
     const finish=()=>{
-      if(mediaRecorder && mediaRecorder.state!=='inactive'){
-        mediaRecorder.stop();
-      }
+      if(finished) return;
+      finished=true;
+
+      // Give the recorder one small buffer interval to flush the final audio
+      // samples, then stop exactly once. No replay/loop is started.
+      if(finishTimer) clearTimeout(finishTimer);
+      finishTimer=setTimeout(()=>{
+        if(mediaRecorder && mediaRecorder.state!=='inactive'){
+          mediaRecorder.stop();
+        }
+      },120);
+    };
+
+    mediaRecorder.ondataavailable=e=>{
+      if(e.data && e.data.size>0) recordedChunks.push(e.data);
     };
 
     mediaRecorder.onstop=()=>{
-      exporting=false;
       cancelAnimationFrame(exportAnimationId);
-
-      try{
-        recordStream.getTracks().forEach(tr=>tr.stop());
-      }catch(e){}
+      cleanupTracks();
 
       if(!recordedChunks.length){
+        resetExportUI();
         statusText('Video yaratilmadi. Qaytadan urinib ko‘ring.');
         return;
       }
@@ -447,7 +467,7 @@ async function download1080Video(){
       const baseName=(F.files[0]?.name||'audio-spectrum').replace(/\.[^.]+$/,'');
       const a=document.createElement('a');
       a.href=url;
-      a.download=baseName+'-1080p-H264-100Mbps.mp4';
+      a.download=baseName+'-1080p-H264-High.mp4';
       a.style.display='none';
       document.body.appendChild(a);
       a.click();
@@ -457,37 +477,39 @@ async function download1080Video(){
         URL.revokeObjectURL(url);
       },15000);
 
-      $('download1080').disabled=false;
-      $('download1080').textContent='⬇ DOWNLOAD 1080P';
-      statusText('1080p 60 FPS video tayyor va yuklab olindi.');
+      resetExportUI();
+      statusText('H.264 High 1080p 60 FPS MP4 tayyor — audio bilan yuklab olindi.');
     };
 
     mediaRecorder.onerror=e=>{
-      exporting=false;
-      cancelAnimationFrame(exportAnimationId);
-      $('download1080').disabled=false;
-      $('download1080').textContent='⬇ DOWNLOAD 1080P';
+      if(finishTimer) clearTimeout(finishTimer);
+      cleanupTracks();
+      resetExportUI();
       statusText('Export xatosi: '+(e.error?.message||'unknown error'));
     };
 
-    // End automatically when the complete audio has played.
+    // Never loop the source during export.
+    A.loop=false;
     A.onended=finish;
 
-    // Restart from the beginning so the entire song is included.
+    // Start from the exact beginning.
+    A.pause();
     A.currentTime=0;
 
+    // Recorder starts BEFORE playback so the first audio samples are included.
     mediaRecorder.start(1000);
-    $('download1080').disabled=true;
-    $('download1080').textContent='⏳ CREATING 1080P...';
-    statusText('1080p 60 FPS video tayyorlanmoqda... musiqa tugagach avtomatik yuklanadi.');
 
-    await A.play();
+    try{
+      await A.play();
+    }catch(playError){
+      if(mediaRecorder && mediaRecorder.state!=='inactive'){
+        try{mediaRecorder.stop();}catch(e){}
+      }
+      throw new Error('Musiqani eksport uchun ishga tushirib bo‘lmadi: '+playError.message);
+    }
 
   }catch(e){
-    exporting=false;
-    cancelAnimationFrame(exportAnimationId);
-    $('download1080').disabled=false;
-    $('download1080').textContent='⬇ DOWNLOAD 1080P';
+    resetExportUI();
     statusText('Export xatosi: '+e.message);
     alert(e.message);
   }
