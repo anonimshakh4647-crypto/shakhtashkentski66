@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BASS BOOST | IT SHAKH</title>
+<style>
+:root{--bg:#05080e;--panel:#0b111b;--panel2:#0e1724;--line:#1b2b40;--text:#f1f7ff;--muted:#8fa5bd;--cyan:#00e5ff;--purple:#7c4dff;--green:#35ef9b;--red:#ff5270}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0,#10243c 0,#05080e 48%);color:var(--text);font:14px Inter,Segoe UI,Arial,sans-serif}
+.wrap{width:min(1050px,calc(100% - 32px));margin:auto;padding:38px 0 55px}.brand{font-size:28px;font-weight:950;letter-spacing:2px;color:var(--cyan)}.crumb{color:var(--muted);margin-top:4px}
+.card{margin-top:22px;background:linear-gradient(145deg,#0c141f,#080e17);border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:0 20px 70px #0008}
+h1{margin:0 0 8px;font-size:34px}.desc{color:var(--muted);line-height:1.6}
+.file{margin:20px 0;padding:18px;border:1px dashed #2a4664;border-radius:14px;background:#07101a}.file input{width:100%}
+.controls{display:grid;grid-template-columns:repeat(2,1fr);gap:15px;margin-top:18px}
+.control{padding:16px;background:var(--panel);border:1px solid var(--line);border-radius:14px}.control label{display:flex;justify-content:space-between;font-weight:800}.value{color:var(--cyan)}
+input[type=range]{width:100%;accent-color:var(--cyan);margin-top:15px}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}button{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:12px 16px;border-radius:10px;font-weight:800;cursor:pointer}button:hover{border-color:var(--cyan)}button.primary{background:linear-gradient(135deg,#00bdd3,#6842e8);border:0}.danger{border-color:#6c2938}
+.player{margin-top:18px;padding:18px;background:#060b12;border:1px solid var(--line);border-radius:14px}audio{width:100%}
+.meter{height:12px;background:#111c29;border-radius:99px;overflow:hidden;margin-top:14px}.meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,#35ef9b,#00e5ff,#7c4dff);transition:width .08s}
+.status{margin-top:12px;color:var(--muted);white-space:pre-wrap}.note{font-size:12px;color:#7189a4;line-height:1.5;margin-top:15px}
+@media(max-width:720px){.controls{grid-template-columns:1fr}.wrap{width:min(100% - 20px,1050px)}h1{font-size:27px}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="brand">IT SHAKH</div>
+  <div class="crumb">Tools / BASS BOOST</div>
+
+  <section class="card">
+    <h1>🔊 BASS BOOST</h1>
+    <div class="desc">Musiqa ovozini kuchaytirish, kuchli bass qo‘shish, compressor va limiter bilan toza chiqishni saqlash.</div>
+
+    <div class="file">
+      <input id="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac">
+    </div>
+
+    <div class="controls">
+      <div class="control">
+        <label>VOLUME BOOST <span class="value" id="gainVal">100%</span></label>
+        <input id="gain" type="range" min="0.5" max="4" step="0.01" value="1">
+      </div>
+      <div class="control">
+        <label>BASS BOOST <span class="value" id="bassVal">0 dB</span></label>
+        <input id="bass" type="range" min="0" max="24" step="0.5" value="0">
+      </div>
+      <div class="control">
+        <label>BASS FREQUENCY <span class="value" id="freqVal">70 Hz</span></label>
+        <input id="freq" type="range" min="40" max="140" step="1" value="70">
+      </div>
+      <div class="control">
+        <label>LIMITER <span class="value" id="limitVal">ON</span></label>
+        <input id="limiter" type="range" min="0" max="1" step="1" value="1">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="apply" class="primary" disabled>APPLY EFFECTS</button>
+      <button id="reset">RESET</button>
+      <button id="downloadWav" disabled>DOWNLOAD WAV</button>
+    </div>
+
+    <div class="player">
+      <audio id="audio" controls></audio>
+      <div class="meter"><i id="meter"></i></div>
+      <div id="status" class="status">Choose an audio file.</div>
+    </div>
+
+    <div class="note">
+      Volume 400% va 24 dB bassgacha ko‘tarish mumkin. Limiter ON bo‘lsa, kuchli boost paytida clippingni kamaytiradi.
+      Juda katta boost baribir original yozuv sifatidan ortiq detal yaratmaydi va ayrim treklar buzilishi mumkin.
+      Barcha qayta ishlash brauzer ichida bajariladi.
+    </div>
+  </section>
+</main>
+
+<script>
+const fileEl=document.getElementById('file'), audio=document.getElementById('audio');
+const gainEl=document.getElementById('gain'), bassEl=document.getElementById('bass'), freqEl=document.getElementById('freq'), limiterEl=document.getElementById('limiter');
+const gainVal=document.getElementById('gainVal'), bassVal=document.getElementById('bassVal'), freqVal=document.getElementById('freqVal'), limitVal=document.getElementById('limitVal');
+const applyBtn=document.getElementById('apply'), wavBtn=document.getElementById('downloadWav'), status=document.getElementById('status'), meter=document.getElementById('meter');
+let file=null, url=null, ctx=null, source=null, gainNode=null, bassNode=null, compressor=null, analyser=null, limiter=null, raf=0, renderedBlob=null;
+
+function updateLabels(){
+  gainVal.textContent=Math.round(gainEl.value*100)+'%';
+  bassVal.textContent=bassEl.value+' dB';
+  freqVal.textContent=freqEl.value+' Hz';
+  limitVal.textContent=limiterEl.value==='1'?'ON':'OFF';
+}
+[gainEl,bassEl,freqEl,limiterEl].forEach(x=>x.addEventListener('input',()=>{updateLabels(); if(ctx) updateGraph();}));
+updateLabels();
+
+fileEl.addEventListener('change',()=>{
+  file=fileEl.files[0]; renderedBlob=null; wavBtn.disabled=true;
+  if(url) URL.revokeObjectURL(url);
+  if(file){
+    url=URL.createObjectURL(file); audio.src=url; applyBtn.disabled=false;
+    status.textContent='Loaded: '+file.name;
+  }else{applyBtn.disabled=true;status.textContent='Choose an audio file.'}
+});
+
+async function start(){
+  if(!file)return;
+  if(ctx) await ctx.close().catch(()=>{});
+  ctx=new (window.AudioContext||window.webkitAudioContext)();
+  source=ctx.createMediaElementSource(audio);
+  gainNode=ctx.createGain();
+  bassNode=ctx.createBiquadFilter();
+  bassNode.type='lowshelf';
+  compressor=ctx.createDynamicsCompressor();
+  compressor.threshold.value=-8;
+  compressor.knee.value=10;
+  compressor.ratio.value=10;
+  compressor.attack.value=.003;
+  compressor.release.value=.18;
+  limiter=ctx.createDynamicsCompressor();
+  limiter.threshold.value=-1;
+  limiter.knee.value=0;
+  limiter.ratio.value=20;
+  limiter.attack.value=.001;
+  limiter.release.value=.08;
+  analyser=ctx.createAnalyser(); analyser.fftSize=256;
+
+  updateGraph();
+  source.connect(gainNode).connect(bassNode).connect(compressor);
+  if(limiterEl.value==='1') compressor.connect(limiter).connect(analyser);
+  else compressor.connect(analyser);
+  analyser.connect(ctx.destination);
+
+  audio.play().catch(()=>{});
+  drawMeter();
+  status.textContent='Effects applied. Play the track to hear the result.';
+}
+function updateGraph(){
+  if(!gainNode)return;
+  gainNode.gain.value=parseFloat(gainEl.value);
+  bassNode.frequency.value=parseFloat(freqEl.value);
+  bassNode.gain.value=parseFloat(bassEl.value);
+}
+function drawMeter(){
+  if(!analyser)return;
+  const data=new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(data);
+  let avg=data.reduce((a,b)=>a+b,0)/data.length; meter.style.width=Math.min(100,avg*1.4)+'%';
+  raf=requestAnimationFrame(drawMeter);
+}
+applyBtn.addEventListener('click',start);
+
+document.getElementById('reset').addEventListener('click',()=>{
+  gainEl.value=1;bassEl.value=0;freqEl.value=70;limiterEl.value=1;updateLabels();updateGraph();
+  status.textContent=file?'Reset to original processing settings.':'Choose an audio file.';
+});
+
+audio.addEventListener('ended',()=>cancelAnimationFrame(raf));
+
+/* Offline render to WAV: applies the same gain, bass shelf and dynamics. */
+async function renderWav(){
+  if(!file)return;
+  status.textContent='Rendering WAV…';
+  wavBtn.disabled=true;
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext;
+    const temp=new AC();
+    const buf=await temp.decodeAudioData(await file.arrayBuffer());
+    await temp.close();
+    const off=new OfflineAudioContext(buf.numberOfChannels,buf.length,buf.sampleRate);
+    const src=off.createBufferSource(); src.buffer=buf;
+    const g=off.createGain(); g.gain.value=parseFloat(gainEl.value);
+    const b=off.createBiquadFilter(); b.type='lowshelf'; b.frequency.value=parseFloat(freqEl.value); b.gain.value=parseFloat(bassEl.value);
+    const c=off.createDynamicsCompressor(); c.threshold.value=-8;c.knee.value=10;c.ratio.value=10;c.attack.value=.003;c.release.value=.18;
+    src.connect(g).connect(b).connect(c);
+    if(limiterEl.value==='1'){
+      const l=off.createDynamicsCompressor(); l.threshold.value=-1;l.knee.value=0;l.ratio.value=20;l.attack.value=.001;l.release.value=.08;
+      c.connect(l).connect(off.destination);
+    }else c.connect(off.destination);
+    src.start(); const rendered=await off.startRendering();
+    renderedBlob=audioBufferToWav(rendered);
+    wavBtn.disabled=false; status.textContent='WAV ready. Click DOWNLOAD WAV.';
+  }catch(e){status.textContent='Render error: '+e.message;wavBtn.disabled=true}
+}
+function audioBufferToWav(buffer){
+  const ch=buffer.numberOfChannels, len=buffer.length, rate=buffer.sampleRate;
+  const out=new ArrayBuffer(44+len*ch*2), v=new DataView(out);
+  const write=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};
+  write(0,'RIFF');v.setUint32(4,36+len*ch*2,true);write(8,'WAVE');write(12,'fmt ');
+  v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,ch,true);v.setUint32(24,rate,true);
+  v.setUint32(28,rate*ch*2,true);v.setUint16(32,ch*2,true);v.setUint16(34,16,true);write(36,'data');v.setUint32(40,len*ch*2,true);
+  let o=44;
+  for(let i=0;i<len;i++)for(let c=0;c<ch;c++){let s=Math.max(-1,Math.min(1,buffer.getChannelData(c)[i]));v.setInt16(o,s<0?s*32768:s*32767,true);o+=2}
+  return new Blob([out],{type:'audio/wav'});
+}
+wavBtn.addEventListener('click',()=>{
+  if(!renderedBlob)return; const a=document.createElement('a');a.href=URL.createObjectURL(renderedBlob);
+  a.download=(file.name.replace(/\.[^.]+$/,'')||'bass-boost')+'-bass-boost.wav';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+});
+document.getElementById('apply').addEventListener('dblclick',renderWav);
+</script>
+</body>
+</html>
