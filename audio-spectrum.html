@@ -88,39 +88,12 @@ const ids=['sens','smooth','fft','bars','glow','decay','minf','maxf','rotation']
 let ac=null,src=null,an=null,fd=null,wd=null,url=null,raf=0,started=false,peaks=[],hue=190,parts=[];
 function resize(){let d=devicePixelRatio||1,r=C.getBoundingClientRect();C.width=r.width*d;C.height=r.height*d;X.setTransform(d,0,0,d,0,0);if(!parts.length)for(let i=0;i<90;i++)parts.push({x:Math.random(),y:Math.random(),v:.0002+Math.random()*.0006,s:.5+Math.random()*2})}addEventListener('resize',resize);resize();
 function lab(){$('sensO').textContent=(+$('sens').value).toFixed(2)+'×';$('smoothO').textContent=(+$('smooth').value).toFixed(2);$('fftO').textContent=fv[+$('fft').value];$('barsO').textContent=$('bars').value;$('glowO').textContent=$('glow').value;$('decayO').textContent=(+$('decay').value).toFixed(2);$('minO').textContent=$('minf').value+' Hz';$('maxO').textContent=(+$('maxf').value/1000).toFixed(1)+' kHz';$('rotO').textContent=$('rotation').value+'°'}lab();
-F.onchange=async()=>{let f=F.files[0];if(!f)return;if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(f);A.src=url;A.load();$('track').textContent=f.name;S.disabled=false;started=false;try{await init()}catch(e){statusText('START tugmasini bosing: '+e.message)}};
+F.onchange=async()=>{let f=F.files[0];if(!f)return;if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(f);A.src=url;$('track').textContent=f.name;S.disabled=false;started=false;try{await init();await A.play()}catch(e){statusText('START tugmasini bosing: '+e.message)}};
 ids.forEach(id=>$(id).addEventListener('input',()=>{lab();if(an){an.smoothingTimeConstant=+$('smooth').value;if(id==='fft'){an.fftSize=fv[+$('fft').value];fd=new Uint8Array(an.frequencyBinCount);wd=new Uint8Array(an.fftSize)}}}));
-async function init(){
-  if(!F.files[0])return;
-  A.muted=false; A.volume=1;
-  if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)();
-  if(ac.state==='suspended')await ac.resume();
-
-  if(!src)src=ac.createMediaElementSource(A);
-
-  if(!an){
-    an=ac.createAnalyser();
-    an.fftSize=fv[+$('fft').value];
-    an.smoothingTimeConstant=+$('smooth').value;
-    an.minDecibels=-90;
-    an.maxDecibels=-10;
-    src.connect(an);
-    an.connect(ac.destination);
-    fd=new Uint8Array(an.frequencyBinCount);
-    wd=new Uint8Array(an.fftSize);
-  }
-  if(ac.state==='suspended')await ac.resume();
-  $('sr').textContent=ac.sampleRate+' Hz';
-  $('fft2').textContent=an.fftSize;
-  started=true;
-  if(!raf)draw();
-}
-S.onclick=async()=>{try{await init();if(ac&&ac.state==='suspended')await ac.resume();if(A.paused)await A.play();if(!raf)draw()}catch(e){statusText('START xatosi: '+e.message)}};
-A.onplay=async()=>{try{if(ac&&ac.state==='suspended')await ac.resume()}catch(e){} started=true;if(!raf)draw()};
-A.onpause=()=>{};
-A.onended=()=>{};
+async function init(){if(!F.files[0])return;if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')await ac.resume();if(!src){src=ac.createMediaElementSource(A);an=ac.createAnalyser();an.fftSize=fv[+$('fft').value];an.smoothingTimeConstant=+$('smooth').value;src.connect(an);an.connect(ac.destination);fd=new Uint8Array(an.frequencyBinCount);wd=new Uint8Array(an.fftSize)}$('sr').textContent=ac.sampleRate+' Hz';$('fft2').textContent=an.fftSize;started=true;draw();}S.onclick=async()=>{try{await init();if(A.paused)await A.play()}catch(e){statusText('START xatosi: '+e.message)}};A.onplay=()=>{started=true;if(!raf)draw()};A.onpause=()=>{};A.onended=()=>{};
 function ci(h){return Math.max(0,Math.min(fd.length-1,Math.round(h/(ac.sampleRate/2)*(fd.length-1))))}function av(a,b){let s=0,n=0;for(let i=a;i<=b;i++){s+=fd[i];n++}return n?s/n:0}function clr(w,h){X.fillStyle='#01040a';X.fillRect(0,0,w,h)}function color(t){return`hsl(${hue+120*t},100%,${55+14*t}%)`}
 function grid(w,h){ /* Frequency grid and Hz labels intentionally disabled. */ }
+const presetEl=document.getElementById('preset');
 presetEl.addEventListener('change', e => applyPreset(e.target.value));
 
 // Extra visual modes layered on top of the existing renderer.
@@ -181,15 +154,6 @@ function draw(){
 
     an.getByteFrequencyData(fd);
     an.getByteTimeDomainData(wd);
-    let analyserPeak=0;
-    for(let q=0;q<fd.length;q+=8) analyserPeak=Math.max(analyserPeak,fd[q]);
-    if(analyserPeak===0 && !A.paused){
-      const pulse=(Math.sin(performance.now()/110)+1)*0.5;
-      for(let q=0;q<fd.length;q++){
-        const wave=Math.max(0,Math.sin(q*.045+performance.now()/700));
-        fd[q]=Math.round(pulse*18+wave*8);
-      }
-    }
 
     const mode=M.value;
     const bars=Math.max(16,Math.min(180,+$('bars').value||64));
