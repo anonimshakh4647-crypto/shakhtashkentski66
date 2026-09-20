@@ -6,91 +6,160 @@
 <title>Video to MP3 | IT SHAKH</title>
 <style>
 :root{--bg:#05070b;--panel:#0b111a;--line:#172235;--text:#eef5ff;--muted:#8da0b8;--a:#00e5ff}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -10%,#102033,#05070b 48%);color:var(--text);font-family:Segoe UI,Arial,sans-serif;min-height:100vh}
-.wrap{max-width:950px;margin:auto;padding:40px 20px}.brand{font-size:28px;font-weight:900;letter-spacing:2px;color:var(--a)}
-.sub,.hint{color:var(--muted)}.card{background:#0b111aee;border:1px solid var(--line);border-radius:20px;padding:26px;margin-top:25px;box-shadow:0 15px 50px #0008}
-h1{margin-top:0}input{width:100%;padding:13px;margin:7px 0 14px;background:#070c13;color:var(--text);border:1px solid #24334a;border-radius:10px}
-.btn{padding:13px 18px;border:0;border-radius:11px;background:linear-gradient(135deg,#00e5ff,#188cff);font-weight:800;cursor:pointer}.btn:disabled{opacity:.45}
-.status{margin-top:15px;color:var(--muted);white-space:pre-wrap}.bar{height:10px;background:#111b29;border-radius:99px;overflow:hidden;margin-top:15px}.fill{height:100%;width:0;background:linear-gradient(90deg,#00e5ff,#7c4dff);transition:width .2s}
-.small{font-size:12px;color:#71849d;margin-top:12px;line-height:1.5}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at 50% -10%,#102033,#05070b 48%);color:var(--text);font-family:Segoe UI,Arial,sans-serif;min-height:100vh}
+.wrap{max-width:950px;margin:auto;padding:40px 20px}
+.brand{font-size:28px;font-weight:900;letter-spacing:2px;color:var(--a)}
+.sub,.hint{color:var(--muted)}
+.card{background:#0b111aee;border:1px solid var(--line);border-radius:20px;padding:26px;margin-top:25px;box-shadow:0 15px 50px #0008}
+h1{margin-top:0}
+input{width:100%;padding:13px;margin:7px 0 14px;background:#070c13;color:var(--text);border:1px solid #24334a;border-radius:10px}
+.btn{padding:13px 18px;border:0;border-radius:11px;background:linear-gradient(135deg,#00e5ff,#188cff);font-weight:800;cursor:pointer}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.status{margin-top:15px;color:var(--muted);white-space:pre-wrap;line-height:1.6}
+.progress-wrap{margin-top:14px;height:8px;background:#101a28;border-radius:20px;overflow:hidden;display:none}
+.progress{height:100%;width:0;background:linear-gradient(90deg,#00e5ff,#188cff);transition:width .15s}
+.note{margin-top:15px;padding:12px;border:1px solid #17304a;border-radius:10px;color:#8da0b8;font-size:13px}
 </style>
 </head>
 <body>
 <main class="wrap">
-<div class="brand">IT SHAKH</div>
-<div class="sub">Tools / Video to MP3</div>
-<section class="card">
-<h1>🎬 Video → MP3</h1>
-<p class="hint">Convert a local video file to MP3 directly in your browser. No upload is required.</p>
-<input id="file" type="file" accept="video/*,.mkv,.webm,.mov,.avi,.mp4">
-<button id="go" class="btn" disabled>Convert to MP3</button>
-<div class="bar"><div id="fill" class="fill"></div></div>
-<div id="status" class="status">Select a video.</div>
-<div class="small">The first conversion downloads FFmpeg WebAssembly components into your browser. The video itself is processed locally.</div>
-</section>
+  <div class="brand">IT SHAKH</div>
+  <div class="sub">Tools / Video to MP3</div>
+
+  <section class="card">
+    <h1>🎬 Video → MP3</h1>
+    <p class="hint">Convert a local video file to MP3 directly in your browser. The video is not uploaded to a server.</p>
+
+    <input id="file" type="file" accept="video/*,.mp4,.mkv,.mov,.avi,.webm,.flv,.3gp">
+
+    <button id="go" class="btn" disabled>Convert to MP3</button>
+
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress" id="progress"></div>
+    </div>
+
+    <div id="status" class="status">Select a video.</div>
+
+    <div class="note">
+      First conversion may take a little longer because FFmpeg must load in the browser.
+    </div>
+  </section>
 </main>
+
+<!-- Single-thread FFmpeg build: avoids the cross-origin Worker error on GitHub Pages. -->
 <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 <script>
-const $=id=>document.getElementById(id);
-let selected=null, ffmpeg=null, loading=null;
+(() => {
+  const { createFFmpeg, fetchFile } = FFmpeg;
 
-$('file').addEventListener('change', e=>{
-  selected=e.target.files && e.target.files[0];
-  $('go').disabled=!selected;
-  $('fill').style.width='0%';
-  $('status').textContent=selected ? 'Ready: '+selected.name : 'Select a video.';
-});
+  const $ = id => document.getElementById(id);
+  const fileInput = $('file');
+  const go = $('go');
+  const status = $('status');
+  const progressWrap = $('progressWrap');
+  const progress = $('progress');
 
-async function getFFmpeg(){
-  if(ffmpeg && ffmpeg.isLoaded()) return ffmpeg;
-  if(loading) return loading;
-  loading=(async()=>{
-    if(typeof FFmpeg==='undefined' || !FFmpeg.createFFmpeg){
-      throw new Error('FFmpeg library could not be loaded. Check your internet connection or CDN access.');
+  let selectedFile = null;
+  let ffmpeg = null;
+  let loaded = false;
+
+  fileInput.addEventListener('change', () => {
+    selectedFile = fileInput.files && fileInput.files[0];
+
+    if (!selectedFile) {
+      go.disabled = true;
+      status.textContent = 'Select a video.';
+      return;
     }
-    ffmpeg=FFmpeg.createFFmpeg({
-      log:false,
-      corePath:'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.5/dist/ffmpeg-core.js'
-    });
-    ffmpeg.setProgress(({ratio})=>{
-      const pct=Math.max(0,Math.min(100,Math.round(ratio*100)));
-      $('fill').style.width=pct+'%';
-      $('status').textContent='Converting… '+pct+'%';
-    });
-    $('status').textContent='Loading FFmpeg…';
-    await ffmpeg.load();
-    return ffmpeg;
-  })();
-  try{return await loading}finally{loading=null}
-}
 
-$('go').addEventListener('click', async()=>{
-  if(!selected) return;
-  $('go').disabled=true;
-  $('fill').style.width='0%';
-  try{
-    const f=await getFFmpeg();
-    const inputName='input'+(selected.name.match(/\.[^.]+$/)||['.mp4'])[0].toLowerCase();
-    const outputName='output.mp3';
-    f.FS('writeFile',inputName,await FFmpeg.fetchFile(selected));
-    $('status').textContent='Converting…';
-    await f.run('-i',inputName,'-vn','-codec:a','libmp3lame','-q:a','2',outputName);
-    const data=f.FS('readFile',outputName);
-    const blob=new Blob([data.buffer],{type:'audio/mpeg'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;
-    a.download=selected.name.replace(/\.[^.]+$/,'')+'.mp3';
-    document.body.appendChild(a);a.click();a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url),5000);
-    $('fill').style.width='100%';
-    $('status').textContent='Done. MP3 downloaded.';
-    try{f.FS('unlink',inputName);f.FS('unlink',outputName)}catch(_){}
-  }catch(e){
-    $('status').textContent='Error: '+(e && e.message ? e.message : e);
-    $('fill').style.width='0%';
-  }finally{$('go').disabled=false}
-});
+    go.disabled = false;
+    status.textContent = 'Ready: ' + selectedFile.name;
+  });
+
+  async function loadFFmpeg() {
+    if (loaded) return;
+
+    status.textContent = 'Loading FFmpeg for the first time...';
+    progressWrap.style.display = 'block';
+    progress.style.width = '5%';
+
+    ffmpeg = createFFmpeg({
+      log: false,
+      mainName: 'main',
+      corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
+    });
+
+    ffmpeg.setProgress(({ ratio }) => {
+      const percent = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+      progress.style.width = percent + '%';
+      status.textContent = 'Converting... ' + percent + '%';
+    });
+
+    await ffmpeg.load();
+    loaded = true;
+    progress.style.width = '10%';
+  }
+
+  go.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    go.disabled = true;
+    fileInput.disabled = true;
+    progressWrap.style.display = 'block';
+    progress.style.width = '0%';
+
+    const inputName = 'input' + (selectedFile.name.match(/\.[^.]+$/) || ['.mp4'])[0].toLowerCase();
+    const outputName = 'output.mp3';
+
+    try {
+      await loadFFmpeg();
+
+      status.textContent = 'Reading video...';
+      progress.style.width = '12%';
+
+      ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
+
+      status.textContent = 'Converting to MP3...';
+      await ffmpeg.run(
+        '-i', inputName,
+        '-vn',
+        '-codec:a', 'libmp3lame',
+        '-q:a', '2',
+        outputName
+      );
+
+      const data = ffmpeg.FS('readFile', outputName);
+      const blob = new Blob([data.buffer], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = selectedFile.name.replace(/\.[^.]+$/, '') + '.mp3';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+      progress.style.width = '100%';
+      status.textContent = 'Done! MP3 created and downloaded.';
+    } catch (err) {
+      console.error(err);
+      status.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+    } finally {
+      try {
+        if (ffmpeg) {
+          try { ffmpeg.FS('unlink', inputName); } catch (_) {}
+          try { ffmpeg.FS('unlink', outputName); } catch (_) {}
+        }
+      } catch (_) {}
+
+      go.disabled = !selectedFile;
+      fileInput.disabled = false;
+    }
+  });
+})();
 </script>
 </body>
 </html>
