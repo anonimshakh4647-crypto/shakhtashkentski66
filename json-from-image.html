@@ -32,7 +32,7 @@ pre{white-space:pre-wrap;word-break:break-word;margin:0;font:13px/1.5 Consolas,m
   <div class="crumb">Tools / JSON FROM IMAGE</div>
   <div class="panel">
     <div class="toolbar">
-      <label class="filebtn primary">UPLOAD IMAGE<input id="file" type="file" accept="image/*"></label>
+      <label class="filebtn primary uploadBtn" for="file">UPLOAD IMAGE</label><input id="file" type="file" accept="image/*">
       <button id="paste">PASTE IMAGE</button>
       <button id="ocr">EXTRACT JSON</button>
       <button id="format">FORMAT JSON</button>
@@ -88,36 +88,170 @@ $('paste').onclick=async()=>{
 };
 
 function cleanOCR(s){
-  s=s.replace(/\r/g,'').replace(/[“”]/g,'"').replace(/[‘’]/g,"'");
-  const starts=[s.indexOf('{'),s.indexOf('[')].filter(x=>x>=0);
-  if(starts.length)s=s.slice(Math.min(...starts));
-  const end=Math.max(s.lastIndexOf('}'),s.lastIndexOf(']'));
-  if(end>=0)s=s.slice(0,end+1);
+  return s.replace(/\r/g,'')
+    .replace(/\u00a0/g,' ')
+    .replace(/[“”„‟]/g,'"')
+    .replace(/[‘’]/g,"'")
+    .replace(/[：]/g,':')
+    .replace(/[，]/g,',')
+    .trim();
+}
+
+function normalizeJsonOCR(s){
+  s=cleanOCR(s);
+
+  // Common OCR substitutions specifically around JSON punctuation.
+  s=s.replace(/^\s*[»«›‹]+\s*/gm,'');
+  s=s.replace(/([{\[,])\s*[`'‘’]/g,'$1"');
+  s=s.replace(/[`‘’]\s*([,:}\]])/g,'"$1');
+  s=s.replace(/\bTrue\b/g,'true').replace(/\bFalse\b/g,'false').replace(/\bNone\b/g,'null');
+
+  // Quote unquoted object keys: name: -> "name":
+  s=s.replace(/([{,]\s*)([A-Za-z_$][\w$.-]*)\s*:/g,'$1"$2":');
+
+  // Fix accidental spaces inside common JSON punctuation.
+  s=s.replace(/\{\s*"/g,'{"').replace(/"\s*:\s*/g,'":')
+       .replace(/,\s*"/g,',"');
+
   return s.trim();
+}
+
+function balancedCandidates(text){
+  const out=[];
+  const stack=[];
+  let inStr=false, esc=false, start=-1;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inStr){
+      if(esc){esc=false;continue;}
+      if(c==='\\'){esc=true;continue;}
+      if(c==='"')inStr=false;
+      continue;
+    }
+    if(c==='"'){inStr=true;continue;}
+    if(c==='{'||c==='['){
+      if(stack.length===0)start=i;
+      stack.push(c);
+    }else if(c==='}'||c===']'){
+      if(!stack.length)continue;
+      const want=c==='}'?'{':'[';
+      if(stack[stack.length-1]!==want){stack.length=0;start=-1;continue;}
+      stack.pop();
+      if(!stack.length && start>=0){
+        out.push(text.slice(start,i+1));
+        start=-1;
+      }
+    }
+  }
+  return out;
+}
+
+function findBestJSON(text){
+  const variants=[
+    text,
+    normalizeJsonOCR(text),
+    text.replace(/\n+/g,' '),
+    normalizeJsonOCR(text).replace(/\n+/g,' ')
+  ];
+  const candidates=[];
+  for(const v of variants){
+    try{
+      const obj=JSON.parse(v);
+      return {obj,raw:v};
+    }catch{}
+    for(const c of balancedCandidates(v)){
+      try{
+        const obj=JSON.parse(c);
+        candidates.push({obj,raw:c});
+      }catch{
+        const n=normalizeJsonOCR(c);
+        try{
+          const obj=JSON.parse(n);
+          candidates.push({obj,raw:n});
+        }catch{}
+      }
+    }
+  }
+  if(candidates.length)return candidates.sort((a,b)=>b.raw.length-a.raw.length)[0];
+  return null;
+}
+
+async function preprocessImage(file, mode){
+  const bmp=await createImageBitmap(file);
+  const scale=Math.min(3,Math.max(1,2600/Math.max(bmp.width,bmp.height)));
+  const w=Math.round(bmp.width*scale), h=Math.round(bmp.height*scale);
+  const c=document.createElement('canvas'); c.width=w;c.height=h;
+  const x=c.getContext('2d',{willReadFrequently:true});
+  x.imageSmoothingEnabled=true;
+  x.drawImage(bmp,0,0,w,h);
+  const d=x.getImageData(0,0,w,h);
+  for(let i=0;i<d.data.length;i+=4){
+    const r=d.data[i],g=d.data[i+1],b=d.data[i+2];
+    let v=0.299*r+0.587*g+0.114*b;
+    if(mode==='gray'){}
+    else if(mode==='bw'){
+      v=v>145?255:0;
+    }else if(mode==='contrast'){
+      v=Math.max(0,Math.min(255,(v-128)*1.8+128));
+    }
+    d.data[i]=d.data[i+1]=d.data[i+2]=v;
+  }
+  x.putImageData(d,0,0);
+  return c;
+}
+
+async function runOCR(file, mode, psm){
+  const canvas=await preprocessImage(file,mode);
+  const result=await Tesseract.recognize(canvas,'eng',{
+    logger:m=>{
+      if(m.status==='recognizing text'){
+        status('OCR: '+Math.round((m.progress||0)*100)+'%');
+      }
+    },
+    tessedit_pageseg_mode:String(psm),
+    preserve_interword_spaces:'1'
+  });
+  return result.data.text||'';
 }
 
 $('ocr').onclick=async()=>{
   if(!imageFile){status('Avval rasm yuklang.','err');return;}
   $('ocr').disabled=true;
   try{
-    status('OCR ishlayapti... rasm o‘qilmoqda');
-    const result=await Tesseract.recognize(imageFile,'eng',{
-      logger:m=>{
-        if(m.status==='recognizing text') status('OCR: '+Math.round((m.progress||0)*100)+'%');
-      }
-    });
-    let text=cleanOCR(result.data.text);
-    $('out').value=text;
-    try{
-      const obj=JSON.parse(text);
-      $('out').value=JSON.stringify(obj,null,2);
-      status('JSON muvaffaqiyatli olindi va formatlandi.','ok');
-    }catch{
-      status('Matn olindi, lekin JSON sintaksisi aniqlanmadi. Qo‘lda tekshiring.','err');
+    status('JSON qidirilmoqda... rasm tahlil qilinyapti');
+
+    // Multiple OCR passes: original/gray, contrast, and black-white.
+    const passes=[
+      ['gray',6],['contrast',6],['bw',6],
+      ['gray',11],['contrast',11]
+    ];
+    let all='';
+    let found=null;
+
+    for(let i=0;i<passes.length;i++){
+      status('JSON qidirilmoqda... '+(i+1)+'/'+passes.length);
+      const text=await runOCR(imageFile,passes[i][0],passes[i][1]);
+      all += '\n'+text+'\n';
+      found=findBestJSON(text) || findBestJSON(all);
+      if(found)break;
     }
-  }catch(e){status('OCR xatosi: '+e.message,'err')}
-  finally{$('ocr').disabled=false}
+
+    if(found){
+      $('out').value=JSON.stringify(found.obj,null,2);
+      status('JSON topildi va avtomatik formatlandi.','ok');
+    }else{
+      // If OCR got code but it needs minor cleanup, show the best cleaned text.
+      const cleaned=normalizeJsonOCR(all);
+      $('out').value=cleaned;
+      status('JSON topilmadi. Rasmda JSON kodi aniq ko‘rinadigan qilib qayta urinib ko‘ring.','err');
+    }
+  }catch(e){
+    status('OCR xatosi: '+e.message,'err');
+  }finally{
+    $('ocr').disabled=false;
+  }
 };
+
 
 $('format').onclick=()=>{
   try{$('out').value=JSON.stringify(JSON.parse($('out').value),null,2);status('JSON formatlandi.','ok')}
