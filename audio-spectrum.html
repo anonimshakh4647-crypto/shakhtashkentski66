@@ -62,8 +62,8 @@
   </div>
   <div class="bg-grid">
     <div class="bg-field wide"><label>BACKGROUND IMAGE</label><input id="bgFile" type="file" accept="image/*"></div>
-    <div class="bg-field"><label>FIT</label><select id="bgFit"><option value="cover">COVER</option><option value="contain">CONTAIN</option><option value="stretch">STRETCH</option></select></div>
-    <div class="bg-field"><label>BLEND</label><select id="bgBlend"><option value="source-over">NORMAL</option><option value="screen">SCREEN</option><option value="lighter">LIGHTER</option><option value="overlay">OVERLAY</option><option value="soft-light">SOFT LIGHT</option><option value="hard-light">HARD LIGHT</option><option value="multiply">MULTIPLY</option></select></div>
+    <div class="bg-field"><label>FIT <span style="opacity:.7">300 OPTIONS</span></label><select id="bgFit" aria-label="300 fit options"></select></div>
+    <div class="bg-field"><label>BLEND <span style="opacity:.7">300 OPTIONS</span></label><select id="bgBlend" aria-label="300 blend options"></select></div>
     <div class="bg-field"><label>OPACITY <output id="bgOpacityO">100%</output></label><input id="bgOpacity" type="range" min="0" max="100" value="100"></div>
     <div class="bg-field"><label>BRIGHTNESS <output id="bgBrightnessO">100%</output></label><input id="bgBrightness" type="range" min="20" max="180" value="100"></div>
     <div class="bg-field"><label>CONTRAST <output id="bgContrastO">100%</output></label><input id="bgContrast" type="range" min="20" max="220" value="100"></div>
@@ -73,7 +73,7 @@
     <div class="bg-field"><label>X POSITION <output id="bgXO">50%</output></label><input id="bgX" type="range" min="0" max="100" value="50"></div>
     <div class="bg-field"><label>Y POSITION <output id="bgYO">50%</output></label><input id="bgY" type="range" min="0" max="100" value="50"></div>
     <div class="bg-field"><label>ROTATION <output id="bgRotO">0°</output></label><input id="bgRot" type="range" min="-180" max="180" value="0"></div>
-    <div class="bg-field"><label>IMAGE EFFECT</label><select id="bgEffect"><option value="none">NONE</option><option value="vignette">VIGNETTE</option><option value="pulseGlow">PULSE GLOW</option><option value="rgb">RGB SHIFT</option><option value="colorize">COLORIZE</option><option value="mirror">MIRROR</option><option value="kaleidoscope">KALEIDOSCOPE</option></select></div>
+    <div class="bg-field"><label>IMAGE EFFECT <span style="opacity:.7">300 OPTIONS</span></label><select id="bgEffect" aria-label="300 image effects"></select></div>
     <div class="bg-field"><label>COLORIZE HUE <output id="bgHueO">190°</output></label><input id="bgHue" type="range" min="0" max="360" value="190"></div>
     <div class="bg-field"><label>AUDIO PULSE <output id="bgPulseO">25%</output></label><input id="bgPulse" type="range" min="0" max="100" value="25"></div>
     <div class="bg-field"><label>AUDIO ZOOM <output id="bgAudioZoomO">12%</output></label><input id="bgAudioZoom" type="range" min="0" max="60" value="12"></div>
@@ -890,6 +890,85 @@ function getBgAudioLevel(){
   return bgEnergySmooth;
 }
 
+
+const BG_BLEND_OPS=[
+  'source-over','source-in','source-out','source-atop','destination-over','destination-in',
+  'destination-out','destination-atop','lighter','copy','xor','multiply','screen','overlay',
+  'darken','lighten','color-dodge','color-burn','hard-light','soft-light','difference',
+  'exclusion','hue','saturation','color','luminosity'
+];
+
+const BG_FIT_NAMES=[
+  'COVER','CONTAIN','STRETCH','FILL','CROP CENTER','CROP TOP','CROP BOTTOM','CROP LEFT','CROP RIGHT',
+  'PAN LEFT','PAN RIGHT','PAN UP','PAN DOWN','ZOOM CENTER','ZOOM TOP','ZOOM BOTTOM','ZOOM LEFT','ZOOM RIGHT',
+  'WIDE CINEMA','TALL PORTRAIT','SQUARE CROP','SMART CENTER','SMART TOP','SMART BOTTOM','SMART LEFT','SMART RIGHT'
+];
+const BG_BLEND_NAMES=[
+  'NORMAL','SCREEN','LIGHTER','OVERLAY','SOFT LIGHT','HARD LIGHT','MULTIPLY','DARKEN','LIGHTEN',
+  'COLOR DODGE','COLOR BURN','DIFFERENCE','EXCLUSION','HUE','SATURATION','COLOR','LUMINOSITY',
+  'SOURCE IN','SOURCE OUT','SOURCE ATOP','DESTINATION OVER','DESTINATION IN','DESTINATION OUT',
+  'DESTINATION ATOP','COPY','XOR'
+];
+const BG_EFFECT_NAMES=[
+  'NONE','VIGNETTE','PULSE GLOW','RGB SHIFT','COLORIZE','MIRROR','KALEIDOSCOPE','SCANLINES',
+  'FILM GRAIN','PIXEL GRID','EDGE GLOW','CHROMATIC','DREAM','HEAT','COOL','DUOTONE','SOLARIZE',
+  'POSTERIZE','INVERT','SEPIA','NEON OUTLINE','RADIAL RAYS','BASS FLASH','WAVE DISTORT',
+  'MOSAIC','TILT SHIFT','HALFTONE','CRT','GLITCH','PRISM','LIGHT LEAK'
+];
+
+function addOptions(sel,names,prefix,total=300){
+  if(!sel)return;
+  sel.innerHTML='';
+  for(let i=1;i<=total;i++){
+    const family=names[(i-1)%names.length];
+    const opt=document.createElement('option');
+    opt.value=prefix+i;
+    opt.textContent=String(i).padStart(3,'0')+' — '+family;
+    sel.appendChild(opt);
+  }
+}
+function populateBackgroundCatalogs(){
+  addOptions(bg$('bgFit'),BG_FIT_NAMES,'fit_',300);
+  addOptions(bg$('bgBlend'),BG_BLEND_NAMES,'blend_',300);
+  addOptions(bg$('bgEffect'),BG_EFFECT_NAMES,'effect_',300);
+  bg$('bgFit').value='fit_1';
+  bg$('bgBlend').value='blend_1';
+  bg$('bgEffect').value='effect_1';
+}
+populateBackgroundCatalogs();
+
+function bgCatalogIndex(value,prefix){
+  const m=String(value||'').match(new RegExp('^'+prefix+'(\\d+)$'));
+  return m ? Math.max(1,Math.min(300,+m[1])) : 1;
+}
+function bgFitParams(idx,w,h,iw,ih){
+  const f=(idx-1)%25, group=Math.floor((idx-1)/25);
+  let mode=f, scale=1, ax=.5, ay=.5;
+  if(f===0){mode=0}
+  else if(f===1){mode=1}
+  else if(f===2){mode=2}
+  else {
+    mode=0;
+    const z=0.88 + ((f*13+group*7)%42)/100;
+    scale=z;
+    const anchors=[[.5,.5],[.5,.12],[.5,.88],[.12,.5],[.88,.5],[.08,.5],[.92,.5],[.5,.08],[.5,.92],
+                   [.25,.5],[.75,.5],[.5,.25],[.5,.75],[.18,.18],[.82,.18],[.18,.82],[.82,.82],
+                   [.3,.7],[.7,.3],[.3,.3],[.7,.7],[.15,.7],[.85,.7]];
+    const a=anchors[(f+group)%anchors.length]; ax=a[0]; ay=a[1];
+  }
+  if(f===2){ return {dw:w,dh:h,ax:.5,ay:.5,mode:2}; }
+  if(mode===1){ const sc=Math.min(w/iw,h/ih)*scale; return {dw:iw*sc,dh:ih*sc,ax,ay,mode:1}; }
+  const sc=Math.max(w/iw,h/ih)*scale;
+  return {dw:iw*sc,dh:ih*sc,ax,ay,mode:0};
+}
+
+function bgEffectParams(idx,a,now){
+  const family=(idx-1)%30;
+  const variant=Math.floor((idx-1)/30);
+  const strength=.18+variant*.055+((idx*17)%19)/100;
+  return {family,variant,strength:Math.min(.9,strength),speed:.45+(idx%9)*.17};
+}
+
 function drawBackground(w,h){
   if(!bgImage || !bg$('bgEnabled') || !bg$('bgEnabled').checked) return;
 
@@ -912,42 +991,168 @@ function drawBackground(w,h){
   const ih=bgImage.naturalHeight||bgImage.height;
   if(!iw||!ih)return;
 
-  let dw=w,dh=h;
-  const fit=bg$('bgFit')?.value||'cover';
-  if(fit==='contain'){
-    const sc=Math.min(w/iw,h/ih);
-    dw=iw*sc;dh=ih*sc;
-  }else if(fit==='cover'){
-    const sc=Math.max(w/iw,h/ih);
-    dw=iw*sc;dh=ih*sc;
-  }
+  const fitIndex=bgCatalogIndex(bg$('bgFit')?.value,'fit_');
+  const fitP=bgFitParams(fitIndex,w,h,iw,ih);
+  let dw=fitP.dw,dh=fitP.dh;
+  if(fitP.mode===2){ dw=w; dh=h; }
   dw*=z;dh*=z;
 
-  const x=(w-dw)*baseX + w*mx;
-  const y=(h-dh)*baseY + h*my;
+  const x=(w-dw)*fitP.ax + w*mx;
+  const y=(h-dh)*fitP.ay + h*my;
 
   const opacity=bgNum('bgOpacity',100)/100;
   const brightness=bgNum('bgBrightness',100);
   const contrast=bgNum('bgContrast',100);
   const saturation=bgNum('bgSaturation',100);
   const blur=bgNum('bgBlur',0);
-  const hueRotate=bg$('bgEffect')?.value==='colorize' ? bgNum('bgHue',190) : 0;
+  const effectIndex=bgCatalogIndex(bg$('bgEffect')?.value,'effect_');
+  const ep=bgEffectParams(effectIndex,a,now);
+  const hueRotate=(ep.family===4 ? bgNum('bgHue',190) : (ep.family*31+effectIndex*7)%360);
 
+  const blendIndex=bgCatalogIndex(bg$('bgBlend')?.value,'blend_');
+  const blendOp=BG_BLEND_OPS[(blendIndex-1)%BG_BLEND_OPS.length];
+  const blendAlpha=0.55+(((blendIndex*29)%46)/100);
+  const blendHue=(blendIndex*47)%360;
   X.save();
-  X.globalAlpha=opacity;
-  X.globalCompositeOperation=bg$('bgBlend')?.value||'source-over';
+  X.globalAlpha=opacity*blendAlpha;
+  X.globalCompositeOperation=blendOp;
   X.filter=`brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) blur(${blur}px) hue-rotate(${hueRotate}deg)`;
   X.translate(w/2,h/2);
   X.rotate(rot);
   X.translate(-w/2,-h/2);
 
-  const effect=bg$('bgEffect')?.value||'none';
+  const effect=bg$('bgEffect')?.value||'effect_1';
 
-  if(effect==='mirror'){
-    X.save();
-    X.translate(w,0);X.scale(-1,1);
-    X.drawImage(bgImage,x,y,dw,dh);
-    X.restore();
+  if(effect.startsWith('effect_')){
+    const fam=ep.family, v=ep.variant, st=ep.strength;
+    const draw=(ox=0,oy=0,extra=1)=>{
+      X.drawImage(bgImage,x+ox,y+oy,dw,dh);
+    };
+    if(fam===0){
+      draw();
+    }else if(fam===1){
+      const g=X.createRadialGradient(w/2,h/2,Math.min(w,h)*.1,w/2,h/2,Math.max(w,h)*.75);
+      g.addColorStop(0,'rgba(0,0,0,0)');
+      g.addColorStop(.55,`rgba(0,0,0,${st*.32})`);
+      g.addColorStop(1,`rgba(0,0,0,${st})`);
+      draw(); X.globalCompositeOperation='source-over'; X.fillStyle=g; X.fillRect(0,0,w,h);
+    }else if(fam===2){
+      draw(); X.save(); X.globalCompositeOperation='screen'; X.globalAlpha=.08+a*.24;
+      X.shadowBlur=18+v*10; X.shadowColor=`hsl(${(hue+v*23)%360},100%,60%)`;
+      X.strokeStyle=`hsla(${(hue+v*23)%360},100%,65%,.65)`; X.lineWidth=2+v*2;
+      X.strokeRect(4,4,w-8,h-8); X.restore();
+    }else if(fam===3){
+      const sh=3+v*3+a*14;
+      X.globalCompositeOperation='screen'; X.globalAlpha*=.32;
+      X.drawImage(bgImage,x-sh,y,dw,dh); X.drawImage(bgImage,x+sh,y,dw,dh);
+      X.globalAlpha*=2.1; X.drawImage(bgImage,x,y,dw,dh);
+    }else if(fam===4){
+      draw();
+    }else if(fam===5){
+      X.save(); X.translate(w,0); X.scale(-1,1); draw(); X.restore();
+      X.globalAlpha*=.45; draw();
+    }else if(fam===6){
+      const n=2+(v%4);
+      for(let iy=0;iy<n;iy++)for(let ix=0;ix<n;ix++){
+        X.save();
+        X.beginPath(); X.rect(ix*w/n,iy*h/n,w/n,h/n); X.clip();
+        X.translate((ix%2)?w:0,(iy%2)?h:0);
+        X.scale((ix%2)?-1:1,(iy%2)?-1:1);
+        X.globalAlpha*=.82; draw(); X.restore();
+      }
+    }else if(fam===7){
+      draw();
+      X.save(); X.globalAlpha=.16+st*.25; X.strokeStyle=`hsl(${hue},100%,70%)`; X.lineWidth=1+v;
+      const step=Math.max(8,12+v*3);
+      for(let yy=0;yy<h;yy+=step){X.beginPath();X.moveTo(0,yy);X.lineTo(w,yy);X.stroke();}
+      X.restore();
+    }else if(fam===8){
+      draw();
+      const count=90+v*35;
+      X.save(); X.globalCompositeOperation='screen'; X.globalAlpha=.08+st*.12;
+      for(let i=0;i<count;i++){
+        const px=(i*97.37+now*30*(1+v*.15))%w, py=(i*53.11+now*17*(1+v*.08))%h;
+        const r=0.5+((i*7)%4);
+        X.fillStyle=`hsla(${(hue+i*13)%360},100%,70%,.7)`; X.fillRect(px,py,r,r);
+      }
+      X.restore();
+    }else if(fam===9){
+      draw(); X.save(); X.globalAlpha=.14+st*.22; X.globalCompositeOperation='screen';
+      X.strokeStyle=`hsl(${(hue+40)%360},100%,70%)`; X.lineWidth=1;
+      const size=18+v*4; for(let xx=0;xx<w;xx+=size){X.beginPath();X.moveTo(xx,0);X.lineTo(xx,h);X.stroke();}
+      for(let yy=0;yy<h;yy+=size){X.beginPath();X.moveTo(0,yy);X.lineTo(w,yy);X.stroke();}
+      X.restore();
+    }else if(fam===10){
+      draw(); X.save(); X.globalCompositeOperation='screen'; X.globalAlpha=.18+st*.22;
+      X.shadowBlur=25+v*9; X.shadowColor=`hsl(${hue},100%,60%)`;
+      X.strokeStyle=`hsla(${hue},100%,65%,.55)`; X.lineWidth=3+v; X.strokeRect(8,8,w-16,h-16); X.restore();
+    }else if(fam===11){
+      const sh=2+v*2+a*10; X.globalCompositeOperation='screen'; X.globalAlpha*=.28;
+      X.drawImage(bgImage,x-sh,y,dw,dh); X.drawImage(bgImage,x+sh,y,dw,dh);
+      X.globalAlpha*=1.8; draw();
+    }else if(fam===12){
+      draw(); X.save(); X.globalAlpha=.10+st*.18; X.globalCompositeOperation='screen';
+      const g=X.createRadialGradient(w*.5,h*.5,0,w*.5,h*.5,Math.max(w,h)*.7);
+      g.addColorStop(0,`hsla(${hue},100%,65%,${.4+st*.3})`);g.addColorStop(1,'rgba(0,0,0,0)');
+      X.fillStyle=g;X.fillRect(0,0,w,h);X.restore();
+    }else if(fam===13){
+      draw(); X.save(); X.globalCompositeOperation='screen'; X.globalAlpha=.12+st*.16;
+      X.fillStyle=`hsla(${(hue+25)%360},100%,60%,.5)`; X.fillRect(0,0,w,h); X.restore();
+    }else if(fam===14){
+      draw(); X.save(); X.globalAlpha=.16+st*.12; X.fillStyle='rgba(20,100,255,.5)'; X.fillRect(0,0,w,h); X.restore();
+    }else if(fam===15){
+      draw(); X.save(); X.globalCompositeOperation='color'; X.globalAlpha=.2+st*.25;
+      X.fillStyle=`hsl(${hue},90%,55%)`; X.fillRect(0,0,w,h); X.restore();
+    }else if(fam===16){
+      draw(); X.save(); X.globalCompositeOperation='screen'; X.globalAlpha=.16+st*.18;
+      X.fillStyle=`hsl(${(hue+180)%360},100%,60%)`; X.fillRect(0,0,w,h); X.restore();
+    }else if(fam===17){
+      draw(); X.save(); X.globalCompositeOperation='overlay'; X.globalAlpha=.18+st*.22;
+      X.fillStyle=`hsl(${(hue+v*17)%360},100%,55%)`; X.fillRect(0,0,w,h); X.restore();
+    }else if(fam===18){
+      X.filter+=' invert('+(35+v*5)+'%)'; draw();
+    }else if(fam===19){
+      draw(); X.save(); X.globalCompositeOperation='color'; X.globalAlpha=.22+st*.2;
+      X.fillStyle='rgba(130,75,35,.75)';X.fillRect(0,0,w,h);X.restore();
+    }else if(fam===20){
+      draw(); X.save(); X.globalCompositeOperation='screen'; X.globalAlpha=.16+st*.16;
+      X.strokeStyle=`hsl(${(hue+v*25)%360},100%,65%)`;X.lineWidth=2+v;
+      for(let i=0;i<8+v;i++){X.beginPath();X.arc(w/2,h/2,Math.min(w,h)*(.25+i*.045),0,Math.PI*2);X.stroke();}
+      X.restore();
+    }else if(fam===21){
+      draw(); X.save(); X.globalCompositeOperation='screen'; X.globalAlpha=.12+st*.18;
+      const rays=10+v*2; for(let i=0;i<rays;i++){X.save();X.translate(w/2,h/2);X.rotate(i*Math.PI*2/rays+now*.1);X.fillStyle=`hsla(${(hue+i*15)%360},100%,65%,.22)`;X.fillRect(0,-2,w,4);X.restore();} X.restore();
+    }else if(fam===22){
+      draw(); X.save(); X.globalCompositeOperation='screen'; X.globalAlpha=.12+a*.35; X.fillStyle=`hsl(${hue},100%,60%)`; X.fillRect(0,0,w,h); X.restore();
+    }else if(fam===23){
+      const wave=Math.sin(now*(1+v*.25))*a*(6+v*3); X.save(); X.globalAlpha*=.85;
+      X.drawImage(bgImage,x+wave,y,dw,dh); X.restore();
+    }else if(fam===24){
+      const cell=20+v*7; for(let yy=0;yy<h;yy+=cell)for(let xx=0;xx<w;xx+=cell){
+        X.save();X.beginPath();X.rect(xx,yy,cell,cell);X.clip();
+        const jx=Math.sin(now*1.5+xx*.02)*a*(4+v), jy=Math.cos(now*1.2+yy*.02)*a*(4+v);
+        X.drawImage(bgImage,x+jx,y+jy,dw,dh);X.restore();
+      }
+    }else if(fam===25){
+      draw(); X.save(); X.globalAlpha=.22+st*.2; X.fillStyle='rgba(255,255,255,.4)';
+      const band=(Math.sin(now*(.8+v*.1))*0.5+.5)*h; X.fillRect(0,band,w,4+v); X.restore();
+    }else if(fam===26){
+      draw(); X.save(); X.globalAlpha=.16+st*.18; X.fillStyle=`hsl(${(hue+v*11)%360},100%,60%)`;
+      const cell=8+v*3; for(let yy=0;yy<h;yy+=cell)for(let xx=0;xx<w;xx+=cell)if(((xx/cell+yy/cell)%2)<1)X.fillRect(xx,yy,cell,cell); X.restore();
+    }else if(fam===27){
+      draw(); X.save(); X.globalAlpha=.15+st*.2; X.fillStyle='rgba(0,20,30,.5)';
+      for(let yy=0;yy<h;yy+=4+v){X.fillRect(0,yy,w,2);} X.restore();
+    }else if(fam===28){
+      const g=Math.sin(now*(2+v*.3))*a*(3+v);
+      X.save(); X.globalAlpha*=.7; X.translate(g,0); draw(); X.restore();
+      X.save(); X.globalAlpha=.12+a*.2; X.globalCompositeOperation='screen'; X.fillStyle=`hsl(${(hue+v*20)%360},100%,60%)`; X.fillRect(0,0,w,h); X.restore();
+    }else{
+      draw(); X.save(); X.globalCompositeOperation='screen'; X.globalAlpha=.15+st*.2;
+      X.strokeStyle=`hsl(${(hue+v*19)%360},100%,65%)`;X.lineWidth=2+v;
+      for(let i=0;i<6+v;i++){X.beginPath();X.arc(w/2,h/2,Math.min(w,h)*(.2+i*.07),0,Math.PI*2);X.stroke();} X.restore();
+    }
+  }
+  X.restore();
     X.globalAlpha*=.45;
     X.drawImage(bgImage,x,y,dw,dh);
   }else if(effect==='rgb'){
@@ -1029,9 +1234,9 @@ bg$('bgRemove')?.addEventListener('click',()=>{
 
 bg$('bgReset')?.addEventListener('click',()=>{
   const defaults={
-    bgEnabled:true,bgFit:'cover',bgBlend:'source-over',bgOpacity:100,bgBrightness:100,
+    bgEnabled:true,bgFit:'fit_1',bgBlend:'blend_1',bgOpacity:100,bgBrightness:100,
     bgContrast:100,bgSaturation:100,bgBlur:0,bgZoom:1,bgX:50,bgY:50,bgRot:0,
-    bgEffect:'none',bgHue:190,bgPulse:25,bgAudioZoom:12,bgMotion:18,bgAudioRot:8,bgSpeed:1
+    bgEffect:'effect_1',bgHue:190,bgPulse:25,bgAudioZoom:12,bgMotion:18,bgAudioRot:8,bgSpeed:1
   };
   Object.entries(defaults).forEach(([id,v])=>{const el=bg$(id);if(el)el.value=v;});
   bg$('bgEnabled').checked=true;
