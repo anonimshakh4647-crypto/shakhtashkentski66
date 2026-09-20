@@ -1,0 +1,31 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IT SHAKH — WebM to MP4 HIGH QUALITY</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#05070b;color:#eaf2ff;font-family:Arial,sans-serif;min-height:100vh}.wrap{max-width:900px;margin:40px auto;padding:20px}.card{background:#0b1019;border:1px solid #1d3048;border-radius:22px;padding:28px;box-shadow:0 20px 70px #0008}h1{margin:0 0 8px}.sub{color:#8fa5bf;margin-bottom:24px}.drop{display:block;border:2px dashed #31516f;border-radius:18px;padding:42px 20px;text-align:center;cursor:pointer;background:#080d15}.drop:hover{border-color:#55b7ff}.drop span{display:block;color:#7890aa;margin-top:8px}input[type=file]{display:none}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:20px 0}.box{background:#080d15;border:1px solid #1b2a3c;border-radius:14px;padding:14px}.box small{display:block;color:#7890aa;margin-bottom:6px}label:not(.drop){display:block;color:#a9bad0;margin:12px 0 6px}select{width:100%;background:#080d15;color:#eef;border:1px solid #29415a;border-radius:10px;padding:11px}button{border:0;border-radius:12px;padding:13px 18px;font-weight:800;cursor:pointer;background:#168cff;color:#fff;margin:12px 8px 0 0}button:disabled{opacity:.45}.secondary{background:#172536}.progress{height:12px;background:#111b27;border-radius:99px;overflow:hidden;margin:20px 0 8px}.bar{height:100%;width:0;background:#28a5ff;transition:width .15s}.status{color:#9db2c9;min-height:24px}.note{font-size:13px;color:#70869e;line-height:1.5;margin-top:18px}@media(max-width:650px){.grid{grid-template-columns:1fr}.wrap{margin:15px auto;padding:12px}.card{padding:18px}}
+</style></head><body><div class="wrap"><div class="card">
+<h1>IT SHAKH — WebM → MP4</h1><div class="sub">HIGH QUALITY • 1920×1080 • 60 FPS • H.264 • AAC</div>
+<label class="drop" id="drop"><b>CLICK OR DROP WEBM VIDEO HERE</b><span>Conversion is performed locally in your browser.</span><input id="file" type="file" accept=".webm,video/webm"></label>
+<div class="grid"><div class="box"><small>OUTPUT</small><strong>MP4 / H.264 High</strong></div><div class="box"><small>QUALITY</small><strong>CRF 16–18</strong></div><div class="box"><small>AUDIO</small><strong>AAC 320 kbps</strong></div></div>
+<label for="crf">Video quality</label><select id="crf"><option value="16">CRF 16 — Very High</option><option value="17">CRF 17 — Very High</option><option value="18">CRF 18 — High</option></select>
+<label for="preset">Encoding speed</label><select id="preset"><option>slow</option><option selected>medium</option><option>fast</option></select>
+<button id="convert" disabled>CONVERT TO MP4</button><button id="download" class="secondary" disabled>DOWNLOAD MP4</button>
+<div class="progress"><div class="bar" id="bar"></div></div><div class="status" id="status">Loading converter…</div>
+<div class="note">H.264 High Profile, yuv420p and AAC are used for broad MP4 compatibility. The source is not upscaled. If the source is 1920×1080 at 60 FPS, those properties are preserved unless the source itself differs.</div>
+</div></div>
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<script>
+const {createFFmpeg,fetchFile}=FFmpeg;
+const ffmpeg=createFFmpeg({log:false,corePath:'https://unpkg.com/@ffmpeg/core@0.11.6/dist/ffmpeg-core.js'});
+const fileEl=document.getElementById('file'),drop=document.getElementById('drop'),convert=document.getElementById('convert'),download=document.getElementById('download'),statusEl=document.getElementById('status'),bar=document.getElementById('bar');
+let source=null,outputUrl=null;
+function status(t,p){statusEl.textContent=t;if(p!=null)bar.style.width=p+'%'}
+function choose(f){if(!f)return;if(!/webm/i.test(f.name)&&f.type!=='video/webm'){status('Please select a WebM video.');return}source=f;convert.disabled=false;download.disabled=true;if(outputUrl)URL.revokeObjectURL(outputUrl);outputUrl=null;status('Selected: '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB)');bar.style.width='0%'}
+fileEl.onchange=e=>choose(e.target.files[0]);drop.onclick=e=>{if(e.target.tagName!=='INPUT')fileEl.click()};
+['dragenter','dragover'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.style.borderColor='#55b7ff'}));
+['dragleave','drop'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.style.borderColor=''}));
+drop.addEventListener('drop',e=>choose(e.dataTransfer.files[0]));
+async function init(){try{ffmpeg.setProgress(({ratio})=>status('Encoding… '+Math.min(100,Math.round(ratio*100))+'%',Math.min(100,ratio*100)));await ffmpeg.load();status('Ready — choose a WebM file.')}catch(e){status('FFmpeg could not load. Check internet connection and reload.');console.error(e)}}
+convert.onclick=async()=>{if(!source)return;convert.disabled=true;download.disabled=true;try{const a='input.webm',b='output.mp4';try{ffmpeg.FS('unlink',a)}catch(_){}try{ffmpeg.FS('unlink',b)}catch(_){}ffmpeg.FS('writeFile',a,await fetchFile(source));status('Encoding…',0);await ffmpeg.run('-i',a,'-map','0:v:0','-map','0:a:0?','-c:v','libx264','-preset',document.getElementById('preset').value,'-crf',document.getElementById('crf').value,'-profile:v','high','-level','4.2','-pix_fmt','yuv420p','-c:a','aac','-b:a','320k','-ar','48000','-movflags','+faststart',b);const data=ffmpeg.FS('readFile',b);outputUrl=URL.createObjectURL(new Blob([data.buffer],{type:'video/mp4'}));download.disabled=false;status('Conversion complete — MP4 is ready.',100)}catch(e){console.error(e);status('Conversion failed: '+(e.message||e))}finally{convert.disabled=false}};
+download.onclick=()=>{if(!outputUrl)return;const a=document.createElement('a');a.href=outputUrl;a.download=source.name.replace(/\.[^.]+$/,'')+'_HIGH_QUALITY.mp4';a.click()};
+init();
+</script></body></html>
