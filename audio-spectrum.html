@@ -1281,15 +1281,24 @@ function resetParticleItems(){
     const y=edge+(h-edge*2)*r2;
     const a=r3*Math.PI*2;
     const base=.18+.55*r4;
+    const dirs=['orbit','radial','up','down','left','right','wander','spiral'];
+    const localDir=dirs[(i+Math.floor(particleState.preset*1.7))%dirs.length];
+    const speedMul=.55+particleRand(i+44000)*1.05;
     particleItems[i]={
       x,y,
-      vx:Math.cos(a)*base*spread,
-      vy:Math.sin(a)*base*spread,
+      vx:Math.cos(a)*base*spread*speedMul,
+      vy:Math.sin(a)*base*spread*speedMul,
       z:.18+r4*.82,
       phase:r*Math.PI*2,
       life:r2,
+      age:particleRand(i+51000)*7,
+      maxAge:5+particleRand(i+52000)*9,
       spin:(r3-.5)*2,
-      sizeSeed:.65+r4*.7
+      sizeSeed:.65+r4*.7,
+      dir:localDir,
+      speedMul,
+      wobble:.35+particleRand(i+53000)*1.2,
+      orbitSign:particleRand(i+54000)>.5?1:-1
     };
   }
 }
@@ -1361,38 +1370,63 @@ function drawBackgroundParticles(w,h){
     const dx=p.x-cx,dy=p.y-cy;
     const dist=Math.max(1,Math.hypot(dx,dy));
     const nx=dx/dist,ny=dy/dist;
+    const pdir=p.dir||dir;
+    const pmotion=motion*p.speedMul;
 
-    if(dir==='orbit'){
-      const orbit=.018*motion*(1+p.z*1.2);
+    if(pdir==='orbit'){
+      const orbit=.018*pmotion*(1+p.z*1.2)*p.orbitSign;
       p.vx += -ny*orbit; p.vy += nx*orbit;
-    }else if(dir==='radial'){
-      const push=.035*motion*(.55+energy*1.5)*p.z;
+    }else if(pdir==='radial'){
+      const push=.028*pmotion*(.55+energy*1.8)*p.z;
       p.vx += nx*push; p.vy += ny*push;
-    }else if(dir==='up') p.vy-=.028*motion*p.z;
-    else if(dir==='down') p.vy+=.028*motion*p.z;
-    else if(dir==='left') p.vx-=.028*motion*p.z;
-    else if(dir==='right') p.vx+=.028*motion*p.z;
-    else {
-      p.vx += Math.cos(p.phase+now*.0005)*.012*motion*(1+turb*1.5);
-      p.vy += Math.sin(p.phase+now*.0007)*.012*motion*(1+turb*1.5);
+    }else if(pdir==='up') p.vy-=.024*pmotion*p.z;
+    else if(pdir==='down') p.vy+=.024*pmotion*p.z;
+    else if(pdir==='left') p.vx-=.024*pmotion*p.z;
+    else if(pdir==='right') p.vx+=.024*pmotion*p.z;
+    else if(pdir==='spiral'){
+      const swirl=.012*pmotion*(1+p.z);
+      p.vx += (-ny*.8+nx*.18)*swirl*p.orbitSign;
+      p.vy += (nx*.8+ny*.18)*swirl*p.orbitSign;
+    }else{
+      const t=now*.001;
+      p.vx += Math.cos(t*p.wobble+p.phase)*.010*pmotion*(1+turb*1.25);
+      p.vy += Math.sin(t*p.wobble*1.13+p.phase*1.7)*.010*pmotion*(1+turb*1.25);
     }
 
-    const beatPush=(bass>.62?0.035:0)*motion*p.z;
-    p.vx += nx*beatPush; p.vy += ny*beatPush;
-    p.vx += Math.sin(now*.0011+p.phase)*turb*.008*motion;
-    p.vy += Math.cos(now*.0013+p.phase)*turb*.008*motion;
-    p.vy += gravity*.014;
+    // Global preset direction is an extra influence, while each particle keeps
+    // its own motion family so a preset does not look like 400 identical dots.
+    if(dir==='radial'){const push=.012*motion*(.4+energy)*p.z;p.vx+=nx*push;p.vy+=ny*push;}
+    if(dir==='orbit'){const orbit=.006*motion*p.orbitSign;p.vx+=-ny*orbit;p.vy+=nx*orbit;}
 
-    p.vx*=.988;p.vy*=.988;
-    const maxV=.72+particleState.speed*.42;
+    const beatPush=(bass>.62?0.028:0)*pmotion*p.z;
+    p.vx += nx*beatPush; p.vy += ny*beatPush;
+    p.vx += Math.sin(now*.0011+p.phase*2.1)*turb*.006*pmotion;
+    p.vy += Math.cos(now*.0013+p.phase*1.3)*turb*.006*pmotion;
+    p.vy += gravity*.010;
+
+    p.vx*=.991;p.vy*=.991;
+    const maxV=.62+particleState.speed*.34+p.z*.18;
     const v=Math.hypot(p.vx,p.vy);
     if(v>maxV){p.vx=p.vx/v*maxV;p.vy=p.vy/v*maxV;}
-    p.x+=p.vx*motion*2.0;
-    p.y+=p.vy*motion*2.0;
+    p.x+=p.vx*pmotion*2.25;
+    p.y+=p.vy*pmotion*2.25;
+    p.age += dt;
 
-    const margin=55;
-    if(p.x<-margin)p.x=w+margin; else if(p.x>w+margin)p.x=-margin;
-    if(p.y<-margin)p.y=h+margin; else if(p.y>h+margin)p.y=-margin;
+    // Continuous background flow: recycle particles softly instead of letting
+    // the whole field disappear after the initial burst.
+    const margin=70;
+    if(p.age>p.maxAge || p.x<-margin || p.x>w+margin || p.y<-margin || p.y>h+margin){
+      const edgeRand=particleRand(i+Math.floor(now/1000)+p.life*1000);
+      const side=Math.floor(edgeRand*4);
+      if(side===0){p.x=-20;p.y=h*particleRand(i+7000);}
+      else if(side===1){p.x=w+20;p.y=h*particleRand(i+8000);}
+      else if(side===2){p.x=w*particleRand(i+9000);p.y=-20;}
+      else {p.x=w*particleRand(i+10000);p.y=h+20;}
+      const aa=particleRand(i+11000)*Math.PI*2;
+      const s=.18+.5*particleRand(i+12000);
+      p.vx=Math.cos(aa)*s*spread; p.vy=Math.sin(aa)*s*spread;
+      p.age=0; p.maxAge=5+particleRand(i+13000)*9;
+    }
 
     const tw=1-(particleState.twinkle/100)*.35+Math.sin(now*.004*(1+p.z*1.5)+p.phase)*(particleState.twinkle/100)*.35;
     const depth=.55+p.z*.55*(particleState.depth/100);
