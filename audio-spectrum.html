@@ -1194,11 +1194,17 @@ bg$('bgReset')?.addEventListener('click',()=>{
 
 /* ===== BACKGROUND PARTICLE STUDIO — additive feature ===== */
 const particleState={
-  enabled:true,preset:0,amount:650,size:2.2,speed:1,opacity:75,spread:100,gravity:0,turbulence:25,
-  audio:70,beat:45,trail:18,depth:55,color1:'#00e5ff',color2:'#7c4dff',shape:'circle',blend:'screen',direction:'orbit',twinkle:45,seed:1337
+  enabled:true,preset:0,amount:280,size:1.8,speed:.85,opacity:72,spread:100,gravity:0,turbulence:18,
+  audio:65,beat:35,trail:6,depth:48,color1:'#00e5ff',color2:'#7c4dff',shape:'circle',blend:'screen',direction:'orbit',twinkle:28,seed:1337
 };
 let particleItems=[];
 let particleLastT=performance.now();
+let particleRenderLast=0;
+let particleLayer=null,particleLayerCtx=null,particleLayerW=0,particleLayerH=0;
+function ensureParticleLayer(w,h){
+  if(!particleLayer){particleLayer=document.createElement('canvas');particleLayerCtx=particleLayer.getContext('2d',{alpha:true});}
+  if(particleLayerW!==w||particleLayerH!==h){particleLayerW=w;particleLayerH=h;particleLayer.width=w;particleLayer.height=h;particleLayerCtx.clearRect(0,0,w,h);particleRenderLast=0;}
+}
 
 const particleFamilies=[
  'Cosmic Dust','Neon Sparks','Galaxy Drift','Aurora Mist','Quantum Snow','Cyber Rain','Solar Flare','Electric Bloom','Crystal Shards','Plasma Embers',
@@ -1231,18 +1237,20 @@ function particleApplyPreset(index){
   const v=index%30;
   const seed=particleHash(index+71);
   particleState.seed=seed;
-  particleState.amount=Math.round(180+(index%15)*95+Math.floor(index/15)*18);
-  particleState.size=+(0.7+(v%10)*0.28+(tier%4)*0.18).toFixed(1);
-  particleState.speed=+(0.25+(v%10)*0.16+(tier%6)*0.07).toFixed(2);
-  particleState.opacity=Math.min(100,42+(v%10)*5+(tier%5)*4);
-  particleState.spread=35+((v*13+index)%66);
-  particleState.gravity=+((((index%9)-4)*0.08)).toFixed(2);
-  particleState.turbulence=8+((v*7+index)%83);
-  particleState.audio=25+((index*11)%126);
-  particleState.beat=10+((index*17)%111);
-  particleState.trail=(index*7)%61;
-  particleState.depth=15+((index*19)%86);
-  particleState.twinkle=10+((index*23)%91);
+  // Performance-safe presets: all 300 remain distinct, but none can request
+  // the heavy particle counts/effects that caused frame drops.
+  particleState.amount=Math.round(140+(index%12)*22+Math.floor(index/30)*8);
+  particleState.size=+(0.7+(v%8)*0.16+(tier%3)*0.12).toFixed(1);
+  particleState.speed=+(0.22+(v%8)*0.10+(tier%5)*0.05).toFixed(2);
+  particleState.opacity=Math.min(92,48+(v%8)*4+(tier%4)*3);
+  particleState.spread=55+((v*11+index)%46);
+  particleState.gravity=+((((index%7)-3)*0.05)).toFixed(2);
+  particleState.turbulence=6+((v*5+index)%35);
+  particleState.audio=30+((index*7)%71);
+  particleState.beat=8+((index*11)%48);
+  particleState.trail=(index*3)%9;
+  particleState.depth=25+((index*13)%36);
+  particleState.twinkle=8+((index*17)%38);
   particleState.shape=particleShapes[index%particleShapes.length];
   particleState.direction=['orbit','up','down','left','right','radial','random'][index%7];
   particleState.blend=['screen','lighter','source-over','overlay','soft-light','hard-light'][index%6];
@@ -1262,7 +1270,7 @@ function syncParticleControls(){
 
 function resetParticleItems(){
   const w=C.width||1200,h=C.height||600;
-  const n=Math.max(1,Math.min(1100,Math.round(particleState.amount)));
+  const n=Math.max(1,Math.min(420,Math.round(particleState.amount)));
   particleLastT=performance.now();
   particleItems=new Array(n);
   const spread=Math.max(.1,particleState.spread/100);
@@ -1317,17 +1325,24 @@ function drawParticleShape(ctx,x,y,size,shape,color,alpha,rot){
 function drawBackgroundParticles(w,h){
   const en=$('particleEnabled');
   if(!en||!en.checked)return;
-  if(!particleItems.length)resetParticleItems();
+  ensureParticleLayer(w,h);
   const now=performance.now();
-  const dt=Math.min(.025,Math.max(.001,(now-particleLastT)/1000));
-  particleLastT=now;
 
-  // Audio-reactive energy. The particles cover the whole background and react to
-  // the music instead of clustering around the center.
+  // Particles are rendered on their own cached layer at ~30 FPS. The main
+  // visualizer can continue at 60 FPS without paying the particle cost twice.
+  if(now-particleRenderLast<33){
+    X.drawImage(particleLayer,0,0,w,h);
+    return;
+  }
+  particleRenderLast=now;
+  if(!particleItems.length)resetParticleItems();
+
+  const dt=Math.min(.033,Math.max(.001,(now-particleLastT)/1000));
+  particleLastT=now;
   const energy=particleAudioLevel();
   const bass=particleBassLevel();
-  const audioBoost=1+energy*(particleState.audio/55);
-  const beatKick=(bass>.52)?(1+particleState.beat/70):1;
+  const audioBoost=1+energy*(particleState.audio/65);
+  const beatKick=(bass>.55)?(1+particleState.beat/90):1;
   const motion=particleState.speed*dt*60*audioBoost*beatKick;
   const spread=Math.max(.1,particleState.spread/100);
   const turb=particleState.turbulence/100;
@@ -1335,9 +1350,12 @@ function drawBackgroundParticles(w,h){
   const cx=w/2,cy=h/2;
   const shape=particleState.shape,dir=particleState.direction;
   const audioWave=Math.sin(now*.006+energy*8)*energy;
+  const L=particleLayerCtx;
 
-  X.save();
-  X.globalCompositeOperation=particleState.blend;
+  L.clearRect(0,0,w,h);
+  L.globalCompositeOperation=particleState.blend;
+  L.globalAlpha=1;
+
   for(let i=0;i<particleItems.length;i++){
     const p=particleItems[i];
     const dx=p.x-cx,dy=p.y-cy;
@@ -1345,70 +1363,56 @@ function drawBackgroundParticles(w,h){
     const nx=dx/dist,ny=dy/dist;
 
     if(dir==='orbit'){
-      const orbit=.018*motion*(1+p.z*1.5);
+      const orbit=.018*motion*(1+p.z*1.2);
       p.vx += -ny*orbit; p.vy += nx*orbit;
     }else if(dir==='radial'){
-      const push=.045*motion*(.55+energy*2)*p.z;
+      const push=.035*motion*(.55+energy*1.5)*p.z;
       p.vx += nx*push; p.vy += ny*push;
-    }else if(dir==='up') p.vy-=.035*motion*p.z;
-    else if(dir==='down') p.vy+=.035*motion*p.z;
-    else if(dir==='left') p.vx-=.035*motion*p.z;
-    else if(dir==='right') p.vx+=.035*motion*p.z;
+    }else if(dir==='up') p.vy-=.028*motion*p.z;
+    else if(dir==='down') p.vy+=.028*motion*p.z;
+    else if(dir==='left') p.vx-=.028*motion*p.z;
+    else if(dir==='right') p.vx+=.028*motion*p.z;
     else {
-      p.vx += Math.cos(p.phase+now*.0005)*.018*motion*(1+turb*2);
-      p.vy += Math.sin(p.phase+now*.0007)*.018*motion*(1+turb*2);
+      p.vx += Math.cos(p.phase+now*.0005)*.012*motion*(1+turb*1.5);
+      p.vy += Math.sin(p.phase+now*.0007)*.012*motion*(1+turb*1.5);
     }
 
-    // Every beat gives the entire field a subtle outward kick.
-    const beatPush=(bass>.6?0.055:0)*motion*p.z;
-    p.vx += nx*beatPush;
-    p.vy += ny*beatPush;
+    const beatPush=(bass>.62?0.035:0)*motion*p.z;
+    p.vx += nx*beatPush; p.vy += ny*beatPush;
+    p.vx += Math.sin(now*.0011+p.phase)*turb*.008*motion;
+    p.vy += Math.cos(now*.0013+p.phase)*turb*.008*motion;
+    p.vy += gravity*.014;
 
-    p.vx += Math.sin(now*.0011+p.phase)*turb*.012*motion;
-    p.vy += Math.cos(now*.0013+p.phase)*turb*.012*motion;
-    p.vy += gravity*.018;
-
-    const drag=.985;
-    p.vx*=drag;p.vy*=drag;
-    const maxV=.9+particleState.speed*.55;
+    p.vx*=.988;p.vy*=.988;
+    const maxV=.72+particleState.speed*.42;
     const v=Math.hypot(p.vx,p.vy);
     if(v>maxV){p.vx=p.vx/v*maxV;p.vy=p.vy/v*maxV;}
-    p.x+=p.vx*motion*2.2;
-    p.y+=p.vy*motion*2.2;
+    p.x+=p.vx*motion*2.0;
+    p.y+=p.vy*motion*2.0;
 
-    const margin=70;
-    if(p.x<-margin)p.x=w+margin;
-    else if(p.x>w+margin)p.x=-margin;
-    if(p.y<-margin)p.y=h+margin;
-    else if(p.y>h+margin)p.y=-margin;
+    const margin=55;
+    if(p.x<-margin)p.x=w+margin; else if(p.x>w+margin)p.x=-margin;
+    if(p.y<-margin)p.y=h+margin; else if(p.y>h+margin)p.y=-margin;
 
-    const tw=1-(particleState.twinkle/100)*.45+Math.sin(now*.004*(1+p.z*2)+p.phase)*(particleState.twinkle/100)*.45;
-    const depth=.45+p.z*.75*(particleState.depth/100);
-    const beatSize=1+(bass>.52?particleState.beat/180:0);
-    const size=particleState.size*p.z*p.sizeSeed*beatSize*(.8+energy*particleState.audio/130);
+    const tw=1-(particleState.twinkle/100)*.35+Math.sin(now*.004*(1+p.z*1.5)+p.phase)*(particleState.twinkle/100)*.35;
+    const depth=.55+p.z*.55*(particleState.depth/100);
+    const beatSize=1+(bass>.55?particleState.beat/240:0);
+    const size=particleState.size*p.z*p.sizeSeed*beatSize*(.86+energy*particleState.audio/180);
     const alpha=Math.max(0,Math.min(1,(particleState.opacity/100)*tw*depth));
     const color=mixParticleColor(particleState.color1,particleState.color2,(i/(particleItems.length||1)+p.z*.35)%1);
 
-    if(particleState.trail>0){
-      X.globalAlpha=alpha*(particleState.trail/100)*.45;
-      X.strokeStyle=color;
-      X.lineWidth=Math.max(.5,size*.32);
-      X.beginPath();
-      X.moveTo(p.x-p.vx*8,p.y-p.vy*8);
-      X.lineTo(p.x,p.y);
-      X.stroke();
+    if(particleState.trail>0 && size>.9){
+      L.globalAlpha=alpha*(particleState.trail/100)*.25;
+      L.strokeStyle=color;
+      L.lineWidth=Math.max(.5,size*.24);
+      L.beginPath();L.moveTo(p.x-p.vx*5,p.y-p.vy*5);L.lineTo(p.x,p.y);L.stroke();
     }
-    // Keep particle rendering lightweight: expensive per-particle canvas shadows and
-    // save/restore calls can stall the visualizer when a preset has many particles.
-    if(size>1.15){
-      X.shadowBlur=Math.min(10,size*2.2*(1+energy));
-      X.shadowColor=color;
-    }else{
-      X.shadowBlur=0;
-    }
-    drawParticleShape(X,p.x,p.y,size,shape,color,alpha,p.phase+p.spin*now*.001+audioWave*.08);
+    // No per-particle shadowBlur: it is one of the biggest Canvas FPS costs.
+    drawParticleShape(L,p.x,p.y,size,shape,color,alpha,p.phase+p.spin*now*.001+audioWave*.05);
   }
-  X.restore();
+  L.globalCompositeOperation='source-over';
+  L.globalAlpha=1;
+  X.drawImage(particleLayer,0,0,w,h);
 }
 buildParticlePresetList();
 particleApplyPreset(0);
