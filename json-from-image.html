@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JSON FROM IMAGE | IT SHAKH</title>
+<style>
+:root{--bg:#03070d;--panel:#08121f;--line:#19314a;--cyan:#00e5ff;--blue:#3d7cff;--purple:#6d42ff;--text:#eaf7ff;--muted:#7fa0bb}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -20%,#10233a 0,#03070d 48%,#010307 100%);color:var(--text);font-family:Inter,Arial,sans-serif;min-height:100vh}
+.wrap{max-width:1500px;margin:auto;padding:30px 22px 50px}.brand{font-size:30px;font-weight:900;letter-spacing:1px;color:var(--cyan)}.crumb{color:#80a0bd;margin:5px 0 20px}
+.panel{background:rgba(8,18,31,.94);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 20px 60px #0008}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:15px}
+button,.filebtn{border:1px solid #23506d;background:#0a1726;color:#fff;border-radius:10px;padding:12px 16px;font-weight:800;cursor:pointer}
+button.primary,.filebtn.primary{background:linear-gradient(90deg,#00bcd4,#5648e8);border:0}
+button:hover,.filebtn:hover{filter:brightness(1.15)}
+input[type=file]{display:none}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.box{border:1px solid var(--line);background:#050c15;border-radius:14px;padding:14px;min-height:430px}
+h3{margin:0 0 10px;font-size:14px;color:#b9eaff;letter-spacing:.7px}
+.drop{height:330px;border:2px dashed #23506d;border-radius:12px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted);overflow:hidden;position:relative}
+.drop.drag{border-color:var(--cyan);background:#00e5ff0a}.drop img{max-width:100%;max-height:100%;object-fit:contain}
+textarea{width:100%;height:330px;resize:vertical;background:#02060b;color:#dff8ff;border:1px solid #19354d;border-radius:10px;padding:14px;font:14px/1.5 Consolas,monospace;outline:none}
+textarea:focus{border-color:var(--cyan)}
+.status{margin-top:10px;color:#83aec8;font-size:13px}.ok{color:#4dff9a}.err{color:#ff7184}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+pre{white-space:pre-wrap;word-break:break-word;margin:0;font:13px/1.5 Consolas,monospace}
+@media(max-width:900px){.grid{grid-template-columns:1fr}.wrap{padding:18px 12px}.drop,textarea{height:300px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">IT SHAKH</div>
+  <div class="crumb">Tools / JSON FROM IMAGE</div>
+  <div class="panel">
+    <div class="toolbar">
+      <label class="filebtn primary">UPLOAD IMAGE<input id="file" type="file" accept="image/*"></label>
+      <button id="paste">PASTE IMAGE</button>
+      <button id="ocr">EXTRACT JSON</button>
+      <button id="format">FORMAT JSON</button>
+      <button id="clear">CLEAR</button>
+    </div>
+    <div class="grid">
+      <section class="box">
+        <h3>IMAGE</h3>
+        <div id="drop" class="drop">Drop a screenshot/image here<br>or click <b>UPLOAD IMAGE</b></div>
+        <div id="status" class="status">Ready.</div>
+      </section>
+      <section class="box">
+        <h3>EXTRACTED JSON</h3>
+        <textarea id="out" spellcheck="false" placeholder="JSON extracted from the image will appear here..."></textarea>
+        <div class="actions">
+          <button id="copy">COPY JSON</button>
+          <button id="download">DOWNLOAD .JSON</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let imageFile=null;
+
+function status(t,cls=''){ $('status').className='status '+cls; $('status').textContent=t; }
+
+function showImage(file){
+  if(!file || !file.type.startsWith('image/')) return;
+  imageFile=file;
+  const url=URL.createObjectURL(file);
+  $('drop').innerHTML='<img id="preview" src="'+url+'">';
+  status('Image loaded. Click EXTRACT JSON.');
+}
+
+$('file').addEventListener('change',e=>showImage(e.target.files[0]));
+$('drop').addEventListener('dragover',e=>{e.preventDefault();$('drop').classList.add('drag')});
+$('drop').addEventListener('dragleave',()=>$('drop').classList.remove('drag'));
+$('drop').addEventListener('drop',e=>{e.preventDefault();$('drop').classList.remove('drag');showImage(e.dataTransfer.files[0])});
+
+$('paste').onclick=async()=>{
+  try{
+    const items=await navigator.clipboard.read();
+    for(const item of items){
+      const type=item.types.find(t=>t.startsWith('image/'));
+      if(type){showImage(new File([await item.getType(type)],'pasted-image.png',{type}));return;}
+    }
+    status('Clipboardda rasm topilmadi.','err');
+  }catch(e){status('Paste uchun brauzer ruxsati kerak.','err')}
+};
+
+function cleanOCR(s){
+  s=s.replace(/\r/g,'').replace(/[“”]/g,'"').replace(/[‘’]/g,"'");
+  const starts=[s.indexOf('{'),s.indexOf('[')].filter(x=>x>=0);
+  if(starts.length)s=s.slice(Math.min(...starts));
+  const end=Math.max(s.lastIndexOf('}'),s.lastIndexOf(']'));
+  if(end>=0)s=s.slice(0,end+1);
+  return s.trim();
+}
+
+$('ocr').onclick=async()=>{
+  if(!imageFile){status('Avval rasm yuklang.','err');return;}
+  $('ocr').disabled=true;
+  try{
+    status('OCR ishlayapti... rasm o‘qilmoqda');
+    const result=await Tesseract.recognize(imageFile,'eng',{
+      logger:m=>{
+        if(m.status==='recognizing text') status('OCR: '+Math.round((m.progress||0)*100)+'%');
+      }
+    });
+    let text=cleanOCR(result.data.text);
+    $('out').value=text;
+    try{
+      const obj=JSON.parse(text);
+      $('out').value=JSON.stringify(obj,null,2);
+      status('JSON muvaffaqiyatli olindi va formatlandi.','ok');
+    }catch{
+      status('Matn olindi, lekin JSON sintaksisi aniqlanmadi. Qo‘lda tekshiring.','err');
+    }
+  }catch(e){status('OCR xatosi: '+e.message,'err')}
+  finally{$('ocr').disabled=false}
+};
+
+$('format').onclick=()=>{
+  try{$('out').value=JSON.stringify(JSON.parse($('out').value),null,2);status('JSON formatlandi.','ok')}
+  catch(e){status('JSON xato: '+e.message,'err')}
+};
+$('copy').onclick=async()=>{
+  await navigator.clipboard.writeText($('out').value);
+  status('JSON clipboardga nusxalandi.','ok');
+};
+$('download').onclick=()=>{
+  const blob=new Blob([$('out').value],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='extracted.json';a.click();
+};
+$('clear').onclick=()=>{
+  imageFile=null;$('file').value='';$('out').value='';
+  $('drop').innerHTML='Drop a screenshot/image here<br>or click <b>UPLOAD IMAGE</b>';
+  status('Cleared.');
+};
+</script>
+</body>
+</html>
