@@ -399,23 +399,24 @@ async function download1080Video(){
       ...recordAudioDest.stream.getAudioTracks()
     ]);
 
-    // Prefer VP8 for smoother real-time 60 FPS recording in Chrome.
-    // VP9 can require substantially more CPU during live encoding.
+    // MP4 / H.264 export: use the browser's native MediaRecorder MP4 encoder.
+    // The first candidate requests H.264 High Profile at Level 4.2 with AAC audio.
+    // No WebM fallback is used, so the export is always MP4 or reports unsupported codec.
     const mimeCandidates=[
-      'video/webm;codecs=vp8,opus',
-      'video/webm;codecs=vp9,opus',
-      'video/webm'
+      'video/mp4;codecs=avc1.64002A,mp4a.40.2',
+      'video/mp4;codecs=avc1.640028,mp4a.40.2',
+      'video/mp4'
     ];
     const mime=mimeCandidates.find(x=>window.MediaRecorder && MediaRecorder.isTypeSupported(x));
-    if(!mime) throw new Error('Chrome WebM video eksportini qo‘llab-quvvatlamaydi.');
+    if(!mime) throw new Error('Bu brauzer H.264 MP4 exportini qo‘llab-quvvatlamaydi. Chrome/Edge ning yangilangan versiyasidan foydalaning.');
 
     recordedChunks=[];
 
     mediaRecorder=new MediaRecorder(recordStream,{
       mimeType:mime,
-      // High-quality 1080p60 without making the real-time encoder excessively heavy.
-      videoBitsPerSecond:14000000,
-      audioBitsPerSecond:192000
+      // High-quality 1920×1080 60 FPS H.264 export.
+      videoBitsPerSecond:100000000,
+      audioBitsPerSecond:320000
     });
 
     mediaRecorder.ondataavailable=e=>{
@@ -446,7 +447,7 @@ async function download1080Video(){
       const baseName=(F.files[0]?.name||'audio-spectrum').replace(/\.[^.]+$/,'');
       const a=document.createElement('a');
       a.href=url;
-      a.download=baseName+'-1080p.webm';
+      a.download=baseName+'-1080p-H264-100Mbps.mp4';
       a.style.display='none';
       document.body.appendChild(a);
       a.click();
