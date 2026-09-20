@@ -15,11 +15,27 @@
 <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 <script>
 const {createFFmpeg,fetchFile}=FFmpeg;
-let ffmpeg=null;
-let ffmpegReady=false;
-let ffmpegLoading=false;
 
-function createEngine(){
+const fileEl=document.getElementById('file');
+const drop=document.getElementById('drop');
+const convert=document.getElementById('convert');
+const download=document.getElementById('download');
+const statusEl=document.getElementById('status');
+const bar=document.getElementById('bar');
+
+let source=null;
+let outputUrl=null;
+let ffmpeg=null;
+let ffmpegLoading=false;
+let ffmpegReady=false;
+let encodingStarted=false;
+
+function setStatus(t,p){
+  statusEl.textContent=t;
+  if(p!==undefined) bar.style.width=Math.max(0,Math.min(100,p))+'%';
+}
+
+function makeFFmpeg(){
   if(ffmpeg) return ffmpeg;
   ffmpeg=createFFmpeg({
     log:false,
@@ -27,53 +43,123 @@ function createEngine(){
     corePath:'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
   });
   ffmpeg.setProgress(({ratio})=>{
-    if(window.__encodingStarted){
-      status('Encoding… '+Math.min(100,Math.round(ratio*100))+'%',Math.min(100,ratio*100));
+    if(encodingStarted){
+      const p=Math.max(0,Math.min(100,Math.round(ratio*100)));
+      setStatus('Encoding… '+p+'%',p);
     }
   });
   return ffmpeg;
 }
 
-async function loadEngine(){
+async function ensureFFmpeg(){
   if(ffmpegReady) return true;
   if(ffmpegLoading) return false;
   ffmpegLoading=true;
-  convert.disabled=true;
-  status('Loading FFmpeg… please wait.',0);
+  setStatus('Loading FFmpeg engine…',0);
   try{
-    const engine=createEngine();
+    const engine=makeFFmpeg();
     await engine.load();
     ffmpegReady=true;
     ffmpegLoading=false;
-    status('FFmpeg ready — starting conversion…');
     return true;
-  }catch(e){
+  }catch(err){
     ffmpegLoading=false;
     ffmpegReady=false;
-    status('FFmpeg failed to load. Check internet connection and try again.');
-    console.error('FFmpeg load error:',e);
+    console.error(err);
+    setStatus('FFmpeg could not load. Check internet/CDN access and try again.',0);
     return false;
   }
 }
-const fileEl=document.getElementById('file'),drop=document.getElementById('drop'),convert=document.getElementById('convert'),download=document.getElementById('download'),statusEl=document.getElementById('status'),bar=document.getElementById('bar');
-let source=null,outputUrl=null;
-function status(t,p){statusEl.textContent=t;if(p!=null)bar.style.width=p+'%'}
-function choose(f){if(!f)return;if(!/webm/i.test(f.name)&&f.type!=='video/webm'){status('Please select a WebM video.');return}source=f;convert.disabled=false;download.disabled=true;if(outputUrl)URL.revokeObjectURL(outputUrl);outputUrl=null;status('Selected: '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB)');bar.style.width='0%'}
-fileEl.onchange=e=>choose(e.target.files[0]);drop.onclick=e=>{if(e.target.tagName!=='INPUT')fileEl.click()};
-['dragenter','dragover'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.style.borderColor='#55b7ff'}));
-['dragleave','drop'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.style.borderColor=''}));
+
+function choose(file){
+  if(!file) return;
+  if(!/\.webm$/i.test(file.name) && file.type!=='video/webm'){
+    setStatus('Please select a WebM video.',0);
+    return;
+  }
+  source=file;
+  if(outputUrl){ URL.revokeObjectURL(outputUrl); outputUrl=null; }
+  download.disabled=true;
+  convert.disabled=false;
+  setStatus('Selected: '+file.name+' ('+(file.size/1048576).toFixed(1)+' MB) — press CONVERT TO MP4.',0);
+}
+
+fileEl.addEventListener('change',e=>choose(e.target.files[0]));
+drop.addEventListener('click',e=>{ if(e.target!==fileEl) fileEl.click(); });
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{
+  e.preventDefault(); drop.style.borderColor='#55b7ff';
+}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{
+  e.preventDefault(); drop.style.borderColor='';
+}));
 drop.addEventListener('drop',e=>choose(e.dataTransfer.files[0]));
-let ffmpegReady=false;
-convert.onclick=async()=>{
- if(!source)return;
- if(ffmpegLoading)return;
- convert.disabled=true;
- download.disabled=true;
- window.__encodingStarted=false;
- try{
-   const ready=await loadEngine();
-   if(!ready){convert.disabled=false;return;}
-   window.__encodingStarted=true;
-   const engine=ffmpeg;const a='input.webm',b='output.mp4';try{engine.FS('unlink',a)}catch(_){}try{engine.FS('unlink',b)}catch(_){}engine.FS('writeFile',a,await fetchFile(source));status('Encoding…',0);await engine.run('-i',a,'-map','0:v:0','-map','0:a:0?','-c:v','libx264','-preset',document.getElementById('preset').value,'-crf',document.getElementById('crf').value,'-profile:v','high','-level','4.2','-pix_fmt','yuv420p','-c:a','aac','-b:a','320k','-ar','48000','-movflags','+faststart',b);const data=engine.FS('readFile',b);outputUrl=URL.createObjectURL(new Blob([data.buffer],{type:'video/mp4'}));download.disabled=false;status('Conversion complete — MP4 is ready.',100)}catch(e){console.error(e);status('Conversion failed: '+(e.message||e))}finally{convert.disabled=false}};
-download.onclick=()=>{if(!outputUrl)return;const a=document.createElement('a');a.href=outputUrl;a.download=source.name.replace(/\.[^.]+$/,'')+'_HIGH_QUALITY.mp4';a.click()};
+
+convert.addEventListener('click',async()=>{
+  if(!source || ffmpegLoading) return;
+  convert.disabled=true;
+  download.disabled=true;
+  encodingStarted=false;
+  try{
+    const ready=await ensureFFmpeg();
+    if(!ready){ convert.disabled=false; return; }
+
+    encodingStarted=true;
+    setStatus('Preparing video…',0);
+    const engine=ffmpeg;
+    const input='input.webm';
+    const output='output.mp4';
+
+    try{engine.FS('unlink',input);}catch(_){}
+    try{engine.FS('unlink',output);}catch(_){}
+
+    engine.FS('writeFile',input,await fetchFile(source));
+
+    const crf=document.getElementById('crf').value;
+    const preset=document.getElementById('preset').value;
+
+    await engine.run(
+      '-i',input,
+      '-map','0:v:0',
+      '-map','0:a:0?',
+      '-c:v','libx264',
+      '-preset',preset,
+      '-crf',crf,
+      '-profile:v','high',
+      '-level','4.2',
+      '-pix_fmt','yuv420p',
+      '-c:a','aac',
+      '-b:a','320k',
+      '-ar','48000',
+      '-movflags','+faststart',
+      output
+    );
+
+    const data=engine.FS('readFile',output);
+    outputUrl=URL.createObjectURL(new Blob([data.buffer],{type:'video/mp4'}));
+    download.disabled=false;
+    encodingStarted=false;
+    setStatus('Conversion complete — MP4 is ready.',100);
+  }catch(err){
+    encodingStarted=false;
+    console.error(err);
+    setStatus('Conversion failed: '+(err.message||err),0);
+  }finally{
+    convert.disabled=false;
+  }
+});
+
+download.addEventListener('click',()=>{
+  if(!outputUrl || !source) return;
+  const a=document.createElement('a');
+  a.href=outputUrl;
+  a.download=source.name.replace(/\.[^.]+$/,'')+'_HIGH_QUALITY.mp4';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+});
+
+// IMPORTANT: FFmpeg is NOT loaded on page startup.
+// This keeps the page responsive. It loads only after CONVERT TO MP4 is pressed.
+convert.disabled=true;
+setStatus('Ready — select a WebM video.',0);
 </script></body></html>
