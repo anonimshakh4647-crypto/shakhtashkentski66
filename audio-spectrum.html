@@ -1198,7 +1198,8 @@ function syncParticleControls(){
 
 function resetParticleItems(){
   const w=C.width||1200,h=C.height||600;
-  const n=Math.max(1,Math.min(2200,Math.round(particleState.amount)));
+  const n=Math.max(1,Math.min(1100,Math.round(particleState.amount)));
+  particleLastT=performance.now();
   particleItems=new Array(n);
   const spread=Math.max(.1,particleState.spread/100);
   for(let i=0;i<n;i++){
@@ -1254,7 +1255,7 @@ function drawBackgroundParticles(w,h){
   if(!en||!en.checked)return;
   if(!particleItems.length)resetParticleItems();
   const now=performance.now();
-  const dt=Math.min(.035,Math.max(.001,(now-particleLastT)/1000));
+  const dt=Math.min(.025,Math.max(.001,(now-particleLastT)/1000));
   particleLastT=now;
 
   // Audio-reactive energy. The particles cover the whole background and react to
@@ -1333,8 +1334,14 @@ function drawBackgroundParticles(w,h){
       X.lineTo(p.x,p.y);
       X.stroke();
     }
-    X.shadowBlur=Math.min(24,size*5*(1+energy*1.5));
-    X.shadowColor=color;
+    // Keep particle rendering lightweight: expensive per-particle canvas shadows and
+    // save/restore calls can stall the visualizer when a preset has many particles.
+    if(size>1.15){
+      X.shadowBlur=Math.min(10,size*2.2*(1+energy));
+      X.shadowColor=color;
+    }else{
+      X.shadowBlur=0;
+    }
     drawParticleShape(X,p.x,p.y,size,shape,color,alpha,p.phase+p.spin*now*.001+audioWave*.08);
   }
   X.restore();
