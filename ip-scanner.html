@@ -15,17 +15,30 @@ async function getJSON(url,options){
   try{return JSON.parse(t)}catch(e){throw new Error('Xizmat JSON ma’lumot qaytarmadi')}
 }
 async function dns(host,type){
-  try{
-    const d=await getJSON('https://cloudflare-dns.com/dns-query?name='+encodeURIComponent(host)+'&type='+type,{headers:{Accept:'application/dns-json'}});
-    return (d.Answer||[]).map(x=>x.data).filter(Boolean);
-  }catch(e){return []}
+  host=String(host||'').trim().replace(/\.$/,'');
+  const providers=[
+    'https://cloudflare-dns.com/dns-query?name='+encodeURIComponent(host)+'&type='+type,
+    'https://dns.google/resolve?name='+encodeURIComponent(host)+'&type='+type
+  ];
+  for(const url of providers){
+    try{
+      const headers=url.startsWith('https://cloudflare-dns.com')?{Accept:'application/dns-json'}:{};
+      const d=await getJSON(url,{headers});
+      const vals=(d.Answer||[]).map(x=>x.data).filter(Boolean);
+      if(vals.length)return vals;
+    }catch(e){}
+  }
+  return []
 }
 async function resolveHost(host){
+  host=String(host||'').trim().replace(/\.$/,'');
   const a=await dns(host,'A');
-  if(a[0]&&isIPv4(a[0]))return a[0];
+  const v4=a.find(isIPv4);
+  if(v4)return v4;
   const aaaa=await dns(host,'AAAA');
-  if(aaaa[0])return aaaa[0];
-  throw new Error('Domen uchun IP manzil topilmadi')
+  const v6=aaaa.find(isIPv6);
+  if(v6)return v6;
+  throw new Error('Domen DNS orqali IP manzilga yechilmadi')
 }
 function esc(v){return String(v??'—').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function labelize(k){
@@ -47,16 +60,21 @@ function flatten(obj,prefix='',out=[]){
 }
 async function ipInfo(ip){
   const urls=[
-    'https://ipwho.is/'+encodeURIComponent(ip)+'?security=1',
+    'https://api.ipapi.is/?q='+encodeURIComponent(ip),
+    'https://ipwho.is/'+encodeURIComponent(ip),
     'https://ipapi.co/'+encodeURIComponent(ip)+'/json/'
   ];
+  const errors=[];
   for(const u of urls){
     try{
       const d=await getJSON(u);
-      if(d && d.success!==false && !d.error)return d;
-    }catch(e){}
+      if(d && d.success!==false && !d.error && !d.error_message){
+        if(d.ip || d.IP || d.data?.ip)return d;
+      }
+      errors.push((d&&d.message)||'invalid response');
+    }catch(e){errors.push(e.message)}
   }
-  throw new Error('IP geolocation xizmati javob bermadi')
+  throw new Error('IP geolocation xizmatlari javob bermadi. DNS ishlashi mumkin, lekin tashqi API vaqtincha bloklangan yoki limitga yetgan.')
 }
 function section(title,rows){
   return '<div class="stat" style="grid-column:1/-1;margin-top:10px"><div class="label" style="color:#00e5ff">'+esc(title)+'</div><div class="value" style="white-space:pre-wrap">'+rows.map(x=>esc(x)).join('\\n')+'</div></div>'
@@ -89,8 +107,8 @@ async function scan(){
   results.hidden=true;
   try{
     let ip=input,host='';
-    if(!ip||input.toLowerCase()==='my ip')ip=(await getJSON('https://api64.ipify.org?format=json')).ip;
-    else if(!isIPv4(ip)&&!isIPv6(ip)){host=hostnameOf(ip);ip=await resolveHost(host)}
+    if(!ip||input.toLowerCase()==='my ip'){try{ip=(await getJSON('https://api.ipapi.is/')).ip}catch(e){ip=(await getJSON('https://api64.ipify.org?format=json')).ip}}
+    else if(!isIPv4(ip)&&!isIPv6(ip)){host=hostnameOf(ip).replace(/\.$/,'');if(!host)throw new Error('Domen yoki hostname noto‘g‘ri');ip=await resolveHost(host)}
     document.querySelector('#ip').value=ip;
 
     const d=await ipInfo(ip);
@@ -106,7 +124,7 @@ async function scan(){
 
     html+=section('TECHNICAL NOTE',[
       'Geolocation taxminiy ma’lumot hisoblanadi.',
-      'Proxy/VPN/Tor/Hosting aniqlash API tarifiga bog‘liq bo‘lishi mumkin.',
+      'Proxy/VPN/Tor/Hosting aniqlash ayrim API xizmatlarida API kalitini talab qilishi mumkin.',
       'Brauzer CORS cheklovi sabab ayrim WHOIS/TLS/HTTP ma’lumotlari olinmasligi mumkin.'
     ]);
 
