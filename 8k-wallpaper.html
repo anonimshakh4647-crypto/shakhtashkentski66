@@ -15,7 +15,7 @@
 <div class="toolbar"><input id="search" class="search" placeholder="🔎 Rasm mavzusini qidiring: cyberpunk, nature, car..."><button id="searchBtn" class="btn">QIDIRISH</button><button id="randomBtn" class="btn">TASODIFIY</button><div class="cats" id="cats"></div></div>
 <div class="note">Manba: Wikimedia Commons ochiq rasm qidiruvi. Sahifa faqat SFW natijalarni ko‘rsatadi; rasm mualliflik huquqi tegishli egalariga tegishli.</div>
 <main class="grid" id="grid"></main><div class="status" id="status"></div>
-<div class="modal" id="modal"><button class="close" id="close">✕</button><img id="modalImg" alt="Wallpaper"><div class="modalActions"><a id="source" target="_blank" rel="noopener">MANBANI OCHISH</a><a id="download" target="_blank" rel="noopener" download>ORIGINAL RASM</a></div></div>
+<div class="modal" id="modal"><button class="close" id="close">✕</button><img id="modalImg" alt="Wallpaper"><div class="modalActions"><button id="pngDownload">PNG YUKLAB OLISH</button></div></div>
 <script>
 const API='https://commons.wikimedia.org/w/api.php';
 const categories=[
@@ -53,7 +53,12 @@ active=i; termIndex=0; query=''; search.value=''; load(true)
 cats.appendChild(b)
 });
 function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-function openModal(x){modal.classList.add('show');modalImg.src=x.path;source.href=x.url;download.href=x.path}
+async function openModal(x){
+  modal.classList.add('show');
+  modalImg.src=x.path;
+  modalImg.dataset.path=x.path;
+  modalImg.dataset.title=x.title||'wallpaper';
+}
 function render(items){let frag=document.createDocumentFragment();items.forEach(x=>{if(!x.path||seen.has(x.id))return;seen.add(x.id);let d=document.createElement('article');d.className='card';d.innerHTML=`<img loading="lazy" src="${esc(x.thumb||x.path)}" alt="${esc(x.title||'Wallpaper')}" onerror="this.closest('.card').remove()"><button class="open">⛶</button><div class="meta"><span>${x.width>=3840&&x.height>=2160?'8K / Ultra HD':'Ultra HD'}</span><span>${esc(x.category||'Wallpaper')}</span></div>`;d.querySelector('.open').onclick=()=>openModal(x);d.querySelector('img').onclick=()=>openModal(x);frag.appendChild(d)});grid.appendChild(frag)}
 async function apiSearch(offset){
 const terms=categories[active][2];
@@ -118,5 +123,65 @@ active=idx;termIndex=0;
 document.querySelectorAll('.cat').forEach((x,i)=>x.classList.toggle('active',i===idx));
 load(true)
 };
+const pngDownload=document.getElementById('pngDownload');
+
+async function downloadPNG(){
+  const url=modalImg.dataset.path || modalImg.src;
+  if(!url)return;
+  const old=pngDownload.textContent;
+  pngDownload.disabled=true;
+  pngDownload.textContent='PNG TAYYORLANMOQDA...';
+  try{
+    const response=await fetch(url,{mode:'cors',cache:'force-cache'});
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    const blob=await response.blob();
+    const blobUrl=URL.createObjectURL(blob);
+    const img=new Image();
+    img.decoding='async';
+    img.src=blobUrl;
+    await img.decode();
+
+    const canvas=document.createElement('canvas');
+    canvas.width=img.naturalWidth;
+    canvas.height=img.naturalHeight;
+    const ctx=canvas.getContext('2d',{alpha:false});
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+    ctx.drawImage(img,0,0);
+
+    const png=await new Promise((resolve,reject)=>{
+      canvas.toBlob(b=>b?resolve(b):reject(new Error('PNG yaratilmadi')),'image/png');
+    });
+
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(png);
+    const safe=(modalImg.dataset.title||'wallpaper')
+      .replace(/\.[^.]+$/,'')
+      .replace(/[\\/:*?"<>|]+/g,'_')
+      .slice(0,90);
+    a.download=(safe||'8k-wallpaper')+'.png';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+    URL.revokeObjectURL(blobUrl);
+  }catch(err){
+    console.error(err);
+    // Fallback: ask browser to download the original image if CORS blocks canvas export.
+    const a=document.createElement('a');
+    a.href=url;
+    a.target='_blank';
+    a.rel='noopener';
+    a.download='8k-wallpaper-original';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }finally{
+    pngDownload.disabled=false;
+    pngDownload.textContent=old;
+  }
+}
+pngDownload.onclick=downloadPNG;
+
 close.onclick=()=>modal.classList.remove('show');modal.onclick=e=>{if(e.target===modal)modal.classList.remove('show')};document.addEventListener('keydown',e=>{if(e.key==='Escape')modal.classList.remove('show')});window.addEventListener('scroll',()=>{if(window.innerHeight+window.scrollY>=document.body.offsetHeight-900&&!busy)load()});load();
 </script></body></html>
