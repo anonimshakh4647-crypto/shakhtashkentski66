@@ -1,105 +1,119 @@
 <!doctype html><html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IP Scanner | IT SHAKH</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="tools.css"></head><body><header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="javascript:history.back()">← ORQAGA</a></header><main><div class="eyebrow">// NETWORK INTELLIGENCE</div><h1>IP SCANNER</h1><p class="intro">IP manzilning ochiq geolokatsiya va tarmoq ma’lumotlarini ko‘ring. Bu vosita portlarni skanerlamaydi va hech qanday tizimga kirmaydi.</p><section class="panel"><div class="input-row"><input id="ip" placeholder="Masalan: 8.8.8.8 yoki my IP" autocomplete="off"><button id="scan">TEKSHIRISH</button></div><p class="notice">Faqat ommaga ochiq IP ma’lumoti ko‘rsatiladi. Natija tashqi geolokatsiya xizmatidan olinadi.</p><div id="status" class="loading">Tayyor.</div><div class="grid" id="results" hidden></div></section></main><script>
 const results=document.querySelector('#results'),status=document.querySelector('#status');
 
-function isIPv4(s){
-  const p=s.split('.');
-  return p.length===4 && p.every(x=>/^\d+$/.test(x)&&+x>=0&&+x<=255);
-}
+function isIPv4(s){const p=s.split('.');return p.length===4&&p.every(x=>/^\d+$/.test(x)&&+x>=0&&+x<=255)}
+function isIPv6(s){return /^[0-9a-f:]+$/i.test(s)&&s.includes(':')}
 function hostnameOf(value){
   try{
-    const u=/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? new URL(value) : new URL('https://'+value);
+    const u=/^[a-z][a-z0-9+.-]*:\/\//i.test(value)?new URL(value):new URL('https://'+value);
     return u.hostname;
-  }catch(e){
-    return value.replace(/^[a-z][a-z0-9+.-]*:\/\//i,'').split('/')[0].split(':')[0].trim();
-  }
+  }catch(e){return value.replace(/^[a-z][a-z0-9+.-]*:\/\//i,'').split('/')[0].split(':')[0].trim()}
 }
 async function getJSON(url,options){
-  const r=await fetch(url,options||{});
-  const t=await r.text();
-  if(!r.ok) throw new Error('HTTP '+r.status);
-  try{return JSON.parse(t)}
-  catch(e){throw new Error('Xizmat JSON ma’lumot qaytarmadi.')}
+  const r=await fetch(url,options||{}),t=await r.text();
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  try{return JSON.parse(t)}catch(e){throw new Error('Xizmat JSON ma’lumot qaytarmadi')}
+}
+async function dns(host,type){
+  try{
+    const d=await getJSON('https://cloudflare-dns.com/dns-query?name='+encodeURIComponent(host)+'&type='+type,{headers:{Accept:'application/dns-json'}});
+    return (d.Answer||[]).map(x=>x.data).filter(Boolean);
+  }catch(e){return []}
 }
 async function resolveHost(host){
-  const d=await getJSON(
-    'https://cloudflare-dns.com/dns-query?name='+encodeURIComponent(host)+'&type=A',
-    {headers:{Accept:'application/dns-json'}}
-  );
-  const a=(d.Answer||[]).find(x=>x.type===1 && isIPv4(x.data));
-  if(!a) throw new Error('Domen uchun IPv4 manzil topilmadi.');
-  return a.data;
+  const a=await dns(host,'A');
+  if(a[0]&&isIPv4(a[0]))return a[0];
+  const aaaa=await dns(host,'AAAA');
+  if(aaaa[0])return aaaa[0];
+  throw new Error('Domen uchun IP manzil topilmadi')
 }
-function esc(v){
-  return String(v??'—').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+function esc(v){return String(v??'—').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function labelize(k){
+  const m={ip:'IP manzil',type:'IP turi',continent:'Qit’a',continent_code:'Qit’a kodi',country:'Davlat',country_code:'Davlat kodi',
+  region:'Region',region_code:'Region kodi',city:'Shahar',postal:'Pochta indeksi',latitude:'Latitude',longitude:'Longitude',
+  calling_code:'Telefon kodi',capital:'Poytaxt',borders:'Chegaradosh davlatlar',is_eu:'EU hududi',asn:'ASN',org:'Tashkilot',
+  isp:'ISP',domain:'ISP domeni',id:'Timezone',abbr:'Timezone qisqartmasi',offset:'UTC offset',utc:'UTC',current_time:'Mahalliy vaqt',
+  name:'Nomi',code:'Kodi',symbol:'Belgisi',plural:'Ko‘plik nomi',exchange_rate:'USD kursi',
+  anonymous:'Anonymous',proxy:'Proxy',vpn:'VPN',tor:'Tor',hosting:'Hosting/Datacenter',relay:'iCloud Private Relay',mobile:'Mobile network',
+  network:'Network',hostname:'Hostname',accuracy_radius:'Aniqlik radiusi'};
+  return m[k]||k.replace(/[._]/g,' ').replace(/\b\w/g,c=>c.toUpperCase())
 }
 function flatten(obj,prefix='',out=[]){
-  if(obj===null || obj===undefined || obj==='') return out;
-  if(typeof obj!=='object'){out.push([prefix,String(obj)]);return out;}
-  if(Array.isArray(obj)){
-    if(obj.length===0) return out;
-    obj.forEach((v,i)=>flatten(v,prefix+'['+i+']',out));
-    return out;
+  if(obj===null||obj===undefined||obj==='')return out;
+  if(typeof obj!=='object'){out.push([prefix,String(obj)]);return out}
+  if(Array.isArray(obj)){obj.forEach((v,i)=>flatten(v,prefix+'['+i+']',out));return out}
+  Object.entries(obj).forEach(([k,v])=>{const key=prefix?prefix+'.'+k:k;if(v!==null&&typeof v==='object')flatten(v,key,out);else if(v!==null&&v!==undefined&&v!=='')out.push([key,String(v)])});
+  return out
+}
+async function ipInfo(ip){
+  const urls=[
+    'https://ipwho.is/'+encodeURIComponent(ip)+'?security=1',
+    'https://ipapi.co/'+encodeURIComponent(ip)+'/json/'
+  ];
+  for(const u of urls){
+    try{
+      const d=await getJSON(u);
+      if(d && d.success!==false && !d.error)return d;
+    }catch(e){}
   }
-  Object.entries(obj).forEach(([k,v])=>{
-    const key=prefix?prefix+'.'+k:k;
-    if(v!==null && typeof v==='object') flatten(v,key,out);
-    else if(v!==null && v!==undefined && v!=='') out.push([key,String(v)]);
-  });
-  return out;
+  throw new Error('IP geolocation xizmati javob bermadi')
 }
-function labelize(k){
-  const labels={
-    ip:'IP manzil',version:'IP versiya',network:'Tarmoq / CIDR',
-    country_name:'Davlat',country_code:'Davlat kodi',continent_code:'Qit’a kodi',
-    continent_name:'Qit’a',region:'Region / viloyat',city:'Shahar',
-    postal:'Pochta indeksi',latitude:'Kenglik (Latitude)',longitude:'Uzunlik (Longitude)',
-    timezone:'Vaqt zonasi',utc_offset:'UTC offset',org:'Provayder / tashkilot',
-    asn:'ASN',hostname:'Hostname / Reverse DNS',country_calling_code:'Telefon kodi',
-    currency:'Valyuta',currency_name:'Valyuta nomi',languages:'Tillar',
-    country_capital:'Poytaxt',country_population:'Aholi',in_eu:'EU hududi',
-    abuse:'Abuse ma’lumoti',version_name:'IP versiyasi'
-  };
-  return labels[k] || k.replace(/[._]/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+function section(title,rows){
+  return '<div class="stat" style="grid-column:1/-1;margin-top:10px"><div class="label" style="color:#00e5ff">'+esc(title)+'</div><div class="value" style="white-space:pre-wrap">'+rows.map(x=>esc(x)).join('\\n')+'</div></div>'
 }
-async function getIPData(ip){
+async function domainInfo(host){
+  const types=['A','AAAA','CNAME','MX','NS','TXT'];
+  const out=[];
+  for(const type of types){
+    const vals=await dns(host,type);
+    out.push(type+': '+(vals.length?vals.join(' | '):'—'));
+  }
   try{
-    const d=await getJSON('https://ipapi.co/'+encodeURIComponent(ip)+'/json/');
-    if(!d.error) return d;
-  }catch(e){}
-  const w=await getJSON('https://ipwho.is/'+encodeURIComponent(ip));
-  if(w.success===false) throw new Error(w.message||'IP ma’lumoti topilmadi.');
-  return {
-    ip:w.ip,version:w.type,continent_code:w.continent_code,continent_name:w.continent,
-    country_name:w.country,country_code:w.country_code,region:w.region,city:w.city,
-    postal:w.postal,latitude:w.latitude,longitude:w.longitude,
-    timezone:w.timezone?.id,utc_offset:w.timezone?.utc,
-    org:w.connection?.org,asn:w.connection?.asn,network:w.connection?.domain,
-    hostname:w.reverse?.dns
-  };
+    const rdap=await getJSON('https://rdap.org/domain/'+encodeURIComponent(host));
+    const events=(rdap.events||[]).map(x=>x.eventAction+': '+x.eventDate).join(' | ');
+    out.push('RDAP status: '+((rdap.status||[]).join(', ')||'—'));
+    out.push('Registrar: '+(rdap.entities?.map(e=>(e.vcardArray?.[1]||[]).find(x=>x[0]==='fn')?.[3]).filter(Boolean).join(', ')||'—'));
+    out.push('RDAP events: '+(events||'—'));
+    out.push('Nameservers: '+((rdap.nameservers||[]).map(x=>x.ldhName).join(' | ')||'—'));
+  }catch(e){out.push('RDAP: brauzer/tashqi xizmatdan olinmadi')}
+  try{
+    const cert=await getJSON('https://crt.sh/?q=%25.'+encodeURIComponent(host)+'&output=json');
+    const names=[...new Set((cert||[]).flatMap(x=>String(x.name_value||'').split('\n')).filter(Boolean))].slice(0,30);
+    out.push('TLS Certificate SAN: '+(names.join(' | ')||'—'));
+  }catch(e){out.push('TLS Certificate: olinmadi')}
+  return out
 }
 async function scan(){
   const input=document.querySelector('#ip').value.trim();
   status.textContent='Barcha ochiq ma’lumotlar olinmoqda…';
   results.hidden=true;
   try{
-    let ip=input;
-    if(!ip || input.toLowerCase()==='my ip'){
-      ip=(await getJSON('https://api64.ipify.org?format=json')).ip;
-    }else if(!isIPv4(ip)){
-      ip=await resolveHost(hostnameOf(ip));
-    }
+    let ip=input,host='';
+    if(!ip||input.toLowerCase()==='my ip')ip=(await getJSON('https://api64.ipify.org?format=json')).ip;
+    else if(!isIPv4(ip)&&!isIPv6(ip)){host=hostnameOf(ip);ip=await resolveHost(host)}
     document.querySelector('#ip').value=ip;
 
-    const d=await getIPData(ip);
+    const d=await ipInfo(ip);
     const rows=flatten(d);
-    results.innerHTML=rows.map(([key,val])=>
-      '<div class="stat"><div class="label">'+esc(labelize(key))+'</div><div class="value">'+esc(val)+'</div></div>'
-    ).join('');
+    let html=rows.map(([key,val])=>'<div class="stat"><div class="label">'+esc(labelize(key))+'</div><div class="value">'+esc(val)+'</div></div>').join('');
+
+    if(host){
+      const domainRows=await domainInfo(host);
+      html+=section('DOMAIN / DNS / RDAP / TLS — '+host,domainRows);
+    }else{
+      html+=section('DNS / DOMAIN','Domen URL kiritilsa A, AAAA, CNAME, MX, NS, TXT, RDAP va TLS ma’lumotlari ham tekshiriladi.');
+    }
+
+    html+=section('TECHNICAL NOTE',[
+      'Geolocation taxminiy ma’lumot hisoblanadi.',
+      'Proxy/VPN/Tor/Hosting aniqlash API tarifiga bog‘liq bo‘lishi mumkin.',
+      'Brauzer CORS cheklovi sabab ayrim WHOIS/TLS/HTTP ma’lumotlari olinmasligi mumkin.'
+    ]);
+
+    results.innerHTML=html;
     results.hidden=false;
-    status.textContent='✓ '+rows.length+' ta ochiq ma’lumot topildi.';
-  }catch(e){
-    status.textContent='✕ Natijani olish imkoni bo‘lmadi: '+e.message;
-  }
+    status.textContent='✓ IP, network, geolocation, security, DNS, RDAP va TLS ma’lumotlari tekshirildi.';
+  }catch(e){status.textContent='✕ Natijani olish imkoni bo‘lmadi: '+e.message}
 }
 document.querySelector('#scan').onclick=scan;
 document.querySelector('#ip').addEventListener('keydown',e=>{if(e.key==='Enter')scan()});
