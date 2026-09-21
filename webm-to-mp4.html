@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>IT SHAKH | WebM → MP4 Converter</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+<style>
+    :root {
+        --bg: #04060b;
+        --accent: #38bdf8;
+        --glow: 0 0 45px rgba(56, 189, 248, 0.85);
+        --text-color: #e5e7eb;
+        --card-bg: rgba(11, 18, 32, 0.7);
+    }
+    body.night-mode {
+        --bg: #000;
+        --accent: #00ff41;
+        --glow: 0 0 45px rgba(0, 255, 65, 0.85);
+        --text-color: #00ff41;
+        --card-bg: rgba(0, 20, 0, 0.7);
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; padding: 0; min-height: 100vh;
+        font-family: 'Inter', sans-serif;
+        background: var(--bg);
+        color: var(--text-color);
+        transition: .5s;
+    }
+    header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 18px 28px; flex-wrap: wrap; gap: 12px;
+        border-bottom: 1px solid rgba(56,189,248,.15);
+    }
+    .logo-text { font-weight: 800; letter-spacing: 2px; }
+    .nav-links { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+    .nav-links a { color: var(--text-color); text-decoration: none; font-size: 13px; letter-spacing: 1px; opacity: .85; }
+    .nav-links a:hover { opacity: 1; color: var(--accent); }
+    .mode-toggle {
+        background: transparent; border: 1px solid rgba(56,189,248,.4); color: var(--accent);
+        padding: 6px 12px; border-radius: 20px; font: 11px monospace; letter-spacing: 1px; cursor: pointer;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+    .section-title { font: 700 13px monospace; letter-spacing: 3px; color: var(--accent); text-shadow: var(--glow); margin-bottom: 22px; text-align: center; }
+    h1 { text-align: center; font-size: clamp(24px,5vw,34px); margin: 0 0 6px; letter-spacing: 1px; }
+    .subtitle { text-align: center; color: #94a3b8; font-size: 14px; margin-bottom: 34px; }
+
+    .card {
+        background: var(--card-bg); border: 1px solid rgba(56,189,248,.25);
+        border-radius: 18px; padding: 26px; box-shadow: 0 0 30px rgba(56,189,248,.08);
+    }
+
+    .drop-zone {
+        border: 2px dashed rgba(56,189,248,.35); border-radius: 14px;
+        padding: 36px 16px; text-align: center; cursor: pointer; transition: .2s;
+    }
+    .drop-zone:hover, .drop-zone.drag { border-color: var(--accent); background: rgba(56,189,248,.05); }
+    .drop-zone input { display: none; }
+    .drop-icon { font-size: 34px; margin-bottom: 10px; }
+    .drop-title { font-weight: 700; letter-spacing: 1px; }
+    .drop-hint { font-size: 12px; color: #64748b; margin-top: 6px; }
+
+    .file-info {
+        display: none; margin-top: 18px; padding: 12px 16px; border-radius: 10px;
+        background: rgba(0,0,0,.3); border: 1px solid rgba(148,163,184,.2);
+        font: 13px monospace; display: flex; justify-content: space-between; gap: 10px; align-items: center;
+    }
+    .file-info span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-info button { background: none; border: none; color: #f87171; cursor: pointer; font-size: 16px; }
+
+    .convert-btn {
+        margin-top: 22px; width: 100%; padding: 14px; border: none; border-radius: 12px;
+        background: linear-gradient(90deg, var(--accent), #7c4dff); color: #001018;
+        font: 800 14px monospace; letter-spacing: 2px; cursor: pointer; transition: .2s;
+    }
+    .convert-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .convert-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    .progress-wrap { margin-top: 18px; display: none; }
+    .progress-bar-bg { width: 100%; height: 8px; border-radius: 10px; background: rgba(255,255,255,.08); overflow: hidden; }
+    .progress-bar { height: 100%; width: 0%; background: var(--accent); box-shadow: var(--glow); transition: width .2s; }
+    .status { font: 12px monospace; letter-spacing: 1px; color: #94a3b8; margin-top: 10px; text-align: center; min-height: 18px; }
+    .status.err { color: #f87171; }
+    .status.ok { color: #4ade80; }
+
+    .result { margin-top: 22px; text-align: center; display: none; }
+    .result video { max-width: 100%; border-radius: 12px; border: 1px solid rgba(56,189,248,.3); }
+    .download-btn {
+        display: inline-block; margin-top: 14px; padding: 10px 22px; border-radius: 20px;
+        border: 1px solid rgba(56,189,248,.4); background: transparent; color: var(--accent);
+        font: 12px monospace; letter-spacing: 1px; cursor: pointer; text-decoration: none;
+    }
+
+    .note { text-align: center; font-size: 12px; color: #64748b; margin-top: 30px; line-height: 1.8; }
+</style>
+</head>
+<body>
+
+<header>
+    <div class="logo-text">SHAKH TASHKENTSKI</div>
+    <div class="nav-links">
+        <a href="javascript:void(0)" id="toolsBackBtn" style="color:var(--accent);">← ORQAGA</a>
+        <a href="index.html">HOME</a>
+        <button class="mode-toggle" id="modeToggle">NIGHT MODE</button>
+    </div>
+</header>
+
+<main>
+    <div class="section-title">// VIDEO CONVERTER</div>
+    <h1>WebM → MP4 Converter</h1>
+    <p class="subtitle">Fayl butunlay brauzeringizda konvertatsiya qilinadi — serverga yuklanmaydi</p>
+
+    <div class="card">
+        <label class="drop-zone" id="dropZone">
+            <input type="file" id="fileInput" accept=".webm,video/webm">
+            <div class="drop-icon">🎬</div>
+            <div class="drop-title">WEBM FAYLNI SHU YERGA TASHLANG</div>
+            <div class="drop-hint">yoki bosib tanlang · faqat .webm</div>
+        </label>
+
+        <div class="file-info" id="fileInfo">
+            <span class="name" id="fileName"></span>
+            <button id="fileRemove" type="button">✕</button>
+        </div>
+
+        <button class="convert-btn" id="convertBtn" disabled>⇄ MP4'GA O'TKAZISH</button>
+
+        <div class="progress-wrap" id="progressWrap">
+            <div class="progress-bar-bg"><div class="progress-bar" id="progressBar"></div></div>
+        </div>
+        <div class="status" id="status">Kutilmoqda — FFmpeg modul yuklanmoqda...</div>
+
+        <div class="result" id="result">
+            <video id="resultVideo" controls></video><br>
+            <a class="download-btn" id="downloadBtn" download="converted.mp4">⬇ MP4 YUKLAB OLISH</a>
+        </div>
+    </div>
+
+    <p class="note">
+        Konvertatsiya sizning brauzeringizning o'zida (FFmpeg WebAssembly yordamida) amalga oshiriladi,<br>
+        fayl hech qayerga yuklanmaydi. <b>Yuqori sifat</b> sozlamasi ishlatilgan (deyarli original sifat) —<br>
+        shuning uchun tezlik o'rniga sifat ustunlik qiladi, katta fayllarda bir necha daqiqa vaqt olishi mumkin.
+    </p>
+</main>
+
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<script>
+(function(){
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileRemove = document.getElementById('fileRemove');
+    const convertBtn = document.getElementById('convertBtn');
+    const progressWrap = document.getElementById('progressWrap');
+    const progressBar = document.getElementById('progressBar');
+    const statusEl = document.getElementById('status');
+    const result = document.getElementById('result');
+    const resultVideo = document.getElementById('resultVideo');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    let selectedFile = null;
+    let ffmpeg = null;
+    let ffmpegReady = false;
+
+    function setStatus(msg, cls){
+        statusEl.textContent = msg;
+        statusEl.className = 'status' + (cls ? ' ' + cls : '');
+    }
+
+    async function initFFmpeg(){
+        try{
+            const { createFFmpeg } = FFmpeg;
+            ffmpeg = createFFmpeg({
+                log: false,
+                corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+                progress: ({ ratio }) => {
+                    if(ratio >= 0 && ratio <= 1){
+                        progressBar.style.width = Math.round(ratio*100) + '%';
+                        setStatus('Konvertatsiya qilinmoqda... ' + Math.round(ratio*100) + '%');
+                    }
+                }
+            });
+            await ffmpeg.load();
+            ffmpegReady = true;
+            setStatus(selectedFile ? 'Tayyor — konvertatsiyani boshlashingiz mumkin' : 'Fayl tanlang');
+            convertBtn.disabled = !selectedFile;
+        }catch(err){
+            setStatus('✕ FFmpeg modulini yuklab bo‘lmadi. Internetni tekshiring.', 'err');
+        }
+    }
+    initFFmpeg();
+
+    function selectFile(f){
+        if(!f) return;
+        if(!/\.webm$/i.test(f.name)){
+            setStatus('✕ Faqat .webm fayllar qo‘llab-quvvatlanadi.', 'err');
+            return;
+        }
+        selectedFile = f;
+        fileName.textContent = f.name + ' (' + (f.size/1024/1024).toFixed(1) + ' MB)';
+        fileInfo.style.display = 'flex';
+        result.style.display = 'none';
+        convertBtn.disabled = !ffmpegReady;
+        setStatus(ffmpegReady ? 'Tayyor — konvertatsiyani boshlashingiz mumkin' : 'FFmpeg modul yuklanmoqda...');
+    }
+
+    dropZone.addEventListener('click', (e) => { if(e.target !== fileInput) fileInput.click(); });
+    fileInput.addEventListener('change', () => selectFile(fileInput.files[0]));
+    ['dragover','dragenter'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.add('drag'); }));
+    ['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.remove('drag'); }));
+    dropZone.addEventListener('drop', e => { selectFile(e.dataTransfer.files[0]); });
+
+    fileRemove.addEventListener('click', () => {
+        selectedFile = null;
+        fileInput.value = '';
+        fileInfo.style.display = 'none';
+        result.style.display = 'none';
+        convertBtn.disabled = true;
+        setStatus('Fayl tanlang');
+    });
+
+    convertBtn.addEventListener('click', async () => {
+        if(!selectedFile || !ffmpegReady) return;
+        convertBtn.disabled = true;
+        progressWrap.style.display = 'block';
+        progressBar.style.width = '0%';
+        result.style.display = 'none';
+        setStatus('Fayl tayyorlanmoqda...');
+        try{
+            const { fetchFile } = FFmpeg;
+            ffmpeg.FS('writeFile', 'input.webm', await fetchFile(selectedFile));
+            setStatus('Konvertatsiya boshlandi...');
+            await ffmpeg.run('-i', 'input.webm', '-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '320k', '-movflags', '+faststart', 'output.mp4');
+            const data = ffmpeg.FS('readFile', 'output.mp4');
+            const blob = new Blob([data.buffer], { type: 'video/mp4' });
+            const url = URL.createObjectURL(blob);
+            resultVideo.src = url;
+            downloadBtn.href = url;
+            const outName = selectedFile.name.replace(/\.webm$/i, '.mp4');
+            downloadBtn.setAttribute('download', outName);
+            result.style.display = 'block';
+            setStatus('✔ Konvertatsiya tugadi!', 'ok');
+            progressBar.style.width = '100%';
+        }catch(err){
+            setStatus('✕ Xatolik: ' + (err.message || 'konvertatsiya amalga oshmadi'), 'err');
+        }finally{
+            convertBtn.disabled = false;
+        }
+    });
+})();
+
+// Tools back navigation
+(function(){
+    const b = document.getElementById('toolsBackBtn');
+    if(!b) return;
+    b.addEventListener('click', function(e){
+        e.preventDefault();
+        location.replace('index.html?fromTools=1#tools');
+    });
+})();
+
+// Night mode (shared with rest of site)
+(function(){
+    const body = document.body, btn = document.getElementById('modeToggle');
+    if(!btn) return;
+    const on = localStorage.getItem('it_shakh_night_mode') === '1';
+    if(on) body.classList.add('night-mode');
+    btn.addEventListener('click', () => {
+        body.classList.toggle('night-mode');
+        localStorage.setItem('it_shakh_night_mode', body.classList.contains('night-mode') ? '1' : '0');
+    });
+})();
+</script>
+</body>
+</html>
