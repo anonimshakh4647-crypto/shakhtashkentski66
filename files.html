@@ -963,8 +963,7 @@ body.files-page{min-height:100vh;}
     }
     function getToken(){
         const u=getUser();
-        if(!u) return '';
-        try{return btoa(JSON.stringify(u));}catch(e){return ''; }
+        return u && u.credential ? u.credential : '';
     }
     function setStatus(msg,type='info'){
         status.textContent=msg;
@@ -990,7 +989,7 @@ body.files-page{min-height:100vh;}
     }
     function authHeaders(extra={}){
         const token=getToken();
-        return token ? Object.assign({'X-Google-Token':token},extra) : extra;
+        return token ? Object.assign({'Authorization':'Bearer '+token},extra) : extra;
     }
     function requireLogin(){
         if(!getToken()){
@@ -1008,14 +1007,8 @@ body.files-page{min-height:100vh;}
         }
         list.innerHTML='<div class="file-empty">YUKLANMOQDA...</div>';
         try{
-            const r=await fetch(FILE_API+'/list',{headers:authHeaders(),cache:'no-store'});
-            const data=await r.json().catch(()=>({}));
-            if(r.status===401 || r.status===403 || /invalid\s+google\s+token/i.test(String(data.error||''))){
-                setStatus('Google sessiya eskirgan. HOME orqali qayta Google login qiling.','err');
-                list.innerHTML='<div class=\"file-empty\">GOOGLE LOGIN QAYTA TALAB QILINADI.</div>';
-                count.textContent='0 FILE';
-                return;
-            }
+            const r=await fetch(FILE_API+'/list',{headers:authHeaders()});
+            const data=await r.json();
             if(!r.ok || !data.success) throw new Error(data.error||'Fayllarni olishda xato');
             const files=Array.isArray(data.files)?data.files:[];
             count.textContent=files.length+' FILE';
@@ -1048,7 +1041,7 @@ body.files-page{min-height:100vh;}
         return new Promise((resolve,reject)=>{
             const xhr=new XMLHttpRequest();
             xhr.open(method,url,true);
-            if(token) xhr.setRequestHeader('X-Google-Token',token);
+            if(token) xhr.setRequestHeader('Authorization','Bearer '+token);
             if(contentType) xhr.setRequestHeader('Content-Type',contentType);
             Object.entries(extraHeaders).forEach(([k,v])=>xhr.setRequestHeader(k,v));
             xhr.upload.onprogress=e=>{ if(e.lengthComputable && onprogress) onprogress(e.loaded,e.total); };
