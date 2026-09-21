@@ -17,52 +17,19 @@
 <main class="grid" id="grid"></main><div class="status" id="status"></div>
 <div class="modal" id="modal"><button class="close" id="close">✕</button><img id="modalImg" alt="Wallpaper"><div class="modalActions"><a id="source" target="_blank" rel="noopener">MANBANI OCHISH</a><a id="download" target="_blank" rel="noopener" download>ORIGINAL RASM</a></div></div>
 <script>
-const API='https://wallhaven.cc/api/v1/search';
-const categories=[['ALL','Barchasi',''],['NATURE','Tabiat','nature'],['SPACE','Kosmos','space'],['CITY','Shahar','city'],['CYBERPUNK','Cyberpunk','cyberpunk'],['CARS','Avtomobillar','car'],['GAMING','Gaming','gaming'],['ANIME','Anime','anime'],['ABSTRACT','Abstract','abstract'],['ANIMALS','Hayvonlar','animal'],['ARCHITECTURE','Arxitektura','architecture'],['TECH','Texnologiya','technology'],['DARK','Dark','dark'],['MINIMAL','Minimal','minimal'],['FANTASY','Fantasy','fantasy'],['MOUNTAIN','Tog‘lar','mountains'],['OCEAN','Okean','ocean']];
+const IMAGE_BASE='https://loremflickr.com';
+const categories=[['ALL','Barchasi','wallpaper'],['NATURE','Tabiat','nature'],['SPACE','Kosmos','space'],['CITY','Shahar','city'],['CYBERPUNK','Cyberpunk','cyberpunk'],['CARS','Avtomobillar','car'],['GAMING','Gaming','video-game'],['ANIME','Anime','anime'],['ABSTRACT','Abstract','abstract'],['ANIMALS','Hayvonlar','animal'],['ARCHITECTURE','Arxitektura','architecture'],['TECH','Texnologiya','technology'],['DARK','Dark','dark'],['MINIMAL','Minimal','minimal'],['FANTASY','Fantasy','fantasy'],['MOUNTAIN','Tog‘lar','mountain'],['OCEAN','Okean','ocean']];
 const cats=document.getElementById('cats'),grid=document.getElementById('grid'),status=document.getElementById('status'),search=document.getElementById('search');
-let active='',page=1,busy=false,done=false,query='',seen=new Set();
+let active='wallpaper',page=1,busy=false,query='',seen=new Set();
 categories.forEach((c,i)=>{let b=document.createElement('button');b.className='cat'+(i===0?' active':'');b.textContent=c[1];b.dataset.q=c[2];b.onclick=()=>{document.querySelectorAll('.cat').forEach(x=>x.classList.remove('active'));b.classList.add('active');active=c[2];load(true)};cats.appendChild(b)});
 function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-function render(items){let frag=document.createDocumentFragment();items.forEach(x=>{if(seen.has(x.id))return;seen.add(x.id);let d=document.createElement('article');d.className='card';d.innerHTML=`<img loading="lazy" src="${esc(x.thumbs.large)}" alt="${esc(x.id)}"><button class="open">⛶</button><div class="meta"><span>${x.width}×${x.height}</span><span>${esc(x.category||'Wallpaper')}</span></div>`;d.querySelector('.open').onclick=()=>openModal(x);d.querySelector('img').onclick=()=>openModal(x);frag.appendChild(d)});grid.appendChild(frag)}
+function tag(){return (query.trim()||active||'wallpaper').replace(/[^a-zA-Z0-9, -]/g,'').trim().replace(/\s+/g,',')||'wallpaper'}
+function makeItem(n){const t=tag();const key=encodeURIComponent(t);return {id:t+'-'+page+'-'+n,path:`${IMAGE_BASE}/3840/2160/${key}?lock=${page*100+n}`,thumb:`${IMAGE_BASE}/1280/720/${key}?lock=${page*100+n}`,url:`https://loremflickr.com/3840/2160/${key}?lock=${page*100+n}`,category:active}}
+function render(items){let frag=document.createDocumentFragment();items.forEach(x=>{if(seen.has(x.id))return;seen.add(x.id);let d=document.createElement('article');d.className='card';d.innerHTML=`<img loading="lazy" src="${esc(x.thumb)}" alt="${esc(x.category||'Wallpaper')}" onerror="this.closest('.card').remove()"><button class="open">⛶</button><div class="meta"><span>Ultra HD</span><span>${esc(x.category||'Wallpaper')}</span></div>`;d.querySelector('.open').onclick=()=>openModal(x);d.querySelector('img').onclick=()=>openModal(x);frag.appendChild(d)});grid.appendChild(frag)}
 function openModal(x){modal.classList.add('show');modalImg.src=x.path;source.href=x.url;download.href=x.path}
-async function fetchWallpaperApi(target){
-  const urls=[
-    target,
-    'https://api.allorigins.win/raw?url='+encodeURIComponent(target)
-  ];
-  let lastErr=null;
-  for(const u of urls){
-    try{
-      const r=await fetch(u,{cache:'no-store'});
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      const j=await r.json();
-      if(j && Array.isArray(j.data)) return j;
-      throw new Error('JSON formati noto‘g‘ri');
-    }catch(e){lastErr=e;console.warn('Wallpaper API urinish xatosi:',u,e)}
-  }
-  throw lastErr||new Error('API ishlamadi');
-}
-async function load(reset=false){
-  if(busy)return;
-  if(reset){page=1;done=false;seen.clear();grid.innerHTML='';status.innerHTML=''}
-  if(done)return;
-  busy=true;status.innerHTML='<div class="loader"></div>Yuklanmoqda...';
-  const p=new URLSearchParams({categories:'100',purity:'100',sorting:'date_added',order:'desc',page,atleast:'3840x2160',per_page:'24'});
-  const q=[active,query].filter(Boolean).join(' ');if(q)p.set('q',q);
-  try{
-    const j=await fetchWallpaperApi(API+'?'+p.toString());
-    if(!j.data?.length){
-      if(page===1){done=true;status.textContent='Bu bo‘limda hozircha rasm topilmadi.'}
-      else {done=true;status.textContent='Barcha natijalar ko‘rsatildi.'}
-      return;
-    }
-    render(j.data);status.textContent='';page++;
-    if(j.meta && page>j.meta.last_page)done=true;
-  }catch(e){status.textContent='Rasmlarni yuklab bo‘lmadi. Qayta urinib ko‘ring.';console.error(e)}finally{busy=false}
-}
-
+async function load(reset=false){if(busy)return;if(reset){page=1;seen.clear();grid.innerHTML='';status.innerHTML=''}busy=true;status.innerHTML='<div class="loader"></div>Yuklanmoqda...';try{const items=Array.from({length:24},(_,i)=>makeItem(i+1));render(items);page++;status.textContent='Yangi rasmlar uchun pastga tushing...';}catch(e){status.textContent='Rasmlarni yuklashda xatolik.';console.error(e)}finally{busy=false}}
 search.addEventListener('keydown',e=>{if(e.key==='Enter')loadSearch()});document.getElementById('searchBtn').onclick=loadSearch;function loadSearch(){query=search.value.trim();load(true)}
-document.getElementById('randomBtn').onclick=()=>{query='';search.value='';active='';document.querySelectorAll('.cat').forEach((x,i)=>x.classList.toggle('active',i===0));let p=new URLSearchParams({categories:'100',purity:'100',sorting:'random',order:'desc',page:Math.floor(Math.random()*20)+1,atleast:'3840x2160',per_page:'24'});grid.innerHTML='';seen.clear();done=false;busy=true;status.innerHTML='<div class="loader"></div>Yuklanmoqda...';fetchWallpaperApi(API+'?'+p.toString()).then(j=>render(j.data||[])).catch(()=>status.textContent='Rasmlarni yuklab bo‘lmadi.').finally(()=>{busy=false})};
+document.getElementById('randomBtn').onclick=()=>{query='';search.value='';active='wallpaper';document.querySelectorAll('.cat').forEach((x,i)=>x.classList.toggle('active',i===0));page=Math.floor(Math.random()*100000);load(true)};
 close.onclick=()=>modal.classList.remove('show');modal.onclick=e=>{if(e.target===modal)modal.classList.remove('show')};document.addEventListener('keydown',e=>{if(e.key==='Escape')modal.classList.remove('show')});window.addEventListener('scroll',()=>{if(window.innerHeight+window.scrollY>=document.body.offsetHeight-900)load()});
 load();
 </script></body></html>
