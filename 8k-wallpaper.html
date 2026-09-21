@@ -16,51 +16,87 @@
 <div class="modal" id="modal"><button class="close" id="close">✕</button><img id="modalImg" alt="Wallpaper"><div class="modalActions"><button id="pngDownload">PNG YUKLAB OLISH</button></div></div>
 <script>
 const API='https://commons.wikimedia.org/w/api.php';
-const MIN_W=3840, MIN_H=2160, BATCH=20;
+const MIN_W=3840, MIN_H=2160, BATCH=24;
+/* Har bir bo'lim o'zining Commons category + aniq kalit so'zlari bilan ishlaydi. */
 const categories=[
-['ALL','Barchasi',['Category:Nature','Category:Outer space','Category:Cities','Category:Cyberpunk','Category:Automobiles','Category:Video games','Category:Anime','Category:Abstract art','Category:Wildlife','Category:Architecture','Category:Technology','Category:Night photography','Category:Minimalism','Category:Fantasy art','Category:Mountains','Category:Oceans']],
-['NATURE','Tabiat',['Category:Nature','Category:Landscape photography','Category:Forests','Category:Waterfalls']],
-['SPACE','Kosmos',['Category:Outer space','Category:Space photography','Category:Galaxies','Category:Nebulae']],
-['CITY','Shahar',['Category:Cities','Category:Cityscapes','Category:Skylines','Category:Urban photography']],
-['CYBERPUNK','Cyberpunk',['Category:Cyberpunk','Category:Cyberpunk art','Category:Futuristic cities']],
-['CARS','Avtomobillar',['Category:Automobiles','Category:Sports cars','Category:Supercars','Category:Ferrari automobiles','Category:Lamborghini automobiles','Category:Porsche automobiles']],
-['GAMING','Gaming',['Category:Video games','Category:Gaming','Category:Esports','Category:Game consoles']],
-['ANIME','Anime',['Category:Anime','Category:Manga','Category:Japanese animation','Category:Anime characters']],
-['ABSTRACT','Abstract',['Category:Abstract art','Category:Abstract photography','Category:Fractals','Category:Geometric abstraction']],
-['ANIMALS','Hayvonlar',['Category:Wildlife','Category:Animals','Category:Animal photography','Category:Big cats']],
-['ARCHITECTURE','Arxitektura',['Category:Architecture','Category:Modern architecture','Category:Building exteriors','Category:Skyscrapers']],
-['TECH','Texnologiya',['Category:Technology','Category:Computers','Category:Computer hardware','Category:Robotics']],
-['DARK','Dark',['Category:Darkness','Category:Night photography','Category:Gothic art','Category:Noir']],
-['MINIMAL','Minimal',['Category:Minimalism','Category:Minimalist photography','Category:Minimalist art']],
-['FANTASY','Fantasy',['Category:Fantasy art','Category:Dragons','Category:Mythical creatures','Category:Fantasy landscapes']],
-['MOUNTAIN','Tog‘lar',['Category:Mountains','Category:Mountain photography','Category:Mountain landscapes','Category:Alps']],
-['OCEAN','Okean',['Category:Oceans','Category:Ocean photography','Category:Seascapes','Category:Underwater photography']]
+ ['ALL','Barchasi',[['Nature','nature'],['Outer space','space'],['Cities','city'],['Cyberpunk','cyberpunk'],['Automobiles','car'],['Video games','gaming'],['Anime','anime'],['Abstract art','abstract'],['Wildlife','wildlife'],['Architecture','architecture'],['Technology','technology'],['Night photography','night'],['Minimalism','minimal'],['Fantasy art','fantasy'],['Mountains','mountain'],['Oceans','ocean']]],
+ ['NATURE','Tabiat',[['Nature','nature'],['Landscape photography','landscape'],['Forests','forest'],['Waterfalls','waterfall'],['Lakes','lake'],['Sunsets','sunset']]],
+ ['SPACE','Kosmos',[['Outer space','space'],['Galaxies','galaxy'],['Nebulae','nebula'],['Planets','planet'],['Astronomical objects','astronomy']]],
+ ['CITY','Shahar',[['Cities','city'],['Cityscapes','cityscape'],['Skylines','skyline'],['Urban photography','urban']]],
+ ['CYBERPUNK','Cyberpunk',[['Cyberpunk','cyberpunk'],['Cyberpunk art','cyberpunk'],['Futuristic cities','futuristic']]],
+ ['CARS','Avtomobillar',[['Automobiles','car'],['Sports cars','sports car'],['Supercars','supercar'],['Ferrari automobiles','ferrari'],['Lamborghini automobiles','lamborghini'],['Porsche automobiles','porsche']]],
+ ['GAMING','Gaming',[['Video games','video game'],['Gaming','gaming'],['Esports','esports'],['Game consoles','console']]],
+ ['ANIME','Anime',[['Anime','anime'],['Manga','manga'],['Japanese animation','animation'],['Anime characters','anime character']]],
+ ['ABSTRACT','Abstract',[['Abstract art','abstract'],['Abstract photography','abstract'],['Fractals','fractal'],['Geometric abstraction','geometric']]],
+ ['ANIMALS','Hayvonlar',[['Wildlife','wildlife'],['Animals','animal'],['Animal photography','animal'],['Big cats','lion']]],
+ ['ARCHITECTURE','Arxitektura',[['Architecture','architecture'],['Modern architecture','modern architecture'],['Building exteriors','building'],['Skyscrapers','skyscraper']]],
+ ['TECH','Texnologiya',[['Technology','technology'],['Computers','computer'],['Computer hardware','hardware'],['Robotics','robot']]],
+ ['DARK','Dark',[['Night photography','night'],['Darkness','dark'],['Gothic art','gothic'],['Noir','noir']]],
+ ['MINIMAL','Minimal',[['Minimalism','minimal'],['Minimalist photography','minimal'],['Minimalist art','minimal']]],
+ ['FANTASY','Fantasy',[['Fantasy art','fantasy'],['Dragons','dragon'],['Mythical creatures','mythical'],['Fantasy landscapes','fantasy landscape']]],
+ ['MOUNTAIN','Tog‘lar',[['Mountains','mountain'],['Mountain photography','mountain'],['Mountain landscapes','mountain landscape'],['Alps','alps']]],
+ ['OCEAN','Okean',[['Oceans','ocean'],['Ocean photography','ocean'],['Seascapes','seascape'],['Underwater photography','underwater']]]
 ];
 const cats=document.getElementById('cats'),grid=document.getElementById('grid'),statusEl=document.getElementById('status'),searchEl=document.getElementById('search');
 const searchBtn=document.getElementById('searchBtn'),randomBtn=document.getElementById('randomBtn'),modal=document.getElementById('modal'),modalImg=document.getElementById('modalImg'),close=document.getElementById('close'),png=document.getElementById('pngDownload');
-let active=0,customQuery='',busy=false,seen=new Set(),queue=[],qPos=0,customOffset=0,customDone=false,allLoaded=false;
-function clean(s){return String(s??'').replace(/<[^>]*>/g,' ').replace(/&[^;]+;/g,' ').replace(/\s+/g,' ').trim().toLowerCase()}
-function getInfo(p){return p?.imageinfo?.[0]||null}
+let active=0,customQuery='',busy=false,seen=new Set(),states=[],stateIndex=0,customOffset=0,customDone=false,allDone=false;
+function clean(s){return String(s??'').replace(/<[^>]*>/g,' ').replace(/&[^;]+;/g,' ').replace(/[_\-]+/g,' ').replace(/\s+/g,' ').trim().toLowerCase()}
+function api(params){const u=new URL(API);u.search=new URLSearchParams({...params,format:'json',origin:'*'}).toString();return fetch(u,{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('API '+r.status);return r.json()})}
+function info(p){return p?.imageinfo?.[0]||null}
 function is4k(ii){return !!ii&&/^image\/(jpeg|png|webp)$/i.test(ii.mime||'')&&Number(ii.width)>=MIN_W&&Number(ii.height)>=MIN_H}
-function metaText(p){const ii=getInfo(p),m=ii?.extmetadata||{};return clean([p.title,m.ImageDescription?.value,m.ObjectName?.value,m.Subject?.value,m.Categories?.value].join(' '))}
-function addQueueSeeds(){queue=[];const seeds=customQuery?[]:categories[active][2];for(const c of seeds)queue.push({cat:c,cont:null,depth:0,done:false})}
-async function api(params){const u=new URL(API);u.search=new URLSearchParams({...params,format:'json',origin:'*'}).toString();const r=await fetch(u,{cache:'no-store'});if(!r.ok)throw Error('API '+r.status);return r.json()}
-async function categoryPage(st){return api({action:'query',list:'categorymembers',cmtitle:st.cat,cmtype:'file|subcat',cmlimit:'100',...(st.cont?{cmcontinue:st.cont}:{})})}
-async function imageInfo(ids){if(!ids.length)return{};const p=await api({action:'query',pageids:ids.join('|'),prop:'imageinfo',iiprop:'url|size|mime|extmetadata',iiurlwidth:'1600'});return p?.query?.pages||{}}
-async function customPage(){return api({action:'query',list:'search',srsearch:customQuery,srnamespace:'6',srlimit:'50',sroffset:String(customOffset),srprop:'snippet|titlesnippet'})}
-function render(items){const frag=document.createDocumentFragment();for(const x of items){if(seen.has(x.id))continue;seen.add(x.id);const card=document.createElement('article');card.className='card';const img=document.createElement('img');img.loading='lazy';img.src=x.thumb;img.alt=x.title;const op=document.createElement('button');op.className='open';op.type='button';op.textContent='⛶';const meta=document.createElement('div');meta.className='meta';meta.innerHTML='<span>'+x.width+'×'+x.height+'</span><span>'+ (customQuery?'Qidiruv':categories[active][1]) +'</span>';card.append(img,op,meta);img.onclick=()=>open(x);op.onclick=()=>open(x);img.onerror=()=>card.remove();frag.appendChild(card)}grid.appendChild(frag)}
+function makeStates(){
+ states=[];
+ const terms=customQuery?[[null,customQuery]]:categories[active][2];
+ for(const [cat,term] of terms) states.push({cat,term,offset:0,done:false});
+ stateIndex=0;allDone=false;
+}
+function searchParams(st){
+ let q=customQuery?customQuery:`incategory:"${st.cat}" ${st.term}`;
+ return {action:'query',list:'search',srsearch:q,srnamespace:'6',srlimit:'50',sroffset:String(st.offset),srprop:'snippet|titlesnippet'};
+}
+async function searchPage(st){return api(searchParams(st))}
+async function imageInfo(ids){if(!ids.length)return{};const d=await api({action:'query',pageids:ids.join('|'),prop:'imageinfo',iiprop:'url|size|mime|extmetadata',iiurlwidth:'1600'});return d?.query?.pages||{}}
+function titleMatches(p,st){
+ if(customQuery)return true;
+ const t=clean(p?.title||'');
+ const words=clean(st.term).split(/\s+/).filter(w=>w.length>2);
+ return words.length?words.some(w=>t.includes(w)):true;
+}
+function render(items){
+ const frag=document.createDocumentFragment();
+ for(const x of items){if(seen.has(x.id))continue;seen.add(x.id);const card=document.createElement('article');card.className='card';const img=document.createElement('img');img.loading='lazy';img.src=x.thumb;img.alt=x.title;const op=document.createElement('button');op.className='open';op.type='button';op.textContent='⛶';const meta=document.createElement('div');meta.className='meta';meta.innerHTML='<span>'+x.width+'×'+x.height+'</span><span>'+ (customQuery?'Qidiruv':categories[active][1]) +'</span>';card.append(img,op,meta);img.onclick=()=>open(x);op.onclick=()=>open(x);img.onerror=()=>card.remove();frag.appendChild(card)}grid.appendChild(frag)
+}
 function open(x){modalImg.src=x.path;modalImg.dataset.path=x.path;modal.classList.add('show');document.body.style.overflow='hidden'}
 function closeModal(){modal.classList.remove('show');modalImg.removeAttribute('src');document.body.style.overflow=''}
-async function loadCustom(out){if(customDone)return;let tries=0;while(out.length<BATCH&&tries<8&&!customDone){const d=await customPage();const hits=d?.query?.search||[];if(!hits.length){customDone=true;break}const ids=hits.map(x=>x.pageid);const pages=await imageInfo(ids);for(const h of hits){const p=pages[h.pageid],ii=getInfo(p);if(!p||!is4k(ii))continue;const id=String(p.pageid);if(seen.has(id)||out.some(x=>x.id===id))continue;out.push({id,title:p.title,path:ii.url,thumb:ii.thumburl||ii.url,width:Number(ii.width),height:Number(ii.height)})}if(d?.continue?.sroffset!=null)customOffset=d.continue.sroffset;else customDone=true;tries++}}
-async function loadCategory(out){let guard=0;while(out.length<BATCH&&guard<30&&queue.length){if(qPos>=queue.length)qPos=0;const st=queue[qPos];if(st.done){qPos++;guard++;if(queue.every(x=>x.done))break;continue}const d=await categoryPage(st);const members=d?.query?.categorymembers||[];const fileIds=members.filter(x=>x.ns===6).map(x=>x.pageid);const subs=members.filter(x=>x.ns===14);for(const sub of subs){if(st.depth<1&&!queue.some(x=>x.cat===sub.title))queue.push({cat:sub.title,cont:null,depth:st.depth+1,done:false})}const pages=await imageInfo(fileIds);for(const id of fileIds){const p=pages[id],ii=getInfo(p);if(!p||!is4k(ii))continue;const sid=String(p.pageid);if(seen.has(sid)||out.some(x=>x.id===sid))continue;out.push({id:sid,title:p.title,path:ii.url,thumb:ii.thumburl||ii.url,width:Number(ii.width),height:Number(ii.height)})}if(d?.continue?.cmcontinue)st.cont=d.continue.cmcontinue;else st.done=true;qPos++;guard++}if(queue.length&&queue.every(x=>x.done))allLoaded=true}
-async function loadMore(reset=false){if(busy)return;if(reset){seen.clear();grid.innerHTML='';statusEl.innerHTML='';customOffset=0;customDone=false;allLoaded=false;addQueueSeeds();qPos=0}if((customQuery&&customDone)||(!customQuery&&allLoaded)){statusEl.textContent='Mavjud mos 4K+ rasmlar tugadi.';return}busy=true;statusEl.innerHTML='<div class="loader"></div>4K+ mos rasmlar yuklanmoqda...';try{const out=[];if(customQuery)await loadCustom(out);else await loadCategory(out);render(out);if(out.length)statusEl.textContent='Pastga tushsangiz keyingi rasmlar avtomatik yuklanadi.';else if((customQuery&&customDone)||(!customQuery&&allLoaded))statusEl.textContent=customQuery?'Bu qidiruv bo‘yicha boshqa mos 4K+ rasmlar qolmadi.':'Bu bo‘limdagi mos 4K+ rasmlar tugadi.';else statusEl.textContent='Keyingi mos rasmlar qidirilmoqda...'}catch(e){console.error(e);statusEl.textContent='Rasm manbasiga ulanishda xatolik. Qayta urinib ko‘ring.'}finally{busy=false}}
+async function loadBatch(out){
+ let guard=0;
+ while(out.length<BATCH&&guard<80){
+   if(!states.length||states.every(s=>s.done)){allDone=true;break}
+   if(stateIndex>=states.length)stateIndex=0;
+   const st=states[stateIndex];
+   if(st.done){stateIndex++;guard++;continue}
+   const d=await searchPage(st);const hits=d?.query?.search||[];
+   if(!hits.length){st.done=true;stateIndex++;guard++;continue}
+   const pages=await imageInfo(hits.map(h=>h.pageid));
+   for(const h of hits){const p=pages[h.pageid],ii=info(p);if(!p||!is4k(ii)||!titleMatches(p,st))continue;const id=String(p.pageid);if(seen.has(id)||out.some(x=>x.id===id))continue;out.push({id,title:p.title,path:ii.url,thumb:ii.thumburl||ii.url,width:Number(ii.width),height:Number(ii.height)})}
+   if(d?.continue?.sroffset!=null)st.offset=Number(d.continue.sroffset);else st.done=true;
+   stateIndex++;guard++;
+ }
+}
+async function loadMore(reset=false){
+ if(busy)return;
+ if(reset){seen.clear();grid.innerHTML='';statusEl.innerHTML='';customOffset=0;customDone=false;makeStates()}
+ if(allDone){statusEl.textContent=customQuery?'Bu qidiruv bo‘yicha mos 4K+ rasmlar tugadi.':'Bu bo‘lim bo‘yicha mos 4K+ rasmlar tugadi.';return}
+ busy=true;statusEl.innerHTML='<div class="loader"></div>4K+ mos rasmlar yuklanmoqda...';
+ try{const out=[];await loadBatch(out);render(out);if(out.length)statusEl.textContent='Pastga tushiring — keyingi mos rasmlar avtomatik yuklanadi.';else if(allDone)statusEl.textContent=customQuery?'Bu qidiruv bo‘yicha mos 4K+ rasmlar topilmadi.':'Bu bo‘lim uchun mos 4K+ rasmlar topilmadi.';else statusEl.textContent='Keyingi mos natijalar qidirilmoqda...'}catch(e){console.error(e);statusEl.textContent='Rasm qidirish xizmatida xatolik. Sahifani yangilang.'}finally{busy=false}
+}
 function setActive(i){active=i;customQuery='';searchEl.value='';document.querySelectorAll('.cat').forEach((b,n)=>b.classList.toggle('active',n===i));loadMore(true)}
 categories.forEach((c,i)=>{const b=document.createElement('button');b.className='cat'+(i===0?' active':'');b.textContent=c[1];b.onclick=()=>setActive(i);cats.appendChild(b)});
 function doSearch(){const q=searchEl.value.trim();if(!q)return;customQuery=q;document.querySelectorAll('.cat').forEach(b=>b.classList.remove('active'));loadMore(true)}
 searchBtn.onclick=doSearch;searchEl.onkeydown=e=>{if(e.key==='Enter')doSearch()};randomBtn.onclick=()=>setActive(Math.floor(Math.random()*categories.length));
 close.onclick=closeModal;modal.onclick=e=>{if(e.target===modal)closeModal()};document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 async function downloadPNG(){const u=modalImg.dataset.path;if(!u)return;try{const r=await fetch(u);if(!r.ok)throw Error();const b=await r.blob();const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='8K-Wallpaper-'+Date.now()+'.png';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500)}catch(e){alert('PNG yuklashda manba cheklovi bor.')}}png.onclick=downloadPNG;
-let loadLock=false;async function nearBottom(){if(loadLock||busy)return;if(window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-1600){loadLock=true;try{await loadMore(false)}finally{loadLock=false}}}
-const sentinel=document.getElementById('sentinel');if('IntersectionObserver'in window)new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))nearBottom()},{rootMargin:'1600px'}).observe(sentinel);window.addEventListener('scroll',nearBottom,{passive:true});
+let lock=false;async function nearBottom(){if(lock||busy)return;if(window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-1400){lock=true;try{await loadMore(false)}finally{lock=false}}}
+const sentinel=document.getElementById('sentinel');if('IntersectionObserver'in window)new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))nearBottom()},{rootMargin:'1400px'}).observe(sentinel);window.addEventListener('scroll',nearBottom,{passive:true});
 loadMore(true);
 </script></body></html>
