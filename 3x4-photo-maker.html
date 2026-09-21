@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>3×4 RASM YASASH — IT SHAKH</title>
+<style>
+:root{--bg:#070a10;--panel:#0d121c;--panel2:#111827;--line:#263247;--txt:#edf3ff;--muted:#8d9ab0;--accent:#31d7ff;--accent2:#8b5cf6}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0,#10243b 0,transparent 35%),var(--bg);color:var(--txt);font-family:Inter,Segoe UI,Arial,sans-serif}
+header{padding:20px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:15px;position:sticky;top:0;background:#070a10eF;backdrop-filter:blur(14px);z-index:10}
+.logo{font-size:21px;font-weight:900;letter-spacing:1px}.logo span{color:var(--accent)}
+main{max-width:1450px;margin:auto;padding:22px;display:grid;grid-template-columns:330px minmax(0,1fr) 330px;gap:18px}
+.card{background:linear-gradient(180deg,#101723,#0b1019);border:1px solid var(--line);border-radius:18px;padding:17px;box-shadow:0 14px 40px #0005}.card h2{font-size:15px;margin:0 0 15px;text-transform:uppercase;letter-spacing:.7px}
+label{display:block;color:var(--muted);font-size:12px;margin:12px 0 6px}input,select,button{width:100%;border:1px solid var(--line);background:#0a0f18;color:var(--txt);border-radius:10px;padding:10px 11px;font:inherit}button{cursor:pointer;background:linear-gradient(135deg,#0c3140,#17233c);font-weight:700}button:hover{border-color:var(--accent);transform:translateY(-1px)}button.primary{background:linear-gradient(135deg,#087c9a,#5531a8);border:0}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:9px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}.range{display:grid;grid-template-columns:1fr 48px;align-items:center;gap:8px}.range input{padding:0}.value{text-align:center;color:var(--accent);font-size:12px}
+.stage{min-height:650px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+#canvas{max-width:100%;max-height:650px;border-radius:8px;box-shadow:0 20px 70px #0008;background:#fff}
+.empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted);padding:30px}.empty strong{display:block;color:var(--txt);font-size:20px;margin-bottom:8px}
+.drop{border:1px dashed #40516c;border-radius:14px;padding:18px;text-align:center;margin-bottom:10px}.drop.drag{border-color:var(--accent);background:#0b2530}.drop input{display:none}
+.status{font-size:12px;color:var(--muted);line-height:1.5;margin-top:10px}.check{display:flex;gap:8px;align-items:center}.check input{width:auto}
+footer{max-width:1450px;margin:auto;padding:0 22px 30px;color:#65738b;font-size:12px}
+@media(max-width:1100px){main{grid-template-columns:1fr 1fr}.stage{grid-column:1/-1;grid-row:1}.left{grid-column:1}.right{grid-column:2}}
+@media(max-width:700px){main{grid-template-columns:1fr;padding:12px}.stage{grid-column:auto;grid-row:auto;min-height:420px}.left,.right{grid-column:auto}header{padding:15px}.row3{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header><div class="logo">IT <span>SHAKH</span> · 3×4 RASM YASASH</div><div style="font-size:12px;color:#8d9ab0">3×4 sm • aniq DPI • Print Sheet</div></header>
+<main>
+<section class="card left">
+<h2>1. Rasm</h2>
+<div class="drop" id="drop">Rasmni shu yerga tashlang<br><small>yoki</small><br><button type="button" onclick="file.click()">📁 RASM TANLASH</button><input id="file" type="file" accept="image/*"></div>
+<button type="button" onclick="camera()">📷 KAMERA</button>
+<label>Fon rangi</label><div class="row"><input id="bg" type="color" value="#ffffff"><button onclick="bgWhite()">OQ FON</button></div>
+<label>Fayl formati</label><select id="format"><option value="image/jpeg">JPG</option><option value="image/png">PNG</option><option value="image/webp">WebP</option></select>
+</section>
+
+<section class="card stage">
+<div class="empty" id="empty"><div><strong>3×4 fotosurat tayyorlang</strong>Rasm yuklang — barcha sozlamalar shu sahifada ishlaydi.</div></div>
+<canvas id="canvas" width="354" height="472" hidden></canvas>
+</section>
+
+<section class="card right">
+<h2>2. Sozlamalar</h2>
+<label>DPI</label><select id="dpi"><option>300</option><option>600</option><option>1200</option></select>
+<div class="row">
+<div><label>Yorqinlik</label><div class="range"><input id="brightness" type="range" min="-100" max="100" value="0"><span class="value" id="bv">0</span></div></div>
+<div><label>Kontrast</label><div class="range"><input id="contrast" type="range" min="-100" max="100" value="0"><span class="value" id="cv">0</span></div></div>
+</div>
+<label>Rang</label><div class="range"><input id="saturation" type="range" min="-100" max="100" value="0"><span class="value" id="sv">0</span></div>
+<label>Zoom</label><div class="range"><input id="zoom" type="range" min="100" max="250" value="100"><span class="value" id="zv">100%</span></div>
+<label>Aylantirish</label><select id="rotate"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select>
+<div class="row">
+<button onclick="flipX()">↔ Flip</button><button onclick="resetAll()">↺ Reset</button>
+</div>
+<hr style="border-color:#263247;border-width:1px 0 0;margin:16px 0">
+<h2>3. Varaqqa joylash</h2>
+<label>Varaqqa format</label><select id="paper"><option value="A4">A4</option><option value="A5">A5</option><option value="LETTER">Letter</option></select>
+<div class="row"><div><label>Nusxa soni</label><input id="copies" type="number" min="1" max="500" value="8"></div><div><label>Oraliq (mm)</label><input id="gap" type="number" min="0" max="30" value="3"></div></div>
+<label>Chekka margin (mm)</label><input id="margin" type="number" min="0" max="30" value="5">
+<div class="row" style="margin-top:12px"><button class="primary" onclick="downloadPhoto()">⬇ 3×4 YUKLASH</button><button onclick="printSheet()">🖨 PRINT SHEET</button></div>
+<div class="status" id="status">3×4 sm: 300 DPI = 354×472 px. 600 DPI = 709×945 px. 1200 DPI = 1417×1890 px.</div>
+</section>
+</main>
+<footer>IT SHAKH · Rasm ishlovi brauzerning o‘zida bajariladi. Fotosurat serverga yuborilmaydi.</footer>
+
+<script>
+const file=document.getElementById('file'), drop=document.getElementById('drop'), c=document.getElementById('canvas'),ctx=c.getContext('2d');
+let img=null, flip=1, offsetX=0, offsetY=0;
+const $=id=>document.getElementById(id);
+function dpiPx(){let d=+$('dpi').value;return [Math.round(3/2.54*d),Math.round(4/2.54*d)]}
+function loadFile(f){if(!f||!f.type.startsWith('image/'))return;let u=URL.createObjectURL(f),i=new Image();i.onload=()=>{img=i;URL.revokeObjectURL(u);$('empty').hidden=true;c.hidden=false;draw()};i.src=u}
+file.onchange=e=>loadFile(e.target.files[0]);
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('drag')};drop.ondragleave=()=>drop.classList.remove('drag');drop.ondrop=e=>{e.preventDefault();drop.classList.remove('drag');loadFile(e.dataTransfer.files[0])};
+function draw(){
+ if(!img)return;let [w,h]=dpiPx();c.width=w;c.height=h;let bg=$('bg').value;ctx.fillStyle=bg;ctx.fillRect(0,0,w,h);
+ let scale=Math.max(w/img.width,h/img.height)*(+$('zoom').value/100),rw=img.width*scale,rh=img.height*scale,rot=+$('rotate').value*Math.PI/180;
+ ctx.save();ctx.translate(w/2+offsetX,h/2+offsetY);ctx.rotate(rot);ctx.scale(flip,1);
+ let br=+$('brightness').value,co=+$('contrast').value+100,sa=+$('saturation').value+100;
+ ctx.filter=`brightness(${100+br}%) contrast(${co}%) saturate(${sa}%)`;ctx.drawImage(img,-rw/2,-rh/2,rw,rh);ctx.restore();
+}
+['dpi','bg','brightness','contrast','saturation','zoom','rotate'].forEach(id=>$(id).addEventListener('input',()=>{let x=$(id);let v=x.value;if(id==='brightness')$('bv').textContent=v;if(id==='contrast')$('cv').textContent=v;if(id==='saturation')$('sv').textContent=v;if(id==='zoom')$('zv').textContent=v+'%';draw()}));
+function bgWhite(){$('bg').value='#fff';draw()} function flipX(){flip*=-1;draw()}
+function resetAll(){flip=1;offsetX=offsetY=0;$('bg').value='#fff';$('brightness').value=$('contrast').value=$('saturation').value=0;$('zoom').value=100;$('rotate').value=0;['bv','cv','sv'].forEach(x=>$(x).textContent='0');$('zv').textContent='100%';draw()}
+function exportCanvas(scale=1){let [w,h]=dpiPx(),x=document.createElement('canvas');x.width=w*scale;x.height=h*scale;let q=x.getContext('2d');q.drawImage(c,0,0,x.width,x.height);return x}
+function downloadPhoto(){if(!img)return alert('Avval rasm yuklang.');let x=exportCanvas(),a=document.createElement('a'),ext=$('format').value.split('/')[1];a.download=`3x4-photo.${ext==='jpeg'?'jpg':ext}`;a.href=x.toDataURL($('format').value,.95);a.click()}
+function printSheet(){
+ if(!img)return alert('Avval rasm yuklang.');
+ let paper=$('paper').value, copies=Math.max(1,+$('copies').value),gap=+$('gap').value,margin=+$('margin').value;
+ let mm={A4:[210,297],A5:[148,210],LETTER:[215.9,279.4]}[paper],D=300, pw=Math.round(mm[0]/25.4*D),ph=Math.round(mm[1]/25.4*D),gx=Math.round(gap/25.4*D),m=Math.round(margin/25.4*D),[rw,rh]=[Math.round(3/2.54*D),Math.round(4/2.54*D)];
+ let cols=Math.max(1,Math.floor((pw-2*m+gx)/(rw+gx))),rows=Math.max(1,Math.floor((ph-2*m+gx)/(rh+gx))),per=cols*rows,pages=Math.ceil(copies/per);
+ let htmlPages=[];for(let p=0;p<pages;p++){let sheet=document.createElement('canvas');sheet.width=pw;sheet.height=ph;let s=sheet.getContext('2d');s.fillStyle='#fff';s.fillRect(0,0,pw,ph);let start=p*per,end=Math.min(copies,start+per);for(let n=start;n<end;n++){let k=n-start,col=k%cols,row=Math.floor(k/cols);s.drawImage(c,m+col*(rw+gx),m+row*(rh+gx),rw,rh)}htmlPages.push(sheet.toDataURL('image/jpeg',.95))}
+ let w=window.open('','_blank');if(!w)return;w.document.write('<title>3×4 Print</title><style>body{margin:0;background:#eee}.p{width:210mm;min-height:297mm;margin:10px auto;background:#fff;page-break-after:always}img{width:100%;display:block}@media print{body{background:#fff}.p{margin:0}}</style>');htmlPages.forEach(u=>w.document.write(`<div class="p"><img src="${u}"></div>`));w.document.close();setTimeout(()=>w.print(),700)
+}
+async function camera(){if(!navigator.mediaDevices?.getUserMedia)return alert('Kamera brauzeringizda qo‘llab-quvvatlanmaydi.');let s=await navigator.mediaDevices.getUserMedia({video:true});let v=document.createElement('video');v.autoplay=true;v.srcObject=s;let ok=confirm('Kamera oynasi ochildi. Suratga olish uchun OK bosing.');if(ok){let x=document.createElement('canvas');x.width=v.videoWidth||640;x.height=v.videoHeight||480;x.getContext('2d').drawImage(v,0,0);x.toBlob(b=>loadFile(new File([b],'camera.jpg',{type:'image/jpeg'})),'image/jpeg')}s.getTracks().forEach(t=>t.stop())}
+let dragging=false,px=0,py=0;c.addEventListener('pointerdown',e=>{if(!img)return;dragging=true;px=e.clientX;py=e.clientY;c.setPointerCapture(e.pointerId)});c.addEventListener('pointermove',e=>{if(!dragging)return;offsetX+=(e.clientX-px)*c.width/c.clientWidth;offsetY+=(e.clientY-py)*c.height/c.clientHeight;px=e.clientX;py=e.clientY;draw()});c.addEventListener('pointerup',()=>dragging=false);
+</script>
+</body></html>
