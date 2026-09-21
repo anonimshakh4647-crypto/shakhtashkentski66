@@ -41,7 +41,7 @@ button{height:56px;border:1px solid #17506c;border-radius:13px;background:#09203
     <button id="trendBtn">TREND</button>
   </div>
   <div class="settings">
-    <input id="apiKey" class="key" type="password" placeholder="GIPHY API KEY — bir marta kiriting">
+    <input id="apiKey" class="key" type="password" placeholder="GIPHY API KEY — ixtiyoriy, o‘z kalitingizni kiriting">
     <select id="rating" class="select"><option value="pg-13">PG-13</option><option value="g">G</option><option value="pg">PG</option><option value="r">R</option></select>
   </div>
   <div id="status" class="status"></div>
@@ -57,16 +57,18 @@ button{height:56px;border:1px solid #17506c;border-radius:13px;background:#09203
 
 <script>
 const API='https://api.giphy.com/v1/gifs/';
+// GIPHY eski public beta kaliti: foydalanuvchi o‘z API kalitini keyin almashtirishi mumkin.
+const DEFAULT_KEY='dc6zaTOxFJmzC';
 const qEl=document.getElementById('q'), keyEl=document.getElementById('apiKey');
 const ratingEl=document.getElementById('rating'), grid=document.getElementById('grid');
 const loader=document.getElementById('loader'), empty=document.getElementById('empty'), statusEl=document.getElementById('status');
 let mode='search', offset=0, loading=false, ended=false, query='', seen=new Set();
 
 const savedKey=localStorage.getItem('it_shakh_giphy_key');
-if(savedKey) keyEl.value=savedKey;
+keyEl.value=savedKey || DEFAULT_KEY;
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-function key(){const k=keyEl.value.trim(); if(k)localStorage.setItem('it_shakh_giphy_key',k); return k}
+function key(){const k=keyEl.value.trim() || DEFAULT_KEY; if(k) localStorage.setItem('it_shakh_giphy_key',k); return k}
 function setStatus(t){statusEl.textContent=t}
 function showLoader(v){loader.hidden=!v}
 function getUrl(g){return g?.images?.original?.url || g?.images?.downsized_large?.url || g?.images?.downsized?.url || g?.images?.fixed_height?.url}
@@ -98,17 +100,18 @@ async function downloadGif(url,title){
 
 async function load(reset=false){
  const k=key();
- if(!k){setStatus('GIPHY API KEY kiriting. GIPHY API qidiruv uchun API key talab qiladi.');return}
+ if(!k){setStatus('GIPHY API KEY topilmadi.');return}
  if(loading || ended)return;
  if(reset){grid.innerHTML='';seen.clear();offset=0;ended=false;empty.hidden=true}
  loading=true;showLoader(true);setStatus('GIFlar qidirilmoqda...');
  try{
-   const params=new URLSearchParams({api_key:k,limit:'50',offset:String(offset),rating:ratingEl.value});
+   const params=new URLSearchParams({api_key:k,limit:'50',offset:String(offset),rating:ratingEl.value,lang:'en'});
    if(mode==='search') params.set('q',query);
    const endpoint=mode==='trend'?'trending':'search';
    const r=await fetch(API+endpoint+'?'+params.toString());
-   const data=await r.json();
-   if(!r.ok || data.meta?.status>=400) throw new Error(data.meta?.msg||'API xatosi');
+   let data;
+   try{ data=await r.json(); }catch(_){ throw new Error('GIPHY JSON javobi kelmadi'); }
+   if(!r.ok || data?.meta?.status>=400) throw new Error(data?.meta?.msg || ('HTTP '+r.status));
    const arr=Array.isArray(data.data)?data.data:[];
    let added=0;
    for(const g of arr){
@@ -124,7 +127,7 @@ async function load(reset=false){
    if(added===0 && !ended){setTimeout(()=>load(false),50)}
  }catch(e){
    empty.hidden=false;empty.textContent='Qidiruv ishlamadi: '+e.message;
-   setStatus('API key yoki GIPHY API javobini tekshiring.');
+   setStatus('GIPHY API xatosi: '+e.message+' — agar public kalit ishlamasa, o‘z GIPHY API KEYingizni kiriting.');
  }finally{loading=false;showLoader(false)}
 }
 
