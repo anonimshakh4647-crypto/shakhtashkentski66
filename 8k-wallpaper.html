@@ -13,22 +13,110 @@
 <header><span class="brand">IT SHAKH</span><span class="crumb">TOOLS / 8K WALLPAPER</span></header>
 <section class="hero"><div class="eyebrow">ULTRA HD • WALLPAPER LIBRARY</div><h1>8K <span>WALLPAPER</span> PRO</h1><p>Bo‘limni tanlang — mos wallpaperlar avtomatik yuklanadi. Pastga tushgan sari yangi rasmlar cheksiz tarzda qo‘shilib boradi.</p></section>
 <div class="toolbar"><input id="search" class="search" placeholder="🔎 Rasm mavzusini qidiring: cyberpunk, nature, car..."><button id="searchBtn" class="btn">QIDIRISH</button><button id="randomBtn" class="btn">TASODIFIY</button><div class="cats" id="cats"></div></div>
-<div class="note">Manba: Wallhaven ochiq wallpaper qidiruvi. Sahifa faqat SFW natijalarni ko‘rsatadi; rasm mualliflik huquqi tegishli egalariga tegishli.</div>
+<div class="note">Manba: Wikimedia Commons ochiq rasm qidiruvi. Sahifa faqat SFW natijalarni ko‘rsatadi; rasm mualliflik huquqi tegishli egalariga tegishli.</div>
 <main class="grid" id="grid"></main><div class="status" id="status"></div>
 <div class="modal" id="modal"><button class="close" id="close">✕</button><img id="modalImg" alt="Wallpaper"><div class="modalActions"><a id="source" target="_blank" rel="noopener">MANBANI OCHISH</a><a id="download" target="_blank" rel="noopener" download>ORIGINAL RASM</a></div></div>
 <script>
 const API='https://commons.wikimedia.org/w/api.php';
-const categories=[['ALL','Barchasi','high resolution wallpaper'],['NATURE','Tabiat','nature landscape'],['SPACE','Kosmos','space astronomy'],['CITY','Shahar','city skyline'],['CYBERPUNK','Cyberpunk','cyberpunk'],['CARS','Avtomobillar','sports car'],['GAMING','Gaming','gaming'],['ANIME','Anime','anime'],['ABSTRACT','Abstract','abstract art'],['ANIMALS','Hayvonlar','wildlife animal'],['ARCHITECTURE','Arxitektura','architecture'],['TECH','Texnologiya','technology'],['DARK','Dark','dark aesthetic'],['MINIMAL','Minimal','minimalism'],['FANTASY','Fantasy','fantasy art'],['MOUNTAIN','Tog‘lar','mountain landscape'],['OCEAN','Okean','ocean landscape']];
+const categories=[
+['ALL','Barchasi',['landscape','nature landscape','beautiful scenery','ultra hd landscape']],
+['NATURE','Tabiat',['forest landscape','waterfall landscape','nature landscape','green mountains','sunset landscape']],
+['SPACE','Kosmos',['galaxy nebula','deep space','planet space','milky way','astronomy']],
+['CITY','Shahar',['city skyline','skyscraper city','night city','urban skyline','city lights']],
+['CYBERPUNK','Cyberpunk',['cyberpunk city','cyberpunk art','neon city','futuristic city','cyberpunk neon']],
+['CARS','Avtomobillar',['Ferrari car','Lamborghini car','Porsche car','supercar','sports car','BMW car','Mercedes car']],
+['GAMING','Gaming',['gaming setup','gaming PC','video game setup','gaming room','game console']],
+['ANIME','Anime',['anime art','anime landscape','anime character','Japanese anime art','anime city']],
+['ABSTRACT','Abstract',['abstract art','abstract digital art','geometric abstract','colorful abstract','abstract background']],
+['ANIMALS','Hayvonlar',['wildlife animals','wolf wildlife','tiger wildlife','lion wildlife','eagle wildlife','horse animal']],
+['ARCHITECTURE','Arxitektura',['modern architecture','futuristic architecture','building architecture','interior architecture','skyscraper architecture']],
+['TECH','Texnologiya',['computer technology','artificial intelligence technology','computer hardware','circuit board technology','technology setup']],
+['DARK','Dark',['dark landscape','dark abstract art','black aesthetic','dark architecture','moody landscape']],
+['MINIMAL','Minimal',['minimalist landscape','minimalist architecture','minimalist design','minimal art','minimal background']],
+['FANTASY','Fantasy',['fantasy landscape art','fantasy castle','fantasy forest art','dragon fantasy art','fantasy digital art']],
+['MOUNTAIN','Tog‘lar',['mountain landscape','snow mountain','alpine mountain','mountain lake','mountain peak']],
+['OCEAN','Okean',['ocean landscape','sea waves','beach ocean','underwater ocean','blue ocean']]
+];
 const cats=document.getElementById('cats'),grid=document.getElementById('grid'),status=document.getElementById('status'),search=document.getElementById('search');
-let active='high resolution wallpaper',page=0,busy=false,query='',seen=new Set(),continueToken='';
+let active=0,page=0,busy=false,query='',seen=new Set(),continueToken='',termIndex=0;
 const MIN_W=2560, MIN_H=1440;
-categories.forEach((c,i)=>{let b=document.createElement('button');b.className='cat'+(i===0?' active':'');b.textContent=c[1];b.dataset.q=c[2];b.onclick=()=>{document.querySelectorAll('.cat').forEach(x=>x.classList.remove('active'));b.classList.add('active');active=c[2];load(true)};cats.appendChild(b)});
+categories.forEach((c,i)=>{
+let b=document.createElement('button');
+b.className='cat'+(i===0?' active':'');
+b.textContent=c[1];
+b.dataset.q=i;
+b.onclick=()=>{
+document.querySelectorAll('.cat').forEach(x=>x.classList.remove('active'));
+b.classList.add('active');
+active=i; termIndex=0; query=''; search.value=''; load(true)
+};
+cats.appendChild(b)
+});
 function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function openModal(x){modal.classList.add('show');modalImg.src=x.path;source.href=x.url;download.href=x.path}
 function render(items){let frag=document.createDocumentFragment();items.forEach(x=>{if(!x.path||seen.has(x.id))return;seen.add(x.id);let d=document.createElement('article');d.className='card';d.innerHTML=`<img loading="lazy" src="${esc(x.thumb||x.path)}" alt="${esc(x.title||'Wallpaper')}" onerror="this.closest('.card').remove()"><button class="open">⛶</button><div class="meta"><span>${x.width>=3840&&x.height>=2160?'8K / Ultra HD':'Ultra HD'}</span><span>${esc(x.category||'Wallpaper')}</span></div>`;d.querySelector('.open').onclick=()=>openModal(x);d.querySelector('img').onclick=()=>openModal(x);frag.appendChild(d)});grid.appendChild(frag)}
-async function apiSearch(offset){const q=(query.trim()||active||'high resolution wallpaper')+' wallpaper';const params=new URLSearchParams({action:'query',generator:'search',gsrsearch:q,gsrnamespace:'6',gsrlimit:'50',prop:'imageinfo',iiprop:'url|size|mime',iiurlwidth:'1280',format:'json',origin:'*'});if(offset)params.set('gsroffset',offset);const r=await fetch(API+'?'+params.toString(),{cache:'no-store'});if(!r.ok)throw new Error('API '+r.status);return r.json()}
-async function load(reset=false){if(busy)return;if(reset){page=0;continueToken='';seen.clear();grid.innerHTML='';status.innerHTML=''}busy=true;status.innerHTML='<div class="loader"></div>Yuklanmoqda...';try{let collected=[],attempt=0,offset=continueToken;while(collected.length<24&&attempt<5){const data=await apiSearch(offset);const pages=data.query?.pages||{};Object.values(pages).forEach(p=>{const ii=p.imageinfo?.[0];if(!ii||!/^image\/(jpeg|png|webp)$/i.test(ii.mime||''))return;if(ii.width<MIN_W||ii.height<MIN_H)return;collected.push({id:String(p.pageid),title:p.title,path:ii.url,thumb:ii.thumburl||ii.url,url:'https://commons.wikimedia.org/wiki/'+encodeURIComponent(p.title.replace(/ /g,'_')),width:ii.width,height:ii.height,category:active});});offset=data.continue?.gsroffset||'';if(!offset)break;attempt++}continueToken=offset||'';render(collected);page++;status.textContent=collected.length?'Yangi rasmlar uchun pastga tushing...':'Bu bo‘limda mos rasmlar topilmadi.';}catch(e){console.error(e);status.textContent='Rasmlarni yuklashda xatolik. Qayta urinib ko‘ring.'}finally{busy=false}}
+async function apiSearch(offset){
+const terms=categories[active][2];
+let q=query.trim() || terms[termIndex % terms.length];
+termIndex++;
+const params=new URLSearchParams({
+action:'query',generator:'search',gsrsearch:q,gsrnamespace:'6',gsrlimit:'50',
+prop:'imageinfo',iiprop:'url|size|mime',iiurlwidth:'1280',format:'json',origin:'*'
+});
+if(offset)params.set('gsroffset',offset);
+const r=await fetch(API+'?'+params.toString(),{cache:'no-store'});
+if(!r.ok)throw new Error('API '+r.status);
+return r.json()
+}
+async function load(reset=false){
+if(busy)return;
+if(reset){
+page=0;continueToken='';termIndex=0;seen.clear();grid.innerHTML='';status.innerHTML=''
+}
+busy=true;
+status.innerHTML='<div class="loader"></div>Yuklanmoqda...';
+try{
+let collected=[],attempt=0;
+while(collected.length<24 && attempt<8){
+const data=await apiSearch(continueToken);
+const pages=data.query?.pages||{};
+Object.values(pages).forEach(p=>{
+const ii=p.imageinfo?.[0];
+if(!ii||!/^image\/(jpeg|png|webp)$/i.test(ii.mime||''))return;
+if(ii.width<MIN_W||ii.height<MIN_H)return;
+const id=String(p.pageid);
+if(seen.has(id))return;
+collected.push({
+id,title:p.title,path:ii.url,thumb:ii.thumburl||ii.url,
+url:'https://commons.wikimedia.org/wiki/'+encodeURIComponent(p.title.replace(/ /g,'_')),
+width:ii.width,height:ii.height,category:categories[active][1]
+});
+});
+continueToken=data.continue?.gsroffset||'';
+if(!continueToken) {
+  // Start another category-specific search term when this term is exhausted.
+  if(termIndex < categories[active][2].length) continueToken='';
+  else break;
+}
+attempt++;
+}
+render(collected);
+page++;
+status.textContent=collected.length
+?'Yangi rasmlar uchun pastga tushing...'
+:'Bu bo‘limda mos 8K/Ultra HD rasmlar topilmadi.';
+}catch(e){
+console.error(e);
+status.textContent='Rasmlarni yuklashda xatolik. Qayta urinib ko‘ring.'
+}finally{busy=false}
+}
 search.addEventListener('keydown',e=>{if(e.key==='Enter')loadSearch()});document.getElementById('searchBtn').onclick=loadSearch;function loadSearch(){query=search.value.trim();load(true)}
-document.getElementById('randomBtn').onclick=()=>{query='';search.value='';const idx=Math.floor(Math.random()*categories.length);active=categories[idx][2];document.querySelectorAll('.cat').forEach((x,i)=>x.classList.toggle('active',i===idx));load(true)};
+document.getElementById('randomBtn').onclick=()=>{
+query='';search.value='';
+const idx=Math.floor(Math.random()*categories.length);
+active=idx;termIndex=0;
+document.querySelectorAll('.cat').forEach((x,i)=>x.classList.toggle('active',i===idx));
+load(true)
+};
 close.onclick=()=>modal.classList.remove('show');modal.onclick=e=>{if(e.target===modal)modal.classList.remove('show')};document.addEventListener('keydown',e=>{if(e.key==='Escape')modal.classList.remove('show')});window.addEventListener('scroll',()=>{if(window.innerHeight+window.scrollY>=document.body.offsetHeight-900&&!busy)load()});load();
 </script></body></html>
