@@ -84,9 +84,8 @@ button,input,select{font:inherit}button{cursor:pointer;color:#fff;border:1px sol
 <div class="footer"><span>⚡ Tez va oson</span><span>HD Yuqori sifat 300 / 600 / 1200 DPI</span><span>∞ Cheksiz imkoniyatlar</span><span>▣ JPG, PNG, WEBP</span><span>🔒 Rasmlar brauzerda ishlanadi</span></div>
 </main>
 
-<script type="module">
-let removeBackground=null;
-try{const m=await import("https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm");removeBackground=m.removeBackground}catch(e){console.warn("AI module unavailable",e)}
+<script>
+let removeBackground=null; let aiLoading=false;
 const $=id=>document.getElementById(id), canvas=$("canvas"),ctx=canvas.getContext("2d"), preview=$("preview"),pctx=preview.getContext("2d");
 const bgCanvas=$("bgCanvas"),bgctx=bgCanvas.getContext("2d"),resultCanvas=$("resultCanvas"),rctx=resultCanvas.getContext("2d");
 let source=null, bg="transparent", rot=0, flipH=false, flipV=false, zoom=1, suit=null, cat="Erkaklar", textMode=false, stream=null;
@@ -111,7 +110,26 @@ document.querySelectorAll("[data-bg]").forEach(b=>b.onclick=()=>{bg=b.dataset.bg
 $("rotL").onclick=()=>{rot=(rot-90)%360;draw()};$("rotR").onclick=()=>{rot=(rot+90)%360;draw()};$("flipH").onclick=()=>{flipH=!flipH;draw()};$("flipV").onclick=()=>{flipV=!flipV;draw()};$("reset").onclick=()=>{rot=0;flipH=false;flipV=false;zoom=1;filters={bright:0,contrast:0,sat:0,sharp:0};["bright","contrast","sat","sharp"].forEach(k=>{$(k).value=0;$(k+"Out").textContent="0"});draw()};
 $("center").onclick=$("center2").onclick=()=>{suitCfg.x=0;suitCfg.y=0;$("suitX").value=0;$("suitY").value=0;draw()};
 $("zoom").oninput=e=>{zoom=e.target.value/100;$("zoomOut").textContent=e.target.value+"%";draw()};$("zoomMinus").onclick=()=>{$("zoom").value=Math.max(50,+$("zoom").value-10);$("zoom").dispatchEvent(new Event("input"))};$("zoomPlus").onclick=()=>{$("zoom").value=Math.min(180,+$("zoom").value+10);$("zoom").dispatchEvent(new Event("input"))};$("reset2").onclick=$("reset").onclick;
-async function ai(){if(!source)return msg("Avval rasm yuklang.");if(!removeBackground)return msg("AI moduli yuklanmadi. Internetni tekshiring.");msg("AI fonni olib tashlamoqda...");try{const blob=await removeBackground(source.src,{output:{format:"image/png"}});const im=new Image();im.onload=()=>{source=im;bg="transparent";draw();msg("AI fon olib tashlandi.")};im.src=URL.createObjectURL(blob)}catch(e){console.error(e);msg("AI fon olib tashlashda xatolik. Qayta urinib ko‘ring.")}}
+async function ai(){
+  if(!source){msg("Avval rasm yuklang.");return}
+  if(aiLoading){msg("AI hali yuklanmoqda...");return}
+  aiLoading=true; msg("AI moduli yuklanmoqda...");
+  try{
+    if(!removeBackground){
+      const m=await import("https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm");
+      removeBackground=m.removeBackground;
+    }
+    msg("AI fonni olib tashlamoqda...");
+    const blob=await removeBackground(source.src,{output:{format:"image/png"}});
+    const im=new Image();
+    im.onload=()=>{source=im;bg="transparent";draw();msg("AI fon olib tashlandi.");aiLoading=false};
+    im.onerror=()=>{aiLoading=false;msg("AI natijasi yuklanmadi.")};
+    im.src=URL.createObjectURL(blob);
+  }catch(e){
+    console.error(e); aiLoading=false;
+    msg("AI ishlamadi. Internetni tekshiring yoki qayta bosing.");
+  }
+}
 $("aiBg").onclick=ai;$("aiBg2").onclick=ai;
 $("autoCrop").onclick=()=>{zoom=1;$("zoom").value=100;$("zoomOut").textContent="100%";suitCfg.x=0;suitCfg.y=0;draw();msg("Avto kesish/markazlash bajarildi.")};
 $("eraseText").onclick=()=>{textMode=!textMode;msg(textMode?"Yozuv o‘chirish rejimi yoqildi. Canvas ustida bo‘yab chiqing.":"Yozuv rejimi o‘chirildi.");$("canvas").style.cursor=textMode?"crosshair":"default"};
@@ -130,6 +148,16 @@ function makeSheet(){let sh=$("sheet");sh.innerHTML="";let n=Math.min(500,Math.m
 $("makeSheet").onclick=makeSheet;$("downloadSheet").onclick=()=>{makeSheet();setTimeout(()=>{let c=document.createElement("canvas"),x=c.getContext("2d"),paper=$("paper").value,dims=paper==="A4"?[794,1123]:paper==="A5"?[559,794]:[816,1056];c.width=dims[0];c.height=dims[1];x.fillStyle="#fff";x.fillRect(0,0,c.width,c.height);let n=Math.min(500,Math.max(1,+$("copies").value||8)),gap=+$("gap").value*2.8,margin=+$("margin").value*2.8,w=90,h=120,cols=Math.max(1,Math.floor((c.width-2*margin+gap)/(w+gap)));for(let i=0;i<n;i++){let col=i%cols,row=Math.floor(i/cols),xx=margin+col*(w+gap),yy=margin+row*(h+gap);if(yy+h>c.height-margin)break;x.drawImage(canvas,xx,yy,w,h)}download(c,"3x4-varaq.jpg")},50)};
 $("print").onclick=()=>{makeSheet();let w=window.open("","_blank");w.document.write(`<html><head><title>3x4 print</title><style>@page{size:${$("paper").value};margin:${$("margin").value}mm}body{margin:0;display:grid;grid-template-columns:repeat(3,30mm);gap:${$("gap").value}mm}.sheet{display:contents}img{width:30mm;height:40mm;object-fit:cover}</style></head><body>${$("sheet").innerHTML}</body></html>`);w.document.close();w.focus();setTimeout(()=>w.print(),300)};
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{let t=b.dataset.tab;document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active");["bgcolor","remove","crop"].forEach(k=>$(k).classList.toggle("hidden",k!==t))});
+window.addEventListener("error", e=>{
+  console.error(e.error||e.message);
+  const s=document.getElementById("status");
+  if(s) s.textContent="JavaScript xatosi: "+(e.message||"noma'lum xato");
+});
+window.addEventListener("unhandledrejection", e=>{
+  console.error(e.reason);
+  const s=document.getElementById("status");
+  if(s) s.textContent="Xatolik: "+(e.reason?.message||"amal bajarilmadi");
+});
 renderSuits();draw();
 </script>
 </body>
