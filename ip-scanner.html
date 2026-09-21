@@ -1,5 +1,4 @@
 <!doctype html><html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IP Scanner | IT SHAKH</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="tools.css"></head><body><header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="javascript:history.back()">← ORQAGA</a></header><main><div class="eyebrow">// NETWORK INTELLIGENCE</div><h1>IP SCANNER</h1><p class="intro">IP manzilning ochiq geolokatsiya va tarmoq ma’lumotlarini ko‘ring. Bu vosita portlarni skanerlamaydi va hech qanday tizimga kirmaydi.</p><section class="panel"><div class="input-row"><input id="ip" placeholder="Masalan: 8.8.8.8 yoki my IP" autocomplete="off"><button id="scan">TEKSHIRISH</button></div><p class="notice">Faqat ommaga ochiq IP ma’lumoti ko‘rsatiladi. Natija tashqi geolokatsiya xizmatidan olinadi.</p><div id="status" class="loading">Tayyor.</div><div class="grid" id="results" hidden></div></section></main><script>
-const fields=[['IP','ip'],['Davlat','country_name'],['Shahar','city'],['Region','region'],['Provayder / ASN','org'],['Vaqt zonasi','timezone']];
 const results=document.querySelector('#results'),status=document.querySelector('#status');
 
 function isIPv4(s){
@@ -17,19 +16,70 @@ function hostnameOf(value){
 async function getJSON(url,options){
   const r=await fetch(url,options||{});
   const t=await r.text();
-  if(!r.ok) throw new Error('Server javobi: HTTP '+r.status);
+  if(!r.ok) throw new Error('HTTP '+r.status);
   try{return JSON.parse(t)}
-  catch(e){throw new Error('Tashqi xizmat JSON o‘rniga HTML yoki boshqa javob qaytardi.')}
+  catch(e){throw new Error('Xizmat JSON ma’lumot qaytarmadi.')}
 }
 async function resolveHost(host){
-  const d=await getJSON('https://cloudflare-dns.com/dns-query?name='+encodeURIComponent(host)+'&type=A',{headers:{Accept:'application/dns-json'}});
+  const d=await getJSON(
+    'https://cloudflare-dns.com/dns-query?name='+encodeURIComponent(host)+'&type=A',
+    {headers:{Accept:'application/dns-json'}}
+  );
   const a=(d.Answer||[]).find(x=>x.type===1 && isIPv4(x.data));
   if(!a) throw new Error('Domen uchun IPv4 manzil topilmadi.');
   return a.data;
 }
+function esc(v){
+  return String(v??'—').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function flatten(obj,prefix='',out=[]){
+  if(obj===null || obj===undefined || obj==='') return out;
+  if(typeof obj!=='object'){out.push([prefix,String(obj)]);return out;}
+  if(Array.isArray(obj)){
+    if(obj.length===0) return out;
+    obj.forEach((v,i)=>flatten(v,prefix+'['+i+']',out));
+    return out;
+  }
+  Object.entries(obj).forEach(([k,v])=>{
+    const key=prefix?prefix+'.'+k:k;
+    if(v!==null && typeof v==='object') flatten(v,key,out);
+    else if(v!==null && v!==undefined && v!=='') out.push([key,String(v)]);
+  });
+  return out;
+}
+function labelize(k){
+  const labels={
+    ip:'IP manzil',version:'IP versiya',network:'Tarmoq / CIDR',
+    country_name:'Davlat',country_code:'Davlat kodi',continent_code:'Qit’a kodi',
+    continent_name:'Qit’a',region:'Region / viloyat',city:'Shahar',
+    postal:'Pochta indeksi',latitude:'Kenglik (Latitude)',longitude:'Uzunlik (Longitude)',
+    timezone:'Vaqt zonasi',utc_offset:'UTC offset',org:'Provayder / tashkilot',
+    asn:'ASN',hostname:'Hostname / Reverse DNS',country_calling_code:'Telefon kodi',
+    currency:'Valyuta',currency_name:'Valyuta nomi',languages:'Tillar',
+    country_capital:'Poytaxt',country_population:'Aholi',in_eu:'EU hududi',
+    abuse:'Abuse ma’lumoti',version_name:'IP versiyasi'
+  };
+  return labels[k] || k.replace(/[._]/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+}
+async function getIPData(ip){
+  try{
+    const d=await getJSON('https://ipapi.co/'+encodeURIComponent(ip)+'/json/');
+    if(!d.error) return d;
+  }catch(e){}
+  const w=await getJSON('https://ipwho.is/'+encodeURIComponent(ip));
+  if(w.success===false) throw new Error(w.message||'IP ma’lumoti topilmadi.');
+  return {
+    ip:w.ip,version:w.type,continent_code:w.continent_code,continent_name:w.continent,
+    country_name:w.country,country_code:w.country_code,region:w.region,city:w.city,
+    postal:w.postal,latitude:w.latitude,longitude:w.longitude,
+    timezone:w.timezone?.id,utc_offset:w.timezone?.utc,
+    org:w.connection?.org,asn:w.connection?.asn,network:w.connection?.domain,
+    hostname:w.reverse?.dns
+  };
+}
 async function scan(){
-  let input=document.querySelector('#ip').value.trim();
-  status.textContent='Ma’lumot olinmoqda…';
+  const input=document.querySelector('#ip').value.trim();
+  status.textContent='Barcha ochiq ma’lumotlar olinmoqda…';
   results.hidden=true;
   try{
     let ip=input;
@@ -39,11 +89,14 @@ async function scan(){
       ip=await resolveHost(hostnameOf(ip));
     }
     document.querySelector('#ip').value=ip;
-    const d=await getJSON('https://ipapi.co/'+encodeURIComponent(ip)+'/json/');
-    if(d.error) throw new Error(d.reason||'IP topilmadi');
-    results.innerHTML=fields.map(([label,key])=>'<div class="stat"><div class="label">'+label+'</div><div class="value">'+String(d[key]??'—').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))+'</div></div>').join('');
+
+    const d=await getIPData(ip);
+    const rows=flatten(d);
+    results.innerHTML=rows.map(([key,val])=>
+      '<div class="stat"><div class="label">'+esc(labelize(key))+'</div><div class="value">'+esc(val)+'</div></div>'
+    ).join('');
     results.hidden=false;
-    status.textContent='✓ Ochiq ma’lumot topildi.';
+    status.textContent='✓ '+rows.length+' ta ochiq ma’lumot topildi.';
   }catch(e){
     status.textContent='✕ Natijani olish imkoni bo‘lmadi: '+e.message;
   }
