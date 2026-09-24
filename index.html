@@ -190,6 +190,8 @@
         }
         .tools-dropdown a { padding: 9px; border-radius: 6px; }
         .tools-dropdown a:hover { background: rgba(56,189,248,.14); color: var(--accent); }
+        .tools-dropdown .admin-panel-link { border-top: 1px solid rgba(56,189,248,.28); margin-top: 5px; color: #38bdf8; font-weight: 800; }
+        .tools-dropdown .admin-panel-link:hover { background: rgba(56,189,248,.18); color: #fff; }
 
         .hero {
             min-height: 100vh; display: flex;
@@ -1113,6 +1115,7 @@ body.file-modal-active{overflow:hidden;}
 
       <a href="telegram-emoji-maker.html">TELEGRAM EMOJI MAKER</a>
       <a href="office-suite.html">EXCEL &amp; WORD ONLINE</a>
+      <a href="/admin.html" id="admin-panel-link" class="admin-panel-link" style="display:none" aria-label="Open Admin Panel">🔐 ADMIN PANEL</a>
                         </div>
             </details>
         <button class="mode-toggle" id="modeToggle">NIGHT MODE</button>
@@ -1391,6 +1394,11 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
    if(!r || !r.credential) return;
    const u=decode(r.credential);
    if(u) localStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||'',credential:r.credential}));
+   // Server-side authentication: the backend verifies the Google ID token and
+   // creates an HttpOnly session cookie. This is required for real admin protection.
+   fetch('/api/auth/google',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:r.credential}),credentials:'same-origin'})
+     .then(()=>{ if(window.ITShakhAdmin?.refresh) window.ITShakhAdmin.refresh(); })
+     .catch(()=>{});
    // Google login yopiladi
    const gate=document.getElementById('google-login-screen');
    if(gate){ gate.style.opacity='0'; gate.style.transition='opacity 0.8s'; setTimeout(()=>gate.remove(),800); }
@@ -1474,6 +1482,32 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 
    bindToolReturnState();
  });
+})();
+</script>
+
+
+<script>
+/* ADMIN PANEL VISIBILITY — server session is authoritative */
+(function(){
+  const ADMIN_EMAIL='anonimshakh4647@gmail.com';
+  function getUser(){try{return JSON.parse(localStorage.getItem('it_shakh_google_user')||'null');}catch(e){return null;}}
+  function isLocalAdmin(){const u=getUser();return !!u && String(u.email||'').trim().toLowerCase()===ADMIN_EMAIL;}
+  async function initAdminLink(){
+    const link=document.getElementById('admin-panel-link');
+    if(!link) return;
+    link.style.display='none';
+    try{
+      const r=await fetch('/api/admin/me',{credentials:'same-origin',cache:'no-store'});
+      if(r.ok){
+        link.style.display='block';
+        link.title='Private Admin Panel';
+      }
+    }catch(e){
+      link.style.display='none';
+    }
+  }
+  window.ITShakhAdmin={isAdmin:isLocalAdmin,getUser,ADMIN_EMAIL,refresh:()=>initAdminLink()};
+  document.addEventListener('DOMContentLoaded',initAdminLink);
 })();
 </script>
 
