@@ -1,0 +1,49 @@
+IT SHAKH FILE CENTER FIX
+
+GitHub repo: https://github.com/anonimshakh4647-crypto/shakhtashkentski66
+
+The current files.html sends the Google ID token as:
+  Authorization: Bearer <token>
+
+The existing File Center backend was previously returning "Invalid Google token" with that arrangement. The working local site used X-Google-Token. Change the auth helper and XHR upload header as follows.
+
+1) Replace:
+function authHeaders(extra={}){
+    const token=getToken();
+    return token ? Object.assign({'Authorization':'Bearer '+token},extra) : extra;
+}
+
+with:
+function authHeaders(extra={}){
+    const token=getToken();
+    return token ? Object.assign({'X-Google-Token':token},extra) : extra;
+}
+
+2) In xhrUpload(), replace:
+if(token) xhr.setRequestHeader('Authorization','Bearer '+token);
+
+with:
+if(token) xhr.setRequestHeader('X-Google-Token',token);
+
+Do not change the rest of files.html.
+
+IMPORTANT:
+- index.html in this package already contains the Admin Panel visibility code and the File Center X-Google-Token code.
+- server.js is the secure backend. It protects /admin.html server-side and verifies Google ID tokens.
+- package.json starts the server with `node server.js`.
+- .gitignore excludes the private generated session secret.
+
+DEPLOYMENT:
+1. Upload/commit index.html, admin.html, server.js, package.json and .gitignore to the repository root.
+2. Apply the two small files.html changes above.
+3. In Render, create/redeploy the Node Web Service from this GitHub repository.
+4. Environment variables:
+   GOOGLE_CLIENT_ID = 506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com
+   ADMIN_EMAIL = anonimshakh4647@gmail.com
+   SESSION_SECRET = generate a long random secret (or let Render generate it if supported by the service)
+   NODE_ENV = production
+5. The public site must route /api/* and /admin.html to this Node service. A static GitHub Pages deployment alone cannot execute server.js.
+6. Google OAuth Authorized JavaScript origins must include:
+   https://shakhtashkentski66.uz
+
+NOTE: If the frontend remains on GitHub Pages/static hosting while Node runs on a separate Render URL, the frontend API URLs and CORS/cookie setup must be changed to that Render backend. Same-origin reverse proxy is simpler and preferred.
