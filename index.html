@@ -1416,10 +1416,63 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
    const box=document.getElementById('google-signin-button');
    if(box){ const w=Math.max(240,Math.min(400,Math.floor(box.getBoundingClientRect().width))); google.accounts.id.renderButton(box,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',logo_alignment:'left',width:w}); }
  }
+ function getSavedUser(){
+   try{
+     const raw=localStorage.getItem('it_shakh_google_user');
+     return raw ? JSON.parse(raw) : null;
+   }catch(e){ return null; }
+ }
+
+ function isReturningFromTool(){
+   let marked=false;
+   try{ marked=sessionStorage.getItem('it_shakh_return_from_tool')==='1'; }catch(e){}
+   if(marked){ try{sessionStorage.removeItem('it_shakh_return_from_tool');}catch(e){} return true; }
+   try{
+     const ref=document.referrer||'';
+     return /\/(calculator|ip-scanner|qr-generator|speed-test|world-map|translate|image-to-code|image-converter|ai-prompt-generator|gif-maker|number-base-converter|background-remover|audio-cutter|bass-boost)\.html(?:$|[?#])/.test(ref);
+   }catch(e){ return false; }
+ }
+
+ function restoreToolsMenu(){
+   const menu=document.querySelector('.tools-menu');
+   if(menu) menu.open=true;
+ }
+
+ function bindToolReturnState(){
+   document.querySelectorAll('.tools-dropdown a[href]').forEach(a=>{
+     a.addEventListener('click',()=>{
+       try{ sessionStorage.setItem('it_shakh_return_from_tool','1'); }catch(e){}
+     });
+   });
+ }
+
  document.addEventListener('DOMContentLoaded',function(){
    const start=document.getElementById('loading-screen');
-   if(start) start.style.display='none';
-   init();
+   const gate=document.getElementById('google-login-screen');
+   const math=document.getElementById('math-screen');
+   const saved=getSavedUser();
+   const returning=isReturningFromTool();
+
+   // Existing Google session: never show the login screen again on browser Back.
+   if(saved && saved.email){
+     if(gate){ gate.style.display='none'; gate.remove(); }
+
+     // Coming back from any Tools page: return directly to the site, not to login/START.
+     if(returning || sessionStorage.getItem('it_shakh_system_started')==='1'){
+       if(math){ math.style.display='none'; math.remove(); }
+       if(start){ start.style.display='none'; start.classList.add('hide'); start.remove(); }
+       if(returning) restoreToolsMenu();
+     }else{
+       if(start) start.style.display='flex';
+       if(math) math.style.display='none';
+     }
+   }else{
+     if(start) start.style.display='none';
+     if(math) math.style.display='none';
+     init();
+   }
+
+   bindToolReturnState();
  });
 })();
 </script>
@@ -1494,6 +1547,7 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
         }
         if (val === mathAnswer) {
             localStorage.removeItem('mathLockUntil');
+            try { sessionStorage.setItem('it_shakh_math_verified','1'); } catch(e) {}
             const screen = document.getElementById('math-screen');
             screen.style.opacity = '0';
             screen.style.transition = 'opacity 0.8s';
@@ -1546,6 +1600,7 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
                 console.log('Music playback was blocked:', e);
             }
 
+            try { sessionStorage.setItem('it_shakh_system_started','1'); } catch(e) {}
             startButton.disabled = true;
             startButton.textContent = 'LOADING...';
 
