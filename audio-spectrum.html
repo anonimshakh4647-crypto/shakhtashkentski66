@@ -1321,6 +1321,24 @@ document.addEventListener('keydown',e=>{
 
 /* ===== BACKGROUND IMAGE STUDIO — additive feature ===== */
 var bgImage=null,bgImageURL='',bgEnergySmooth=0,bgIsVideo=false,bgVideoEl=document.getElementById('bgVideo');
+// The background engine is initialized before the HTML fallback <video> tag.
+// Always create the video element here so bgVideoEl can never be null.
+if(!bgVideoEl){
+  bgVideoEl=document.createElement('video');
+  bgVideoEl.id='bgVideo';
+  document.body.appendChild(bgVideoEl);
+}
+bgVideoEl.muted=true;
+bgVideoEl.defaultMuted=true;
+bgVideoEl.playsInline=true;
+bgVideoEl.setAttribute('playsinline','');
+bgVideoEl.preload='auto';
+bgVideoEl.style.display='none';
+bgVideoEl.style.position='absolute';
+bgVideoEl.style.width='1px';
+bgVideoEl.style.height='1px';
+bgVideoEl.style.opacity='0';
+bgVideoEl.style.pointerEvents='none';
 
 function bg$(id){return document.getElementById(id)}
 function bgNum(id,def){
@@ -1528,10 +1546,13 @@ if(bgFileEl)bgFileEl.addEventListener('change',()=>{
     bgVideoEl.playsInline=true;
     bgVideoEl.src=bgImageURL;
     bgVideoEl.onloadedmetadata=async()=>{
+      bgVideoEl.currentTime=0;
       try{ await bgVideoEl.play(); }catch(e){ console.warn('Background video autoplay:',e); }
       updateBgLabels();
       draw();
     };
+    bgVideoEl.onloadeddata=()=>{ draw(); };
+    bgVideoEl.onplaying=()=>{ draw(); };
     bgVideoEl.oncanplay=()=>{
       if(bgIsVideo && bgVideoEl.paused){ bgVideoEl.play().catch(()=>{}); }
     };
@@ -1867,5 +1888,4 @@ $('particleRandom')?.addEventListener('click',()=>particleApplyPreset(Math.floor
 $('particleReset')?.addEventListener('click',()=>{particleApplyPreset(0);$('particleEnabled').checked=true;});
 
 </script>
-<video id="bgVideo" muted playsinline loop preload="auto" style="display:none;position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
 </body></html>
