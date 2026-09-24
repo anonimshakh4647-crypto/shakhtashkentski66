@@ -1,143 +1,1250 @@
 <!DOCTYPE html>
 <html lang="uz">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>IT SHAKH | File Center</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<script src="https://accounts.google.com/gsi/client" async defer onload="initGoogleLogin()"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT SHAKH | Senior IT Specialist</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #04060b;
+            --accent: #38bdf8;
+            --glow: 0 0 45px rgba(56, 189, 248, 0.85);
+            --text-color: #e5e7eb;
+            --card-bg: rgba(11, 18, 32, 0.7);
+        }
+        body.night-mode {
+            --bg: #000;
+            --accent: #00ff41;
+            --glow: 0 0 45px rgba(0, 255, 65, 0.85);
+            --text-color: #00ff41;
+            --card-bg: rgba(0, 20, 0, 0.7);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 0;
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text-color);
+            overflow-x: hidden;
+            transition: 0.5s;
+        }
+        canvas { position: fixed; inset: 0; z-index: 0; opacity: 0; pointer-events: none; transition: opacity .35s ease; }
+        body.night-mode canvas { opacity: 1; }
+        body.night-mode .lion-bg { opacity: 0.035; filter: grayscale(1) contrast(1.35) brightness(.55); }
+        body.night-mode::before {
+            content: ""; position: fixed; inset: 0; z-index: 1; pointer-events: none;
+            background:
+              repeating-linear-gradient(0deg, rgba(0,255,65,.045) 0px, rgba(0,255,65,.045) 1px, transparent 1px, transparent 4px),
+              radial-gradient(circle at 50% 50%, transparent 0 38%, rgba(0,0,0,.28) 100%);
+            mix-blend-mode: screen; opacity: .9;
+        }
+        body.night-mode::after {
+            content: "SYSTEM BREACH // NIGHT PROTOCOL // TRACE ACTIVE";
+            position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+            z-index: 3; pointer-events: none; white-space: nowrap;
+            font: 700 10px/1 monospace; letter-spacing: 3px; color: #00ff41;
+            text-shadow: 0 0 8px #00ff41, 0 0 20px rgba(0,255,65,.8);
+            animation: warningBlink .9s steps(2,end) infinite;
+        }
+        .files-page header, .files-page #datetime-bar, .files-page #file-center-section { position: relative; z-index: 2; }
+        .files-page header { z-index: 100; }
+        body.night-mode #file-center-card {
+            border-color: rgba(0,255,65,.5);
+            box-shadow: 0 0 25px rgba(0,255,65,.14), inset 0 0 40px rgba(0,255,65,.035);
+        }
+        body.night-mode .section-title {
+            animation: hackerGlitch 1.8s infinite steps(2,end);
+        }
+        body.night-mode .file-btn.primary {
+            animation: pulseHack 1.25s infinite;
+        }
+        @keyframes warningBlink { 0%,45% { opacity: .95; } 46%,100% { opacity: .28; } }
+        @keyframes pulseHack { 0%,100% { box-shadow: 0 0 0 rgba(0,255,65,0); } 50% { box-shadow: 0 0 22px rgba(0,255,65,.5); } }
+        @keyframes hackerGlitch {
+            0%, 88%, 100% { transform: translate(0); filter:none; }
+            89% { transform: translate(2px,-1px); filter: drop-shadow(-2px 0 #ff003c); }
+            90% { transform: translate(-2px,1px); filter: drop-shadow(2px 0 #00ffff); }
+            91% { transform: translate(0); filter:none; }
+        }
+        .lion-bg {
+            position: fixed; inset: 0;
+            background: url("lion-bg.png") center/cover no-repeat;
+            opacity: 0.12; z-index: -2;
+            animation: float 20s infinite ease-in-out;
+        }
+
+        /* LOADING SCREEN */
+        #loading-screen {
+            position: fixed; inset: 0; background: #04060b;
+            z-index: 9999; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 20px;
+            transition: opacity 0.8s ease;
+        }
+        #loading-screen.hide { opacity: 0; pointer-events: none; }
+        .loading-logo {
+            width: 100px; height: 100px; border-radius: 50%;
+            background: conic-gradient(var(--accent), #7c4dff, var(--accent));
+            animation: rotate 1.5s linear infinite;
+            display: flex; align-items: center; justify-content: center; position: relative;
+        }
+        .loading-logo::after {
+            content: ""; position: absolute; inset: 6px;
+            background: #04060b; border-radius: 50%;
+        }
+        .loading-logo img { width: 70%; z-index: 10; }
+        .loading-text {
+            font-family: monospace; font-size: 14px;
+            color: var(--accent); letter-spacing: 4px;
+            text-shadow: var(--glow); animation: blink 1s infinite;
+        }
+        .loading-bar-wrap {
+            width: 200px; height: 3px;
+            background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden;
+        }
+        .loading-bar {
+            height: 100%; width: 0%; background: var(--accent);
+            box-shadow: var(--glow); border-radius: 10px;
+            animation: loadbar 2s ease forwards;
+        }
+        @keyframes loadbar { 0% { width: 0%; } 100% { width: 100%; } }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* DATETIME BAR */
+        #datetime-bar {
+            width: 100%; text-align: center; padding: 6px 20px;
+            font-family: monospace; font-size: 13px; color: var(--accent);
+            background: rgba(0,0,0,0.6); letter-spacing: 2px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            position: fixed; top: 0; z-index: 200; transition: 0.5s;
+        }
+
+        header {
+            padding: 15px 20px; display: flex;
+            justify-content: space-between; align-items: center;
+            backdrop-filter: blur(10px);
+            position: fixed; top: 32px; width: 100%; z-index: 100;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .logo-text { font-weight: 800; letter-spacing: 2px; color: var(--accent); font-size: 14px; }
+        .nav-links { display: flex; align-items: center; gap: 15px; }
+        .nav-links a {
+            color: var(--text-color); text-decoration: none;
+            font-size: 12px; font-weight: 600; transition: 0.3s;
+        }
+
+        .hero {
+            min-height: 100vh; display: flex;
+            align-items: center; justify-content: center;
+            padding: 120px 20px 40px 20px;
+        }
+        .hero-container {
+            max-width: 1200px; width: 100%;
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 40px; align-items: center;
+        }
+        .hero-text h1 { font-size: clamp(30px, 8vw, 60px); margin: 0; line-height: 1.1; }
+        .hero-text span { color: var(--accent); text-shadow: var(--glow); }
+        .hero-text p { color: #9ca3af; font-size: clamp(14px, 4vw, 18px); margin: 20px 0; }
+
+        .socials { display: flex; gap: 15px; flex-wrap: wrap; }
+        .socials a {
+            width: 45px; height: 45px; background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            transition: 0.3s; box-shadow: var(--glow);
+        }
+        .socials a img { width: 20px; height: 20px; filter: invert(1); }
+
+        .logo-wrap { display: flex; justify-content: center; align-items: center; }
+        .logo-ring {
+            width: clamp(250px, 40vw, 400px); height: clamp(250px, 40vw, 400px);
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            position: relative; background: conic-gradient(var(--accent), #7c4dff, var(--accent));
+            animation: rotate 12s linear infinite;
+        }
+        .logo-ring::after {
+            content: ""; position: absolute; inset: 6px;
+            background: var(--bg); border-radius: 50%;
+        }
+        .main-logo { width: 80%; z-index: 10; filter: drop-shadow(var(--glow)); }
+
+        @keyframes rotate { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        @keyframes float { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+
+        .mode-toggle {
+            background: var(--accent); color: #000;
+            border: none; padding: 6px 12px; border-radius: 20px;
+            cursor: pointer; font-weight: bold; font-size: 10px;
+        }
+
+        /* SECTIONS UMUMIY */
+        .section {
+            max-width: 900px; margin: 0 auto;
+            padding: 60px 20px;
+        }
+        .section-title {
+            font-family: monospace; font-size: 20px;
+            color: var(--accent); text-shadow: var(--glow);
+            letter-spacing: 3px; margin-bottom: 30px;
+            border-left: 3px solid var(--accent);
+            padding-left: 15px;
+        }
+
+
+
+        /* TERMINAL */
+        #terminal {
+            background: #0a0a0a;
+            border: 1px solid var(--accent);
+            border-radius: 12px; overflow: hidden;
+            box-shadow: var(--glow);
+        }
+        .terminal-header {
+            background: rgba(255,255,255,0.05);
+            padding: 10px 15px; display: flex;
+            align-items: center; gap: 8px;
+        }
+        .t-dot {
+            width: 12px; height: 12px; border-radius: 50%;
+        }
+        .t-dot.red { background: #ff5f57; }
+        .t-dot.yellow { background: #ffbd2e; }
+        .t-dot.green { background: #28ca41; }
+        .terminal-title {
+            font-family: monospace; font-size: 12px;
+            color: #9ca3af; margin-left: 10px;
+        }
+        #terminal-output {
+            padding: 20px; font-family: monospace;
+            font-size: 13px; min-height: 200px;
+            max-height: 300px; overflow-y: auto;
+            color: var(--accent); line-height: 1.8;
+        }
+        .terminal-input-line {
+            display: flex; align-items: center;
+            padding: 10px 20px; border-top: 1px solid rgba(255,255,255,0.05);
+        }
+        .terminal-prompt { color: var(--accent); font-family: monospace; margin-right: 8px; }
+        #terminal-input {
+            background: transparent; border: none; outline: none;
+            color: var(--text-color); font-family: monospace;
+            font-size: 13px; flex: 1;
+        }
+        .t-error { color: #ff5f57; }
+        .t-success { color: #28ca41; }
+        .t-info { color: #ffbd2e; }
+
+        /* QUIZ */
+        #quiz-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px; padding: 30px;
+        }
+        .quiz-question {
+            font-size: 16px; font-weight: 600;
+            margin-bottom: 20px; line-height: 1.5;
+        }
+        .quiz-number {
+            font-family: monospace; font-size: 12px;
+            color: var(--accent); margin-bottom: 10px;
+            letter-spacing: 2px;
+        }
+        .quiz-options { display: flex; flex-direction: column; gap: 10px; }
+        .quiz-option {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 12px 18px;
+            cursor: pointer; transition: 0.3s; font-size: 14px;
+        }
+        .quiz-option:hover { border-color: var(--accent); color: var(--accent); }
+        .quiz-option.correct { background: rgba(40,202,65,0.15); border-color: #28ca41; color: #28ca41; }
+        .quiz-option.wrong { background: rgba(255,95,87,0.15); border-color: #ff5f57; color: #ff5f57; }
+        .quiz-result {
+            margin-top: 15px; font-family: monospace;
+            font-size: 13px; min-height: 20px;
+        }
+        .quiz-nav {
+            display: flex; gap: 10px; margin-top: 20px;
+            align-items: center; justify-content: space-between;
+        }
+        .quiz-btn {
+            background: var(--accent); color: #000;
+            border: none; padding: 8px 20px; border-radius: 20px;
+            cursor: pointer; font-weight: bold; font-size: 12px;
+            transition: 0.3s;
+        }
+        .quiz-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .quiz-score {
+            font-family: monospace; font-size: 13px;
+            color: var(--accent);
+        }
+
+        footer {
+            text-align: center; padding: 20px;
+            color: #9ca3af; font-size: 11px;
+            background: rgba(0,0,0,0.3);
+        }
+
+        /* TYPING TEST */
+        #typing-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px; padding: 30px;
+        }
+        #typing-text {
+            font-family: monospace; font-size: 16px;
+            line-height: 2; margin-bottom: 20px;
+            padding: 15px; border-radius: 10px;
+            background: rgba(0,0,0,0.3);
+            letter-spacing: 1px; user-select: none;
+        }
+        .typing-char { color: #9ca3af; }
+        .typing-char.correct { color: #28ca41; }
+        .typing-char.wrong { color: #ff5f57; background: rgba(255,95,87,0.2); border-radius: 2px; }
+        .typing-char.current { border-bottom: 2px solid var(--accent); color: var(--text-color); }
+        #typing-input {
+            width: 100%; background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 12px 15px;
+            color: var(--text-color); font-family: monospace;
+            font-size: 15px; outline: none; transition: 0.3s;
+        }
+        #typing-input:focus { border-color: var(--accent); box-shadow: var(--glow); }
+        .typing-stats {
+            display: flex; gap: 20px; margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .typing-stat {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px; padding: 12px 20px;
+            text-align: center; flex: 1; min-width: 80px;
+        }
+        .typing-stat-val {
+            font-family: monospace; font-size: 24px;
+            color: var(--accent); font-weight: bold;
+        }
+        .typing-stat-label {
+            font-size: 10px; color: #9ca3af;
+            letter-spacing: 2px; margin-top: 4px;
+        }
+        .typing-btns { display: flex; gap: 10px; margin-top: 15px; }
+        .typing-btn {
+            background: var(--accent); color: #000;
+            border: none; padding: 8px 20px; border-radius: 20px;
+            cursor: pointer; font-weight: bold; font-size: 12px;
+        }
+        #typing-timer-bar-wrap {
+            height: 3px; background: rgba(255,255,255,0.1);
+            border-radius: 10px; margin-bottom: 15px; overflow: hidden;
+        }
+        #typing-timer-bar {
+            height: 100%; width: 100%;
+            background: var(--accent); border-radius: 10px;
+            transition: width 1s linear;
+        }
+
+        @media (max-width: 850px) {
+            .hero-container {
+                grid-template-columns: 1fr; text-align: center;
+                display: flex; flex-direction: column-reverse; gap: 30px;
+            }
+            .hero { padding-top: 120px; }
+            .socials { justify-content: center; }
+            .logo-ring { width: 260px; height: 260px; }
+            .nav-links a { font-size: 11px; }
+            .logo-text { font-size: 12px; letter-spacing: 1px; }
+            #datetime-bar { font-size: 11px; letter-spacing: 1px; }
+            #ip-card { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 400px) {
+            .logo-ring { width: 200px; height: 200px; }
+            .hero-text h1 { font-size: 28px; }
+            .nav-links { gap: 8px; }
+        }
+    
+        /* START SCREEN - added without changing the existing site design */
+        #loading-screen.start-screen {
+            gap: 20px;
+        }
+        #loading-screen.start-screen.hide {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .start-button {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 12px 32px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 13px;
+            letter-spacing: 2px;
+            box-shadow: var(--glow);
+            transition: .3s;
+        }
+        .start-button:hover {
+            transform: scale(1.08);
+            box-shadow: 0 0 55px rgba(56,189,248,.95);
+        }
+        .start-hint {
+            font-family: monospace;
+            font-size: 10px;
+            color: #64748b;
+            letter-spacing: 2px;
+        }
+
+
+/* ===== TYPING TEST PRO FEATURES ===== */
+.typing-controls{
+    display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+    margin-bottom:15px;
+}
+.typing-control{
+    display:flex; align-items:center; gap:8px;
+    font:11px monospace; color:#9ca3af; letter-spacing:1px;
+}
+.typing-control select{
+    background:#080e18; color:var(--text-color);
+    border:1px solid rgba(56,189,248,.25); border-radius:9px;
+    padding:8px 10px; outline:none; cursor:pointer;
+}
+.typing-record{
+    margin-left:auto; color:#9ca3af; font:12px monospace;
+}
+.typing-record b{color:var(--accent);}
+.typing-live{
+    display:flex; justify-content:space-between; gap:10px;
+    margin-top:12px; color:#7dd3fc; font:11px monospace;
+    letter-spacing:1px; flex-wrap:wrap;
+}
+#typing-text{
+    min-height:62px;
+    transition:.2s;
+}
+#typing-input{
+    caret-color:var(--accent);
+}
+.typing-keyboard-wrap,.typing-chart-wrap{
+    margin-top:18px; padding:14px;
+    background:rgba(0,0,0,.22);
+    border:1px solid rgba(255,255,255,.07);
+    border-radius:12px;
+}
+.typing-keyboard-title,.typing-chart-head{
+    display:flex; justify-content:space-between;
+    color:#9ca3af; font:10px monospace;
+    letter-spacing:2px; margin-bottom:10px;
+}
+.keyboard-row{
+    display:flex; justify-content:center; gap:5px; margin:5px 0;
+}
+.keyboard-key{
+    min-width:28px; height:30px; padding:0 7px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid rgba(56,189,248,.16);
+    border-radius:6px; background:rgba(8,15,25,.75);
+    color:#94a3b8; font:11px monospace;
+    transition:.08s;
+}
+.keyboard-key.active{
+    color:#000; background:var(--accent);
+    box-shadow:0 0 18px rgba(56,189,248,.8);
+    transform:translateY(1px);
+}
+#typing-chart{
+    display:block; width:100%; height:180px;
+}
+.typing-result{
+    margin-top:18px; padding:18px;
+    border:1px solid rgba(56,189,248,.3);
+    border-radius:12px;
+    background:rgba(2,10,20,.65);
+    text-align:center;
+}
+.typing-result-title{
+    color:var(--accent); font:14px monospace;
+    letter-spacing:2px; margin-bottom:15px;
+}
+.typing-result-grid{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:8px;
+}
+.typing-result-grid div{
+    padding:10px; border-radius:9px;
+    background:rgba(255,255,255,.035);
+}
+.typing-result-grid b{
+    display:block; color:var(--accent);
+    font:22px monospace;
+}
+.typing-result-grid small{
+    color:#94a3b8; font:9px monospace; letter-spacing:1px;
+}
+.typing-result-level{
+    margin-top:12px; color:#e5e7eb;
+    font:bold 11px monospace; letter-spacing:3px;
+}
+.typing-btn:disabled{opacity:.35; cursor:not-allowed;}
+@media(max-width:650px){
+    #typing-card{padding:18px;}
+    .typing-record{width:100%; margin-left:0;}
+    .typing-controls{gap:8px;}
+    .typing-control{width:100%; justify-content:space-between;}
+    .typing-control select{flex:1;}
+    .typing-live{font-size:9px;}
+    .keyboard-row{gap:2px;}
+    .keyboard-key{
+        min-width:20px; height:27px; padding:0 4px; font-size:9px;
+    }
+    .typing-result-grid{grid-template-columns:repeat(2,1fr);}
+    .typing-btns{flex-wrap:wrap;}
+    .typing-btn{flex:1; min-width:140px;}
+}
+
+
+/* GOOGLE SHEETS LEADERBOARD */
+#leaderboard-card{padding:20px;border:1px solid rgba(56,189,248,.18);border-radius:16px;background:rgba(4,10,18,.55);box-shadow:0 0 30px rgba(0,100,180,.08)}
+.leader-top{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}.leader-top>div{padding:13px;text-align:center;border:1px solid rgba(56,189,248,.12);border-radius:10px;background:rgba(0,0,0,.18)}.leader-top b{display:block;color:var(--accent);font:700 25px monospace}.leader-top span{display:block;margin-top:4px;color:#94a3b8;font:8px monospace;letter-spacing:1px}.leader-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:11px;border-bottom:1px solid rgba(56,189,248,.12);color:#cbd5e1;font:10px monospace;letter-spacing:2px}.leader-head button{background:rgba(7,16,28,.8);color:#9ca3af;border:1px solid rgba(56,189,248,.2);border-radius:8px;padding:7px 10px;cursor:pointer;font:9px monospace}.leader-head button:hover{color:#fff;border-color:var(--accent)}#leader-list{display:grid;gap:7px;margin-top:11px}.lb-row{display:grid;grid-template-columns:42px 1fr 85px 65px;gap:8px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.05);border-radius:9px;background:rgba(255,255,255,.018)}.lb-rank{text-align:center;color:var(--accent);font:700 13px monospace}.lb-name{display:flex;align-items:center;gap:8px;min-width:0}.lb-name img{width:32px;height:32px;border-radius:50%;object-fit:cover;display:block;background:#07101c;border:1px solid rgba(56,189,248,.25);box-shadow:0 0 10px rgba(56,189,248,.12)}.lb-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e5e7eb;font:600 11px Inter,sans-serif}.lb-score{text-align:right;color:var(--accent);font:700 12px monospace}.lb-percent{text-align:right;color:#94a3b8;font:9px monospace}.lb-loading,.lb-empty{text-align:center;color:#64748b;padding:22px;font:10px monospace}@media(max-width:600px){.lb-row{grid-template-columns:30px 1fr 62px 48px}.lb-name b{font-size:10px}.leader-top b{font-size:19px}.leader-top span{font-size:7px}.leader-head{font-size:9px}}
+
+</style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
-:root{--bg:#04060b;--card:#07101c;--accent:#38bdf8;--text:#e5e7eb;--muted:#64748b;--danger:#ff5f57;--ok:#28ca41}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0,#0a1b2c 0,#04060b 45%,#000 100%);color:var(--text);font-family:Inter,sans-serif}
-body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.08;background:linear-gradient(rgba(56,189,248,.3) 1px,transparent 1px),linear-gradient(90deg,rgba(56,189,248,.2) 1px,transparent 1px);background-size:40px 40px}
-header{position:relative;z-index:2;display:flex;justify-content:space-between;align-items:center;padding:18px 5%;border-bottom:1px solid rgba(255,255,255,.08);backdrop-filter:blur(12px)}
-.logo{font-weight:800;letter-spacing:2px;color:var(--accent)}nav{display:flex;gap:18px;align-items:center}nav a{color:#cbd5e1;text-decoration:none;font-size:12px}nav a:hover{color:#fff}
-main{position:relative;z-index:1;width:min(1050px,92%);margin:55px auto}.title{font:700 22px monospace;letter-spacing:3px;color:var(--accent);text-shadow:0 0 25px rgba(56,189,248,.5);margin-bottom:18px}
-.card{background:rgba(4,10,18,.8);border:1px solid rgba(56,189,248,.2);border-radius:18px;padding:22px;box-shadow:0 0 35px rgba(0,100,180,.08);backdrop-filter:blur(10px)}
-.user{font:10px monospace;color:var(--muted);letter-spacing:1px}.user b{color:var(--accent)}
-.actions{display:flex;gap:9px;flex-wrap:wrap;margin:15px 0}.btn{border:1px solid rgba(56,189,248,.28);border-radius:10px;padding:10px 14px;cursor:pointer;background:#07101c;color:#cbd5e1;font:700 10px monospace;letter-spacing:1px}.btn:hover{border-color:var(--accent);color:#fff}.btn.primary{background:var(--accent);color:#001018;border-color:var(--accent)}.btn.danger:hover{border-color:var(--danger);color:#ff8f8a}.btn:disabled{opacity:.35;cursor:not-allowed}
-.drop{min-height:210px;border:1px dashed rgba(56,189,248,.42);border-radius:14px;padding:30px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,20,38,.28);cursor:pointer}.drop:hover,.drop.drag{border-color:var(--accent);background:rgba(56,189,248,.06)}.drop input{display:none}.icon{font-size:38px}.drop strong{margin-top:10px;font-size:13px}.hint{margin-top:7px;color:var(--muted);font:10px monospace;line-height:1.7}
-.status{min-height:20px;margin-top:10px;font:10px monospace;color:var(--accent)}.status.err{color:var(--danger)}.status.ok{color:var(--ok)}
-.progress{display:none;margin-top:13px}.progress.show{display:block}.ph{display:flex;justify-content:space-between;color:var(--muted);font:9px monospace;margin-bottom:6px}.bar{height:4px;background:#172131;border-radius:10px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--accent);box-shadow:0 0 15px var(--accent)}
-.list-head{display:flex;justify-content:space-between;margin-top:20px;padding-top:15px;border-top:1px solid rgba(56,189,248,.12);font:10px monospace;letter-spacing:2px}.list{display:grid;gap:7px;margin-top:10px}.row{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.055);border-radius:10px;background:rgba(255,255,255,.018)}.ico{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:rgba(56,189,248,.07)}.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:600}.size{margin-top:3px;color:var(--muted);font:9px monospace}.row-actions{display:flex;gap:6px}.row-actions .btn{padding:7px 9px;font-size:9px}.empty{text-align:center;color:var(--muted);padding:20px;font:10px monospace}
-#login{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:#02070e}.loginbox{width:min(470px,92%);padding:35px;border:1px solid rgba(56,189,248,.28);border-radius:22px;background:rgba(4,10,18,.94);text-align:center;box-shadow:0 0 55px rgba(0,100,180,.18)}.loginlogo{font-size:48px;margin-bottom:12px}.loginbox h1{font-size:23px;margin:0;color:var(--accent)}.loginbox p{font:11px monospace;color:var(--muted);line-height:1.7}.google-wrap{display:flex;justify-content:center;margin:22px 0}.loginbox small{font:9px monospace;color:#475569}
-footer{text-align:center;color:#475569;font:9px monospace;padding:25px}
-@media(max-width:650px){header{padding:15px 4%}nav{gap:9px}nav a{font-size:10px}.row{grid-template-columns:34px 1fr}.row-actions{grid-column:1/-1}.row-actions .btn{flex:1}.card{padding:16px}}
+
+/* ===== IT SHAKH GOOGLE LOGIN — CLEAN PROFESSIONAL LION LAYERS ===== */
+#google-login-screen{
+ position:fixed; inset:0; z-index:100000; overflow:hidden;
+ display:flex; align-items:center; justify-content:center;
+ background:#02070e;
+ isolation:isolate;
+}
+#google-login-screen::before{
+ content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+ background:radial-gradient(ellipse at center,rgba(0,125,255,.14) 0%,rgba(0,20,45,.05) 48%,rgba(0,0,0,.30) 100%);
+}
+/* PURE CSS CYBER VISUALS — no lion images */
+.side-visual{display:none;position:absolute;top:0;bottom:0;width:min(31vw,470px);pointer-events:none;z-index:0;overflow:hidden;opacity:.9;}
+.side-visual.left{left:0;}
+.side-visual.right{right:0;transform:scaleX(-1);}
+.side-visual .aura{position:absolute;width:360px;height:620px;left:-105px;top:50%;transform:translateY(-50%);border-radius:50%;background:radial-gradient(ellipse at 62% 50%,rgba(0,174,255,.28) 0%,rgba(0,92,255,.14) 24%,rgba(0,20,50,0) 68%);filter:blur(18px);animation:visualPulse 4s ease-in-out infinite;}
+.side-visual .ring{position:absolute;left:-155px;top:50%;width:500px;height:500px;transform:translateY(-50%) rotate(-18deg);border:1px solid rgba(56,189,248,.16);border-radius:50%;box-shadow:0 0 40px rgba(0,174,255,.08),inset 0 0 35px rgba(0,174,255,.05);animation:visualRotate 16s linear infinite;}
+.side-visual .ring::before,.side-visual .ring::after{content:"";position:absolute;inset:34px;border:1px solid rgba(56,189,248,.10);border-radius:50%;}
+.side-visual .ring::after{inset:78px;border-color:rgba(124,77,255,.12);}
+.side-visual .eye{position:absolute;left:82px;top:43%;width:13px;height:13px;border-radius:50%;background:#bff6ff;box-shadow:0 0 8px #38bdf8,0 0 24px #38bdf8,0 0 55px rgba(56,189,248,.8);animation:eyePulse 2s ease-in-out infinite;}
+.side-visual .eye::after{content:"";position:absolute;left:-18px;top:6px;width:70px;height:2px;background:linear-gradient(90deg,transparent,rgba(56,189,248,.55),transparent);filter:blur(1px);}
+.side-visual .wave{position:absolute;left:-40px;top:50%;width:330px;height:180px;border-radius:50%;border:2px solid rgba(56,189,248,.20);filter:blur(.2px);transform:rotate(-22deg);animation:waveDrift 3.8s ease-in-out infinite;}
+.side-visual .wave.w2{left:-75px;width:400px;height:220px;border-color:rgba(0,174,255,.12);animation-delay:-1.2s;}
+.side-visual .wave.w3{left:-120px;width:470px;height:260px;border-color:rgba(124,77,255,.10);animation-delay:-2.3s;}
+.side-visual .grid{position:absolute;left:0;bottom:3%;width:100%;height:34%;opacity:.22;background:linear-gradient(rgba(56,189,248,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(56,189,248,.10) 1px,transparent 1px);background-size:34px 34px;mask-image:linear-gradient(to top,rgba(0,0,0,.9),transparent);-webkit-mask-image:linear-gradient(to top,rgba(0,0,0,.9),transparent);transform:perspective(260px) rotateX(58deg);transform-origin:bottom;}
+.side-visual .spark{position:absolute;width:3px;height:3px;border-radius:50%;background:#7ddfff;box-shadow:0 0 8px #38bdf8,0 0 18px #38bdf8;animation:sparkFloat 5s linear infinite;}
+.side-visual .s1{left:28%;top:70%;animation-delay:-1s}.side-visual .s2{left:42%;top:62%;animation-delay:-3s}.side-visual .s3{left:17%;top:78%;animation-delay:-4s}.side-visual .s4{left:54%;top:74%;animation-delay:-2s}
+@keyframes visualPulse{0%,100%{transform:translateY(-50%) scale(.92);opacity:.65}50%{transform:translateY(-50%) scale(1.08);opacity:1}}
+@keyframes visualRotate{to{transform:translateY(-50%) rotate(342deg)}}
+@keyframes eyePulse{0%,100%{opacity:.55;transform:scale(.8)}50%{opacity:1;transform:scale(1.25)}}
+@keyframes waveDrift{0%,100%{transform:rotate(-22deg) translateX(0);opacity:.25}50%{transform:rotate(-18deg) translateX(35px);opacity:.7}}
+@keyframes sparkFloat{0%{transform:translate3d(0,35px,0) scale(.4);opacity:0}20%{opacity:1}100%{transform:translate3d(35px,-170px,0) scale(1.4);opacity:0}}
+
+#google-login-card{
+ position:relative;z-index:5;
+ position:relative; z-index:3;
+ width:min(88vw,540px); min-height:600px;
+ padding:34px 34px 28px;
+ border:1px solid rgba(56,189,248,.48); border-radius:24px;
+ background:rgba(2,10,20,.76);
+ box-shadow:0 0 42px rgba(0,150,255,.18), inset 0 0 45px rgba(0,100,255,.07);
+ backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+ display:flex; flex-direction:column; align-items:center; justify-content:center;
+}
+.login-logo-wrap{
+ width:150px;height:150px;border-radius:50%;padding:5px;position:relative;
+ background:conic-gradient(#38bdf8,#7c4dff,#38bdf8);
+ animation:loginRingRotate 3s linear infinite;
+ box-shadow:0 0 28px rgba(56,189,248,.48);
+ display:flex;align-items:center;justify-content:center;
+}
+.login-logo-wrap::before{content:"";position:absolute;inset:7px;border-radius:50%;background:#030914;}
+.login-logo{width:112px;height:112px;object-fit:contain;z-index:2;filter:drop-shadow(0 0 18px rgba(56,189,248,.8));}
+#google-login-card h1{margin:24px 0 7px;font-size:clamp(34px,7vw,50px);line-height:1;letter-spacing:4px;color:#38bdf8;text-shadow:0 0 22px rgba(56,189,248,.75);}
+.login-subtitle{font-family:monospace;font-size:12px;letter-spacing:3px;color:#cbd5e1;margin-bottom:26px;text-align:center;}
+#google-signin-button{width:100%;max-width:400px;min-height:50px;display:flex;justify-content:center;align-items:center;overflow:hidden;}
+#google-signin-button > div{max-width:100% !important;}
+#google-signin-button iframe{max-width:100% !important;}
+.login-features{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:min(100%,440px);margin-top:28px;}
+.login-feature{appearance:none;width:100%;min-height:92px;padding:14px 8px;border:1px solid rgba(56,189,248,.28);border-radius:12px;background:rgba(3,15,28,.62);color:#cbd5e1;cursor:pointer;text-align:center;font:11px monospace;letter-spacing:2px;transition:.25s;box-shadow:inset 0 0 18px rgba(0,120,255,.03);}
+.login-feature:hover,.login-feature:focus-visible{border-color:#38bdf8;transform:translateY(-3px);box-shadow:0 0 20px rgba(56,189,248,.22);color:#fff;outline:none;}
+.login-feature b{display:block;color:#38bdf8;font-size:27px;margin-bottom:7px;text-shadow:0 0 12px rgba(56,189,248,.7);}
+.login-welcome{margin-top:25px;padding-top:16px;width:85%;border-top:1px solid rgba(56,189,248,.2);text-align:center;color:#38bdf8;font:10px monospace;letter-spacing:4px;}
+.login-info-backdrop{position:fixed;inset:0;z-index:100010;display:none;align-items:center;justify-content:center;background:rgba(0,3,8,.7);backdrop-filter:blur(6px);padding:20px;}
+.login-info-backdrop.open{display:flex;}
+.login-info-modal{width:min(92vw,460px);padding:28px;border:1px solid rgba(56,189,248,.55);border-radius:18px;background:rgba(3,12,24,.96);box-shadow:0 0 35px rgba(56,189,248,.25);color:#dbeafe;text-align:center;}
+.login-info-modal h2{margin:0 0 12px;color:#38bdf8;text-shadow:0 0 15px rgba(56,189,248,.6);font-size:24px;letter-spacing:2px;}
+.login-info-modal p{margin:0 0 20px;color:#a8b7ca;line-height:1.7;font-size:14px;}
+.login-info-close{border:0;border-radius:20px;padding:9px 22px;background:#38bdf8;color:#001018;font-weight:800;cursor:pointer;}
+@keyframes loginRingRotate{to{transform:rotate(360deg)}}
+@media(max-width:850px){
+ #google-login-card{width:min(88vw,500px);min-height:540px;padding:28px 20px;}
+ .login-logo-wrap{width:125px;height:125px}.login-logo{width:92px;height:92px;}
+}
+@media(max-width:560px){
+ #google-login-card{width:92vw;min-height:500px;padding:25px 14px;border-radius:20px;}
+ .login-features{gap:6px;}
+ .login-feature{min-height:78px;font-size:8px;letter-spacing:1px;padding:10px 4px;}
+ .login-feature b{font-size:22px;}
+ .login-welcome{letter-spacing:2px;}
+ #google-signin-button{width:100%;max-width:340px;overflow:hidden;}
+}
+
+/* Professional lion-edge cleanup + feature interaction */
+.login-feature:active{transform:translateY(-1px) scale(.98);}
+.login-feature.is-active{border-color:#38bdf8;box-shadow:0 0 24px rgba(56,189,248,.28),inset 0 0 18px rgba(56,189,248,.08);}
+</style>
+<style>
+/* HACKER BACKGROUND — login background only */
+#google-login-screen{
+    background:#02070e !important;
+    background-image:none !important;
+}
+@media (max-width:700px){
+    #google-login-screen{
+        background-position:center center !important;
+    }
+}
+</style>
+<style>
+/* SIDE HACKER VISUALS — no center artwork */
+#google-login-screen .side-visual{
+    display:block !important;
+    position:absolute !important;
+    top:0 !important;
+    bottom:0 !important;
+    width:34vw !important;
+    max-width:560px !important;
+    min-width:260px !important;
+    opacity:1 !important;
+    overflow:hidden !important;
+    z-index:0 !important;
+    background-repeat:no-repeat !important;
+    background-position:center !important;
+    background-size:cover !important;
+    pointer-events:none !important;
+}
+#google-login-screen .side-visual.left{
+    left:0 !important;
+    right:auto !important;
+    transform:none !important;
+    background-image:url("hacker-left.png") !important;
+}
+#google-login-screen .side-visual.right{
+    right:0 !important;
+    left:auto !important;
+    transform:none !important;
+    background-image:url("hacker-right.png") !important;
+}
+#google-login-screen .side-visual > *{display:none !important;}
+#google-login-screen::before{
+    z-index:0 !important;
+    background:radial-gradient(circle at center,rgba(0,130,255,.10),rgba(0,5,15,.12) 52%,rgba(0,0,0,.42) 100%) !important;
+}
+#google-login-card{z-index:5 !important;}
+@media(max-width:900px){
+    #google-login-screen .side-visual{width:29vw !important;min-width:130px !important;opacity:.72 !important;}
+}
+@media(max-width:600px){
+    #google-login-screen .side-visual{width:24vw !important;min-width:90px !important;opacity:.55 !important;}
+}
+</style>
+
+<style>
+/* ===== FILE CENTER MODAL WINDOW ===== */
+#file-center-section{
+    display:none;
+    position:fixed;
+    inset:0;
+    z-index:99990;
+    margin:0 !important;
+    padding:28px 18px !important;
+    background:rgba(0,4,12,.76);
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    align-items:center;
+    justify-content:center;
+    overflow:auto;
+}
+#file-center-section.file-modal-open{display:flex;}
+#file-center-section .section-title{
+    width:min(900px,100%);
+    margin:0 auto 12px;
+}
+#file-center-section .file-modal-shell{
+    width:min(900px,100%);
+    max-height:calc(100vh - 56px);
+    overflow:auto;
+}
+#file-center-section .file-center-card-wrap{
+    position:relative;
+}
+#file-center-close{
+    position:absolute;
+    top:10px;
+    right:10px;
+    z-index:3;
+    width:38px;
+    height:38px;
+    border:1px solid rgba(56,189,248,.35);
+    border-radius:10px;
+    background:rgba(3,12,24,.9);
+    color:#cbd5e1;
+    font:700 18px monospace;
+    cursor:pointer;
+    transition:.2s;
+}
+#file-center-close:hover{
+    color:#fff;
+    border-color:var(--accent);
+    box-shadow:0 0 18px rgba(56,189,248,.18);
+    transform:scale(1.04);
+}
+body.file-modal-active{overflow:hidden;}
+@media(max-width:600px){
+    #file-center-section{padding:14px 10px !important;align-items:flex-start;}
+    #file-center-section .file-modal-shell{max-height:calc(100vh - 28px);margin-top:8px;}
+    #file-center-section .section-title{font-size:16px;}
+}
+</style>
+
+<style>
+/* ===== IT SHAKH FILE CENTER ===== */
+#file-center-card{
+    background:rgba(4,10,18,.62);
+    border:1px solid rgba(56,189,248,.20);
+    border-radius:18px;
+    padding:22px;
+    box-shadow:0 0 32px rgba(0,100,180,.08);
+    backdrop-filter:blur(8px);
+}
+.file-center-head{
+    display:flex;justify-content:space-between;align-items:center;
+    gap:12px;flex-wrap:wrap;margin-bottom:16px;
+}
+.file-center-user{
+    color:#94a3b8;font:10px monospace;letter-spacing:1px;
+}
+.file-center-user b{color:var(--accent);}
+.file-upload-zone{
+    position:relative;min-height:210px;border:1px dashed rgba(56,189,248,.42);
+    border-radius:14px;padding:34px 18px;text-align:center;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:rgba(0,20,38,.28);transition:.25s;cursor:pointer;
+}
+.file-upload-zone:hover,.file-upload-zone.dragover{
+    border-color:var(--accent);
+    background:rgba(56,189,248,.06);
+    box-shadow:0 0 25px rgba(56,189,248,.10);
+    transform:translateY(-1px);
+}
+.file-upload-zone input{display:none;}
+.file-upload-icon{font-size:34px;filter:drop-shadow(0 0 10px rgba(56,189,248,.55));}
+.file-upload-title{margin-top:9px;color:#e5e7eb;font:700 13px Inter,sans-serif;}
+.file-upload-hint{margin-top:6px;color:#64748b;font:10px monospace;line-height:1.6;}
+.file-actions{
+    display:flex;gap:9px;flex-wrap:wrap;margin-top:14px;align-items:center;
+}
+.file-btn{
+    border:1px solid rgba(56,189,248,.28);
+    border-radius:10px;padding:9px 14px;cursor:pointer;
+    background:rgba(7,16,28,.85);color:#cbd5e1;font:700 10px monospace;
+    letter-spacing:1px;transition:.2s;
+}
+.file-btn:hover{border-color:var(--accent);color:#fff;box-shadow:0 0 16px rgba(56,189,248,.15);}
+.file-btn.primary{background:var(--accent);color:#001018;border-color:var(--accent);}
+.file-btn.danger:hover{border-color:#ff5f57;color:#ff8f8a;}
+.file-btn:disabled{opacity:.35;cursor:not-allowed;}
+.file-progress-wrap{
+    display:none;margin-top:13px;border:1px solid rgba(56,189,248,.14);
+    border-radius:10px;padding:10px;background:rgba(0,0,0,.2);
+}
+.file-progress-wrap.show{display:block;}
+.file-progress-head{display:flex;justify-content:space-between;color:#94a3b8;font:9px monospace;margin-bottom:7px;}
+.file-progress{height:4px;border-radius:9px;background:rgba(255,255,255,.08);overflow:hidden;}
+.file-progress > div{height:100%;width:0;background:var(--accent);box-shadow:var(--glow);transition:width .15s;}
+.file-status{min-height:18px;margin-top:11px;color:#94a3b8;font:10px monospace;}
+.file-status.ok{color:#28ca41}.file-status.err{color:#ff5f57}.file-status.info{color:#38bdf8;}
+.file-list-wrap{
+    margin-top:18px;border-top:1px solid rgba(56,189,248,.12);padding-top:15px;
+}
+.file-list-head{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    color:#cbd5e1;font:10px monospace;letter-spacing:2px;margin-bottom:10px;
+}
+#file-list{display:grid;gap:7px;}
+.file-row{
+    display:grid;grid-template-columns:38px minmax(0,1fr) auto;
+    gap:10px;align-items:center;padding:10px;
+    border:1px solid rgba(255,255,255,.055);border-radius:10px;
+    background:rgba(255,255,255,.018);
+}
+.file-icon{
+    width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+    background:rgba(56,189,248,.07);border:1px solid rgba(56,189,248,.13);
+}
+.file-meta{min-width:0;}
+.file-name{
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:#e5e7eb;font:600 11px Inter,sans-serif;
+}
+.file-size{margin-top:3px;color:#64748b;font:9px monospace;}
+.file-row-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+.file-row-actions button{padding:7px 9px;font-size:9px;}
+.file-empty{text-align:center;color:#64748b;padding:18px;font:10px monospace;}
+.file-note{margin-top:10px;color:#475569;font:9px monospace;line-height:1.6;}
+@media(max-width:600px){
+    #file-center-card{padding:16px;}
+    .file-upload-zone{min-height:190px;padding:28px 12px;}
+    .file-row{grid-template-columns:34px minmax(0,1fr);}
+    .file-row-actions{grid-column:1 / -1;justify-content:flex-start;}
+    .file-row-actions button{flex:1;min-width:95px;}
+}
+</style>
+
+
+<style>
+/* ===== FILES SEPARATE PAGE ===== */
+body.files-page{min-height:100vh;}
+.files-page #file-center-section{display:block;position:relative;inset:auto;z-index:5;margin:0 auto !important;padding:150px 20px 70px !important;background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;overflow:visible;}
+.files-page #file-center-section .file-modal-shell{width:min(1050px,100%);max-height:none;overflow:visible;margin:0 auto;}
+.files-page #file-center-section .section-title{width:100%;margin:0 auto 16px;font-size:22px;}
+.files-page #file-center-section .file-center-card-wrap{position:relative;}
+.files-page #file-center-close{display:none;}
+.files-page .file-center-card{max-width:1050px;margin:auto;}
+@media(max-width:700px){
+ .files-page #file-center-section{padding:115px 10px 45px !important;}
+ .files-page #file-center-section .section-title{font-size:17px;}
+}
 </style>
 </head>
-<body>
-<header><div class="logo">SHAKH TASHKENTSKI</div><nav><a href="index.html">HOME</a><a href="files.html">FILES</a></nav></header>
+<body class="files-page">
+<canvas id="matrixCanvas"></canvas>
+<div class="lion-bg"></div>
+<div id="datetime-bar"></div>
+<header>
+    <div class="logo-text">SHAKH TASHKENTSKI</div>
+    <div class="nav-links">
+        <a href="about.html">BIO</a>
+        <a href="music.html">BASS</a>
+        <a href="files.html" class="active">FILES</a>
+        <a href="index.html">HOME</a>
+        <button class="mode-toggle" id="modeToggle">NIGHT MODE</button>
+    </div>
+</header>
+<div class="section" id="file-center-section" aria-hidden="true">
+    <div class="file-modal-shell">
+    <div class="section-title">// IT SHAKH FILE CENTER</div>
+    <div class="file-center-card-wrap">
+        <div id="file-center-card">
+        <div class="file-center-head">
+            <div class="file-center-user">ACCOUNT: <b id="file-center-user">GOOGLE LOGIN</b></div>
+            <button class="file-btn" id="file-refresh" type="button">↻ YANGILASH</button>
+        </div>
 
-<div id="login">
-  <div class="loginbox">
-    <div class="loginlogo">🔐</div>
-    <h1>IT SHAKH FILE CENTER</h1>
-    <p>Fayllarni ko‘rish, yuklash va o‘chirish uchun Google orqali kiring.</p>
-    <div class="google-wrap" style="flex-direction:column;gap:12px;align-items:center"><div id="g_id_signin"></div><button id="google-fallback" class="btn primary" type="button" onclick="startGoogleLogin()">GOOGLE LOGIN</button></div>
-    <small>SECURE GOOGLE LOGIN • IT SHAKH STORAGE</small>
-  </div>
+        <label class="file-upload-zone" id="file-drop-zone" for="file-input">
+            <input id="file-input" type="file" multiple>
+            <div class="file-upload-icon">☁</div>
+            <div class="file-upload-title">FAYLLARNI SHU YERGA TASHLANG</div>
+            <div class="file-upload-hint">
+                YOKI BOSIB TANLANG<br>
+                FILE • IMAGE • VIDEO • MUSIC • DOCUMENT • ZIP / RAR<br>
+                MAX: 1 GB / FAYL
+            </div>
+        </label>
+
+        <div class="file-actions">
+            <button class="file-btn primary" id="file-upload-btn" type="button">⬆ UPLOAD</button>
+            <button class="file-btn" id="file-clear-btn" type="button">✕ TOZALASH</button>
+        </div>
+
+        <div class="file-progress-wrap" id="file-progress-wrap">
+            <div class="file-progress-head">
+                <span id="file-progress-name">YUKLANMOQDA...</span>
+                <span id="file-progress-percent">0%</span>
+            </div>
+            <div class="file-progress"><div id="file-progress-bar"></div></div>
+        </div>
+
+        <div class="file-status info" id="file-status">Google orqali kirgandan keyin fayl yuklash mumkin.</div>
+
+        <div class="file-list-wrap">
+            <div class="file-list-head">
+                <span>☁ FILE STORAGE</span>
+                <span id="file-count">0 FILE</span>
+            </div>
+            <div id="file-list"><div class="file-empty">YUKLANMOQDA...</div></div>
+        </div>
+
+        <div class="file-note">
+            Secure Google login • Fayllar IT SHAKH File Center'da saqlanadi.
+        </div>
+    </div>
+    </div>
+    </div>
 </div>
 
-<main>
-  <div class="title">// IT SHAKH FILE CENTER</div>
-  <div class="card">
-    <div class="user">ACCOUNT: <b id="account">GOOGLE LOGIN</b></div>
-    <label class="drop" id="drop" for="fileInput">
-      <input id="fileInput" type="file" multiple>
-      <div class="icon">☁</div>
-      <strong>FAYLLARNI SHU YERGA TASHLANG</strong>
-      <div class="hint">YOKI BOSIB TANLANG<br>FILE • IMAGE • VIDEO • MUSIC • DOCUMENT • ZIP / RAR<br>MAX: 1 GB / FAYL</div>
-    </label>
-    <div class="actions">
-      <button class="btn primary" id="upload">⬆ UPLOAD</button>
-      <button class="btn" id="clear">✕ TOZALASH</button>
-      <button class="btn" id="refresh">↻ YANGILASH</button>
-      <button class="btn" id="logout">⇥ CHIQISH</button>
-    </div>
-    <div class="progress" id="progress"><div class="ph"><span id="pname">YUKLANMOQDA...</span><span id="ppct">0%</span></div><div class="bar"><i id="pbar"></i></div></div>
-    <div class="status" id="status">Google orqali kirgandan keyin fayl yuklash mumkin.</div>
-    <div class="list-head"><span>☁ FILE STORAGE</span><span id="count">0 FILE</span></div>
-    <div class="list" id="list"><div class="empty">GOOGLE LOGIN KUTILMOQDA...</div></div>
-  </div>
-</main>
-<footer>© 2026 Shakh Tashkentski • IT SHAKH</footer>
-
 <script>
-const CLIENT_ID='506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
-const FILE_API='https://files.shakhtashkentski66.uz';
-const MAX=1024*1024*1024, SIMPLE=80*1024*1024, PART=50*1024*1024;
-const $=id=>document.getElementById(id);
-function user(){try{return JSON.parse(localStorage.getItem('it_shakh_google_user')||'null')}catch(e){return null}}
-function token(){const u=user();return u&&u.credential?u.credential:''}
-function headers(extra={}){const t=token();return t?Object.assign({'X-Google-Token':t},extra):extra}
-function status(m,t=''){ $('status').textContent=m;$('status').className='status '+t }
-function size(n){if(n<1024)return n+' B';if(n<1048576)return(n/1024).toFixed(1)+' KB';if(n<1073741824)return(n/1048576).toFixed(1)+' MB';return(n/1073741824).toFixed(2)+' GB'}
-function icon(n){if(/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(n))return'🖼️';if(/\.(mp4|mkv|avi|mov|webm|m4v)$/i.test(n))return'🎬';if(/\.(mp3|wav|flac|ogg|m4a|aac)$/i.test(n))return'🎵';if(/\.(zip|rar|7z|tar|gz)$/i.test(n))return'📦';if(/\.(pdf|docx?|xlsx?|pptx?|txt|csv)$/i.test(n))return'📄';return'📁'}
-function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])}
-function need(){if(!token()){status('Google login required — avval Google orqali kiring.','err');return false}return true}
-async function load(){
- if(!need())return;
- $('list').innerHTML='<div class="empty">YUKLANMOQDA...</div>';
- try{const r=await fetch(FILE_API+'/list',{headers:headers()});const d=await r.json();if(!r.ok||!d.success)throw Error(d.error||'Fayllarni olishda xato');const fs=Array.isArray(d.files)?d.files:[];$('count').textContent=fs.length+' FILE';
- if(!fs.length){$('list').innerHTML='<div class="empty">FILE STORAGE HOZIRCHA BO‘SH.</div>';return}
- fs.sort((a,b)=>new Date(b.uploaded)-new Date(a.uploaded));
- $('list').innerHTML=fs.map(f=>{const e=encodeURIComponent(f.name);return `<div class="row"><div class="ico">${icon(f.name)}</div><div><div class="name" title="${esc(f.name)}">${esc(f.name)}</div><div class="size">${size(Number(f.size)||0)} • ${new Date(f.uploaded).toLocaleString('uz-UZ')}</div></div><div class="row-actions"><button class="btn" data-open="${e}">↗ OCHISH</button><button class="btn danger" data-del="${e}">🗑 O‘CHIRISH</button></div></div>`}).join('')
- }catch(e){$('list').innerHTML='<div class="empty">STORAGE BILAN ULANIB BO‘LMADI.</div>';status('XATO: '+(e.message||'Noma’lum xato'),'err')}
-}
-function xhr(url,method,body,t,ct,progress,extra={}){
- return new Promise((res,rej)=>{const x=new XMLHttpRequest();x.open(method,url,true);if(t)x.setRequestHeader('X-Google-Token',t);if(ct)x.setRequestHeader('Content-Type',ct);Object.entries(extra).forEach(([k,v])=>x.setRequestHeader(k,v));x.upload.onprogress=e=>{if(e.lengthComputable&&progress)progress(e.loaded,e.total)};x.onload=()=>{let d={};try{d=JSON.parse(x.responseText||'{}')}catch(e){}if(x.status>=200&&x.status<300)res(d);else rej(Error(d.error||x.responseText||'Server xatosi ('+x.status+')'))};x.onerror=()=>rej(Error('Tarmoq xatosi yoki CORS muammosi.'));x.onabort=()=>rej(Error('Upload bekor qilindi.'));x.send(body)})
-}
-async function uploadSimple(f){
- const k=encodeURIComponent(f.name);return xhr(FILE_API+'/upload/'+k,'PUT',f,token(),f.type||'application/octet-stream',(a,b)=>{let p=Math.round(a/b*100);$('pbar').style.width=p+'%';$('ppct').textContent=p+'%'})
-}
-async function uploadMultipart(f){
- const t=token(),k=encodeURIComponent(f.name);const c=await xhr(FILE_API+'/multipart/'+k+'?action=mpu-create','POST',null,t,'application/json',null,{'X-File-Type':f.type||'application/octet-stream'});if(!c.uploadId)throw Error('Multipart upload ID olinmadi.');const id=c.uploadId,total=Math.ceil(f.size/PART),parts=[];let done=0;
- try{for(let i=0;i<total;i++){const start=i*PART,end=Math.min(start+PART,f.size),chunk=f.slice(start,end),no=i+1;const r=await xhr(FILE_API+'/multipart/'+k+'?action=mpu-uploadpart&uploadId='+encodeURIComponent(id)+'&partNumber='+no,'PUT',chunk,t,'application/octet-stream',(a,b)=>{let p=Math.round((done+a)/f.size*100);$('pbar').style.width=p+'%';$('ppct').textContent=p+'%'});if(!r.etag)throw Error('Part '+no+' ETag olinmadi.');parts.push({partNumber:r.partNumber||no,etag:r.etag});done=end}return xhr(FILE_API+'/multipart/'+k+'?action=mpu-complete&uploadId='+encodeURIComponent(id),'POST',JSON.stringify({parts}),t,'application/json',null)
- }catch(e){try{await xhr(FILE_API+'/multipart/'+k+'?action=mpu-abort&uploadId='+encodeURIComponent(id),'DELETE',null,t,'application/json',null)}catch(_){}throw e}
-}
-async function uploadFile(f){if(f.size>MAX)throw Error(f.name+' — 1 GB dan katta.');return f.size>SIMPLE?uploadMultipart(f):uploadSimple(f)}
-async function uploadSelected(){if(!need())return;const fs=Array.from($('fileInput').files||[]);if(!fs.length){status('Avval fayl tanlang.','err');return} $('upload').disabled=true;$('clear').disabled=true;$('progress').classList.add('show');let done=0;
- for(const f of fs){$('pname').textContent=f.name;$('pbar').style.width='0%';$('ppct').textContent='0%';status('Yuklanmoqda: '+f.name);try{await uploadFile(f);done++;status('✓ '+f.name+' yuklandi.','ok')}catch(e){status('✕ '+e.message,'err')}}
- $('fileInput').value='';$('upload').disabled=false;$('clear').disabled=false;$('progress').classList.remove('show');await load();if(done)status(done+' ta fayl muvaffaqiyatli yuklandi.','ok')
-}
-function login(cred){let p={};try{p=JSON.parse(atob(cred.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){}localStorage.setItem('it_shakh_google_user',JSON.stringify({credential:cred,email:p.email||'',name:p.name||p.email||'GOOGLE USER',picture:p.picture||''}));$('login').style.display='none';$('account').textContent=p.name||p.email||'GOOGLE USER';status('Google login muvaffaqiyatli.','ok');load()}
-window.handleCredentialResponse=r=>login(r.credential);
-window.initGoogleLogin=function(){
-  try{
-    if(!window.google||!google.accounts||!google.accounts.id) throw Error('Google Identity Services yuklanmadi');
-    google.accounts.id.initialize({client_id:CLIENT_ID,callback:handleCredentialResponse,auto_select:false});
-    const box=$('g_id_signin');
-    box.innerHTML='';
-    google.accounts.id.renderButton(box,{theme:'filled_blue',size:'large',shape:'pill',text:'signin_with',width:280});
-    $('google-fallback').style.display='none';
-  }catch(e){
-    console.error(e);
-    $('google-fallback').style.display='inline-flex';
-    $('google-fallback').textContent='GOOGLE LOGIN';
-  }
-};
-window.addEventListener('load',()=>{
-  const u=user();
-  if(u&&u.credential){
-    $('login').style.display='none';
-    $('account').textContent=u.name||u.email||'GOOGLE USER';
-    load();
-  }else{
-    setTimeout(()=>{if(window.google?.accounts?.id)initGoogleLogin();},1500);
-  }
-});
-window.startGoogleLogin=function(){
-  if(window.google?.accounts?.id){
-    try{ google.accounts.id.prompt(); }catch(e){ initGoogleLogin(); }
-  }else{
-    status('Google Login yuklanmadi. Internet yoki Google bloklanishini tekshiring.','err');
-  }
-}
-$('upload').onclick=uploadSelected;$('refresh').onclick=load;$('clear').onclick=()=>{$('fileInput').value='';status('Tanlangan fayllar tozalandi.','info')};$('logout').onclick=()=>{localStorage.removeItem('it_shakh_google_user');location.reload()};
-$('drop').addEventListener('dragover',e=>{e.preventDefault();$('drop').classList.add('drag')});$('drop').addEventListener('dragleave',()=>$('drop').classList.remove('drag'));$('drop').addEventListener('drop',e=>{e.preventDefault();$('drop').classList.remove('drag');try{$('fileInput').files=e.dataTransfer.files;status(e.dataTransfer.files.length+' ta fayl tanlandi.')}catch(_){}});
-$('fileInput').addEventListener('change',()=>{if($('fileInput').files.length)status($('fileInput').files.length+' ta fayl tanlandi.')});
-$('list').addEventListener('click',async e=>{const o=e.target.closest('[data-open]'),d=e.target.closest('[data-del]');if(o){if(!need())return;const n=decodeURIComponent(o.dataset.open);o.disabled=true;try{const r=await fetch(FILE_API+'/file/'+encodeURIComponent(n),{headers:headers()});if(!r.ok)throw Error(await r.text());const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=n.split('/').pop()||n;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1500);status('✓ Fayl tayyor: '+n,'ok')}catch(x){status('✕ '+x.message,'err')}finally{o.disabled=false}}
-if(d){if(!need())return;const n=decodeURIComponent(d.dataset.del);if(!confirm('“'+n+'” faylini o‘chirishni xohlaysizmi?'))return;d.disabled=true;try{const r=await fetch(FILE_API+'/file/'+encodeURIComponent(n),{method:'DELETE',headers:headers()});const j=await r.json();if(!r.ok||!j.success)throw Error(j.error||'O‘chirishda xato');status('✓ Fayl o‘chirildi.','ok');load()}catch(x){d.disabled=false;status('✕ '+x.message,'err')}}})
+/* ===== NIGHT PROTOCOL — MATRIX HACKER BACKGROUND ===== */
+(function(){
+    const canvas = document.getElementById('matrixCanvas');
+    if(!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let w=0,h=0,cols=[],raf=0;
+    const chars = '01ABCDEFGHIJKLMNOPQRSTUVWXYZ#$%<>[]{}\\/|░▒▓ ACCESS DENIED TRACE ROOT KERNEL';
+    function resize(){
+        const dpr=Math.min(window.devicePixelRatio||1,2);
+        w=window.innerWidth; h=window.innerHeight;
+        canvas.width=w*dpr; canvas.height=h*dpr;
+        canvas.style.width=w+'px'; canvas.style.height=h+'px';
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        const count=Math.ceil(w/15);
+        cols=Array.from({length:count},(_,i)=>({x:i*15,y:Math.random()*h/15, speed:.18+Math.random()*0.42, size:11+Math.random()*5, glitch:Math.random()}));
+    }
+    function draw(){
+        ctx.fillStyle='rgba(0,0,0,.115)'; ctx.fillRect(0,0,w,h);
+        const night=document.body.classList.contains('night-mode');
+        if(!night){ raf=requestAnimationFrame(draw); return; }
+        for(const c of cols){
+            const n=chars[Math.floor(Math.random()*chars.length)];
+            ctx.font=`${Math.floor(c.size)}px monospace`;
+            const bright=Math.random()>.94;
+            ctx.fillStyle=bright?'rgba(210,255,220,.95)':'rgba(0,255,65,.62)';
+            ctx.shadowBlur=bright?12:5; ctx.shadowColor='#00ff41';
+            ctx.fillText(n,c.x,c.y*15);
+            ctx.shadowBlur=0;
+            c.y += c.speed;
+            if(c.y*15>h+80) { c.y=-Math.random()*20; c.speed=.18+Math.random()*0.42; }
+        }
+        // occasional terminal-style warning flashes
+        if(Math.random()<.018){
+            ctx.save(); ctx.font='700 12px monospace'; ctx.fillStyle='rgba(0,255,65,.75)';
+            ctx.shadowBlur=14; ctx.shadowColor='#00ff41';
+            const msg=['[!] INTRUSION DETECTED','[!] TRACE RUNNING','[!] ROOT ACCESS','[!] FIREWALL BYPASS','[!] UNKNOWN PROCESS'][Math.floor(Math.random()*5)];
+            ctx.fillText(msg,18+Math.random()*w*.55,80+Math.random()*h*.75);
+            ctx.restore();
+        }
+        raf=requestAnimationFrame(draw);
+    }
+    resize(); window.addEventListener('resize',resize,{passive:true});
+    draw();
+})();
+
+/* ===== IT SHAKH FILE CENTER — CLOUDFLARE R2 ===== */
+(function(){
+    const FILE_API = 'https://files.shakhtashkentski66.uz';
+    const MAX_FILE_SIZE = 1024 * 1024 * 1024;
+    const SIMPLE_UPLOAD_LIMIT = 80 * 1024 * 1024;
+    const MULTIPART_PART_SIZE = 50 * 1024 * 1024;
+
+    const input = document.getElementById('file-input');
+    const zone = document.getElementById('file-drop-zone');
+    const uploadBtn = document.getElementById('file-upload-btn');
+    const clearBtn = document.getElementById('file-clear-btn');
+    const refreshBtn = document.getElementById('file-refresh');
+    const list = document.getElementById('file-list');
+    const count = document.getElementById('file-count');
+    const status = document.getElementById('file-status');
+    const userBox = document.getElementById('file-center-user');
+    const progressWrap = document.getElementById('file-progress-wrap');
+    const progressBar = document.getElementById('file-progress-bar');
+    const progressName = document.getElementById('file-progress-name');
+    const progressPercent = document.getElementById('file-progress-percent');
+
+    if(!input || !zone) return;
+
+    function getUser(){
+        try{return JSON.parse(localStorage.getItem('it_shakh_google_user') || 'null')}catch(e){return null}
+    }
+    function getToken(){
+        const u=getUser();
+        return u && u.credential ? u.credential : '';
+    }
+    function setStatus(msg,type='info'){
+        status.textContent=msg;
+        status.className='file-status '+type;
+    }
+    function formatSize(bytes){
+        if(bytes < 1024) return bytes+' B';
+        if(bytes < 1024*1024) return (bytes/1024).toFixed(1)+' KB';
+        if(bytes < 1024*1024*1024) return (bytes/1024/1024).toFixed(1)+' MB';
+        return (bytes/1024/1024/1024).toFixed(2)+' GB';
+    }
+    function iconFor(name){
+        const n=name.toLowerCase();
+        if(/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(n)) return '🖼️';
+        if(/\.(mp4|mkv|avi|mov|webm|m4v)$/i.test(n)) return '🎬';
+        if(/\.(mp3|wav|flac|ogg|m4a|aac)$/i.test(n)) return '🎵';
+        if(/\.(zip|rar|7z|tar|gz)$/i.test(n)) return '📦';
+        if(/\.(pdf|docx?|xlsx?|pptx?|txt|csv)$/i.test(n)) return '📄';
+        return '📁';
+    }
+    function safe(s){
+        return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function authHeaders(extra={}){
+        const token=getToken();
+        return token ? Object.assign({'Authorization':'Bearer '+token},extra) : extra;
+    }
+    function requireLogin(){
+        if(!getToken()){
+            setStatus('Google login required — avval Google orqali kiring.','err');
+            return false;
+        }
+        return true;
+    }
+
+    async function loadFiles(){
+        if(!requireLogin()){
+            list.innerHTML='<div class="file-empty">GOOGLE LOGIN TALAB QILINADI.</div>';
+            count.textContent='0 FILE';
+            return;
+        }
+        list.innerHTML='<div class="file-empty">YUKLANMOQDA...</div>';
+        try{
+            const r=await fetch(FILE_API+'/list',{headers:authHeaders()});
+            const data=await r.json();
+            if(!r.ok || !data.success) throw new Error(data.error||'Fayllarni olishda xato');
+            const files=Array.isArray(data.files)?data.files:[];
+            count.textContent=files.length+' FILE';
+            if(!files.length){
+                list.innerHTML='<div class="file-empty">FILE STORAGE HOZIRCHA BO‘SH.</div>';
+                return;
+            }
+            files.sort((a,b)=>new Date(b.uploaded)-new Date(a.uploaded));
+            list.innerHTML=files.map(f=>{
+                const encoded=encodeURIComponent(f.name);
+                return `<div class="file-row">
+                    <div class="file-icon">${iconFor(f.name)}</div>
+                    <div class="file-meta">
+                        <div class="file-name" title="${safe(f.name)}">${safe(f.name)}</div>
+                        <div class="file-size">${formatSize(Number(f.size)||0)} • ${new Date(f.uploaded).toLocaleString('uz-UZ')}</div>
+                    </div>
+                    <div class="file-row-actions">
+                        <button class="file-btn" type="button" data-download="${encoded}">↗ OCHISH</button>
+                        <button class="file-btn danger" type="button" data-delete="${encoded}">🗑 O‘CHIRISH</button>
+                    </div>
+                </div>`;
+            }).join('');
+        }catch(e){
+            list.innerHTML='<div class="file-empty">STORAGE BILAN ULANIB BO‘LMADI.</div>';
+            setStatus('XATO: '+(e.message||'Noma’lum xato'),'err');
+        }
+    }
+
+    function xhrUpload(url, method, body, token, contentType, onprogress, extraHeaders={}){
+        return new Promise((resolve,reject)=>{
+            const xhr=new XMLHttpRequest();
+            xhr.open(method,url,true);
+            if(token) xhr.setRequestHeader('Authorization','Bearer '+token);
+            if(contentType) xhr.setRequestHeader('Content-Type',contentType);
+            Object.entries(extraHeaders).forEach(([k,v])=>xhr.setRequestHeader(k,v));
+            xhr.upload.onprogress=e=>{ if(e.lengthComputable && onprogress) onprogress(e.loaded,e.total); };
+            xhr.onload=()=>{
+                let data={};
+                try{data=JSON.parse(xhr.responseText||'{}');}catch(e){}
+                if(xhr.status>=200 && xhr.status<300) resolve(data);
+                else reject(new Error(data.error||xhr.responseText||('Server xatosi ('+xhr.status+')')));
+            };
+            xhr.onerror=()=>reject(new Error('Tarmoq xatosi yoki CORS muammosi.'));
+            xhr.onabort=()=>reject(new Error('Upload bekor qilindi.'));
+            xhr.send(body);
+        });
+    }
+
+    async function uploadSimple(file){
+        const token=getToken();
+        const key=encodeURIComponent(file.name);
+        return xhrUpload(
+            FILE_API+'/upload/'+key,
+            'PUT',file,token,file.type||'application/octet-stream',
+            (loaded,total)=>{
+                const pct=Math.round((loaded/total)*100);
+                progressBar.style.width=pct+'%';
+                progressPercent.textContent=pct+'%';
+            }
+        );
+    }
+
+    async function uploadMultipart(file){
+        const token=getToken();
+        const key=encodeURIComponent(file.name);
+        const create=await xhrUpload(
+            FILE_API+'/multipart/'+key+'?action=mpu-create',
+            'POST',null,token,'application/json',null,{'X-File-Type':file.type||'application/octet-stream'}
+        );
+        if(!create.uploadId) throw new Error('Multipart upload ID olinmadi.');
+        const uploadId=create.uploadId;
+        const totalParts=Math.ceil(file.size/MULTIPART_PART_SIZE);
+        const parts=[];
+        let completedBytes=0;
+        try{
+            for(let i=0;i<totalParts;i++){
+                const start=i*MULTIPART_PART_SIZE;
+                const end=Math.min(start+MULTIPART_PART_SIZE,file.size);
+                const chunk=file.slice(start,end);
+                const partNo=i+1;
+                const result=await xhrUpload(
+                    FILE_API+'/multipart/'+key+'?action=mpu-uploadpart&uploadId='+encodeURIComponent(uploadId)+'&partNumber='+partNo,
+                    'PUT',chunk,token,'application/octet-stream',
+                    (loaded,total)=>{
+                        const pct=Math.round(((completedBytes+loaded)/file.size)*100);
+                        progressBar.style.width=pct+'%';
+                        progressPercent.textContent=pct+'%';
+                    }
+                );
+                if(!result.etag) throw new Error('Part '+partNo+' ETag olinmadi.');
+                parts.push({partNumber:result.partNumber||partNo,etag:result.etag});
+                completedBytes=end;
+            }
+            return await xhrUpload(
+                FILE_API+'/multipart/'+key+'?action=mpu-complete&uploadId='+encodeURIComponent(uploadId),
+                'POST',JSON.stringify({parts}),token,'application/json'
+            );
+        }catch(err){
+            try{
+                await xhrUpload(
+                    FILE_API+'/multipart/'+key+'?action=mpu-abort&uploadId='+encodeURIComponent(uploadId),
+                    'DELETE',null,token,'application/json'
+                );
+            }catch(e){}
+            throw err;
+        }
+    }
+
+    async function uploadOne(file){
+        if(file.size > MAX_FILE_SIZE){
+            throw new Error(file.name+' — 1 GB dan katta.');
+        }
+        // Cloudflare Free/Pro request bodies are limited to 100 MB.
+        // Files above 80 MB use R2 multipart upload, with 50 MB parts.
+        if(file.size > SIMPLE_UPLOAD_LIMIT) return uploadMultipart(file);
+        return uploadSimple(file);
+    }
+
+    async function uploadSelected(){
+        if(!requireLogin()) return;
+        const files=Array.from(input.files||[]);
+        if(!files.length){
+            setStatus('Avval fayl tanlang.','err');
+            return;
+        }
+        uploadBtn.disabled=true;
+        clearBtn.disabled=true;
+        progressWrap.classList.add('show');
+        let done=0;
+        for(const file of files){
+            progressBar.style.width='0%';
+            progressPercent.textContent='0%';
+            progressName.textContent=file.name;
+            setStatus('Yuklanmoqda: '+file.name,'info');
+            try{
+                await uploadOne(file);
+                done++;
+                setStatus('✓ '+file.name+' yuklandi.','ok');
+            }catch(e){
+                setStatus('✕ '+e.message,'err');
+            }
+        }
+        input.value='';
+        uploadBtn.disabled=false;
+        clearBtn.disabled=false;
+        progressWrap.classList.remove('show');
+        await loadFiles();
+        if(done) setStatus(done+' ta fayl muvaffaqiyatli yuklandi.','ok');
+    }
+
+    zone.addEventListener('dragover',e=>{
+        e.preventDefault(); zone.classList.add('dragover');
+    });
+    zone.addEventListener('dragleave',()=>zone.classList.remove('dragover'));
+    zone.addEventListener('drop',e=>{
+        e.preventDefault(); zone.classList.remove('dragover');
+        try{
+            input.files=e.dataTransfer.files;
+            setStatus(input.files.length+' ta fayl tanlandi.','info');
+        }catch(err){}
+    });
+    input.addEventListener('change',()=>{
+        if(input.files.length) setStatus(input.files.length+' ta fayl tanlandi.','info');
+    });
+    uploadBtn.addEventListener('click',uploadSelected);
+    clearBtn.addEventListener('click',()=>{
+        input.value='';
+        progressWrap.classList.remove('show');
+        setStatus('Tanlangan fayllar tozalandi.','info');
+    });
+    refreshBtn.addEventListener('click',loadFiles);
+
+    list.addEventListener('click',async e=>{
+        const open=e.target.closest('[data-download]');
+        const del=e.target.closest('[data-delete]');
+        if(open){
+            if(!requireLogin()) return;
+            const name=decodeURIComponent(open.dataset.download);
+            const btn=open;
+            btn.disabled=true;
+            setStatus('Yuklanmoqda: '+name,'info');
+            try{
+                const r=await fetch(FILE_API+'/file/'+encodeURIComponent(name),{
+                    headers:authHeaders()
+                });
+                if(!r.ok) throw new Error((await r.text()) || ('Faylni ochishda xato ('+r.status+')'));
+                const blob=await r.blob();
+                const objectUrl=URL.createObjectURL(blob);
+                const a=document.createElement('a');
+                a.href=objectUrl;
+                a.download=name.split('/').pop() || name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(()=>URL.revokeObjectURL(objectUrl),1500);
+                setStatus('✓ Fayl tayyor: '+name,'ok');
+            }catch(err){
+                setStatus('✕ '+(err.message||'Faylni ochishda xato'),'err');
+            }finally{
+                btn.disabled=false;
+            }
+        }
+        if(del){
+            if(!requireLogin()) return;
+            const name=decodeURIComponent(del.dataset.delete);
+            if(!confirm('“'+name+'” faylini o‘chirishni xohlaysizmi?')) return;
+            del.disabled=true;
+            try{
+                const r=await fetch(FILE_API+'/file/'+encodeURIComponent(name),{
+                    method:'DELETE',headers:authHeaders()
+                });
+                const data=await r.json();
+                if(!r.ok || !data.success) throw new Error(data.error||'O‘chirishda xato');
+                setStatus('✓ Fayl o‘chirildi: '+name,'ok');
+                loadFiles();
+            }catch(err){
+                del.disabled=false;
+                setStatus('✕ '+(err.message||'O‘chirishda xato'),'err');
+            }
+        }
+    });
+
+    function updateUser(){
+        const u=getUser();
+        userBox.textContent=u && u.name ? u.name : 'GOOGLE LOGIN';
+    }
+    updateUser();
+    window.addEventListener('storage',updateUser);
+    setTimeout(loadFiles,700);
+})();
+
+    
+// Simple page clock
+(function(){const el=document.getElementById('datetime-bar'); if(!el)return; function tick(){const d=new Date(); el.textContent=d.toLocaleDateString('uz-UZ',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})+' | '+d.toLocaleTimeString('uz-UZ');} tick(); setInterval(tick,1000);})();
+// Night mode
+(function(){const b=document.body,btn=document.getElementById('modeToggle'); if(!btn)return; const on=localStorage.getItem('it_shakh_night_mode')==='1'; if(on)b.classList.add('night-mode'); btn.addEventListener('click',()=>{b.classList.toggle('night-mode');localStorage.setItem('it_shakh_night_mode',b.classList.contains('night-mode')?'1':'0');});})();
 </script>
 </body>
 </html>
