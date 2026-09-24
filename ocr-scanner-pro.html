@@ -54,7 +54,7 @@ textarea{min-height:430px;resize:vertical;font-family:Consolas,monospace;line-he
 <div class="log" id="log"></div>
 
 <div class="hint">
-<strong>Supported extraction:</strong> OCR is used for images and scanned PDF pages.
+<strong>Image OCR:</strong> PNG/JPG/JPEG/WEBP/BMP/GIF/TIFF rasmlardan haqiqiy OCR orqali matn ajratiladi. Skanerlangan PDF sahifalari ham OCR qilinadi.
 Text-based PDF/DOCX/XLSX/PPTX/TXT/CSV/JSON/HTML/XML/RTF files are parsed directly when possible.
 Encrypted/password-protected or unsupported proprietary formats may require conversion first.
 </div>
@@ -95,13 +95,26 @@ async function loadScript(url){
  });
 }
 async function ocrImage(blob){
- await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
- const lang=$("lang").value;
- const worker=await Tesseract.createWorker(lang);
- const result=await worker.recognize(blob);
- const text=result.data.text||"";
- await worker.terminate();
- return text;
+  await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
+  if(!window.Tesseract) throw new Error("Tesseract OCR engine could not be loaded.");
+
+  let lang=$("lang").value;
+  // Tesseract's language packs are loaded separately. Keep combinations explicit.
+  const worker=await Tesseract.createWorker(lang,{
+    logger:m=>{
+      if(m.status==="loading tesseract core") status("Loading OCR engine...");
+      else if(m.status==="loading language traineddata") status("Loading OCR language...");
+      else if(m.status==="recognizing text" && typeof m.progress==="number")
+        status("OCR: "+Math.round(m.progress*100)+"%");
+    }
+  });
+
+  try{
+    const result=await worker.recognize(blob);
+    return (result.data && result.data.text) ? result.data.text : "";
+  }finally{
+    await worker.terminate();
+  }
 }
 async function pdfText(file){
  await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs");
@@ -148,7 +161,9 @@ async function genericText(file){
 }
 async function extract(file){
  const ext=(file.name.split(".").pop()||"").toLowerCase();
- if(file.type.startsWith("image/")||["png","jpg","jpeg","webp","bmp","gif","tif","tiff"].includes(ext)) return await ocrImage(file);
+ if(file.type.startsWith("image/") || ["png","jpg","jpeg","webp","bmp","gif","tif","tiff"].includes(ext)) {
+    return await ocrImage(file);
+  }
  if(ext==="pdf") return await pdfText(file);
  if(ext==="docx") return await docxText(file);
  if(ext==="xlsx"||ext==="xls") return await xlsxText(file);
