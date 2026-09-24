@@ -596,80 +596,275 @@ function grid(w,h){ /* Frequency grid and Hz labels intentionally disabled. */ }
 
 // Extra visual modes layered on top of the existing renderer.
 
-function drawVariantStyle(w,h,v,mode,bars,sens,glow){
-  if(!v) return;
-  const seed=v*97;
-  const phase=performance.now()/1000*(0.35+(v%7)*0.09);
-  const hue0=(hue + v*47)%360;
-  const ctx=X;
-  ctx.save();
-  ctx.globalCompositeOperation=(v%4===0)?'screen':'lighter';
-  ctx.shadowBlur=Math.max(4,glow*(0.45+(v%6)*0.12));
 
-  // 24 distinct visual families. Every numbered preset uses one family,
-  // while its underlying mode (bars/mirror/wave/circle/...) remains different.
-  if(v===1){ // NEON GRID
-    ctx.strokeStyle=`hsla(${hue0},100%,65%,.32)`; ctx.lineWidth=1;
-    for(let x=0;x<w;x+=36){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
-    for(let y=0;y<h;y+=36){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
-  }else if(v===2){ // CYBER SCAN
-    const y=(phase*110)%h;
-    ctx.fillStyle=`hsla(${hue0},100%,60%,.16)`;ctx.fillRect(0,y,w,3);
-    ctx.fillStyle=`hsla(${(hue0+170)%360},100%,70%,.08)`;
-    for(let x=0;x<w;x+=22)ctx.fillRect(x,0,1,h);
-  }else if(v===3){ // LASER RAYS
-    ctx.lineWidth=2;
-    for(let i=0;i<12;i++){const a=phase*.4+i*Math.PI/6;ctx.strokeStyle=`hsla(${hue0+i*18},100%,65%,.22)`;ctx.beginPath();ctx.moveTo(w/2,h/2);ctx.lineTo(w/2+Math.cos(a)*w,h/2+Math.sin(a)*h);ctx.stroke()}
-  }else if(v===4){ // AURORA WAVES
-    ctx.lineWidth=3;
-    for(let j=0;j<5;j++){ctx.strokeStyle=`hsla(${(hue0+j*35)%360},100%,65%,.18)`;ctx.beginPath();for(let x=0;x<=w;x+=8){const y=h*(.15+j*.18)+Math.sin(x*.012+phase+j)*28;if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke()}
-  }else if(v===5){ // ELECTRIC HEX
-    ctx.strokeStyle=`hsla(${hue0},100%,70%,.2)`;ctx.lineWidth=1;
-    const r=22,dy=r*1.73;
-    for(let y=-r;y<h+r;y+=dy)for(let x=-r;x<w+r;x+=r*3){const xx=x+((Math.round(y/dy)%2)*r*1.5);ctx.beginPath();for(let k=0;k<6;k++){const a=Math.PI/3*k;const px=xx+Math.cos(a)*r,py=y+Math.sin(a)*r;k?ctx.lineTo(px,py):ctx.moveTo(px,py)}ctx.closePath();ctx.stroke()}
-  }else if(v===6){ // PLASMA BLOBS
-    for(let i=0;i<18;i++){const a=phase*.25+i*2.4,rad=30+((i*31)%90),x=w*(.5+.42*Math.cos(a+i)),y=h*(.5+.38*Math.sin(a*.8+i));const g=ctx.createRadialGradient(x,y,0,x,y,rad);g.addColorStop(0,`hsla(${(hue0+i*20)%360},100%,65%,.18)`);g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,rad,0,Math.PI*2);ctx.fill()}
-  }else if(v===7){ // GLASS RINGS
-    for(let i=1;i<=9;i++){const r=Math.min(w,h)*(.05+i*.045);ctx.strokeStyle=`hsla(${(hue0+i*24)%360},100%,75%,${.06+i*.018})`;ctx.lineWidth=1+i%3;ctx.beginPath();ctx.arc(w/2,h/2,r+Math.sin(phase+i)*6,0,Math.PI*2);ctx.stroke()}
-  }else if(v===8){ // FIRE EMBERS
-    for(let i=0;i<70;i++){const x=(i*97+phase*55*(1+i%3))%w,y=(h-(i*53+phase*80*(1+i%4))%h);const rr=1+(i%4);ctx.fillStyle=`hsla(${20+(i%6)*12},100%,${55+i%25}%,.35)`;ctx.beginPath();ctx.arc(x,y,rr,0,Math.PI*2);ctx.fill()}
-  }else if(v===9){ // OCEAN BUBBLES
-    for(let i=0;i<55;i++){const x=(i*83)%w,y=(h-(phase*35+i*29)%h);const r=2+(i%7);ctx.strokeStyle=`hsla(${185+(i%5)*12},100%,70%,.28)`;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.stroke()}
-  }else if(v===10){ // MATRIX RAIN
-    ctx.font='12px monospace';
-    for(let x=8;x<w;x+=18){const n=4+(x+seed)%13;for(let j=0;j<n;j++){const y=((phase*120+x*3+j*24)% (h+100))-50;ctx.fillStyle=`hsla(${hue0},100%,${45+(j%5)*9}%,${.12+j/n*.65})`;ctx.fillText((j+x)%3?'1':'0',x,y)}}
-  }else if(v===11){ // VORTEX
-    ctx.lineWidth=2;
-    for(let i=0;i<30;i++){let a=i*.21+phase,r=i*Math.min(w,h)/65;let x=w/2+Math.cos(a)*r,y=h/2+Math.sin(a)*r;ctx.strokeStyle=`hsla(${(hue0+i*9)%360},100%,65%,.2)`;ctx.beginPath();ctx.arc(x,y,6+i*.7,a,a+Math.PI*.7);ctx.stroke()}
-  }else if(v===12){ // STARFIELD
-    for(let i=0;i<150;i++){const x=(i*137+seed*3)%w,y=(i*71+seed)%h,r=.5+(i%4);ctx.fillStyle=`hsla(${hue0},100%,${60+(i%30)}%,${.18+(i%5)*.08})`;ctx.fillRect(x,y,r,r)}
-  }else if(v===13){ // DIGITAL EQUALIZER GRID
-    for(let i=0;i<bars;i+=3){const x=i*w/bars;const v0=fd?fd[Math.min(fd.length-1,Math.floor(i/bars*fd.length))]/255:0;const hh=8+v0*h*.25;ctx.fillStyle=`hsla(${hue0+i%80},100%,60%,.12)`;ctx.fillRect(x,h-hh,2,hh)}
-  }else if(v===14){ // SUN BURST
-    ctx.lineWidth=1;
-    for(let i=0;i<64;i++){const a=i/64*Math.PI*2+phase*.1;const r=Math.min(w,h)*.46;ctx.strokeStyle=`hsla(${(hue0+i*5)%360},100%,65%,.16)`;ctx.beginPath();ctx.moveTo(w/2,h/2);ctx.lineTo(w/2+Math.cos(a)*r,h/2+Math.sin(a)*r);ctx.stroke()}
-  }else if(v===15){ // DIAGONAL SHARDS
-    ctx.lineWidth=2;
-    for(let i=-h;i<w;i+=32){ctx.strokeStyle=`hsla(${(hue0+i)%360},100%,70%,.18)`;ctx.beginPath();ctx.moveTo(i+((phase*20)%32),0);ctx.lineTo(i+h+((phase*20)%32),h);ctx.stroke()}
-  }else if(v===16){ // NEON FRAME
-    const m=18+Math.sin(phase)*6;ctx.strokeStyle=`hsla(${hue0},100%,65%,.65)`;ctx.lineWidth=3;ctx.shadowColor=ctx.strokeStyle;ctx.strokeRect(m,m,w-2*m,h-2*m);ctx.strokeStyle=`hsla(${(hue0+120)%360},100%,65%,.35)`;ctx.lineWidth=1;ctx.strokeRect(m+10,m+10,w-2*m-20,h-2*m-20)
-  }else if(v===17){ // COLOR BARS
-    for(let i=0;i<12;i++){ctx.fillStyle=`hsla(${(hue0+i*30)%360},100%,60%,.08)`;ctx.fillRect(i*w/12,0,w/24,h)}
-  }else if(v===18){ // RADAR
-    const cx=w/2,cy=h/2;ctx.strokeStyle=`hsla(${hue0},100%,65%,.28)`;ctx.lineWidth=1;for(let i=1;i<5;i++){ctx.beginPath();ctx.arc(cx,cy,i*Math.min(w,h)*.1,0,Math.PI*2);ctx.stroke()}const a=phase*.7;ctx.strokeStyle=`hsla(${hue0},100%,70%,.8)`;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(a)*w,cy+Math.sin(a)*h);ctx.stroke()
-  }else if(v===19){ // SMOKE
-    for(let i=0;i<24;i++){const x=w*(.1+.8*((i*37)%100)/100)+Math.sin(phase+i)*25,y=h*(.2+.6*((i*53)%100)/100);ctx.fillStyle=`hsla(${(hue0+i*15)%360},80%,65%,.04)`;ctx.beginPath();ctx.arc(x,y,20+(i%9)*6,0,Math.PI*2);ctx.fill()}
-  }else if(v===20){ // TECH CIRCUITS
-    ctx.strokeStyle=`hsla(${hue0},100%,65%,.24)`;ctx.lineWidth=1;
-    for(let i=0;i<18;i++){let y=(i+1)*h/19;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w*.35,y);ctx.lineTo(w*.42,y-18);ctx.lineTo(w*.75,y-18);ctx.lineTo(w*.82,y);ctx.lineTo(w,y);ctx.stroke()}
-  }else if(v===21){ // GLITCH
-    for(let i=0;i<28;i++){const y=((i*47+phase*80)%(h+20))-10;const x=(i*73+seed)%w;ctx.fillStyle=`hsla(${(hue0+i*31)%360},100%,65%,.22)`;ctx.fillRect(x,y,30+(i%6)*15,2+(i%3))}
-  }else if(v===22){ // POLYGON FIELD
-    for(let i=0;i<28;i++){const x=(i*113+seed)%w,y=(i*71+seed)%h,r=8+(i%14);ctx.strokeStyle=`hsla(${(hue0+i*13)%360},100%,70%,.2)`;ctx.beginPath();for(let k=0;k<5;k++){const a=k*1.2566+phase*.1;const px=x+Math.cos(a)*r,py=y+Math.sin(a)*r;k?ctx.lineTo(px,py):ctx.moveTo(px,py)}ctx.closePath();ctx.stroke()}
-  }else if(v===23){ // PULSE WAVES
-    for(let j=0;j<8;j++){ctx.strokeStyle=`hsla(${(hue0+j*24)%360},100%,65%,.18)`;ctx.lineWidth=2;ctx.beginPath();for(let x=0;x<=w;x+=10){const y=h/2+j*5+Math.sin(x*.018-phase*(j+1))*(12+j*5);if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke()}
-  }else if(v===24){ // INFERNO
-    for(let i=0;i<16;i++){const a=phase*.35+i*.4;const x=w/2+Math.cos(a)*w*.35,y=h*.72-Math.abs(Math.sin(a))*h*.55;ctx.fillStyle=`hsla(${15+(i%5)*13},100%,${50+(i%4)*10}%,.16)`;ctx.beginPath();ctx.arc(x,y,10+(i%7)*8,0,Math.PI*2);ctx.fill()}
+function drawVariantStyle(w,h,v,mode,bars,sens,glow){
+  if(!v || !fd || !fd.length) return;
+  const id=Math.max(1,Math.min(240,v));
+  const family=(id-1)%40;
+  const tier=Math.floor((id-1)/40);
+  const t=performance.now()/1000;
+  const n=fd.length;
+  const cx=w/2,cy=h/2;
+  const S=Math.min(w,h);
+  const amp=(tier+1)*0.22;
+  const hue0=(hue + id*37 + tier*71)%360;
+  const ctx=X;
+  const val=(i)=>Math.min(1,(fd[Math.min(n-1,Math.max(0,Math.floor(i))) ]||0)/255*sens);
+  const wav=(i)=>((wd[Math.min(wd.length-1,Math.max(0,Math.floor(i))) ]||128)-128)/128;
+  const col=(q,alpha=0.8)=>`hsla(${(hue0+q*360+family*11)%360},100%,${55+20*((q%1+1)%1)}%,${alpha})`;
+  const glowOn=Math.max(3,glow*(0.35+((tier+family)%6)*0.12));
+
+  ctx.save();
+  ctx.globalCompositeOperation=tier%3===0?'screen':tier%3===1?'lighter':'source-over';
+  ctx.shadowBlur=glowOn;
+
+  // 01 — vertical equalizer cathedral
+  if(family===0){
+    const count=Math.max(24,Math.min(150,bars+tier*7)), bw=w/count;
+    for(let i=0;i<count;i++){const q=i/count,vv=val(q*n),hh=vv*h*(.18+amp);
+      ctx.fillStyle=col(q);ctx.shadowColor=ctx.fillStyle;
+      ctx.fillRect(i*bw,h*.5-hh,bw*.68,hh*2);
+      if(tier%2===1)ctx.fillRect(i*bw,h*.5+hh*.15,bw*.68,2);
+    }
+  }
+  // 02 — horizontal audio ladder
+  else if(family===1){
+    const rows=12+tier*3;
+    for(let r=0;r<rows;r++){const vv=val((r/rows)*n), y=20+r*(h-40)/rows, len=40+vv*w*.72;
+      ctx.strokeStyle=col(r/rows);ctx.lineWidth=2+vv*4;ctx.beginPath();ctx.moveTo(w*.08,y);ctx.lineTo(w*.08+len,y);ctx.stroke();
+    }
+  }
+  // 03 — diagonal energy slashes
+  else if(family===2){
+    const count=22+tier*5;
+    for(let i=0;i<count;i++){const q=i/count,vv=val(q*n),x=q*w,y=(q*.8+t*.08*(tier+1))%1*h;
+      ctx.strokeStyle=col(q);ctx.lineWidth=1+vv*5;ctx.beginPath();ctx.moveTo(x-80,y+50);ctx.lineTo(x+80+vv*90,y-50-vv*80);ctx.stroke();
+    }
+  }
+  // 04 — radial sunburst
+  else if(family===3){
+    const rays=64+tier*12;
+    for(let i=0;i<rays;i++){const q=i/rays,vv=val(q*n),a=q*Math.PI*2+t*.18*(tier+1);
+      const r1=S*.06,r2=S*(.18+vv*.42);
+      ctx.strokeStyle=col(q,.45+.45*vv);ctx.lineWidth=1+vv*3;ctx.beginPath();
+      ctx.moveTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);ctx.lineTo(cx+Math.cos(a)*r2,cy+Math.sin(a)*r2);ctx.stroke();
+    }
+  }
+  // 05 — concentric audio rings
+  else if(family===4){
+    const rings=10+tier*4;
+    for(let r=0;r<rings;r++){const q=r/rings,vv=val((r*17+t*5)%n),rad=S*(.05+q*.42)+vv*S*.035;
+      ctx.strokeStyle=col(q,.25+.7*vv);ctx.lineWidth=1+vv*4;ctx.beginPath();ctx.arc(cx,cy,rad,0,Math.PI*2);ctx.stroke();
+    }
+  }
+  // 06 — logarithmic spiral
+  else if(family===5){
+    ctx.strokeStyle=col(.5);ctx.lineWidth=1.5+glow/10;ctx.beginPath();
+    for(let i=0;i<700;i++){const a=i*.09+t*(.25+tier*.08),r=4+i*S/1500*(.6+.1*tier),x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;
+      i?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.stroke();
+  }
+  // 07 — double helix
+  else if(family===6){
+    for(let strand=0;strand<2;strand++){ctx.beginPath();
+      for(let i=0;i<260;i++){const q=i/259,a=q*Math.PI*7+t*(.5+tier*.12)+strand*Math.PI,r=S*(.05+.33*q);
+        const x=cx+Math.cos(a)*r,y=cy+(q-.5)*h*.9+Math.sin(a)*S*.05;
+        i?ctx.lineTo(x,y):ctx.moveTo(x,y)}
+      ctx.strokeStyle=col(strand*.5);ctx.lineWidth=2.5;ctx.stroke();
+    }
+  }
+  // 08 — ribbon waves
+  else if(family===7){
+    for(let j=0;j<8+tier;j++){ctx.beginPath();
+      for(let x=0;x<=w;x+=8){const q=x/w,vv=val(q*n),y=cy+(j-4)*18+Math.sin(q*16+t*(1+j*.08))*((25+vv*100)*(1+tier*.05));
+        x?ctx.lineTo(x,y):ctx.moveTo(x,y)}
+      ctx.strokeStyle=col(j/(8+tier),.3+.07*j);ctx.lineWidth=1.5+vv*2;ctx.stroke();
+    }
+  }
+  // 09 — Lissajous oscilloscope
+  else if(family===8){
+    for(let k=0;k<3+tier%3;k++){ctx.beginPath();
+      for(let i=0;i<=700;i++){const q=i/700,a=q*Math.PI*2,rad=S*.32*(.65+.35*val(q*n));
+        const x=cx+Math.sin((3+k)*a+t*.3)*rad,y=cy+Math.sin((4+k)*a+t*.22)*rad;
+        i?ctx.lineTo(x,y):ctx.moveTo(x,y)}
+      ctx.strokeStyle=col(k/(3+tier%3),.5);ctx.lineWidth=2;ctx.stroke();
+    }
+  }
+  // 10 — oscilloscope trace
+  else if(family===9){
+    ctx.beginPath();for(let x=0;x<w;x+=2){const q=x/w,idx=q*(wd.length-1),y=cy+wav(idx)*h*(.22+.04*tier);x?ctx.lineTo(x,y):ctx.moveTo(x,y)}
+    ctx.strokeStyle=col(.5);ctx.lineWidth=2.5;ctx.stroke();
+  }
+  // 11 — orbiting planets
+  else if(family===10){
+    for(let p0=0;p0<8+tier;p0++){const q=p0/(8+tier),a=t*(.25+p0*.035)+q*6.28,r=S*(.12+q*.27),vv=val(q*n);
+      const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r*.62;
+      ctx.fillStyle=col(q);ctx.shadowColor=ctx.fillStyle;ctx.beginPath();ctx.arc(x,y,3+vv*12,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle=col(q,.18);ctx.beginPath();ctx.ellipse(cx,cy,r,r*.62,0,0,Math.PI*2);ctx.stroke();
+    }
+  }
+  // 12 — starfield
+  else if(family===11){
+    for(let i=0;i<260+tier*35;i++){const q=(i*73)%1000/1000, a=i*2.399+t*.03*(tier+1), r=((i*97)%1000)/1000*S*.55, z=(Math.sin(t*(.4+tier*.04)+i)+1)/2;
+      const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;ctx.fillStyle=col(q,.2+.8*z);ctx.fillRect(x,y,1+z*3,1+z*3)}
+  }
+  // 13 — square tunnel
+  else if(family===12){
+    for(let k=0;k<22+tier*3;k++){const q=k/(22+tier*3),z=((q+t*.12*(1+tier*.08))%1),ww=S*(.04+z*.75),hh=ww*(h/w);
+      ctx.strokeStyle=col(q,.15+.75*(1-z));ctx.lineWidth=1+z*4;ctx.strokeRect(cx-ww/2,cy-hh/2,ww,hh)}
+  }
+  // 14 — triangle tunnel
+  else if(family===13){
+    for(let k=0;k<20+tier*2;k++){const q=k/(20+tier*2),r=S*(.04+q*.42),rot=t*.2+q*2;
+      ctx.beginPath();for(let j=0;j<3;j++){const a=rot+j*2.094,x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r; j?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.closePath();
+      ctx.strokeStyle=col(q,.2+.7*(1-q));ctx.stroke();
+    }
+  }
+  // 15 — hexagonal tunnel
+  else if(family===14){
+    for(let k=0;k<16+tier;k++){const q=k/(16+tier),r=S*(.04+q*.44),rot=t*.12+q;
+      ctx.beginPath();for(let j=0;j<6;j++){const a=rot+j*Math.PI/3,x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r; j?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.closePath();
+      ctx.strokeStyle=col(q);ctx.lineWidth=1+q*3;ctx.stroke();
+    }
+  }
+  // 16 — kaleidoscope petals
+  else if(family===15){
+    const arms=6+tier%5;
+    for(let i=0;i<arms;i++){const a=i*Math.PI*2/arms+t*.15;
+      ctx.save();ctx.translate(cx,cy);ctx.rotate(a);
+      ctx.beginPath();for(let j=0;j<140;j++){const q=j/139,vv=val((j+i*17)%n),x=q*S*.45,y=Math.sin(q*10+t)*vv*S*.08; j?ctx.lineTo(x,y):ctx.moveTo(x,y)}
+      ctx.strokeStyle=col(i/arms,.5);ctx.stroke();ctx.restore();
+    }
+  }
+  // 17 — polygon mandala
+  else if(family===16){
+    const sides=5+tier%7;
+    for(let k=0;k<8;k++){const r=S*(.05+k*.055);
+      ctx.beginPath();for(let j=0;j<sides;j++){const a=j*Math.PI*2/sides+t*.08+k*.1,x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r; j?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.closePath();
+      ctx.strokeStyle=col(k/8,.25+.08*k);ctx.stroke();
+    }
+  }
+  // 18 — radar sweep
+  else if(family===17){
+    const R=S*.43,a=t*(.7+tier*.1);ctx.strokeStyle=col(.5,.25);ctx.beginPath();ctx.arc(cx,cy,R,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle=col(.5,.9);ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R);ctx.stroke();
+    for(let i=0;i<90;i++){const q=i/90,vv=val((i*13)%n),aa=a-(i/90)*Math.PI*1.4,r=vv*R;ctx.fillStyle=col(i/90,.65);ctx.beginPath();ctx.arc(cx+Math.cos(aa)*r,cy+Math.sin(aa)*r,1+vv*5,0,Math.PI*2);ctx.fill()}
+  }
+  // 19 — perspective grid terrain
+  else if(family===18){
+    for(let i=0;i<18;i++){const y=h*.55+Math.pow(i/17,1.8)*h*.45;ctx.strokeStyle=col(i/18,.25);ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+    for(let i=-12;i<=12;i++){ctx.strokeStyle=col((i+12)/24,.3);ctx.beginPath();ctx.moveTo(cx+i*S*.04,cy);ctx.lineTo(cx+i*S*.16,h);ctx.stroke()}
+  }
+  // 20 — wireframe sphere
+  else if(family===19){
+    const R=S*.28;
+    for(let lat=-4;lat<=4;lat++){const a=lat*Math.PI/10,rr=R*Math.cos(a),yy=cy+R*Math.sin(a);ctx.beginPath();ctx.ellipse(cx,yy,rr,rr*.18,0,t,Math.PI*2);ctx.strokeStyle=col((lat+4)/8,.45);ctx.stroke()}
+    for(let lon=0;lon<12;tier+lon>=0&&lon++){const a=lon*Math.PI/6+t*.15;ctx.beginPath();ctx.ellipse(cx,cy,R*Math.abs(Math.cos(a)),R,0,0,Math.PI*2);ctx.strokeStyle=col(lon/12,.35);ctx.stroke()}
+  }
+  // 21 — wireframe cube
+  else if(family===20){
+    const r=S*.22,rot=t*.35;const pts=[[-1,-1], [1,-1],[1,1],[-1,1]].map(([x,y])=>{const X=x*r,Y=y*r;return[cx+X*Math.cos(rot)-Y*Math.sin(rot),cy+X*Math.sin(rot)+Y*Math.cos(rot)]});
+    for(let z=0;z<2;z++){ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p[0]+z*S*.06,p[1]+z*S*.04):ctx.moveTo(p[0]+z*S*.06,p[1]+z*S*.04));ctx.closePath();ctx.strokeStyle=col(z*.5);ctx.stroke()}
+    for(let i=0;i<4;i++){ctx.beginPath();ctx.moveTo(pts[i][0],pts[i][1]);ctx.lineTo(pts[i][0]+S*.06,pts[i][1]+S*.04);ctx.strokeStyle=col(i/4,.6);ctx.stroke()}
+  }
+  // 22 — rotating 3D-ish cube
+  else if(family===21){
+    const r=S*.22,ang=t*.5,sk=.45*Math.sin(t*.7);const P=[];
+    for(let i=0;i<8;i++){let x=(i&1?1:-1),y=(i&2?1:-1),z=(i&4?1:-1);let X=(x+z*sk)*r,Y=(y+z*.3)*r;P.push([cx+X*Math.cos(ang)-Y*Math.sin(ang),cy+X*Math.sin(ang)+Y*Math.cos(ang)])}
+    const E=[[0,1],[1,3],[3,2],[2,0],[4,5],[5,7],[7,6],[6,4],[0,4],[1,5],[2,6],[3,7]];
+    E.forEach((e,j)=>{ctx.strokeStyle=col(j/E.length);ctx.beginPath();ctx.moveTo(...P[e[0]]);ctx.lineTo(...P[e[1]]);ctx.stroke()})
+  }
+  // 23 — perspective laser corridor
+  else if(family===22){
+    for(let i=0;i<26;i++){const q=i/26,a=(i%2?1:-1)*(t*.08+i*.18),y=cy+(i-13)*14;
+      ctx.strokeStyle=col(i/26,.25+.6*val((i*19)%n));ctx.lineWidth=1+val((i*19)%n)*3;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo((i%2?w*.02:w*.98),y+Math.sin(a)*50);ctx.stroke()}
+  }
+  // 24 — matrix rain
+  else if(family===23){
+    ctx.font=(12+tier%3*4)+"px monospace";
+    for(let x=0;x<w;x+=14){const idx=Math.floor(x/w*n),vv=val(idx),len=3+Math.floor(vv*18),base=((x*17+t*(35+tier*8))%(h+200))-100;
+      for(let j=0;j<len;j++){ctx.fillStyle=col((x/w+j/len),.15+.8*(1-j/len));ctx.fillText(((x+j+tier)%2)?'1':'0',x,base+j*16)}
+    }
+  }
+  // 25 — falling glyph columns
+  else if(family===24){
+    ctx.font="bold 14px monospace";
+    for(let c=0;c<24;c++){const x=(c+.5)*w/24,idx=Math.floor(c/24*n),vv=val(idx),head=(t*(40+c*2)% (h+180))-90;
+      for(let j=0;j<8+vv*18;j++){ctx.fillStyle=col(c/24,.1+(j===0?.9:(1-j/(8+vv*18))*.45));ctx.fillText(String.fromCharCode(33+((c*17+j*7+tier)%90)),x,head+j*17)}
+    }
+  }
+  // 26 — circuit board
+  else if(family===25){
+    const step=38+tier*3;
+    for(let x=0;x<w;x+=step){ctx.strokeStyle=col((x/w),.22);ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h*.3);ctx.lineTo(x+20,h*.3);ctx.lineTo(x+20,h);ctx.stroke()}
+    for(let y=step/2;y<h;y+=step){ctx.fillStyle=col(y/h,.7);ctx.beginPath();ctx.arc(((Math.floor(y/step)*71)%w),y,2+3*val((y/h)*n),0,Math.PI*2);ctx.fill()}
+  }
+  // 27 — glitch scan blocks
+  else if(family===26){
+    for(let i=0;i<60;i++){const q=(i*37%1000)/1000,vv=val((i*31)%n),y=((i*83+t*40*(tier+1))%h),x=((i*137)%1000)/1000*w;
+      ctx.fillStyle=col(q,.12+.65*vv);ctx.fillRect(x,y,20+vv*120,2+vv*12)}
+  }
+  // 28 — scanline CRT
+  else if(family===27){
+    for(let y=0;y<h;y+=4+tier%3){const vv=val((y/h)*n);ctx.strokeStyle=col(y/h,.08+.15*vv);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+    const sy=(t*90*(tier+1))%h;ctx.fillStyle=col(.5,.2);ctx.fillRect(0,sy,w,5)
+  }
+  // 29 — laser beams
+  else if(family===28){
+    for(let i=0;i<10+tier;i++){const a=t*(.3+i*.02)+i*.62,vv=val((i*29)%n);ctx.strokeStyle=col(i/10,.25+.5*vv);ctx.lineWidth=1+vv*5;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(a)*w,cy+Math.sin(a)*h);ctx.stroke()}
+  }
+  // 30 — lightning zigzags
+  else if(family===29){
+    for(let k=0;k<6;k++){let x=w*(.1+k*.16),y=0;ctx.beginPath();ctx.moveTo(x,y);
+      for(let j=0;j<14;j++){y+=h/14;x+=(Math.sin(j*8+t*4+k)*(.02+.05*val((j+k*11)%n)))*w;ctx.lineTo(x,y)}
+      ctx.strokeStyle=col(k/6,.5);ctx.lineWidth=1.5+3*val(k*17);ctx.stroke()}
+  }
+  // 31 — firefly swarm
+  else if(family===30){
+    for(let i=0;i<220;i++){const a=i*2.31+t*(.1+(i%7)*.01),r=((i*97)%1000)/1000*S*.48,vv=val((i*13)%n),x=cx+Math.cos(a)*r,y=cy+Math.sin(a*1.3)*r;
+      ctx.fillStyle=col(i/220,.15+.8*vv);ctx.beginPath();ctx.arc(x,y,1+vv*5,0,Math.PI*2);ctx.fill()}
+  }
+  // 32 — bubbles
+  else if(family===31){
+    for(let i=0;i<50+tier*4;i++){const q=i/50,vv=val((i*23)%n),r=4+vv*18,x=(i*97%1000)/1000*w,y=h-((t*(20+i%5*7)+i*83)%(h+80));
+      ctx.strokeStyle=col(q,.25+.5*vv);ctx.lineWidth=1+vv*2;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.stroke()}
+  }
+  // 33 — smoke blobs
+  else if(family===32){
+    for(let i=0;i<30+tier*3;i++){const q=i/30,vv=val((i*19+t*2)%n),x=cx+Math.sin(t*.4+i)*S*.35,y=cy+Math.cos(t*.3+i*1.7)*S*.3,r=8+vv*45;
+      ctx.fillStyle=col(q,.035+.08*vv);ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill()}
+  }
+  // 34 — liquid surface
+  else if(family===33){
+    for(let j=0;j<5+tier%4;j++){ctx.beginPath();for(let x=0;x<=w;x+=6){const q=x/w,vv=val(q*n),y=h*.52+j*30+Math.sin(q*10+t*(.6+j*.08))*30*(.4+vv);x?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.strokeStyle=col(j/7,.35);ctx.lineWidth=2;ctx.stroke()}
+  }
+  // 35 — ocean horizon
+  else if(family===34){
+    const horizon=h*.56;ctx.strokeStyle=col(.5,.5);ctx.beginPath();ctx.moveTo(0,horizon);ctx.lineTo(w,horizon);ctx.stroke();
+    for(let j=0;j<15;j++){ctx.beginPath();for(let x=0;x<=w;x+=8){const q=x/w,y=horizon+j*18+Math.sin(q*20+t*(1+j*.04))*10*(.5+val(q*n));x?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.strokeStyle=col(j/15,.15+.03*j);ctx.stroke()}
+  }
+  // 36 — mountain spectrum
+  else if(family===35){
+    ctx.beginPath();ctx.moveTo(0,h);for(let x=0;x<=w;x+=8){const q=x/w,vv=val(q*n),y=h*.7-vv*h*.48-Math.abs(Math.sin(q*18+t*.2))*20;x?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.lineTo(w,h);ctx.closePath();ctx.fillStyle=col(.55,.22);ctx.fill();ctx.strokeStyle=col(.55,.7);ctx.stroke()
+  }
+  // 37 — eclipse / corona
+  else if(family===36){
+    const R=S*(.14+.025*tier);ctx.fillStyle=`rgba(0,0,0,.9)`;ctx.beginPath();ctx.arc(cx,cy,R,0,Math.PI*2);ctx.fill();
+    for(let i=0;i<100;i++){const a=i/100*Math.PI*2+t*.12,vv=val((i*7)%n),r=R+vv*S*.22;ctx.strokeStyle=col(i/100,.25+.6*vv);ctx.beginPath();ctx.moveTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R);ctx.lineTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r);ctx.stroke()}
+  }
+  // 38 — galaxy arms
+  else if(family===37){
+    for(let i=0;i<600;i++){const q=i/600,a=q*22+t*.15,r=q*S*.45,vv=val((i*7)%n),x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r*.45;ctx.fillStyle=col(q,.1+.8*vv);ctx.fillRect(x,y,1+vv*3,1+vv*3)}
+  }
+  // 39 — DNA / molecular network
+  else if(family===38){
+    const pts=[];for(let i=0;i<90;i++){const q=i/89,a=q*Math.PI*7+t*.4,vv=val((i*3)%n),x=cx+Math.sin(a)*S*.14*(.6+vv),y=h*.08+q*h*.84;pts.push([x,y])}
+    ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.strokeStyle=col(.2);ctx.stroke();
+    for(let i=0;i<pts.length;i+=4){const q=i/(pts.length-1),a=q*Math.PI*7+t*.4,x2=cx-Math.sin(a)*S*.14,y2=pts[i][1];ctx.strokeStyle=col(.7,.35);ctx.beginPath();ctx.moveTo(pts[i][0],pts[i][1]);ctx.lineTo(x2,y2);ctx.stroke()}
+  }
+  // 40 — crystal shard field
+  else if(family===39){
+    for(let i=0;i<42+tier*3;i++){const q=(i*41%1000)/1000,vv=val((i*17)%n),x=(i*137%1000)/1000*w,y=(i*79+t*30)%h,r=8+vv*35;
+      ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r*.55,y);ctx.lineTo(x,y+r);ctx.lineTo(x-r*.55,y);ctx.closePath();ctx.strokeStyle=col(q,.25+.6*vv);ctx.fillStyle=col(q,.04+.08*vv);ctx.fill();ctx.stroke()}
   }
   ctx.restore();
 }
@@ -741,7 +936,9 @@ function draw(){
     if(selectedMode.startsWith('v')){
       const n=parseInt(selectedMode.slice(1),10)||0;
       mode=baseModes[n%baseModes.length];
-      visualVariant=Math.floor(n/baseModes.length)+1;
+      // Every extended preset gets its own dedicated style id (011-250).
+      // Do not collapse ten presets into one renderer.
+      visualVariant=n+1;
     }
     const variantPhase=visualVariant*37;
     // Give every extended preset its own color family as well as geometry overlay.
