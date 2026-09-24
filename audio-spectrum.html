@@ -595,6 +595,85 @@ function ci(h){return Math.max(0,Math.min(fd.length-1,Math.round(h/(ac.sampleRat
 function grid(w,h){ /* Frequency grid and Hz labels intentionally disabled. */ }
 
 // Extra visual modes layered on top of the existing renderer.
+
+function drawVariantStyle(w,h,v,mode,bars,sens,glow){
+  if(!v) return;
+  const seed=v*97;
+  const phase=performance.now()/1000*(0.35+(v%7)*0.09);
+  const hue0=(hue + v*47)%360;
+  const ctx=X;
+  ctx.save();
+  ctx.globalCompositeOperation=(v%4===0)?'screen':'lighter';
+  ctx.shadowBlur=Math.max(4,glow*(0.45+(v%6)*0.12));
+
+  // 24 distinct visual families. Every numbered preset uses one family,
+  // while its underlying mode (bars/mirror/wave/circle/...) remains different.
+  if(v===1){ // NEON GRID
+    ctx.strokeStyle=`hsla(${hue0},100%,65%,.32)`; ctx.lineWidth=1;
+    for(let x=0;x<w;x+=36){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+    for(let y=0;y<h;y+=36){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+  }else if(v===2){ // CYBER SCAN
+    const y=(phase*110)%h;
+    ctx.fillStyle=`hsla(${hue0},100%,60%,.16)`;ctx.fillRect(0,y,w,3);
+    ctx.fillStyle=`hsla(${(hue0+170)%360},100%,70%,.08)`;
+    for(let x=0;x<w;x+=22)ctx.fillRect(x,0,1,h);
+  }else if(v===3){ // LASER RAYS
+    ctx.lineWidth=2;
+    for(let i=0;i<12;i++){const a=phase*.4+i*Math.PI/6;ctx.strokeStyle=`hsla(${hue0+i*18},100%,65%,.22)`;ctx.beginPath();ctx.moveTo(w/2,h/2);ctx.lineTo(w/2+Math.cos(a)*w,h/2+Math.sin(a)*h);ctx.stroke()}
+  }else if(v===4){ // AURORA WAVES
+    ctx.lineWidth=3;
+    for(let j=0;j<5;j++){ctx.strokeStyle=`hsla(${(hue0+j*35)%360},100%,65%,.18)`;ctx.beginPath();for(let x=0;x<=w;x+=8){const y=h*(.15+j*.18)+Math.sin(x*.012+phase+j)*28;if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke()}
+  }else if(v===5){ // ELECTRIC HEX
+    ctx.strokeStyle=`hsla(${hue0},100%,70%,.2)`;ctx.lineWidth=1;
+    const r=22,dy=r*1.73;
+    for(let y=-r;y<h+r;y+=dy)for(let x=-r;x<w+r;x+=r*3){const xx=x+((Math.round(y/dy)%2)*r*1.5);ctx.beginPath();for(let k=0;k<6;k++){const a=Math.PI/3*k;const px=xx+Math.cos(a)*r,py=y+Math.sin(a)*r;k?ctx.lineTo(px,py):ctx.moveTo(px,py)}ctx.closePath();ctx.stroke()}
+  }else if(v===6){ // PLASMA BLOBS
+    for(let i=0;i<18;i++){const a=phase*.25+i*2.4,rad=30+((i*31)%90),x=w*(.5+.42*Math.cos(a+i)),y=h*(.5+.38*Math.sin(a*.8+i));const g=ctx.createRadialGradient(x,y,0,x,y,rad);g.addColorStop(0,`hsla(${(hue0+i*20)%360},100%,65%,.18)`);g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,rad,0,Math.PI*2);ctx.fill()}
+  }else if(v===7){ // GLASS RINGS
+    for(let i=1;i<=9;i++){const r=Math.min(w,h)*(.05+i*.045);ctx.strokeStyle=`hsla(${(hue0+i*24)%360},100%,75%,${.06+i*.018})`;ctx.lineWidth=1+i%3;ctx.beginPath();ctx.arc(w/2,h/2,r+Math.sin(phase+i)*6,0,Math.PI*2);ctx.stroke()}
+  }else if(v===8){ // FIRE EMBERS
+    for(let i=0;i<70;i++){const x=(i*97+phase*55*(1+i%3))%w,y=(h-(i*53+phase*80*(1+i%4))%h);const rr=1+(i%4);ctx.fillStyle=`hsla(${20+(i%6)*12},100%,${55+i%25}%,.35)`;ctx.beginPath();ctx.arc(x,y,rr,0,Math.PI*2);ctx.fill()}
+  }else if(v===9){ // OCEAN BUBBLES
+    for(let i=0;i<55;i++){const x=(i*83)%w,y=(h-(phase*35+i*29)%h);const r=2+(i%7);ctx.strokeStyle=`hsla(${185+(i%5)*12},100%,70%,.28)`;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.stroke()}
+  }else if(v===10){ // MATRIX RAIN
+    ctx.font='12px monospace';
+    for(let x=8;x<w;x+=18){const n=4+(x+seed)%13;for(let j=0;j<n;j++){const y=((phase*120+x*3+j*24)% (h+100))-50;ctx.fillStyle=`hsla(${hue0},100%,${45+(j%5)*9}%,${.12+j/n*.65})`;ctx.fillText((j+x)%3?'1':'0',x,y)}}
+  }else if(v===11){ // VORTEX
+    ctx.lineWidth=2;
+    for(let i=0;i<30;i++){let a=i*.21+phase,r=i*Math.min(w,h)/65;let x=w/2+Math.cos(a)*r,y=h/2+Math.sin(a)*r;ctx.strokeStyle=`hsla(${(hue0+i*9)%360},100%,65%,.2)`;ctx.beginPath();ctx.arc(x,y,6+i*.7,a,a+Math.PI*.7);ctx.stroke()}
+  }else if(v===12){ // STARFIELD
+    for(let i=0;i<150;i++){const x=(i*137+seed*3)%w,y=(i*71+seed)%h,r=.5+(i%4);ctx.fillStyle=`hsla(${hue0},100%,${60+(i%30)}%,${.18+(i%5)*.08})`;ctx.fillRect(x,y,r,r)}
+  }else if(v===13){ // DIGITAL EQUALIZER GRID
+    for(let i=0;i<bars;i+=3){const x=i*w/bars;const v0=fd?fd[Math.min(fd.length-1,Math.floor(i/bars*fd.length))]/255:0;const hh=8+v0*h*.25;ctx.fillStyle=`hsla(${hue0+i%80},100%,60%,.12)`;ctx.fillRect(x,h-hh,2,hh)}
+  }else if(v===14){ // SUN BURST
+    ctx.lineWidth=1;
+    for(let i=0;i<64;i++){const a=i/64*Math.PI*2+phase*.1;const r=Math.min(w,h)*.46;ctx.strokeStyle=`hsla(${(hue0+i*5)%360},100%,65%,.16)`;ctx.beginPath();ctx.moveTo(w/2,h/2);ctx.lineTo(w/2+Math.cos(a)*r,h/2+Math.sin(a)*r);ctx.stroke()}
+  }else if(v===15){ // DIAGONAL SHARDS
+    ctx.lineWidth=2;
+    for(let i=-h;i<w;i+=32){ctx.strokeStyle=`hsla(${(hue0+i)%360},100%,70%,.18)`;ctx.beginPath();ctx.moveTo(i+((phase*20)%32),0);ctx.lineTo(i+h+((phase*20)%32),h);ctx.stroke()}
+  }else if(v===16){ // NEON FRAME
+    const m=18+Math.sin(phase)*6;ctx.strokeStyle=`hsla(${hue0},100%,65%,.65)`;ctx.lineWidth=3;ctx.shadowColor=ctx.strokeStyle;ctx.strokeRect(m,m,w-2*m,h-2*m);ctx.strokeStyle=`hsla(${(hue0+120)%360},100%,65%,.35)`;ctx.lineWidth=1;ctx.strokeRect(m+10,m+10,w-2*m-20,h-2*m-20)
+  }else if(v===17){ // COLOR BARS
+    for(let i=0;i<12;i++){ctx.fillStyle=`hsla(${(hue0+i*30)%360},100%,60%,.08)`;ctx.fillRect(i*w/12,0,w/24,h)}
+  }else if(v===18){ // RADAR
+    const cx=w/2,cy=h/2;ctx.strokeStyle=`hsla(${hue0},100%,65%,.28)`;ctx.lineWidth=1;for(let i=1;i<5;i++){ctx.beginPath();ctx.arc(cx,cy,i*Math.min(w,h)*.1,0,Math.PI*2);ctx.stroke()}const a=phase*.7;ctx.strokeStyle=`hsla(${hue0},100%,70%,.8)`;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(a)*w,cy+Math.sin(a)*h);ctx.stroke()
+  }else if(v===19){ // SMOKE
+    for(let i=0;i<24;i++){const x=w*(.1+.8*((i*37)%100)/100)+Math.sin(phase+i)*25,y=h*(.2+.6*((i*53)%100)/100);ctx.fillStyle=`hsla(${(hue0+i*15)%360},80%,65%,.04)`;ctx.beginPath();ctx.arc(x,y,20+(i%9)*6,0,Math.PI*2);ctx.fill()}
+  }else if(v===20){ // TECH CIRCUITS
+    ctx.strokeStyle=`hsla(${hue0},100%,65%,.24)`;ctx.lineWidth=1;
+    for(let i=0;i<18;i++){let y=(i+1)*h/19;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w*.35,y);ctx.lineTo(w*.42,y-18);ctx.lineTo(w*.75,y-18);ctx.lineTo(w*.82,y);ctx.lineTo(w,y);ctx.stroke()}
+  }else if(v===21){ // GLITCH
+    for(let i=0;i<28;i++){const y=((i*47+phase*80)%(h+20))-10;const x=(i*73+seed)%w;ctx.fillStyle=`hsla(${(hue0+i*31)%360},100%,65%,.22)`;ctx.fillRect(x,y,30+(i%6)*15,2+(i%3))}
+  }else if(v===22){ // POLYGON FIELD
+    for(let i=0;i<28;i++){const x=(i*113+seed)%w,y=(i*71+seed)%h,r=8+(i%14);ctx.strokeStyle=`hsla(${(hue0+i*13)%360},100%,70%,.2)`;ctx.beginPath();for(let k=0;k<5;k++){const a=k*1.2566+phase*.1;const px=x+Math.cos(a)*r,py=y+Math.sin(a)*r;k?ctx.lineTo(px,py):ctx.moveTo(px,py)}ctx.closePath();ctx.stroke()}
+  }else if(v===23){ // PULSE WAVES
+    for(let j=0;j<8;j++){ctx.strokeStyle=`hsla(${(hue0+j*24)%360},100%,65%,.18)`;ctx.lineWidth=2;ctx.beginPath();for(let x=0;x<=w;x+=10){const y=h/2+j*5+Math.sin(x*.018-phase*(j+1))*(12+j*5);if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke()}
+  }else if(v===24){ // INFERNO
+    for(let i=0;i<16;i++){const a=phase*.35+i*.4;const x=w/2+Math.cos(a)*w*.35,y=h*.72-Math.abs(Math.sin(a))*h*.55;ctx.fillStyle=`hsla(${15+(i%5)*13},100%,${50+(i%4)*10}%,.16)`;ctx.beginPath();ctx.arc(x,y,10+(i%7)*8,0,Math.PI*2);ctx.fill()}
+  }
+  ctx.restore();
+}
+
 function drawExtraMode(w,h,mode){
   if(!fd || !fd.length) return;
   if(mode==='ring'){
@@ -665,6 +744,9 @@ function draw(){
       visualVariant=Math.floor(n/baseModes.length)+1;
     }
     const variantPhase=visualVariant*37;
+    // Give every extended preset its own color family as well as geometry overlay.
+    const savedHue=hue;
+    if(visualVariant) hue=(190 + (visualVariant-1)*53)%360;
     const variantScale=visualVariant ? (0.82 + (visualVariant%8)*0.055) : 1;
     const bars=Math.max(16,Math.min(180,Math.round((+$('bars').value||64)*variantScale)));
     const sens=Math.max(.1,(+$('sens').value||1)*(visualVariant ? (0.88+(visualVariant%7)*0.07) : 1));
@@ -739,8 +821,10 @@ function draw(){
     X.restore();
 
     drawExtraMode(w,h,mode);
+    if(visualVariant) drawVariantStyle(w,h,visualVariant,mode,bars,sens,glow);
     drawEffectLayer(w,h);
     drawTextOverlay(w,h);
+    if(visualVariant) hue=savedHue;
 
     if($('peak'))$('peak').textContent='PEAK '+(Math.max(...fd)/2.55-100).toFixed(1)+' dB';
     raf=requestAnimationFrame(loop);
