@@ -99,6 +99,19 @@ body.it-fs-body{
   right:18px!important;
 }
 
+
+/* ===== REAL FONT PREVIEW BROWSER ===== */
+.it-font-browser{margin-top:8px;border:1px solid #183957;border-radius:12px;background:#06111d;overflow:hidden}
+.it-font-toolbar{display:flex;gap:8px;align-items:center;padding:8px;border-bottom:1px solid #183957}
+.it-font-toolbar input{flex:1;min-width:0;background:#020913;border:1px solid #183957;color:#eaf7ff;border-radius:8px;padding:9px 11px;outline:none}
+.it-font-toolbar span{font-size:11px;color:#54d9ff;white-space:nowrap}
+.it-font-list{height:260px;overflow:auto;padding:5px}
+.it-font-item{display:flex;align-items:center;gap:12px;width:100%;min-height:43px;padding:7px 10px;margin:2px 0;border:1px solid transparent;border-radius:8px;background:#071522;color:#dceeff;cursor:pointer;text-align:left}
+.it-font-item:hover{border-color:#168bc4;background:#0b2030}
+.it-font-item.active{border-color:#19b9ff;background:#0b2940;box-shadow:inset 3px 0 0 #19b9ff}
+.it-font-preview{font-size:22px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.it-font-name{width:190px;flex:none;font-family:Inter,Arial,sans-serif!important;font-size:11px;color:#7fa8c8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:800px){.it-font-name{width:120px}.it-font-list{height:220px}}
 </style>
 
 
@@ -4549,6 +4562,13 @@ audio{filter:drop-shadow(0 8px 20px rgba(0,0,0,.22))}
     <div class="text-field wide"><label>MAIN TEXT</label><input id="mainText" value="IT SHAKH" maxlength="80"></div>
     <div class="text-field wide"><label>SECOND LINE</label><input id="subText" value="AUDIO SPECTRUM" maxlength="80"></div>
     <div class="text-field"><label>FONT <span style="opacity:.7">3000 OPTIONS</span></label><select id="textFont" aria-label="3000 font options"><option value="Arial">Arial</option></select></div>
+<div class="it-font-browser" id="itFontBrowser">
+  <div class="it-font-toolbar">
+    <input id="itFontSearch" type="search" placeholder="Search 3000 fonts..." autocomplete="off">
+    <span id="itFontCount">3000 fonts</span>
+  </div>
+  <div class="it-font-list" id="itFontList"></div>
+</div>
     <div class="text-field"><label>STYLE</label><select id="textWeight"><option value="900">BLACK</option><option value="800">EXTRA BOLD</option><option value="700">BOLD</option><option value="500">MEDIUM</option><option value="400">REGULAR</option></select></div>
     <div class="text-field"><label>ALIGN</label><select id="textAlign"><option>CENTER</option><option>LEFT</option><option>RIGHT</option></select></div>
     <div class="text-field"><label>ANIMATION</label><select id="textAnim"><option value="none">NONE</option><option value="pulse">PULSE</option><option value="float">FLOAT</option><option value="bounce">BOUNCE</option><option value="wave">WAVE</option><option value="glitch">GLITCH</option><option value="type">TYPE</option><option value="zoom">ZOOM</option><option value="spin">SPIN</option></select></div>
@@ -5378,10 +5398,12 @@ function ensureFontLoaded(family){
 }
 
 function populateFontCatalog(){
-  const sel=TE.textFont;
-  if(!sel)return;
+  const sel=TE.textFont, list=document.getElementById('itFontList');
+  if(!sel||!list)return;
   sel.innerHTML='';
-  const frag=document.createDocumentFragment();
+  list.innerHTML='';
+  const frag=document.createDocumentFragment(), lfrag=document.createDocumentFragment();
+
   FONT_CATALOG.forEach((f,i)=>{
     const o=document.createElement('option');
     o.value=f.family;
@@ -5389,12 +5411,73 @@ function populateFontCatalog(){
     o.dataset.source=f.source;
     o.textContent=String(i+1).padStart(4,'0')+' • '+f.family+' • '+f.variant;
     frag.appendChild(o);
+
+    const item=document.createElement('button');
+    item.type='button';
+    item.className='it-font-item';
+    item.dataset.family=f.family;
+    item.dataset.weight=f.weight;
+    item.dataset.index=i;
+    item.innerHTML='<span class="it-font-preview">'+
+      'Aa Bb Cc 123 IT SHAKH'+
+      '</span><span class="it-font-name">'+
+      String(i+1).padStart(4,'0')+' • '+f.family+' • '+f.variant+
+      '</span>';
+    const preview=item.querySelector('.it-font-preview');
+    preview.style.fontFamily='"'+f.family+'", sans-serif';
+    preview.style.fontWeight=String(f.weight);
+    item.addEventListener('click',async()=>{
+      sel.value=f.family;
+      document.querySelectorAll('.it-font-item.active').forEach(x=>x.classList.remove('active'));
+      item.classList.add('active');
+      await ensureFontLoaded(f.family);
+      try{await document.fonts.load(f.weight+' 22px "'+f.family+'"')}catch(e){}
+      draw();
+    });
+    lfrag.appendChild(item);
   });
   sel.appendChild(frag);
-  sel.value='Arial';
+  list.appendChild(lfrag);
+
+  const first=list.querySelector('.it-font-item');
+  if(first)first.classList.add('active');
+
+  // Lazy-load only fonts that are visible in the preview list.
+  if(window.IntersectionObserver){
+    const io=new IntersectionObserver(entries=>{
+      entries.forEach(entry=>{
+        if(!entry.isIntersecting)return;
+        const el=entry.target;
+        const fam=el.dataset.family;
+        ensureFontLoaded(fam);
+        io.unobserve(el);
+      });
+    },{root:list,rootMargin:'500px 0px'});
+    list.querySelectorAll('.it-font-item').forEach(el=>io.observe(el));
+  }
 }
 populateFontCatalog();
+
+const itFontSearch=document.getElementById('itFontSearch');
+const itFontList=document.getElementById('itFontList');
+const itFontCount=document.getElementById('itFontCount');
+if(itFontSearch&&itFontList){
+  itFontSearch.addEventListener('input',()=>{
+    const q=itFontSearch.value.trim().toLowerCase();
+    let shown=0;
+    itFontList.querySelectorAll('.it-font-item').forEach(item=>{
+      const ok=!q || item.dataset.family.toLowerCase().includes(q) || item.textContent.toLowerCase().includes(q);
+      item.style.display=ok?'flex':'none';
+      if(ok)shown++;
+    });
+    if(itFontCount)itFontCount.textContent=shown+' fonts';
+  });
+}
+
 TE.textFont.addEventListener('change',async()=>{
+  document.querySelectorAll('.it-font-item.active').forEach(x=>x.classList.remove('active'));
+  const selected=document.querySelector('.it-font-item[data-family="'+CSS.escape(TE.textFont.value)+'"]');
+  if(selected)selected.classList.add('active');
   await ensureFontLoaded(TE.textFont.value);
   try{await document.fonts.load('400 '+TE.textSize.value+'px "'+TE.textFont.value+'"')}catch(e){}
   draw();
