@@ -98,9 +98,18 @@
             <button id="xlsxDelRow">➖ Qator</button>
             <button id="xlsxDelCol">➖ Ustun</button>
             <div class="sep"></div>
+            <button id="cellBold"><b>B</b></button>
+            <button id="cellItalic"><i>I</i></button>
+            <input type="color" id="cellBg" title="Fon rangi" value="#ffffff">
+            <input type="color" id="cellFg" title="Matn rangi" value="#111827">
+            <div class="sep"></div>
             <input type="text" id="sheetName" value="Jadval1" style="width:120px">
             <button class="primary" id="xlsxSaveXlsx">⬇ .XLSX saqlash</button>
             <button id="xlsxSaveCsv">⬇ .CSV saqlash</button>
+        </div>
+        <div class="toolbar" style="margin-top:-10px">
+            <span style="font:700 11px monospace;color:var(--accent);padding:0 4px" id="activeCellLabel">A1</span>
+            <input type="text" id="formulaBar" placeholder="Qiymat yoki formula yozing, masalan =SUM(A1:A5)" style="flex:1;min-width:200px">
         </div>
         <div class="sheet-wrap"><table class="grid" id="xlsxTable"></table></div>
         <div class="status" id="xlsxStatus">Yangi jadval tayyor.</div>
@@ -118,9 +127,28 @@
                 <option value="h2">Sarlavha 2</option>
                 <option value="h3">Sarlavha 3</option>
             </select>
+            <select id="docFont">
+                <option value="'Times New Roman',serif">Times New Roman</option>
+                <option value="Arial,sans-serif">Arial</option>
+                <option value="'Calibri',sans-serif">Calibri</option>
+                <option value="Georgia,serif">Georgia</option>
+                <option value="'Courier New',monospace">Courier New</option>
+            </select>
+            <select id="docSize">
+                <option value="1">Kichik</option>
+                <option value="2">10pt</option>
+                <option value="3" selected>12pt</option>
+                <option value="4">14pt</option>
+                <option value="5">18pt</option>
+                <option value="6">24pt</option>
+                <option value="7">36pt</option>
+            </select>
+            <div class="sep"></div>
             <button id="docBold"><b>B</b></button>
             <button id="docItalic"><i>I</i></button>
             <button id="docUnderline"><u>U</u></button>
+            <input type="color" id="docColor" title="Matn rangi" value="#111827">
+            <input type="color" id="docHighlight" title="Belgilash rangi" value="#fff176">
             <div class="sep"></div>
             <button id="docLeft">⬅</button>
             <button id="docCenter">↔</button>
@@ -128,8 +156,11 @@
             <div class="sep"></div>
             <button id="docUl">• Ro'yxat</button>
             <button id="docOl">1. Ro'yxat</button>
+            <label><input type="file" id="docImgInput" accept="image/*"><button type="button" onclick="document.getElementById('docImgInput').click()">🖼 Rasm</button></label>
+            <button id="docTable">▦ Jadval</button>
             <div class="sep"></div>
             <button class="primary" id="docSave">⬇ .DOC saqlash</button>
+            <span style="font:11px monospace;color:#94a3b8;margin-left:auto" id="wordCount">0 so'z</span>
         </div>
         <div class="page-wrap"><div id="docArea" contenteditable="true">
             <p>Hujjatni shu yerdan yozishni boshlang...</p>
@@ -160,10 +191,105 @@
 
     /* ================= EXCEL ================= */
     let sheetData = Array.from({length:20}, ()=>Array.from({length:8}, ()=>''));
+    let cellStyles = {}; // key "r,c" -> {bold,italic,bg,fg}
+    let activeCell = {r:0,c:0};
     const xlsxTable = document.getElementById('xlsxTable');
     const xlsxStatus = document.getElementById('xlsxStatus');
+    const formulaBar = document.getElementById('formulaBar');
+    const activeCellLabel = document.getElementById('activeCellLabel');
     function colLetter(i){ let s=''; i++; while(i>0){ let m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=Math.floor((i-1)/26); } return s; }
+    function colIndex(letters){ let n=0; for(const ch of letters){ n = n*26 + (ch.charCodeAt(0)-64); } return n-1; }
     function setXlsxStatus(msg, cls){ xlsxStatus.textContent = msg; xlsxStatus.className = 'status' + (cls?' '+cls:''); }
+    function styleKey(r,c){ return r+','+c; }
+    function getStyle(r,c){ return cellStyles[styleKey(r,c)] || {}; }
+
+    function expandRange(a,b){
+        const m1=a.match(/^([A-Z]+)(\d+)$/), m2=b.match(/^([A-Z]+)(\d+)$/);
+        if(!m1||!m2) return [];
+        const c1=colIndex(m1[1]), r1=+m1[2]-1, c2=colIndex(m2[1]), r2=+m2[2]-1;
+        const rMin=Math.min(r1,r2), rMax=Math.max(r1,r2), cMin=Math.min(c1,c2), cMax=Math.max(c1,c2);
+        const cells=[];
+        for(let r=rMin;r<=rMax;r++) for(let c=cMin;c<=cMax;c++) cells.push({r,c});
+        return cells;
+    }
+    function getCellRaw(r,c){ return (sheetData[r] && sheetData[r][c]!=null) ? sheetData[r][c] : ''; }
+    function getCellValue(r,c,visited){
+        visited = visited || new Set();
+        const key=r+','+c;
+        if(visited.has(key)) return 0;
+        visited.add(key);
+        const raw = getCellRaw(r,c);
+        if(typeof raw==='string' && raw.trim().startsWith('=')){
+            const v = evalFormula(raw.trim().slice(1), visited);
+            return typeof v==='number' ? v : 0;
+        }
+        const n = parseFloat(raw);
+        return isNaN(n) ? 0 : n;
+    }
+    function cellsToValues(cells, visited){ return cells.map(({r,c})=>getCellValue(r,c,visited)); }
+    function evalFormula(expr, visited){
+        visited = visited || new Set();
+        let e = expr.toUpperCase().replace(/\s+/g,'');
+        const funcRe = /([A-Z]+)\(([^()]*)\)/;
+        let guard=0;
+        while(funcRe.test(e) && guard++<50){
+            e = e.replace(funcRe, (m, fn, argsStr)=>{
+                if(fn === 'IF'){
+                    const parts = argsStr.split(',');
+                    const condRaw = (parts[0]||'0').replace(/\b([A-Z]+)(\d+)\b/g, (mm2,l,n)=>String(getCellValue(+n-1, colIndex(l), visited)));
+                    let condVal = false;
+                    if(/^[0-9+\-*/%.()<>=! ]*$/.test(condRaw)){
+                        try{ condVal = !!Function('"use strict";return ('+condRaw+')')(); }catch(err){ condVal=false; }
+                    }
+                    const pick = (condVal ? parts[1] : parts[2]) || '0';
+                    const pickRaw = pick.trim();
+                    if(/^[A-Z]+\d+$/.test(pickRaw)){
+                        const mm3=pickRaw.match(/^([A-Z]+)(\d+)$/);
+                        return String(getCellValue(+mm3[2]-1, colIndex(mm3[1]), visited));
+                    }
+                    const n=parseFloat(pickRaw);
+                    return String(isNaN(n)?0:n);
+                }
+                const args = argsStr.split(',').filter(a=>a.length);
+                let values = [];
+                args.forEach(a=>{
+                    if(a.includes(':')){
+                        const parts=a.split(':');
+                        values = values.concat(cellsToValues(expandRange(parts[0],parts[1]), visited));
+                    } else if(/^[A-Z]+\d+$/.test(a)){
+                        const mm=a.match(/^([A-Z]+)(\d+)$/);
+                        values.push(getCellValue(+mm[2]-1, colIndex(mm[1]), visited));
+                    } else {
+                        const n=parseFloat(a); values.push(isNaN(n)?0:n);
+                    }
+                });
+                switch(fn){
+                    case 'SUM': return String(values.reduce((s,v)=>s+v,0));
+                    case 'AVERAGE': return String(values.length?values.reduce((s,v)=>s+v,0)/values.length:0);
+                    case 'MIN': return String(values.length?Math.min(...values):0);
+                    case 'MAX': return String(values.length?Math.max(...values):0);
+                    case 'COUNT': return String(values.length);
+                    case 'ROUND': return String(Math.round(values[0]*Math.pow(10,values[1]||0))/Math.pow(10,values[1]||0));
+                    default: return '0';
+                }
+            });
+        }
+        e = e.replace(/\b([A-Z]+)(\d+)\b/g, (m,letters,num)=>String(getCellValue(+num-1, colIndex(letters), visited)));
+        if(!/^[0-9+\-*/%.()<>=! ]*$/.test(e)) return '#XATO';
+        try{
+            const val = Function('"use strict";return ('+(e||'0')+')')();
+            return typeof val==='number' && !isNaN(val) ? val : (typeof val==='boolean' ? (val?1:0) : '#XATO');
+        }catch(err){ return '#XATO'; }
+    }
+    function displayValue(r,c){
+        const raw = getCellRaw(r,c);
+        if(typeof raw==='string' && raw.trim().startsWith('=')){
+            const v = evalFormula(raw.trim().slice(1));
+            if(v==='#XATO') return '#XATO';
+            return Number.isInteger(v) ? String(v) : (Math.round(v*100)/100).toString();
+        }
+        return raw;
+    }
 
     function renderGrid(){
         const rows = sheetData.length, cols = sheetData[0]?sheetData[0].length:0;
@@ -173,21 +299,51 @@
         for(let r=0;r<rows;r++){
             html += '<tr><td class="rownum">'+(r+1)+'</td>';
             for(let c=0;c<cols;c++){
-                const v = (sheetData[r][c] ?? '').toString().replace(/"/g,'&quot;');
-                html += '<td><input type="text" data-r="'+r+'" data-c="'+c+'" value="'+v+'"></td>';
+                const v = (displayValue(r,c) ?? '').toString().replace(/"/g,'&quot;');
+                const st = getStyle(r,c);
+                const styleAttr = 'font-weight:'+(st.bold?'700':'400')+';font-style:'+(st.italic?'italic':'normal')+';background:'+(st.bg||'#fff')+';color:'+(st.fg||'#111827')+';';
+                html += '<td><input type="text" data-r="'+r+'" data-c="'+c+'" value="'+v+'" style="'+styleAttr+'"></td>';
             }
             html += '</tr>';
         }
         html += '</tbody>';
         xlsxTable.innerHTML = html;
         xlsxTable.querySelectorAll('input').forEach(inp=>{
-            inp.addEventListener('input', e=>{
-                const r=+e.target.dataset.r, c=+e.target.dataset.c;
-                sheetData[r][c] = e.target.value;
+            const r=+inp.dataset.r, c=+inp.dataset.c;
+            inp.addEventListener('focus', ()=>{
+                activeCell = {r,c};
+                activeCellLabel.textContent = colLetter(c)+(r+1);
+                formulaBar.value = getCellRaw(r,c);
+                inp.value = getCellRaw(r,c);
+                const st=getStyle(r,c);
+                document.getElementById('cellBg').value = st.bg && st.bg!=='#fff' ? st.bg : '#ffffff';
+                document.getElementById('cellFg').value = st.fg || '#111827';
             });
+            inp.addEventListener('input', e=>{ sheetData[r][c] = e.target.value; formulaBar.value = e.target.value; });
+            inp.addEventListener('blur', renderGrid);
+            inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); const next=xlsxTable.querySelector('input[data-r="'+(r+1)+'"][data-c="'+c+'"]'); if(next) next.focus(); } });
         });
     }
     renderGrid();
+
+    formulaBar.addEventListener('input', ()=>{
+        sheetData[activeCell.r][activeCell.c] = formulaBar.value;
+        const inp = xlsxTable.querySelector('input[data-r="'+activeCell.r+'"][data-c="'+activeCell.c+'"]');
+        if(inp) inp.value = formulaBar.value;
+    });
+    formulaBar.addEventListener('keydown', e=>{ if(e.key==='Enter'){ renderGrid(); } });
+
+    function applyCellStyle(patch){
+        const key = styleKey(activeCell.r, activeCell.c);
+        cellStyles[key] = Object.assign({}, cellStyles[key], patch);
+        renderGrid();
+        const inp = xlsxTable.querySelector('input[data-r="'+activeCell.r+'"][data-c="'+activeCell.c+'"]');
+        if(inp) inp.focus();
+    }
+    document.getElementById('cellBold').onclick = ()=>applyCellStyle({bold: !getStyle(activeCell.r,activeCell.c).bold});
+    document.getElementById('cellItalic').onclick = ()=>applyCellStyle({italic: !getStyle(activeCell.r,activeCell.c).italic});
+    document.getElementById('cellBg').addEventListener('input', e=>applyCellStyle({bg:e.target.value}));
+    document.getElementById('cellFg').addEventListener('input', e=>applyCellStyle({fg:e.target.value}));
 
     document.getElementById('xlsxAddRow').onclick = ()=>{
         const cols = sheetData[0]?sheetData[0].length:8;
@@ -208,6 +364,7 @@
     };
     document.getElementById('xlsxNew').onclick = ()=>{
         sheetData = Array.from({length:20}, ()=>Array.from({length:8}, ()=>''));
+        cellStyles = {};
         document.getElementById('sheetName').value = 'Jadval1';
         renderGrid();
         setXlsxStatus('Yangi jadval yaratildi.');
@@ -227,6 +384,7 @@
                 if(!aoa.length) aoa.push(['']);
                 const maxCols = Math.max(...aoa.map(r=>r.length), 1);
                 sheetData = aoa.map(r=>{ const row = r.slice(0,maxCols).map(v=>v==null?'':String(v)); while(row.length<maxCols) row.push(''); return row; });
+                cellStyles = {};
                 document.getElementById('sheetName').value = wsName;
                 renderGrid();
                 setXlsxStatus('✔ "'+f.name+'" ochildi.', 'ok');
@@ -241,11 +399,23 @@
     document.getElementById('xlsxSaveXlsx').onclick = ()=>{
         try{
             const wb = XLSX.utils.book_new();
-            const ws = XLSX.utils.aoa_to_sheet(sheetData);
+            const displayData = sheetData.map((row,r)=>row.map((v,c)=>{
+                const raw = v;
+                if(typeof raw==='string' && raw.trim().startsWith('=')) return getCellValue(r,c);
+                const n = parseFloat(raw);
+                return (raw!=='' && !isNaN(n) && String(n)===raw.trim()) ? n : raw;
+            }));
+            const ws = XLSX.utils.aoa_to_sheet(displayData);
+            sheetData.forEach((row,r)=>row.forEach((raw,c)=>{
+                if(typeof raw==='string' && raw.trim().startsWith('=')){
+                    const addr = XLSX.utils.encode_cell({r,c});
+                    if(ws[addr]) ws[addr].f = raw.trim().slice(1);
+                }
+            }));
             const name = (document.getElementById('sheetName').value||'Jadval1').slice(0,31);
             XLSX.utils.book_append_sheet(wb, ws, name);
             XLSX.writeFile(wb, name+'.xlsx');
-            setXlsxStatus('✔ .xlsx fayl yuklab olindi.', 'ok');
+            setXlsxStatus('✔ .xlsx fayl yuklab olindi (formulalar bilan).', 'ok');
         }catch(err){
             console.error(err);
             setXlsxStatus('✕ Saqlashda xatolik: '+err.message, 'err');
@@ -253,7 +423,8 @@
     };
     document.getElementById('xlsxSaveCsv').onclick = ()=>{
         try{
-            const ws = XLSX.utils.aoa_to_sheet(sheetData);
+            const displayData = sheetData.map((row,r)=>row.map((v,c)=>displayValue(r,c)));
+            const ws = XLSX.utils.aoa_to_sheet(displayData);
             const csv = XLSX.utils.sheet_to_csv(ws);
             const blob = new Blob(["\uFEFF"+csv], {type:'text/csv;charset=utf-8;'});
             const a = document.createElement('a');
@@ -284,9 +455,61 @@
         document.execCommand('formatBlock', false, e.target.value);
         docArea.focus();
     });
+    document.getElementById('docFont').addEventListener('change', function(e){
+        document.execCommand('fontName', false, e.target.value);
+        docArea.focus();
+    });
+    document.getElementById('docSize').addEventListener('change', function(e){
+        document.execCommand('fontSize', false, e.target.value);
+        docArea.focus();
+    });
+    document.getElementById('docColor').addEventListener('input', function(e){
+        document.execCommand('foreColor', false, e.target.value);
+        docArea.focus();
+    });
+    document.getElementById('docHighlight').addEventListener('input', function(e){
+        document.execCommand('hiliteColor', false, e.target.value);
+        docArea.focus();
+    });
+    document.getElementById('docImgInput').addEventListener('change', function(e){
+        const f = e.target.files[0];
+        if(!f) return;
+        const reader = new FileReader();
+        reader.onload = ev=>{
+            docArea.focus();
+            document.execCommand('insertImage', false, ev.target.result);
+            const imgs = docArea.querySelectorAll('img:not([style])');
+            imgs.forEach(img=>{ img.style.maxWidth='100%'; });
+            updateWordCount();
+        };
+        reader.readAsDataURL(f);
+        e.target.value='';
+    });
+    document.getElementById('docTable').addEventListener('click', function(){
+        const rows = parseInt(prompt('Nechta qator?','3'))||3;
+        const cols = parseInt(prompt('Nechta ustun?','3'))||3;
+        let html = '<table style="border-collapse:collapse;width:100%;margin:10px 0">';
+        for(let r=0;r<rows;r++){
+            html += '<tr>';
+            for(let c=0;c<cols;c++) html += '<td style="border:1px solid #999;padding:6px 10px;min-width:40px">&nbsp;</td>';
+            html += '</tr>';
+        }
+        html += '</table><p><br></p>';
+        docArea.focus();
+        document.execCommand('insertHTML', false, html);
+        updateWordCount();
+    });
+    function updateWordCount(){
+        const text = docArea.innerText || '';
+        const words = text.trim().split(/\s+/).filter(Boolean).length;
+        document.getElementById('wordCount').textContent = words + " so'z";
+    }
+    docArea.addEventListener('input', updateWordCount);
+    updateWordCount();
     document.getElementById('docNew').onclick = ()=>{
         docArea.innerHTML = '<p>Hujjatni shu yerdan yozishni boshlang...</p>';
         setDocStatus('Yangi hujjat yaratildi.');
+        updateWordCount();
     };
     document.getElementById('docOpen').addEventListener('change', function(e){
         const f = e.target.files[0];
@@ -298,6 +521,7 @@
                 const text = ev.target.result;
                 docArea.innerHTML = text.split(/\r?\n/).map(l=>'<p>'+(l||'&nbsp;')+'</p>').join('');
                 setDocStatus('✔ "'+f.name+'" ochildi.', 'ok');
+                updateWordCount();
             };
             reader.readAsText(f);
         } else {
@@ -307,6 +531,7 @@
                     .then(function(result){
                         docArea.innerHTML = result.value || '<p></p>';
                         setDocStatus('✔ "'+f.name+'" ochildi.'+(result.messages.length?' (ba\'zi formatlashlar soddalashtirildi)':''), 'ok');
+                        updateWordCount();
                     })
                     .catch(function(err){
                         console.error(err);
