@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>IT SHAKH | File Center</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://accounts.google.com/gsi/client" async defer onload="initGoogleLogin()"></script>
 <style>
 :root{--bg:#04060b;--card:#07101c;--accent:#38bdf8;--text:#e5e7eb;--muted:#64748b;--danger:#ff5f57;--ok:#28ca41}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0,#0a1b2c 0,#04060b 45%,#000 100%);color:var(--text);font-family:Inter,sans-serif}
@@ -33,7 +33,7 @@ footer{text-align:center;color:#475569;font:9px monospace;padding:25px}
     <div class="loginlogo">🔐</div>
     <h1>IT SHAKH FILE CENTER</h1>
     <p>Fayllarni ko‘rish, yuklash va o‘chirish uchun Google orqali kiring.</p>
-    <div class="google-wrap"><div id="g_id_signin"></div></div>
+    <div class="google-wrap"><div id="g_id_signin"></div><button id="google-fallback" class="btn primary" style="display:none" type="button" onclick="startGoogleLogin()">GOOGLE LOGIN</button></div>
     <small>SECURE GOOGLE LOGIN • IT SHAKH STORAGE</small>
   </div>
 </div>
@@ -102,7 +102,37 @@ async function uploadSelected(){if(!need())return;const fs=Array.from($('fileInp
 }
 function login(cred){let p={};try{p=JSON.parse(atob(cred.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){}localStorage.setItem('it_shakh_google_user',JSON.stringify({credential:cred,email:p.email||'',name:p.name||p.email||'GOOGLE USER',picture:p.picture||''}));$('login').style.display='none';$('account').textContent=p.name||p.email||'GOOGLE USER';status('Google login muvaffaqiyatli.','ok');load()}
 window.handleCredentialResponse=r=>login(r.credential);
-window.addEventListener('load',()=>{const u=user();if(u&&u.credential){$('login').style.display='none';$('account').textContent=u.name||u.email||'GOOGLE USER';load()}else{const timer=setInterval(()=>{if(window.google?.accounts?.id){clearInterval(timer);google.accounts.id.initialize({client_id:CLIENT_ID,callback:handleCredentialResponse});google.accounts.id.renderButton($('g_id_signin'),{theme:'filled_blue',size:'large',shape:'pill',text:'signin_with'});}},100)}})
+window.initGoogleLogin=function(){
+  try{
+    if(!window.google||!google.accounts||!google.accounts.id) throw Error('Google Identity Services yuklanmadi');
+    google.accounts.id.initialize({client_id:CLIENT_ID,callback:handleCredentialResponse,auto_select:false});
+    const box=$('g_id_signin');
+    box.innerHTML='';
+    google.accounts.id.renderButton(box,{theme:'filled_blue',size:'large',shape:'pill',text:'signin_with',width:280});
+    $('google-fallback').style.display='none';
+  }catch(e){
+    console.error(e);
+    $('google-fallback').style.display='inline-flex';
+    $('google-fallback').textContent='GOOGLE LOGIN';
+  }
+};
+window.addEventListener('load',()=>{
+  const u=user();
+  if(u&&u.credential){
+    $('login').style.display='none';
+    $('account').textContent=u.name||u.email||'GOOGLE USER';
+    load();
+  }else{
+    setTimeout(()=>{if(window.google?.accounts?.id)initGoogleLogin();},1500);
+  }
+});
+function startGoogleLogin(){
+  if(window.google?.accounts?.id){
+    try{ google.accounts.id.prompt(); }catch(e){ initGoogleLogin(); }
+  }else{
+    status('Google Login yuklanmadi. Internet yoki Google bloklanishini tekshiring.','err');
+  }
+}
 $('upload').onclick=uploadSelected;$('refresh').onclick=load;$('clear').onclick=()=>{$('fileInput').value='';status('Tanlangan fayllar tozalandi.','info')};$('logout').onclick=()=>{localStorage.removeItem('it_shakh_google_user');location.reload()};
 $('drop').addEventListener('dragover',e=>{e.preventDefault();$('drop').classList.add('drag')});$('drop').addEventListener('dragleave',()=>$('drop').classList.remove('drag'));$('drop').addEventListener('drop',e=>{e.preventDefault();$('drop').classList.remove('drag');try{$('fileInput').files=e.dataTransfer.files;status(e.dataTransfer.files.length+' ta fayl tanlandi.')}catch(_){}});
 $('fileInput').addEventListener('change',()=>{if($('fileInput').files.length)status($('fileInput').files.length+' ta fayl tanlandi.')});
