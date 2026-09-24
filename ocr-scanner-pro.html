@@ -95,23 +95,30 @@ async function loadScript(url){
  });
 }
 async function ocrImage(blob){
+  // Tesseract.js v5 requires language + OEM as the first two arguments.
+  // Explicit CDN paths make the worker/core/traineddata locations deterministic.
   await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
-  if(!window.Tesseract) throw new Error("Tesseract OCR engine could not be loaded.");
+  if(!window.Tesseract) throw new Error("Tesseract.js yuklanmadi.");
 
-  let lang=$("lang").value;
-  // Tesseract's language packs are loaded separately. Keep combinations explicit.
-  const worker=await Tesseract.createWorker(lang,{
+  const selected=$("lang").value;
+  const langs=selected.split("+");
+  const worker=await Tesseract.createWorker(langs, 1, {
+    workerPath:"https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
+    corePath:"https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1",
+    langPath:"https://tessdata.projectnaptha.com/4.0.0",
     logger:m=>{
-      if(m.status==="loading tesseract core") status("Loading OCR engine...");
-      else if(m.status==="loading language traineddata") status("Loading OCR language...");
+      if(m.status==="loading tesseract core") status("OCR engine yuklanmoqda...");
+      else if(m.status==="loading language traineddata")
+        status("OCR tili yuklanmoqda...");
       else if(m.status==="recognizing text" && typeof m.progress==="number")
-        status("OCR: "+Math.round(m.progress*100)+"%");
-    }
+        status("OCR ishlayapti: "+Math.round(m.progress*100)+"%");
+    },
+    errorHandler:e=>console.error("Tesseract worker:",e)
   });
 
   try{
     const result=await worker.recognize(blob);
-    return (result.data && result.data.text) ? result.data.text : "";
+    return result?.data?.text || "";
   }finally{
     await worker.terminate();
   }
