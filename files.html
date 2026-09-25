@@ -965,6 +965,21 @@ body.files-page{min-height:100vh;}
         const u=getUser();
         return u && u.credential ? u.credential : '';
     }
+    function decodeJwtPayload(token){
+        try{
+            const part = token.split('.')[1];
+            const b64 = part.replace(/-/g,'+').replace(/_/g,'/');
+            return JSON.parse(decodeURIComponent(escape(atob(b64))));
+        }catch(e){ return null; }
+    }
+    function isTokenExpired(token){
+        const payload = decodeJwtPayload(token);
+        if(!payload || !payload.exp) return true;
+        return (Date.now()/1000) > payload.exp;
+    }
+    function clearStaleSession(){
+        localStorage.removeItem('it_shakh_google_user');
+    }
     function setStatus(msg,type='info'){
         status.textContent=msg;
         status.className='file-status '+type;
@@ -992,8 +1007,14 @@ body.files-page{min-height:100vh;}
         return token ? Object.assign({'Authorization':'Bearer '+token},extra) : extra;
     }
     function requireLogin(){
-        if(!getToken()){
+        const token = getToken();
+        if(!token){
             setStatus('Google login required — avval Google orqali kiring.','err');
+            return false;
+        }
+        if(isTokenExpired(token)){
+            clearStaleSession();
+            setStatus('Sessiya muddati tugadi — iltimos qaytadan Google orqali kiring.','err');
             return false;
         }
         return true;
@@ -1001,7 +1022,7 @@ body.files-page{min-height:100vh;}
 
     async function loadFiles(){
         if(!requireLogin()){
-            list.innerHTML='<div class="file-empty">GOOGLE LOGIN TALAB QILINADI.</div>';
+            list.innerHTML='<div class="file-empty">GOOGLE LOGIN TALAB QILINADI.<br><br><button class="file-btn" type="button" onclick="location.href=\'index.html\'">🔑 Qaytadan kirish</button></div>';
             count.textContent='0 FILE';
             return;
         }
@@ -1032,8 +1053,15 @@ body.files-page{min-height:100vh;}
                 </div>`;
             }).join('');
         }catch(e){
-            list.innerHTML='<div class="file-empty">STORAGE BILAN ULANIB BO‘LMADI.</div>';
-            setStatus('XATO: '+(e.message||'Noma’lum xato'),'err');
+            const msg = e.message||'';
+            if(/token/i.test(msg)){
+                clearStaleSession();
+                list.innerHTML='<div class="file-empty">SESSIYA MUDDATI TUGADI.<br><br><button class="file-btn" type="button" onclick="location.href=\'index.html\'">🔑 Qaytadan kirish</button></div>';
+                setStatus('Sessiya muddati tugadi — qaytadan Google orqali kiring.','err');
+            } else {
+                list.innerHTML='<div class="file-empty">STORAGE BILAN ULANIB BO‘LMADI.</div>';
+                setStatus('XATO: '+(msg||'Noma’lum xato'),'err');
+            }
         }
     }
 
