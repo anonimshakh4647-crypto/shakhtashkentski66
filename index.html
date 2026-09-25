@@ -1000,10 +1000,6 @@ body.file-modal-active{overflow:hidden;}
   .keyboard-key{min-width:21px !important;padding:0 3px !important;font-size:9px !important;}
 }
 
-
-html[data-admin-mode="light"] body, body.admin-light-mode{background:#eef5f9!important;color:#10202c!important;}
-html[data-admin-mode="light"] .card, body.admin-light-mode .card, body.admin-light-mode .panel{background:rgba(255,255,255,.92)!important;color:#10202c!important;}
-body.admin-light-mode a{color:#087fb4!important;}
 </style>
 </head>
 <body>
@@ -1085,7 +1081,8 @@ body.admin-light-mode a{color:#087fb4!important;}
         <details class="tools-menu">
             <summary>TOOLS ▾</summary>
             <div class="tools-dropdown">
-            <a href="calculator.html">CALCULATOR</a>
+            <a href="calculator.html">CALCULATOR PRO</a>
+
             <a href="ip-scanner.html">IP SCANNER</a>
             <a href="qr-generator.html">QR MAKER</a>
             <a href="speed-test.html">SPEED TEST</a>
@@ -1110,7 +1107,10 @@ body.admin-light-mode a{color:#087fb4!important;}
                         <a href="keyboard-shortcuts.html">KEYBOARD SHORTCUTS</a>
             <a href="8k-wallpaper.html">8K WALLPAPER</a>
       <a href="json-from-image.html">JSON FROM IMAGE</a>
+
       <a href="gif-search.html">GIF SEARCH PRO</a>
+
+
       <a href="telegram-emoji-maker.html">TELEGRAM EMOJI MAKER</a>
       <a href="office-suite.html">EXCEL &amp; WORD ONLINE</a>
                         </div>
@@ -1387,22 +1387,10 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 (function(){
  const CLIENT_ID='506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
  function decode(t){try{return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))}catch(e){return null}}
- async function authenticateServer(credential){
-   try{
-     const r=await fetch('/api/auth/google',{
-       method:'POST',
-       credentials:'include',
-       headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({credential})
-     });
-     return r.ok;
-   }catch(e){ return false; }
- }
  function success(r){
    if(!r || !r.credential) return;
    const u=decode(r.credential);
    if(u) localStorage.setItem('it_shakh_google_user',JSON.stringify({name:u.name||'',email:u.email||'',picture:u.picture||'',credential:r.credential}));
-   authenticateServer(r.credential);
    // Google login yopiladi
    const gate=document.getElementById('google-login-screen');
    if(gate){ gate.style.opacity='0'; gate.style.transition='opacity 0.8s'; setTimeout(()=>gate.remove(),800); }
@@ -1428,10 +1416,63 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
    const box=document.getElementById('google-signin-button');
    if(box){ const w=Math.max(240,Math.min(400,Math.floor(box.getBoundingClientRect().width))); google.accounts.id.renderButton(box,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'pill',logo_alignment:'left',width:w}); }
  }
+ function getSavedUser(){
+   try{
+     const raw=localStorage.getItem('it_shakh_google_user');
+     return raw ? JSON.parse(raw) : null;
+   }catch(e){ return null; }
+ }
+
+ function isReturningFromTool(){
+   let marked=false;
+   try{ marked=sessionStorage.getItem('it_shakh_return_from_tool')==='1'; }catch(e){}
+   if(marked){ try{sessionStorage.removeItem('it_shakh_return_from_tool');}catch(e){} return true; }
+   try{
+     const ref=document.referrer||'';
+     return /\/(calculator|ip-scanner|qr-generator|speed-test|world-map|translate|image-to-code|image-converter|ai-prompt-generator|gif-maker|number-base-converter|background-remover|audio-cutter|bass-boost)\.html(?:$|[?#])/.test(ref);
+   }catch(e){ return false; }
+ }
+
+ function restoreToolsMenu(){
+   const menu=document.querySelector('.tools-menu');
+   if(menu) menu.open=true;
+ }
+
+ function bindToolReturnState(){
+   document.querySelectorAll('.tools-dropdown a[href]').forEach(a=>{
+     a.addEventListener('click',()=>{
+       try{ sessionStorage.setItem('it_shakh_return_from_tool','1'); }catch(e){}
+     });
+   });
+ }
+
  document.addEventListener('DOMContentLoaded',function(){
    const start=document.getElementById('loading-screen');
-   if(start) start.style.display='none';
-   init();
+   const gate=document.getElementById('google-login-screen');
+   const math=document.getElementById('math-screen');
+   const saved=getSavedUser();
+   const returning=isReturningFromTool();
+
+   // Existing Google session: never show the login screen again on browser Back.
+   if(saved && saved.email){
+     if(gate){ gate.style.display='none'; gate.remove(); }
+
+     // Coming back from any Tools page: return directly to the site, not to login/START.
+     if(returning || sessionStorage.getItem('it_shakh_system_started')==='1'){
+       if(math){ math.style.display='none'; math.remove(); }
+       if(start){ start.style.display='none'; start.classList.add('hide'); start.remove(); }
+       if(returning) restoreToolsMenu();
+     }else{
+       if(start) start.style.display='flex';
+       if(math) math.style.display='none';
+     }
+   }else{
+     if(start) start.style.display='none';
+     if(math) math.style.display='none';
+     init();
+   }
+
+   bindToolReturnState();
  });
 })();
 </script>
@@ -1506,6 +1547,7 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
         }
         if (val === mathAnswer) {
             localStorage.removeItem('mathLockUntil');
+            try { sessionStorage.setItem('it_shakh_math_verified','1'); } catch(e) {}
             const screen = document.getElementById('math-screen');
             screen.style.opacity = '0';
             screen.style.transition = 'opacity 0.8s';
@@ -1558,6 +1600,7 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
                 console.log('Music playback was blocked:', e);
             }
 
+            try { sessionStorage.setItem('it_shakh_system_started','1'); } catch(e) {}
             startButton.disabled = true;
             startButton.textContent = 'LOADING...';
 
@@ -5499,42 +5542,5 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 })();
 </script>
 
-<script>
-/* ===== IT SHAKH SERVER SETTINGS ===== */
-(async function(){
-  try{
-    const r=await fetch('/api/site-settings',{cache:'no-store'}); if(!r.ok) return;
-    const s=await r.json();
-    if(s.siteTitle){document.title=s.siteTitle; const brand=document.querySelector('.brand'); if(brand && brand.childElementCount===0) brand.textContent=s.siteTitle;}
-    if(s.accent){document.documentElement.style.setProperty('--accent',s.accent);document.documentElement.style.setProperty('--primary',s.accent);}
-    const footer=document.querySelector('footer'); if(footer && s.footerText) footer.textContent=s.footerText;
-    if(s.announcement){
-      let a=document.getElementById('server-announcement');
-      if(!a){a=document.createElement('div');a.id='server-announcement';a.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;max-width:90%;padding:10px 16px;border:1px solid var(--accent,#20bfff);border-radius:10px;background:rgba(3,12,22,.94);color:#dff6ff;font:12px monospace;text-align:center;box-shadow:0 0 20px rgba(32,191,255,.15)';document.body.appendChild(a)}
-      a.textContent=s.announcement;
-    }
-    if(s.defaultMode==='light'){
-      document.documentElement.dataset.adminMode='light';
-      document.body.classList.add('admin-light-mode');
-    }else{
-      document.documentElement.dataset.adminMode='dark';
-      document.body.classList.remove('admin-light-mode');
-    }
-    if(s.footerText){
-      let f=document.querySelector('footer');
-      if(!f){f=document.createElement('footer');f.style.cssText='padding:24px;text-align:center;color:#7894aa;font:11px monospace;border-top:1px solid rgba(56,189,248,.12)';document.body.appendChild(f)}
-      f.textContent=s.footerText;
-    }
-    if(s.liveStatus){
-      let l=document.getElementById('server-live-status');
-      if(!l){l=document.createElement('div');l.id='server-live-status';l.style.cssText='position:fixed;top:78px;left:50%;transform:translateX(-50%);z-index:9998;max-width:90%;padding:8px 14px;border:1px solid var(--accent,#38bdf8);border-radius:999px;background:rgba(3,12,22,.94);color:#dff6ff;font:11px monospace;text-align:center;box-shadow:0 0 18px rgba(32,191,255,.12)';document.body.appendChild(l)}
-      l.textContent='● LIVE: '+s.liveStatus;
-    }else{
-      const l=document.getElementById('server-live-status');if(l)l.remove();
-    }
-    if(s.tools){document.querySelectorAll('.tools-dropdown a[href]').forEach(a=>{const key=a.getAttribute('href').split('?')[0].split('#')[0];if(Object.prototype.hasOwnProperty.call(s.tools,key)){const enabled=!!s.tools[key];a.style.display=enabled?'':'none';a.setAttribute('aria-hidden',enabled?'false':'true');}});}
-  }catch(e){}
-})();
-</script>
 </body>
 </html>
