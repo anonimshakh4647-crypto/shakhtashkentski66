@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IT SHAKH — Valyuta Kurslari</title>
+<style>
+:root{--bg:#050b12;--panel:#081522;--line:#153247;--text:#e8f7ff;--muted:#7f9aaa;--accent:#00e5ff;--green:#31e981;--red:#ff6378}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -10%,#10304a 0,#050b12 42%);color:var(--text);font-family:Segoe UI,Arial,sans-serif;min-height:100vh}
+.wrap{max-width:1180px;margin:auto;padding:28px 18px 80px}.top{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:24px}
+.brand{font-size:24px;font-weight:900;letter-spacing:1px}.brand span{color:var(--accent)}
+.back{border:1px solid #1b4662;background:#081827;color:#dff5ff;border-radius:10px;padding:10px 15px;font-weight:800;cursor:pointer}.back:hover{border-color:var(--accent);color:var(--accent)}
+.hero{border:1px solid var(--line);background:linear-gradient(145deg,#091a29,#07111b);border-radius:18px;padding:28px;margin-bottom:18px;box-shadow:0 15px 45px #0008}
+h1{margin:0 0 8px;font-size:34px}.sub{color:var(--muted)}.status{margin-top:16px;color:#8eb2c5;font-size:13px}.status b{color:var(--green)}
+.converter{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:end;margin-top:24px}
+.field label{display:block;color:var(--muted);font-size:12px;font-weight:800;margin-bottom:7px}.field input,.field select{width:100%;background:#050d15;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:13px;font-size:16px;outline:none}.field input:focus,.field select:focus{border-color:var(--accent)}
+.swap{height:45px;width:45px;border:1px solid #1b4662;background:#081827;color:var(--accent);border-radius:10px;font-size:20px;cursor:pointer}
+.result{font-size:20px;font-weight:900;margin-top:18px}.result span{color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:13px}.card{background:#07131f;border:1px solid var(--line);border-radius:14px;padding:18px}.code{font-size:20px;font-weight:900}.name{font-size:12px;color:var(--muted);margin-top:3px}.rate{font-size:23px;font-weight:900;margin-top:14px}.diff{font-size:12px;margin-top:7px}.up{color:var(--green)}.down{color:var(--red)}.flat{color:var(--muted)}
+.search{width:100%;margin:20px 0 14px;background:#050d15;color:white;border:1px solid var(--line);border-radius:10px;padding:13px;outline:none}.search:focus{border-color:var(--accent)}
+.note{color:var(--muted);font-size:12px;margin-top:18px}
+@media(max-width:650px){.top{align-items:flex-start}.hero{padding:20px}h1{font-size:27px}.converter{grid-template-columns:1fr}.swap{width:100%}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">IT <span>SHAKH</span> / VALYUTA</div>
+    <button class="back" onclick="location.href='index.html'">← ORQAGA</button>
+  </div>
+
+  <section class="hero">
+    <h1>💱 Valyuta kurslari</h1>
+    <div class="sub">O‘zbekiston Respublikasi Markaziy bankining rasmiy kurslari</div>
+    <div class="status" id="status">Kurslar yuklanmoqda...</div>
+
+    <div class="converter">
+      <div class="field"><label>MIQDOR</label><input id="amount" type="number" min="0" step="any" value="1"></div>
+      <button class="swap" id="swap" title="Almashtirish">⇄</button>
+      <div class="field"><label>VALYUTA</label><select id="currency"></select></div>
+    </div>
+    <div class="result" id="result">—</div>
+  </section>
+
+  <input class="search" id="search" placeholder="Valyutani qidirish...">
+  <div class="grid" id="grid"></div>
+  <div class="note">Manba: O‘zbekiston Respublikasi Markaziy banki. Rasmiy kurslar Markaziy bank API'sidan avtomatik olinadi.</div>
+</div>
+
+<script>
+const API='https://cbu.uz/uz/arkhiv-kursov-valyut/json/';
+let all=[], currentTo='USD';
+
+function fmt(n){return Number(n).toLocaleString('uz-UZ',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function icon(code){return ({USD:'🇺🇸',EUR:'🇪🇺',RUB:'🇷🇺',GBP:'🇬🇧',JPY:'🇯🇵',CNY:'🇨🇳',CHF:'🇨🇭',KZT:'🇰🇿',TRY:'🇹🇷',AED:'🇦🇪',KRW:'🇰🇷',CAD:'🇨🇦',AUD:'🇦🇺'})[code]||'💱';}
+
+async function loadRates(){
+  const status=document.getElementById('status');
+  try{
+    const r=await fetch(API+'?v='+Date.now(),{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    all=await r.json();
+    render();
+    status.innerHTML='<b>● LIVE</b> — Markaziy bankdan avtomatik yangilandi: '+(all[0]?.Date||'');
+  }catch(e){
+    status.textContent='Kurslarni yuklashda xatolik. Internet ulanishini tekshiring.';
+  }
+}
+
+function render(){
+  const q=document.getElementById('search').value.trim().toLowerCase();
+  const grid=document.getElementById('grid');
+  const select=document.getElementById('currency');
+  const old=select.value||currentTo;
+  const list=all.filter(x=>(x.Ccy+' '+x.CcyNm_UZ).toLowerCase().includes(q));
+  grid.innerHTML=list.map(x=>{
+    const d=Number(x.Diff||0);
+    return `<div class="card"><div class="code">${icon(x.Ccy)} ${x.Ccy}</div><div class="name">${x.CcyNm_UZ}</div><div class="rate">${fmt(x.Rate)} so'm</div><div class="diff ${d>0?'up':d<0?'down':'flat'}">${d>0?'▲ ':d<0?'▼ ':''}${fmt(Math.abs(d))}</div></div>`;
+  }).join('');
+  if(!select.options.length){
+    select.innerHTML=all.map(x=>`<option value="${x.Ccy}">${x.Ccy} — ${x.CcyNm_UZ}</option>`).join('');
+  }
+  select.value=all.some(x=>x.Ccy===old)?old:(all[0]?.Ccy||'USD');
+  currentTo=select.value;
+  convert();
+}
+
+function convert(){
+  const x=all.find(v=>v.Ccy===document.getElementById('currency').value);
+  const amount=Number(document.getElementById('amount').value)||0;
+  document.getElementById('result').innerHTML=x?`${fmt(amount)} ${x.Ccy} = <span>${fmt(amount*Number(x.Rate))} so'm</span>`:'—';
+}
+document.getElementById('amount').addEventListener('input',convert);
+document.getElementById('currency').addEventListener('change',convert);
+document.getElementById('search').addEventListener('input',render);
+document.getElementById('swap').addEventListener('click',()=>{
+  const x=document.getElementById('currency'), old=x.value;
+  x.value='USD'; if(x.value!=='USD') x.value=old; convert();
+});
+loadRates();
+setInterval(loadRates,5*60*1000);
+</script>
+</body>
+</html>
