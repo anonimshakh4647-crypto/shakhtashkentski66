@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IT SHAKH — Steam ID Lookup</title>
+<style>
+:root{--bg:#040a11;--p:#071521;--l:#17364c;--a:#38bdf8;--t:#e8f7ff;--m:#8198a8}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0,#10304a,#040a11 55%);color:var(--t);font:14px Segoe UI,Arial}
+.wrap{max-width:900px;margin:auto;padding:28px 18px 70px}.top{display:flex;justify-content:space-between;align-items:center}.brand{font-weight:900;letter-spacing:2px}.brand span{color:var(--a)}
+button,.input{border:1px solid var(--l);border-radius:10px;background:#081827;color:var(--t);padding:12px 15px}.back{cursor:pointer;font-weight:800}.back:hover{border-color:var(--a);color:var(--a)}
+.card{margin-top:25px;padding:28px;border:1px solid var(--l);border-radius:18px;background:#071521e8;box-shadow:0 18px 50px #0008}
+h1{margin:0 0 8px;font-size:32px}.muted{color:var(--m);line-height:1.6}.row{display:flex;gap:10px;margin-top:22px}.input{flex:1;outline:none}.input:focus{border-color:var(--a)}.find{background:var(--a);color:#001018;border-color:var(--a);font-weight:900;cursor:pointer}.find:disabled{opacity:.5;cursor:not-allowed}
+.status{margin-top:14px;min-height:20px;color:var(--m)}.error{color:#ff687a}.ok{color:#31e981}.result{display:none;margin-top:22px;border-top:1px solid var(--l);padding-top:20px}.profile{display:flex;gap:18px;align-items:center}.avatar{width:88px;height:88px;border-radius:14px;object-fit:cover;border:1px solid var(--l)}.name{font-size:23px;font-weight:900}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:20px}.item{padding:13px;border:1px solid #123047;border-radius:10px;background:#050e17}.label{font-size:10px;color:var(--m);letter-spacing:1px}.value{margin-top:5px;font-family:monospace;word-break:break-all}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.action{cursor:pointer}.hint{font-size:12px;color:var(--m);margin-top:16px}
+@media(max-width:600px){.row{flex-direction:column}.grid{grid-template-columns:1fr}.profile{align-items:flex-start}.avatar{width:70px;height:70px}}
+</style></head><body><div class="wrap">
+<div class="top"><div class="brand">IT <span>SHAKH</span> / STEAM ID</div><button class="back" onclick="location.href='index.html'">← ORQAGA</button></div>
+<div class="card"><h1>Steam ID Lookup</h1><div class="muted">Steam profil URL yoki SteamID64 kiriting. Profil ma’lumotlari faqat rasmiy Steam Web API kaliti orqali olinadi.</div>
+<div class="row"><input id="input" class="input" placeholder="https://steamcommunity.com/id/... yoki SteamID64"><button id="find" class="find">QIDIRISH</button></div>
+<div id="status" class="status"></div><div id="result" class="result"></div>
+<div class="hint">API kalitini HTML ichiga qo‘yish tavsiya etilmaydi. Ishlab turgan saytda server/proxy orqali API chaqirig‘ini himoyalash kerak.</div>
+</div></div>
+<script>
+const input=document.getElementById('input'),find=document.getElementById('find'),status=document.getElementById('status'),result=document.getElementById('result');
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function extract(v){v=v.trim();if(/^7656119\d{10}$/.test(v))return {id:v};let m=v.match(/steamcommunity\\.com\\/profiles\\/(\\d{17})/i);if(m)return{id:m[1]};return null}
+async function lookup(){
+ const v=input.value.trim(); const x=extract(v);
+ result.style.display='none'; status.className='status';
+ if(!x){status.className='status error';status.textContent='SteamID64 yoki /profiles/ URL kiriting.';return}
+ status.textContent='Tekshirilmoqda...'; find.disabled=true;
+ try{
+   const r=await fetch('/api/steam/profile?steamid='+encodeURIComponent(x.id),{cache:'no-store'});
+   const d=await r.json().catch(()=>({}));
+   if(!r.ok||!d.ok) throw new Error(d.error||'Steam API javob bermadi.');
+   const p=d.player;
+   result.innerHTML=`<div class="profile"><img class="avatar" src="${esc(p.avatarfull||'')}" onerror="this.style.display='none'"><div><div class="name">${esc(p.personaname||'Unknown')}</div><div class="muted">${p.personastate===1?'Online':'Offline'}</div></div></div><div class="grid">
+   <div class="item"><div class="label">STEAMID64</div><div class="value">${esc(p.steamid)}</div></div>
+   <div class="item"><div class="label">PROFILE URL</div><div class="value">${esc(p.profileurl)}</div></div>
+   <div class="item"><div class="label">VISIBILITY</div><div class="value">${p.communityvisibilitystate===3?'Public':'Private / Limited'}</div></div>
+   <div class="item"><div class="label">LAST LOGOFF</div><div class="value">${p.lastlogoff?new Date(p.lastlogoff*1000).toLocaleString():'—'}</div></div></div>
+   <div class="actions"><button class="action" onclick="navigator.clipboard.writeText('${esc(p.steamid)}')">COPY STEAMID64</button><button class="action" onclick="window.open('${esc(p.profileurl)}','_blank')">OPEN PROFILE</button></div>`;
+   result.style.display='block';status.className='status ok';status.textContent='Profil topildi.';
+ }catch(e){status.className='status error';status.textContent=e.message+' Server API ulanishini tekshiring.'}
+ finally{find.disabled=false}
+}
+find.onclick=lookup;input.addEventListener('keydown',e=>{if(e.key==='Enter')lookup()});
+</script></body></html>
