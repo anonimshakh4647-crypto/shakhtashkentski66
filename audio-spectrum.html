@@ -4654,7 +4654,7 @@ function __mcSet(v){__mclk();window.__mcRun=!!v;}
 ['pause','ended','emptied'].forEach(e=>A.addEventListener(e,()=>__mcSet(false)));
 A.addEventListener('waiting',()=>__mcSet(false));
 
-function resize(){let d=devicePixelRatio||1,r=C.getBoundingClientRect();if(window.__IT_EXPORT){const s=Math.min(1920/r.width,1080/r.height);C.width=1920;C.height=1080;X.setTransform(s,0,0,s,(1920-r.width*s)/2,(1080-r.height*s)/2);}else{C.width=r.width*d;C.height=r.height*d;X.setTransform(d,0,0,d,0,0);}if(!parts.length)for(let i=0;i<90;i++)parts.push({x:Math.random(),y:Math.random(),v:.0002+Math.random()*.0006,s:.5+Math.random()*2})}addEventListener('resize',resize);resize();
+function resize(){let d=devicePixelRatio||1,r=C.getBoundingClientRect();if(window.__IT_EXPORT){const s=Math.min(1920/r.width,1080/r.height);C.width=1920;C.height=1080;X.imageSmoothingEnabled=true;X.imageSmoothingQuality='high';X.setTransform(s,0,0,s,(1920-r.width*s)/2,(1080-r.height*s)/2);}else{C.width=r.width*d;C.height=r.height*d;X.setTransform(d,0,0,d,0,0);}if(!parts.length)for(let i=0;i<90;i++)parts.push({x:Math.random(),y:Math.random(),v:.0002+Math.random()*.0006,s:.5+Math.random()*2})}addEventListener('resize',resize);resize();
 function lab(){$('sensO').textContent=(+$('sens').value).toFixed(2)+'×';$('smoothO').textContent=(+$('smooth').value).toFixed(2);$('fftO').textContent=fv[+$('fft').value];$('barsO').textContent=$('bars').value;$('glowO').textContent=$('glow').value;$('decayO').textContent=(+$('decay').value).toFixed(2);$('minO').textContent=$('minf').value+' Hz';$('maxO').textContent=(+$('maxf').value/1000).toFixed(1)+' kHz';$('rotO').textContent=$('rotation').value+'°'}lab();
 F.onchange=async()=>{let f=F.files[0];if(!f)return;if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(f);A.src=url;$('track').textContent=f.name;S.disabled=false;started=false;try{await init();await A.play()}catch(e){statusText('START tugmasini bosing: '+e.message)}};
 ids.forEach(id=>$(id).addEventListener('input',()=>{lab();if(an){an.smoothingTimeConstant=+$('smooth').value;if(id==='fft'){an.fftSize=fv[+$('fft').value];fd=new Uint8Array(an.frequencyBinCount);wd=new Uint8Array(an.fftSize)}}}));
@@ -5339,11 +5339,11 @@ async function download1080Video(){
     if(!mime) throw new Error('Bu brauzer video eksportni qo‘llab-quvvatlamaydi. Chrome/Edge yangilang.');
     const ext=mp4?'mp4':'webm';
 
-    try{
-      mediaRecorder=new MediaRecorder(recordStream,{mimeType:mime,videoBitsPerSecond:35000000,audioBitsPerSecond:320000});
-    }catch(e){
-      mediaRecorder=new MediaRecorder(recordStream,{mimeType:mime,videoBitsPerSecond:16000000,audioBitsPerSecond:256000});
+    mediaRecorder=null;
+    for(const vb of [60000000,40000000,20000000]){
+      try{mediaRecorder=new MediaRecorder(recordStream,{mimeType:mime,videoBitsPerSecond:vb,audioBitsPerSecond:320000});break;}catch(e){}
     }
+    if(!mediaRecorder) mediaRecorder=new MediaRecorder(recordStream,{mimeType:mime});
     recordedChunks=[];
 
     const finish=()=>{
@@ -6399,10 +6399,10 @@ const particleState={
 let particleItems=[];
 let particleLastT=__mclk();
 let particleRenderLast=0;
-let particleLayer=null,particleLayerCtx=null,particleLayerW=0,particleLayerH=0;
+let particleLayer=null,particleLayerCtx=null,particleLayerW=0,particleLayerH=0,particleLayerK=1;
 function ensureParticleLayer(w,h){
   if(!particleLayer){particleLayer=document.createElement('canvas');particleLayerCtx=particleLayer.getContext('2d',{alpha:true});}
-  if(particleLayerW!==w||particleLayerH!==h){particleLayerW=w;particleLayerH=h;particleLayer.width=w;particleLayer.height=h;particleLayerCtx.clearRect(0,0,w,h);particleRenderLast=0;}
+  const pk=Math.min(3,Math.max(1,(X.getTransform&&X.getTransform().a)||1));if(particleLayerW!==w||particleLayerH!==h||particleLayerK!==pk){particleLayerW=w;particleLayerH=h;particleLayerK=pk;particleLayer.width=Math.round(w*pk);particleLayer.height=Math.round(h*pk);particleLayerCtx.setTransform(pk,0,0,pk,0,0);particleLayerCtx.clearRect(0,0,w,h);particleRenderLast=0;}
 }
 
 const particleFamilies=[
