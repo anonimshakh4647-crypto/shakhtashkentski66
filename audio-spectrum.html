@@ -5063,8 +5063,8 @@ function draw(){
     if(!w||!h){raf=requestAnimationFrame(loop);return}
     X.clearRect(0,0,w,h);
     clr(w,h);
-    drawBackground(w,h);
-    drawBackgroundParticles(w,h);
+    try{drawBackground(w,h);}catch(err){console.warn('Background error:',err);try{X.filter='none';X.globalAlpha=1;X.globalCompositeOperation='source-over';}catch(e){}}
+    try{drawBackgroundParticles(w,h);}catch(err){console.warn('Particles error:',err);}
     if(!an||!fd){
       drawTextOverlay(w,h);
       raf=requestAnimationFrame(loop);
@@ -6040,7 +6040,21 @@ function resolveBgEffect(v){
 
 
 function drawImageEffect(effect,w,h,src,x,y,dw,dh,a){
+  // Safe wrapper: an error inside any of the 300 effects must never kill the render loop.
+  try{
+    __drawImageEffectCore(effect,w,h,src,x,y,dw,dh,a);
+  }catch(err){
+    console.warn('Image effect error ('+effect+'):',err);
+    try{X.restore();}catch(e){}
+    try{
+      X.filter='none';X.globalAlpha=1;X.globalCompositeOperation='source-over';
+      X.drawImage(src,x,y,dw,dh);
+    }catch(e){}
+  }
+}
+function __drawImageEffectCore(effect,w,h,src,x,y,dw,dh,a){
   if(!src)return;
+  const S=Math.min(w,h); // BUGFIX: 'S' used to resolve to the START button (NaN) -> many effects drew nothing
   if(effect==='none'){X.drawImage(src,x,y,dw,dh);return;}
   const n=Math.max(1,Math.min(300,parseInt(effect.replace('img',''),10)||1));
   const family=Math.floor((n-1)/3);
