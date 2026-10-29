@@ -6054,8 +6054,13 @@ function drawImageEffect(effect,w,h,src,x,y,dw,dh,a){
 }
 function __drawImageEffectCore(effect,w,h,src,x,y,dw,dh,a){
   if(!src)return;
-  const S=Math.min(w,h); // BUGFIX: 'S' used to resolve to the START button (NaN) -> many effects drew nothing
-  if(effect==='none'){X.drawImage(src,x,y,dw,dh);return;}
+  const S=Math.min(w,h);
+  const BF=window.__bgBaseFilter||'none';
+  const IMG=(...args)=>{
+    if(BF==='none'){X.drawImage(...args);return;}
+    const pf=X.filter;X.filter=BF;X.drawImage(...args);X.filter=pf;
+  }; // BUGFIX: 'S' used to resolve to the START button (NaN) -> many effects drew nothing
+  if(effect==='none'){IMG(src,x,y,dw,dh);return;}
   const n=Math.max(1,Math.min(300,parseInt(effect.replace('img',''),10)||1));
   const family=Math.floor((n-1)/3);
   const variant=(n-1)%3;
@@ -6064,8 +6069,8 @@ function __drawImageEffectCore(effect,w,h,src,x,y,dw,dh,a){
   const H=Math.max(64,Math.floor(h/Math.max(1,((family+2)%6)+1)));
   const z=1+a*(.08+.03*q);
   const ox=(w-dw*z)/2, oy=(h-dh*z)/2;
-  const draw=()=>X.drawImage(src,ox,oy,dw*z,dh*z);
-  const filter=(v)=>{X.filter=v;draw();X.filter='none';};
+  const draw=()=>IMG(src,ox,oy,dw*z,dh*z);
+  const filter=(v)=>{X.filter=(BF==='none'?'':BF+' ')+v;X.drawImage(src,ox,oy,dw*z,dh*z);X.filter='none';};
 
   X.save();
   X.globalAlpha=1;
@@ -6074,12 +6079,12 @@ function __drawImageEffectCore(effect,w,h,src,x,y,dw,dh,a){
   // 01-30: optical/color processing
   if(family===0){draw();}
   else if(family===1){filter(`blur(${2+q*4}px)`);}
-  else if(family===2){filter(`contrast(${125+q*35}%) saturate(${125+q*25}%)`);for(let i=0;i<3+q;i++){X.globalAlpha=.18;X.drawImage(src,ox-i,oy,dw*z,dh*z);}}
+  else if(family===2){filter(`contrast(${125+q*35}%) saturate(${125+q*25}%)`);for(let i=0;i<3+q;i++){X.globalAlpha=.18;IMG(src,ox-i,oy,dw*z,dh*z);}}
   else if(family===3){draw();for(let i=0;i<700+q*500;i++){let px=Math.random()*w,py=Math.random()*h;X.fillStyle=`rgba(255,255,255,${.03+a*.05})`;X.fillRect(px,py,1+q,1+q);}}
   else if(family===4){draw();const g=X.createRadialGradient(w/2,h/2,Math.min(w,h)*.12,w/2,h/2,Math.max(w,h)*.72);g.addColorStop(0,'transparent');g.addColorStop(.65,'rgba(0,0,0,.1)');g.addColorStop(1,'rgba(0,0,0,.72)');X.fillStyle=g;X.fillRect(0,0,w,h);}
   else if(family===5){draw();for(let i=0;i<900+q*600;i++){X.fillStyle=Math.random()>.5?'rgba(255,255,255,.09)':'rgba(0,0,0,.09)';X.fillRect(Math.random()*w,Math.random()*h,1+q,1+q);}}
   else if(family===6){X.imageSmoothingEnabled=false;draw();X.imageSmoothingEnabled=true;}
-  else if(family===7){X.globalAlpha=.35;for(let yy=0;yy<h;yy+=18+q*8)X.drawImage(src,x,yy,dw,10+q*5);X.globalAlpha=1;}
+  else if(family===7){X.globalAlpha=.35;for(let yy=0;yy<h;yy+=18+q*8)IMG(src,x,yy,dw,10+q*5);X.globalAlpha=1;}
   else if(family===8){draw();X.globalCompositeOperation='multiply';for(let yy=0;yy<h;yy+=5){X.fillStyle='rgba(0,0,0,.18)';X.fillRect(0,yy,w,1);}}
   else if(family===9){draw();X.globalCompositeOperation='screen';for(let i=0;i<8+q*4;i++){X.strokeStyle=`hsla(${(hue+i*45)%360},100%,65%,.35)`;X.beginPath();X.moveTo(0,(i/12)*h);X.lineTo(w,h-(i/12)*h);X.stroke();}}
   else if(family===10){filter(`grayscale(1) contrast(${150+q*35}%)`);}
@@ -6100,26 +6105,26 @@ function __drawImageEffectCore(effect,w,h,src,x,y,dw,dh,a){
   else if(family===25){filter(`contrast(${180+q*45}%) saturate(${80+q*30}%)`);}
   else if(family===26){ // RGB split
     X.globalCompositeOperation='screen';X.globalAlpha=.42;
-    X.drawImage(src,ox-(4+q*4),oy,dw*z,dh*z);X.drawImage(src,ox+(4+q*4),oy,dw*z,dh*z);
+    IMG(src,ox-(4+q*4),oy,dw*z,dh*z);IMG(src,ox+(4+q*4),oy,dw*z,dh*z);
     X.globalAlpha=.9;draw();
-  } else if(family===27){X.globalCompositeOperation='screen';X.globalAlpha=.28;X.drawImage(src,ox-7,oy,dw*z,dh*z);X.drawImage(src,ox+7,oy,dw*z,dh*z);X.globalAlpha=.9;draw();}
+  } else if(family===27){X.globalCompositeOperation='screen';X.globalAlpha=.28;IMG(src,ox-7,oy,dw*z,dh*z);IMG(src,ox+7,oy,dw*z,dh*z);X.globalAlpha=.9;draw();}
   else if(family===28){draw();for(let yy=0;yy<h;yy+=3+q*2){X.fillStyle='rgba(255,0,90,.09)';X.fillRect(0,yy,w,1);X.fillStyle='rgba(0,220,255,.09)';X.fillRect(0,yy+1,w,1);}}
   else if(family===29){draw();for(let yy=0;yy<h;yy+=4){X.fillStyle='rgba(0,0,0,.2)';X.fillRect(0,yy,w,1);}}
   // 31-60: distortion/geometric
-  else if(family===30){draw();for(let i=0;i<20+q*15;i++){let yy=Math.random()*h,hh=2+Math.random()*12;X.drawImage(src,0,yy,w,hh,Math.random()*18-9,yy,w,hh);}}
-  else if(family===31){draw();for(let i=0;i<24+q*18;i++){let yy=Math.random()*h,dx=(Math.random()-.5)*(15+q*30);X.drawImage(src,0,yy,w,3+q*4,dx,yy,w,3+q*4);}}
-  else if(family===32){draw();X.globalCompositeOperation='screen';for(let i=0;i<18+q*12;i++){let yy=Math.random()*h;X.globalAlpha=.15;X.drawImage(src,-Math.random()*40,yy,w+80,6+q*8);}}
+  else if(family===30){draw();for(let i=0;i<20+q*15;i++){let yy=Math.random()*h,hh=2+Math.random()*12;IMG(src,0,yy,w,hh,Math.random()*18-9,yy,w,hh);}}
+  else if(family===31){draw();for(let i=0;i<24+q*18;i++){let yy=Math.random()*h,dx=(Math.random()-.5)*(15+q*30);IMG(src,0,yy,w,3+q*4,dx,yy,w,3+q*4);}}
+  else if(family===32){draw();X.globalCompositeOperation='screen';for(let i=0;i<18+q*12;i++){let yy=Math.random()*h;X.globalAlpha=.15;IMG(src,-Math.random()*40,yy,w+80,6+q*8);}}
   else if(family===33){draw();X.globalCompositeOperation='screen';for(let i=0;i<70+q*50;i++){let px=Math.random()*w,py=Math.random()*h;X.fillStyle=`hsla(${(hue+Math.random()*90)%360},100%,70%,.2)`;X.beginPath();X.arc(px,py,1+Math.random()*5,0,Math.PI*2);X.fill();}}
   else if(family===34){draw();X.globalCompositeOperation='screen';for(let i=0;i<50+q*30;i++){let px=Math.random()*w,py=Math.random()*h;X.strokeStyle='rgba(255,255,255,.35)';X.beginPath();X.moveTo(px,py);X.lineTo(px+(Math.random()-.5)*20,py+(Math.random()-.5)*20);X.stroke();}}
   else if(family===35){draw();X.globalCompositeOperation='screen';for(let i=0;i<7+q*5;i++){let a=Math.random()*Math.PI*2,r=Math.min(w,h)*(.15+Math.random()*.35);X.strokeStyle=`hsla(${hue},100%,65%,.25)`;X.beginPath();X.moveTo(w/2,h/2);X.lineTo(w/2+Math.cos(a)*r,h/2+Math.sin(a)*r);X.stroke();}}
   else if(family===36){draw();for(let i=0;i<10+q*5;i++){let px=Math.random()*w,py=Math.random()*h;X.globalAlpha=.12;X.beginPath();X.arc(px,py,8+Math.random()*28,0,Math.PI*2);X.fillStyle='rgba(255,255,255,.8)';X.fill();}}
   else if(family===37){draw();X.globalCompositeOperation='screen';for(let i=0;i<14+q*8;i++){let a=Math.random()*Math.PI*2,r=Math.min(w,h)*(.2+Math.random()*.35);X.strokeStyle=`hsla(${hue+i*20},100%,65%,.35)`;X.beginPath();X.moveTo(w/2,h/2);X.lineTo(w/2+Math.cos(a)*r,h/2+Math.sin(a)*r);X.stroke();}}
-  else if(family===38){draw();for(let i=0;i<10+q*5;i++){let yy=Math.random()*h;X.globalAlpha=.08;X.drawImage(src,0,yy,w,20+q*20,(Math.random()-.5)*40,yy,w,20+q*20);}}
-  else if(family===39){draw();for(let i=0;i<8+q*4;i++){let yy=Math.random()*h;X.globalAlpha=.12;X.drawImage(src,0,yy,w,12+q*12,(Math.random()-.5)*80,yy,w,12+q*12);}}
+  else if(family===38){draw();for(let i=0;i<10+q*5;i++){let yy=Math.random()*h;X.globalAlpha=.08;IMG(src,0,yy,w,20+q*20,(Math.random()-.5)*40,yy,w,20+q*20);}}
+  else if(family===39){draw();for(let i=0;i<8+q*4;i++){let yy=Math.random()*h;X.globalAlpha=.12;IMG(src,0,yy,w,12+q*12,(Math.random()-.5)*80,yy,w,12+q*12);}}
   else if(family===40){ // zoom blur
-    for(let i=0;i<6+q*5;i++){X.globalAlpha=.08;const zz=1+i*.025;X.drawImage(src,(w-dw*zz)/2,(h-dh*zz)/2,dw*zz,dh*zz);}
+    for(let i=0;i<6+q*5;i++){X.globalAlpha=.08;const zz=1+i*.025;IMG(src,(w-dw*zz)/2,(h-dh*zz)/2,dw*zz,dh*zz);}
     X.globalAlpha=1;
-  } else if(family===41){for(let i=0;i<8+q*4;i++){X.globalAlpha=.08;X.drawImage(src,ox+i*5*Math.sin(i),oy,dw*z,dh*z);}X.globalAlpha=1;}
+  } else if(family===41){for(let i=0;i<8+q*4;i++){X.globalAlpha=.08;IMG(src,ox+i*5*Math.sin(i),oy,dw*z,dh*z);}X.globalAlpha=1;}
   else if(family===42){draw();X.globalCompositeOperation='screen';X.globalAlpha=.28;X.fillStyle=`hsl(${hue},100%,60%)`;X.fillRect(0,0,w,h);}
   else if(family===43){draw();const g=X.createRadialGradient(w*.5,h*.5,0,w*.5,h*.5,Math.max(w,h)*.55);g.addColorStop(0,'rgba(255,255,255,.25)');g.addColorStop(.3,'transparent');g.addColorStop(1,'rgba(255,180,60,.05)');X.fillStyle=g;X.fillRect(0,0,w,h);}
   else if(family===44){draw();for(let i=0;i<80+q*60;i++){let px=Math.random()*w,py=Math.random()*h,r=2+Math.random()*18;X.fillStyle='rgba(255,210,160,.08)';X.beginPath();X.arc(px,py,r,0,Math.PI*2);X.fill();}}
@@ -6134,12 +6139,12 @@ function __drawImageEffectCore(effect,w,h,src,x,y,dw,dh,a){
   else if(family===53){draw();X.globalCompositeOperation='multiply';for(let i=0;i<30;i++){let y0=i*h/30;X.fillStyle='rgba(0,0,0,.04)';X.fillRect(0,y0,w,1);}}
   else if(family===54){draw();X.globalCompositeOperation='screen';for(let i=0;i<12;i++){let r=(i+1)*Math.min(w,h)/30;X.strokeStyle=`hsla(${hue+i*20},100%,65%,.25)`;X.beginPath();X.arc(w/2,h/2,r,0,Math.PI*2);X.stroke();}}
   else if(family===55){draw();X.globalCompositeOperation='screen';for(let i=0;i<8;i++){let a=i*Math.PI/4+t*.1;X.strokeStyle=`hsla(${hue+i*35},100%,70%,.35)`;X.beginPath();X.moveTo(w/2,h/2);X.lineTo(w/2+Math.cos(a)*w,h/2+Math.sin(a)*h);X.stroke();}}
-  else if(family===56){draw();for(let i=0;i<12;i++){let a=i*Math.PI/6+t*.1,r=Math.min(w,h)*.35;X.globalAlpha=.18;X.drawImage(src,w/2+Math.cos(a)*r-dw/2,h/2+Math.sin(a)*r-dh/2,dw,dh);}}
+  else if(family===56){draw();for(let i=0;i<12;i++){let a=i*Math.PI/6+t*.1,r=Math.min(w,h)*.35;X.globalAlpha=.18;IMG(src,w/2+Math.cos(a)*r-dw/2,h/2+Math.sin(a)*r-dh/2,dw,dh);}}
   else if(family===57){draw();X.globalCompositeOperation='screen';for(let i=0;i<8;i++){let r=Math.min(w,h)*(.05+i*.06);X.strokeStyle=`hsla(${hue+i*25},100%,65%,.4)`;X.beginPath();X.arc(w/2,h/2,r,0,Math.PI*2);X.stroke();}}
   else if(family===58){draw();X.globalCompositeOperation='screen';for(let i=0;i<12;i++){let r=Math.min(w,h)*(.08+i*.04),sides=3+(i%5);X.beginPath();for(let j=0;j<sides;j++){let aa=j*Math.PI*2/sides+t*.1,xx=w/2+Math.cos(aa)*r,yy=h/2+Math.sin(aa)*r;j?X.lineTo(xx,yy):X.moveTo(xx,yy)}X.closePath();X.strokeStyle=`hsla(${hue+i*25},100%,65%,.35)`;X.stroke();}}
   else if(family===59){draw();X.globalCompositeOperation='screen';for(let i=0;i<12;i++){let x0=i*w/12;X.strokeStyle=`hsla(${hue+i*25},100%,65%,.3)`;X.beginPath();X.moveTo(x0,0);X.lineTo(x0,h);X.stroke();}}
   else if(family===60){draw();X.globalCompositeOperation='screen';for(let i=0;i<8;i++){let r=Math.min(w,h)*(.1+i*.05);X.strokeStyle=`hsla(${hue+i*25},100%,65%,.3)`;X.beginPath();X.arc(w/2,h/2,r,0,Math.PI*2);X.stroke();}}
-  else if(family===61){draw();for(let i=0;i<12;i++){let a=i*Math.PI/6+t*.1,r=Math.min(w,h)*(.1+i*.035);X.globalAlpha=.12;X.drawImage(src,w/2+Math.cos(a)*r-dw/2,h/2+Math.sin(a)*r-dh/2,dw,dh);}}
+  else if(family===61){draw();for(let i=0;i<12;i++){let a=i*Math.PI/6+t*.1,r=Math.min(w,h)*(.1+i*.035);X.globalAlpha=.12;IMG(src,w/2+Math.cos(a)*r-dw/2,h/2+Math.sin(a)*r-dh/2,dw,dh);}}
   else if(family===62){draw();X.globalCompositeOperation='screen';for(let i=0;i<30;i++){let r=Math.min(w,h)*(.04+i*.012);X.strokeStyle=`hsla(${hue+i*12},100%,65%,.25)`;X.beginPath();X.arc(w/2,h/2,r,0,Math.PI*2);X.stroke();}}
   else if(family===63){draw();X.globalCompositeOperation='screen';for(let i=0;i<6;i++){let r=Math.min(w,h)*(.08+i*.06);X.strokeStyle=`hsla(${hue+i*30},100%,70%,.4)`;X.beginPath();X.arc(w/2,h/2,r,0,Math.PI*2);X.stroke();}}
   else if(family===64){draw();X.globalCompositeOperation='screen';for(let i=0;i<5;i++){let a=t*.2+i;X.strokeStyle=`hsla(${hue+i*50},100%,70%,.4)`;X.beginPath();for(let j=0;j<200;j+=4){let r=j*S/400,aa=a+j*.04;let xx=w/2+Math.cos(aa)*r,yy=h/2+Math.sin(aa)*r; j?X.lineTo(xx,yy):X.moveTo(xx,yy)}X.stroke();}}
@@ -6165,7 +6170,7 @@ function __drawImageEffectCore(effect,w,h,src,x,y,dw,dh,a){
   else if(family===84){draw();X.globalCompositeOperation='screen';for(let i=0;i<10;i++){let step=40+i*7;for(let xx=0;xx<w;xx+=step){X.strokeStyle=`hsla(${hue+i*20},100%,70%,.18)`;X.beginPath();X.moveTo(xx,0);X.lineTo(xx,h);X.stroke();}}}
   else if(family===85){draw();X.globalCompositeOperation='screen';for(let i=0;i<8;i++){let r=S*(.08+i*.05);X.strokeStyle=`hsla(${hue+i*35},100%,70%,.25)`;X.beginPath();X.arc(w/2,h/2,r,0,Math.PI*2);X.stroke();}}
   else if(family===86){draw();X.globalCompositeOperation='screen';for(let i=0;i<60;i++){let x0=Math.random()*w,y0=Math.random()*h;X.fillStyle=`hsla(${hue+i*5},100%,70%,.18)`;X.fillRect(x0,y0,2,2);}}
-  else if(family===87){draw();for(let i=0;i<14;i++){let a=i*Math.PI/7+t*.2,r=S*(.1+i*.025);X.globalAlpha=.1;X.drawImage(src,w/2+Math.cos(a)*r-dw/2,h/2+Math.sin(a)*r-dh/2,dw,dh);}}
+  else if(family===87){draw();for(let i=0;i<14;i++){let a=i*Math.PI/7+t*.2,r=S*(.1+i*.025);X.globalAlpha=.1;IMG(src,w/2+Math.cos(a)*r-dw/2,h/2+Math.sin(a)*r-dh/2,dw,dh);}}
   else if(family===88){draw();X.globalCompositeOperation='screen';for(let i=0;i<30;i++){let r=S*(.02+i*.012),a=i*.5+t*.1;X.fillStyle=`hsla(${hue+i*12},100%,70%,.2)`;X.fillRect(w/2+Math.cos(a)*r,h/2+Math.sin(a)*r,3,3);}}
   else if(family===89){draw();X.globalCompositeOperation='screen';for(let i=0;i<20;i++){let y0=(i/20)*h;X.strokeStyle=`hsla(${hue+i*15},100%,70%,.2)`;X.beginPath();X.moveTo(0,y0);X.lineTo(w,y0+Math.sin(i)*20);X.stroke();}}
   else if(family===90){draw();X.globalCompositeOperation='screen';for(let i=0;i<20;i++){let a=i*Math.PI/10+t*.1,r=S*(.1+i*.018);X.strokeStyle=`hsla(${hue+i*18},100%,70%,.25)`;X.beginPath();X.moveTo(w/2,h/2);X.lineTo(w/2+Math.cos(a)*r,h/2+Math.sin(a)*r);X.stroke();}}
@@ -6237,7 +6242,17 @@ function drawBackground(w,h){
   X.translate(-w/2,-h/2);
 
   const effect=resolveBgEffect(bg$('bgEffect')?.value||'none');
-  X.filter=`brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hueRotate}deg)`;
+  // PERF FIX: canvas filters apply to EVERY draw call. Applying them while an effect draws
+  // hundreds of tiny shapes made frames take seconds (looked like a freeze). The base filter
+  // is now applied only to the background image draws inside drawImageEffect.
+  const __parts=[];
+  if(brightness!==100)__parts.push(`brightness(${brightness}%)`);
+  if(contrast!==100)__parts.push(`contrast(${contrast}%)`);
+  if(saturation!==100)__parts.push(`saturate(${saturation}%)`);
+  if(hueRotate)__parts.push(`hue-rotate(${hueRotate}deg)`);
+  if(blur>0)__parts.push(`blur(${blur}px)`);
+  window.__bgBaseFilter=__parts.length?__parts.join(' '):'none';
+  X.filter='none';
   drawImageEffect(effect,w,h,bgSource,x,y,dw,dh,a);
   X.filter='none';
   X.restore();
