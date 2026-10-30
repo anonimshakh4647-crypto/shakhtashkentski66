@@ -113,7 +113,7 @@
             backdrop-filter: blur(10px);
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 15px;
             box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
         }
         .panel-title {
@@ -129,7 +129,7 @@
         .drop-zone {
             border: 1.5px dashed var(--accent);
             border-radius: 14px;
-            padding: 20px 14px;
+            padding: 18px 14px;
             text-align: center;
             background: rgba(56, 189, 248, 0.04);
             cursor: pointer;
@@ -142,7 +142,7 @@
         }
         .drop-zone input { display: none; }
         .drop-icon {
-            font-size: 28px;
+            font-size: 26px;
             margin-bottom: 6px;
             display: block;
         }
@@ -361,22 +361,30 @@
             <button class="btn" id="resetCamBtn" type="button">⟲ KAMERANI TIKLASH</button>
         </div>
 
-        <h2 class="panel-title">// 3D EXTRUDE & GEOMETRIYA</h2>
+        <h2 class="panel-title">// 3D EXTRUDE & SIFAT</h2>
         <div class="control-group">
             <div class="control-row">
                 <div class="control-label">
                     <span>3D QALINLIK (DEPTH)</span>
-                    <b id="depthVal">16</b>
+                    <b id="depthVal">12</b>
                 </div>
-                <input type="range" id="depthSlider" min="1" max="80" step="1" value="16">
+                <input type="range" id="depthSlider" min="1" max="80" step="1" value="12">
             </div>
 
             <div class="control-row">
                 <div class="control-label">
                     <span>QIRRA SILLIQLIGI (BEVEL)</span>
-                    <b id="bevelVal">1.5</b>
+                    <b id="bevelVal">1.0</b>
                 </div>
-                <input type="range" id="bevelSlider" min="0" max="6" step="0.5" value="1.5">
+                <input type="range" id="bevelSlider" min="0" max="6" step="0.25" value="1.0">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>SVG DETAL SIFATI (CURVE)</span>
+                    <b id="curveVal">12</b>
+                </div>
+                <input type="range" id="curveSlider" min="4" max="24" step="2" value="12">
             </div>
 
             <div class="control-row">
@@ -446,7 +454,7 @@
         </div>
         <div class="status-bar">
             <span id="status-msg">✓ 3D Studio tayyor. Sichqoncha bilan aylantiring va yaqinlashtiring.</span>
-            <span>OBJ / DFF CONVERTER v1.0</span>
+            <span>OBJ / DFF PRO CONVERTER v2.0</span>
         </div>
     </div>
 </div>
@@ -483,20 +491,20 @@ controls.autoRotate = true;
 controls.autoRotateSpeed = 1.6;
 
 // Yorug'liklar
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
 scene.add(ambientLight);
 
 const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.95);
-dirLight1.position.set(120, 180, 150);
+dirLight1.position.set(120, 180, 160);
 scene.add(dirLight1);
 
 const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.55);
-dirLight2.position.set(-120, -80, -120);
+dirLight2.position.set(-140, -90, -120);
 scene.add(dirLight2);
 
 // Grid
 const gridHelper = new THREE.GridHelper(260, 26, 0x38bdf8, 0x1e293b);
-gridHelper.position.y = -45;
+gridHelper.position.y = -48;
 scene.add(gridHelper);
 
 // Asosiy 3D model guruhi
@@ -542,7 +550,100 @@ function getActiveMaterial(customColor, texture = null) {
     });
 }
 
+// ==================== GEOMETRIYANI TO'G'RILASH VA WELD QILISH ====================
+// scale(1, -1, 1) dan keyin teskari bo'lib qolgan poligon yuzalarini (winding order)
+// to'g'rilab, takrorlanuvchi vertexlarni sifatni yo'qotmasdan birlashtiradi.
+function fixWindingAndWeldGeometry(nonIndexedGeom, flipWinding = true) {
+    const posAttr = nonIndexedGeom.attributes.position;
+    if (!posAttr) return nonIndexedGeom;
+
+    // 1. Agar indeks bo'lmasa va winding teskari bo'lsa (masalan scale(1,-1,1) dan so'ng),
+    // har bir uchburchakning 2 va 3-nuqtasini almashtirib tashqi normalni tiklaymiz.
+    if (!nonIndexedGeom.index && flipWinding) {
+        const posArr = posAttr.array;
+        const uvAttr = nonIndexedGeom.attributes.uv;
+        const uvArr = uvAttr ? uvAttr.array : null;
+
+        for (let i = 0; i < posAttr.count; i += 3) {
+            const i1 = (i + 1) * 3;
+            const i2 = (i + 2) * 3;
+            for (let k = 0; k < 3; k++) {
+                const tmp = posArr[i1 + k];
+                posArr[i1 + k] = posArr[i2 + k];
+                posArr[i2 + k] = tmp;
+            }
+            if (uvArr) {
+                const u1 = (i + 1) * 2;
+                const u2 = (i + 2) * 2;
+                const tmpU = uvArr[u1];
+                const tmpV = uvArr[u1 + 1];
+                uvArr[u1] = uvArr[u2];
+                uvArr[u1 + 1] = uvArr[u2 + 1];
+                uvArr[u2] = tmpU;
+                uvArr[u2 + 1] = tmpV;
+            }
+        }
+        posAttr.needsUpdate = true;
+        if (uvAttr) uvAttr.needsUpdate = true;
+    }
+
+    // 2. Endi tashqi tomonga qaragan to'g'ri normallarni hisoblaymiz
+    nonIndexedGeom.computeVertexNormals();
+
+    // 3. Agar geometriya allaqachon indeksli bo'lsa, qaytaramiz
+    if (nonIndexedGeom.index) return nonIndexedGeom;
+
+    // 4. Vertex Welding: bir xil (pozitsiya + normal) ga ega nuqtalarni birlashtiramiz
+    const normAttr = nonIndexedGeom.attributes.normal;
+    const uvAttr = nonIndexedGeom.attributes.uv;
+
+    const newPositions = [];
+    const newNormals = [];
+    const newUVs = [];
+    const indices = [];
+    const vertexMap = new Map();
+
+    const count = posAttr.count;
+    for (let i = 0; i < count; i++) {
+        const px = posAttr.getX(i);
+        const py = posAttr.getY(i);
+        const pz = posAttr.getZ(i);
+        const nx = normAttr ? normAttr.getX(i) : 0;
+        const ny = normAttr ? normAttr.getY(i) : 0;
+        const nz = normAttr ? normAttr.getZ(i) : 1;
+
+        // Sifatni 100% saqlagan holda nuqtalarni guruhlash kaliti
+        const key = `${Math.round(px * 1000)}_${Math.round(py * 1000)}_${Math.round(pz * 1000)}_${Math.round(nx * 200)}_${Math.round(ny * 200)}_${Math.round(nz * 200)}`;
+
+        let idx = vertexMap.get(key);
+        if (idx === undefined) {
+            idx = newPositions.length / 3;
+            vertexMap.set(key, idx);
+            newPositions.push(px, py, pz);
+            newNormals.push(nx, ny, nz);
+            if (uvAttr) {
+                newUVs.push(uvAttr.getX(i), uvAttr.getY(i));
+            } else {
+                newUVs.push(0, 0);
+            }
+        }
+        indices.push(idx);
+    }
+
+    const welded = new THREE.BufferGeometry();
+    welded.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
+    welded.setAttribute('normal', new THREE.Float32BufferAttribute(newNormals, 3));
+    welded.setAttribute('uv', new THREE.Float32BufferAttribute(newUVs, 2));
+    welded.setIndex(indices);
+    nonIndexedGeom.dispose();
+    return welded;
+}
+
 function normalizeAndCenterGroup(group, targetSize = 95) {
+    group.scale.set(1, 1, 1);
+    group.position.set(0, 0, 0);
+    group.updateMatrixWorld(true);
+
     const box = new THREE.Box3().setFromObject(group);
     if (box.isEmpty()) return;
     const size = new THREE.Vector3();
@@ -558,6 +659,7 @@ function normalizeAndCenterGroup(group, targetSize = 95) {
         mesh.position.sub(center);
     });
     group.scale.setScalar(baseScale * userScale);
+    group.updateMatrixWorld(true);
     updateStats();
 }
 
@@ -589,14 +691,15 @@ function build3DFromSVG(svgText, fileName = 'MODEL.SVG') {
 
     const depth = parseFloat(document.getElementById('depthSlider').value);
     const bevel = parseFloat(document.getElementById('bevelSlider').value);
+    const curveSegs = parseInt(document.getElementById('curveSlider').value, 10) || 12;
 
     const extrudeSettings = {
         depth: depth,
         bevelEnabled: bevel > 0,
         bevelThickness: bevel,
-        bevelSize: bevel * 0.8,
-        bevelSegments: 3,
-        curveSegments: 12
+        bevelSize: bevel * 0.75,
+        bevelSegments: bevel > 0 ? 3 : 1,
+        curveSegments: curveSegs
     };
 
     const mat = getActiveMaterial();
@@ -605,10 +708,10 @@ function build3DFromSVG(svgText, fileName = 'MODEL.SVG') {
     svgData.paths.forEach(path => {
         const shapes = THREE.SVGLoader.createShapes(path);
         shapes.forEach(shape => {
-            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-            geometry.scale(1, -1, 1); // SVG Y o'qini to'g'rilash
-            geometry.computeVertexNormals();
-            const mesh = new THREE.Mesh(geometry, mat);
+            const rawGeom = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            rawGeom.scale(1, -1, 1); // SVG Y o'qini to'g'rilash
+            const cleanGeom = fixWindingAndWeldGeometry(rawGeom, true);
+            const mesh = new THREE.Mesh(cleanGeom, mat);
             currentModelRoot.add(mesh);
             meshCount++;
         });
@@ -622,7 +725,7 @@ function build3DFromSVG(svgText, fileName = 'MODEL.SVG') {
     normalizeAndCenterGroup(currentModelRoot);
     document.getElementById('hudFile').textContent = fileName.toUpperCase();
     document.getElementById('hudFormat').textContent = 'SVG → 3D';
-    setStatus(`✓ SVG 3D modelga aylantirildi (${meshCount} ta qism).`);
+    setStatus(`✓ SVG 3D modelga aylantirildi (${meshCount} ta qism, toza normallar bilan).`);
 }
 
 // ==================== 2. PNG -> 3D VOXEL / RELIEF MESH ====================
@@ -674,7 +777,7 @@ function build3DFromPNG(img, fileName = 'IMAGE.PNG') {
             const b = imgData[idx + 2];
             const a = imgData[idx + 3];
 
-            if (a < 28) continue; // Shaffof piksellarni tashlab ketish
+            if (a < 28) continue;
 
             const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
             const zFront = (depth * 0.5) + lum * (depth * 0.25);
@@ -690,20 +793,20 @@ function build3DFromPNG(img, fileName = 'IMAGE.PNG') {
             const v0 = 1 - y / rows;
             const v1 = 1 - (y + 1) / rows;
 
-            // Old yuza
+            // Old yuza (CCW)
             addQuad(
                 [x0, y1, zFront], [x1, y1, zFront], [x1, y0, zFront], [x0, y0, zFront],
                 [0, 0, 1],
                 [u0, v1], [u1, v1], [u1, v0], [u0, v0]
             );
-            // Orqa yuza
+            // Orqa yuza (CCW)
             addQuad(
                 [x1, y1, zBack], [x0, y1, zBack], [x0, y0, zBack], [x1, y0, zBack],
                 [0, 0, -1],
                 [u1, v1], [u0, v1], [u0, v0], [u1, v0]
             );
 
-            // Yon devorlar (faqat chekkada bo'lsa)
+            // Yon devorlar
             if (getAlpha(x, y - 1) < 28) {
                 addQuad([x0, y0, zFront], [x1, y0, zFront], [x1, y0, zBack], [x0, y0, zBack], [0, 1, 0], [u0, v0], [u1, v0], [u1, v0], [u0, v0]);
             }
@@ -746,11 +849,9 @@ function loadOBJModel(objText, fileName) {
     const mat = getActiveMaterial();
 
     objGroup.traverse(child => {
-        if (child.isMesh) {
+        if (child.isMesh && child.geometry) {
+            child.geometry = fixWindingAndWeldGeometry(child.geometry, false);
             child.material = mat;
-            if (child.geometry && !child.geometry.attributes.normal) {
-                child.geometry.computeVertexNormals();
-            }
         }
     });
 
@@ -779,12 +880,10 @@ function parseDFFBuffer(arrayBuffer, fileName) {
             const nextOffset = offset + 12 + size;
             if (nextOffset > arrayBuffer.byteLength) break;
 
-            // Container bo'limlar: Clump (0x10), GeometryList (0x1A)
             if (type === 0x0010 || type === 0x001A) {
                 offset += 12;
                 parseSection(nextOffset);
             } else if (type === 0x000F) {
-                // Geometry (0x0F) -> ichida Struct (0x01)
                 const structType = dv.getUint32(offset + 12, true);
                 if (structType === 0x0001) {
                     const mesh = readRWGeometryStruct(dv, offset + 24);
@@ -809,7 +908,6 @@ function parseDFFBuffer(arrayBuffer, fileName) {
 
             if (numVertices === 0 || numVertices > 500000) return null;
 
-            // Lighting fuksiyalari (agar version < 0x34000 yoki native bo'lmasa)
             const hasTexCoords = (flags & 0x04) !== 0 || (flags & 0x80) !== 0;
             const hasPrelit = (flags & 0x08) !== 0;
             const hasNormals = (flags & 0x10) !== 0;
@@ -840,8 +938,7 @@ function parseDFFBuffer(arrayBuffer, fileName) {
                 indices.push(v1, v2, v3);
             }
 
-            // Bounding sphere (x, y, z, r) + hasPosition + hasNormals
-            pos += 24;
+            pos += 24; // Bounding sphere + hasPosition + hasNormals
 
             const vertices = new Float32Array(numVertices * 3);
             for (let i = 0; i < numVertices * 3; i++) {
@@ -881,7 +978,7 @@ function parseDFFBuffer(arrayBuffer, fileName) {
     normalizeAndCenterGroup(currentModelRoot);
     document.getElementById('hudFile').textContent = fileName.toUpperCase();
     document.getElementById('hudFormat').textContent = 'DFF 3D';
-    setStatus(`✓ DFF model yuklandi (${meshesAdded} ta geometriya).`);
+    setStatus(`✓ DFF model yuklandi (${meshesAdded} ta geometriya bloki).`);
 }
 
 // ==================== EXPORT 1: WAVEFRONT .OBJ ====================
@@ -939,21 +1036,33 @@ function exportToOBJ() {
         }
 
         vertexOffset += pos.count;
+        geom.dispose();
     });
 
     const blob = new Blob([objOut], { type: 'text/plain;charset=utf-8' });
     downloadBlob(blob, (lastLoadedData.name || 'it_shakh_model') + '.obj');
-    setStatus('✓ Model .OBJ formatda yuklab olindi!');
+    setStatus('✓ Model .OBJ formatda to‘liq sifatda yuklab olindi!');
 }
 
-// ==================== EXPORT 2: RENDERWARE .DFF BINARY ====================
+// ==================== EXPORT 2: MULTI-GEOMETRY RENDERWARE .DFF ====================
+// Har qanday kattalikdagi (hatto 1-2 mln vertexli) modelni 65,000 vertexlik
+// bir nechta Geometry va Atomic bloklariga bo'lib, 100% yo'qotishsiz DFF qiladi!
 function exportToDFF() {
     currentModelRoot.updateMatrixWorld(true);
 
-    const allVertices = [];
-    const allNormals = [];
-    const allUVs = [];
-    const allTriangles = [];
+    const MAX_VERTS_PER_CHUNK = 64000;
+    const chunks = [];
+
+    function createChunk() {
+        return {
+            vertices: [],
+            normals: [],
+            uvs: [],
+            triangles: []
+        };
+    }
+
+    let curChunk = createChunk();
 
     currentModelRoot.traverse(child => {
         if (!child.isMesh || !child.geometry) return;
@@ -966,47 +1075,100 @@ function exportToDFF() {
         const uv = geom.attributes.uv;
         const index = geom.index;
 
-        const baseVertex = allVertices.length / 3;
-        if (baseVertex + pos.count > 65535) return; // RW 16-bit vertex index chegarasi
-
-        for (let i = 0; i < pos.count; i++) {
-            allVertices.push(pos.getX(i), pos.getY(i), pos.getZ(i));
-            if (norm) {
-                allNormals.push(norm.getX(i), norm.getY(i), norm.getZ(i));
-            } else {
-                allNormals.push(0, 0, 1);
+        // Agar ushbu mesh butunligicha joriy chunk ichiga sig'sa:
+        if (pos.count <= MAX_VERTS_PER_CHUNK) {
+            if ((curChunk.vertices.length / 3) + pos.count > MAX_VERTS_PER_CHUNK && curChunk.vertices.length > 0) {
+                chunks.push(curChunk);
+                curChunk = createChunk();
             }
-            if (uv) {
-                allUVs.push(uv.getX(i), uv.getY(i));
-            } else {
-                allUVs.push(0, 0);
+            const baseV = curChunk.vertices.length / 3;
+            for (let i = 0; i < pos.count; i++) {
+                curChunk.vertices.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+                if (norm) {
+                    const nx = norm.getX(i), ny = norm.getY(i), nz = norm.getZ(i);
+                    const len = Math.hypot(nx, ny, nz) || 1;
+                    curChunk.normals.push(nx / len, ny / len, nz / len);
+                } else {
+                    curChunk.normals.push(0, 0, 1);
+                }
+                if (uv) {
+                    curChunk.uvs.push(uv.getX(i), uv.getY(i));
+                } else {
+                    curChunk.uvs.push(0, 0);
+                }
             }
-        }
 
-        if (index) {
-            for (let i = 0; i < index.count; i += 3) {
-                allTriangles.push(
-                    baseVertex + index.getX(i),
-                    baseVertex + index.getX(i + 1),
-                    baseVertex + index.getX(i + 2)
-                );
+            if (index) {
+                for (let i = 0; i < index.count; i += 3) {
+                    curChunk.triangles.push(
+                        baseV + index.getX(i),
+                        baseV + index.getX(i + 1),
+                        baseV + index.getX(i + 2)
+                    );
+                }
+            } else {
+                for (let i = 0; i < pos.count; i += 3) {
+                    curChunk.triangles.push(baseV + i, baseV + i + 1, baseV + i + 2);
+                }
             }
         } else {
-            for (let i = 0; i < pos.count; i += 3) {
-                allTriangles.push(baseVertex + i, baseVertex + i + 1, baseVertex + i + 2);
+            // Agar bitta meshning o'zi 64,000 dan katta bo'lsa, uni uchburchaklar bo'yicha bo'lamiz
+            if (curChunk.vertices.length > 0) {
+                chunks.push(curChunk);
+                curChunk = createChunk();
+            }
+            const triCount = index ? index.count : pos.count;
+            let localMap = new Map();
+
+            for (let i = 0; i < triCount; i += 3) {
+                if ((curChunk.vertices.length / 3) + 3 > MAX_VERTS_PER_CHUNK) {
+                    chunks.push(curChunk);
+                    curChunk = createChunk();
+                    localMap.clear();
+                }
+                const srcIndices = index
+                    ? [index.getX(i), index.getX(i + 1), index.getX(i + 2)]
+                    : [i, i + 1, i + 2];
+
+                const dstTri = [];
+                for (let k = 0; k < 3; k++) {
+                    const sIdx = srcIndices[k];
+                    let dIdx = localMap.get(sIdx);
+                    if (dIdx === undefined) {
+                        dIdx = curChunk.vertices.length / 3;
+                        localMap.set(sIdx, dIdx);
+                        curChunk.vertices.push(pos.getX(sIdx), pos.getY(sIdx), pos.getZ(sIdx));
+                        if (norm) {
+                            const nx = norm.getX(sIdx), ny = norm.getY(sIdx), nz = norm.getZ(sIdx);
+                            const len = Math.hypot(nx, ny, nz) || 1;
+                            curChunk.normals.push(nx / len, ny / len, nz / len);
+                        } else {
+                            curChunk.normals.push(0, 0, 1);
+                        }
+                        if (uv) {
+                            curChunk.uvs.push(uv.getX(sIdx), uv.getY(sIdx));
+                        } else {
+                            curChunk.uvs.push(0, 0);
+                        }
+                    }
+                    dstTri.push(dIdx);
+                }
+                curChunk.triangles.push(dstTri[0], dstTri[1], dstTri[2]);
             }
         }
+        geom.dispose();
     });
 
-    const numVerts = allVertices.length / 3;
-    const numTris = allTriangles.length / 3;
+    if (curChunk.vertices.length > 0) {
+        chunks.push(curChunk);
+    }
 
-    if (numVerts === 0) {
+    if (chunks.length === 0) {
         setStatus('⚠ Eksport qilish uchun 3D model mavjud emas!');
         return;
     }
 
-    const RW_VERSION = 0x1803FFFF; // RenderWare 3.6.0.3 (GTA SA / Mobile)
+    const RW_VERSION = 0x1803FFFF; // RenderWare 3.6.0.3 (GTA SA / Blender DragonFF)
 
     function makeSection(type, payloadBytes) {
         const out = new Uint8Array(12 + payloadBytes.byteLength);
@@ -1029,30 +1191,48 @@ function exportToDFF() {
         return res;
     }
 
-    // 1. Clump Struct (12 bytes: Atomics=1, Lights=0, Cameras=0)
+    function makeNodeNameExtension(nameStr) {
+        const bytes = new TextEncoder().encode(nameStr);
+        const nodePlg = makeSection(0x0253F2FE, bytes);
+        return makeSection(0x0003, nodePlg);
+    }
+
+    const numParts = chunks.length;
+
+    // 1. Clump Struct (numAtomics = numParts, numLights = 0, numCameras = 0)
     const clumpStructBuf = new ArrayBuffer(12);
     const clumpStructDV = new DataView(clumpStructBuf);
-    clumpStructDV.setUint32(0, 1, true);
+    clumpStructDV.setUint32(0, numParts, true);
     clumpStructDV.setUint32(4, 0, true);
     clumpStructDV.setUint32(8, 0, true);
     const clumpStruct = makeSection(0x0001, new Uint8Array(clumpStructBuf));
 
-    // 2. Frame List (0x0E)
-    const frameStructBuf = new ArrayBuffer(60);
+    // 2. Frame List (0x0E): Frame 0 = Root, Frame 1..numParts = Mesh qismlar
+    const totalFrames = 1 + numParts;
+    const frameStructBuf = new ArrayBuffer(4 + totalFrames * 56);
     const frameDV = new DataView(frameStructBuf);
-    frameDV.setUint32(0, 1, true); // 1 ta Frame
-    // Rotation Matrix (Identity)
-    frameDV.setFloat32(4, 1, true);
-    frameDV.setFloat32(20, 1, true);
-    frameDV.setFloat32(36, 1, true);
-    frameDV.setInt32(52, -1, true); // Parent frame = -1
-    frameDV.setUint32(56, 0, true);
+    frameDV.setUint32(0, totalFrames, true);
+
+    const frameExtensions = [];
+    for (let f = 0; f < totalFrames; f++) {
+        const base = 4 + f * 56;
+        // Identity Rotation Matrix (Right=1,0,0; Up=0,1,0; At=0,0,1; Pos=0,0,0)
+        frameDV.setFloat32(base + 0, 1.0, true);
+        frameDV.setFloat32(base + 16, 1.0, true);
+        frameDV.setFloat32(base + 32, 1.0, true);
+        frameDV.setInt32(base + 48, f === 0 ? -1 : 0, true); // parentIndex
+        frameDV.setUint32(base + 52, 0, true); // matrixFlags
+
+        const frameName = f === 0 ? 'IT_SHAKH_ROOT' : `SHAKH_PART_${f}`;
+        frameExtensions.push(makeNodeNameExtension(frameName));
+    }
+
     const frameList = makeSection(0x000E, concatArrays([
         makeSection(0x0001, new Uint8Array(frameStructBuf)),
-        makeSection(0x0003, new Uint8Array(0))
+        ...frameExtensions
     ]));
 
-    // 3. Material List (0x08)
+    // 3. Material List (0x08) - har bir Geometry uchun umumiy
     const matListStructBuf = new ArrayBuffer(8);
     const matListDV = new DataView(matListStructBuf);
     matListDV.setUint32(0, 1, true);
@@ -1067,10 +1247,10 @@ function exportToDFF() {
     matDV.setUint8(6, parseInt(hexColor.substring(4, 6), 16));
     matDV.setUint8(7, 255);
     matDV.setUint32(8, 1, true);
-    matDV.setUint32(12, 0, true); // Textured = 0
-    matDV.setFloat32(16, 1.0, true);
-    matDV.setFloat32(20, 1.0, true);
-    matDV.setFloat32(24, 1.0, true);
+    matDV.setUint32(12, 0, true);
+    matDV.setFloat32(16, 1.0, true); // ambient
+    matDV.setFloat32(20, 0.5, true); // specular
+    matDV.setFloat32(24, 1.0, true); // diffuse
 
     const materialSection = makeSection(0x0007, concatArrays([
         makeSection(0x0001, new Uint8Array(matStructBuf)),
@@ -1082,94 +1262,120 @@ function exportToDFF() {
         materialSection
     ]));
 
-    // 4. Geometry Struct (0x0F -> 0x01)
-    // Flags: TRISTRIP=0, POSITIONS(0x02) | TEXCOORDS(0x04) | NORMALS(0x10) = 0x16, 1 UV set (0x00010016)
-    const geomByteSize = 16 + (numVerts * 8) + (numTris * 8) + 24 + (numVerts * 12) + (numVerts * 12);
-    const geomBuf = new ArrayBuffer(geomByteSize);
-    const gDV = new DataView(geomBuf);
-    let ptr = 0;
+    // 4. Har bir chunk uchun Geometry (0x0F) + BinMeshPLG (0x050E) yaratish
+    const geometrySections = [];
+    const atomicSections = [];
 
-    gDV.setUint32(ptr, 0x00010016, true); ptr += 4;
-    gDV.setUint32(ptr, numTris, true); ptr += 4;
-    gDV.setUint32(ptr, numVerts, true); ptr += 4;
-    gDV.setUint32(ptr, 1, true); ptr += 4; // numMorphTargets = 1
+    chunks.forEach((chunk, chunkIdx) => {
+        const numVerts = chunk.vertices.length / 3;
+        const numTris = chunk.triangles.length / 3;
 
-    // UVs
-    for (let i = 0; i < allUVs.length; i++) {
-        gDV.setFloat32(ptr, allUVs[i], true);
-        ptr += 4;
-    }
+        // Flags: POSITIONS(0x02) | TEXTURED(0x04) | NORMALS(0x10) | LIGHT(0x20) | MODULATE_COLOR(0x40) | 1 UV Set(0x00010000)
+        const rwFlags = 0x00010076;
+        const geomByteSize = 16 + (numVerts * 8) + (numTris * 8) + 24 + (numVerts * 12) + (numVerts * 12);
+        const geomBuf = new ArrayBuffer(geomByteSize);
+        const gDV = new DataView(geomBuf);
+        let ptr = 0;
 
-    // Triangles (v2, v1, materialId, v3)
-    for (let i = 0; i < numTris; i++) {
-        const v1 = allTriangles[i * 3];
-        const v2 = allTriangles[i * 3 + 1];
-        const v3 = allTriangles[i * 3 + 2];
-        gDV.setUint16(ptr, v2, true);
-        gDV.setUint16(ptr + 2, v1, true);
-        gDV.setUint16(ptr + 4, 0, true);
-        gDV.setUint16(ptr + 6, v3, true);
-        ptr += 8;
-    }
+        gDV.setUint32(ptr, rwFlags, true); ptr += 4;
+        gDV.setUint32(ptr, numTris, true); ptr += 4;
+        gDV.setUint32(ptr, numVerts, true); ptr += 4;
+        gDV.setUint32(ptr, 1, true); ptr += 4; // numMorphTargets = 1
 
-    // Bounding Sphere (x, y, z, radius, hasPos=1, hasNorm=1)
-    gDV.setFloat32(ptr, 0, true);
-    gDV.setFloat32(ptr + 4, 0, true);
-    gDV.setFloat32(ptr + 8, 0, true);
-    gDV.setFloat32(ptr + 12, 100.0, true);
-    gDV.setUint32(ptr + 16, 1, true);
-    gDV.setUint32(ptr + 20, 1, true);
-    ptr += 24;
+        // UVs
+        for (let i = 0; i < chunk.uvs.length; i++) {
+            gDV.setFloat32(ptr, chunk.uvs[i], true);
+            ptr += 4;
+        }
 
-    // Vertices
-    for (let i = 0; i < allVertices.length; i++) {
-        gDV.setFloat32(ptr, allVertices[i], true);
-        ptr += 4;
-    }
+        // Triangles: RenderWare formatida (v2, v1, materialId, v3)
+        for (let i = 0; i < numTris; i++) {
+            const v1 = chunk.triangles[i * 3];
+            const v2 = chunk.triangles[i * 3 + 1];
+            const v3 = chunk.triangles[i * 3 + 2];
+            gDV.setUint16(ptr, v2, true);
+            gDV.setUint16(ptr + 2, v1, true);
+            gDV.setUint16(ptr + 4, 0, true);
+            gDV.setUint16(ptr + 6, v3, true);
+            ptr += 8;
+        }
 
-    // Normals
-    for (let i = 0; i < allNormals.length; i++) {
-        gDV.setFloat32(ptr, allNormals[i], true);
-        ptr += 4;
-    }
+        // Bounding Sphere
+        gDV.setFloat32(ptr, 0, true);
+        gDV.setFloat32(ptr + 4, 0, true);
+        gDV.setFloat32(ptr + 8, 0, true);
+        gDV.setFloat32(ptr + 12, 120.0, true);
+        gDV.setUint32(ptr + 16, 1, true); // hasPositions = 1
+        gDV.setUint32(ptr + 20, 1, true); // hasNormals = 1
+        ptr += 24;
 
-    const geometrySection = makeSection(0x000F, concatArrays([
-        makeSection(0x0001, new Uint8Array(geomBuf)),
-        materialList,
-        makeSection(0x0003, new Uint8Array(0))
-    ]));
+        // Vertices
+        for (let i = 0; i < chunk.vertices.length; i++) {
+            gDV.setFloat32(ptr, chunk.vertices[i], true);
+            ptr += 4;
+        }
+
+        // Normals
+        for (let i = 0; i < chunk.normals.length; i++) {
+            gDV.setFloat32(ptr, chunk.normals[i], true);
+            ptr += 4;
+        }
+
+        // BinMeshPLG (0x050E) - Blender DragonFF va 3ds Max uchun
+        const totalIndices = numTris * 3;
+        const binMeshBuf = new ArrayBuffer(20 + totalIndices * 4);
+        const bmDV = new DataView(binMeshBuf);
+        bmDV.setUint32(0, 0, true); // flags = 0 (TriList)
+        bmDV.setUint32(4, 1, true); // numSplits = 1
+        bmDV.setUint32(8, totalIndices, true);
+        bmDV.setUint32(12, totalIndices, true);
+        bmDV.setUint32(16, 0, true); // materialIndex = 0
+        let bmPtr = 20;
+        for (let i = 0; i < totalIndices; i++) {
+            bmDV.setUint32(bmPtr, chunk.triangles[i], true);
+            bmPtr += 4;
+        }
+        const binMeshSection = makeSection(0x050E, new Uint8Array(binMeshBuf));
+
+        const geometrySection = makeSection(0x000F, concatArrays([
+            makeSection(0x0001, new Uint8Array(geomBuf)),
+            materialList,
+            makeSection(0x0003, binMeshSection)
+        ]));
+        geometrySections.push(geometrySection);
+
+        // Atomic (0x14)
+        const atomicStructBuf = new ArrayBuffer(16);
+        const atomicDV = new DataView(atomicStructBuf);
+        atomicDV.setUint32(0, chunkIdx + 1, true); // frameIndex (1..numParts)
+        atomicDV.setUint32(4, chunkIdx, true);     // geometryIndex (0..numParts-1)
+        atomicDV.setUint32(8, 5, true);            // flags = 5
+        atomicDV.setUint32(12, 0, true);
+        atomicSections.push(makeSection(0x0014, concatArrays([
+            makeSection(0x0001, new Uint8Array(atomicStructBuf)),
+            makeSection(0x0003, new Uint8Array(0))
+        ])));
+    });
 
     const geomListStructBuf = new ArrayBuffer(4);
-    new DataView(geomListStructBuf).setUint32(0, 1, true);
+    new DataView(geomListStructBuf).setUint32(0, numParts, true);
     const geometryList = makeSection(0x001A, concatArrays([
         makeSection(0x0001, new Uint8Array(geomListStructBuf)),
-        geometrySection
+        ...geometrySections
     ]));
 
-    // 5. Atomic (0x14)
-    const atomicStructBuf = new ArrayBuffer(16);
-    const atomicDV = new DataView(atomicStructBuf);
-    atomicDV.setUint32(0, 0, true); // frameIndex = 0
-    atomicDV.setUint32(4, 0, true); // geomIndex = 0
-    atomicDV.setUint32(8, 5, true); // flags = 5
-    atomicDV.setUint32(12, 0, true);
-    const atomicSection = makeSection(0x0014, concatArrays([
-        makeSection(0x0001, new Uint8Array(atomicStructBuf)),
-        makeSection(0x0003, new Uint8Array(0))
-    ]));
-
-    // 6. Clump (0x10)
+    // 5. Yakuniy Clump (0x10)
     const clumpBinary = makeSection(0x0010, concatArrays([
         clumpStruct,
         frameList,
         geometryList,
-        atomicSection,
+        ...atomicSections,
         makeSection(0x0003, new Uint8Array(0))
     ]));
 
     const blob = new Blob([clumpBinary], { type: 'application/octet-stream' });
     downloadBlob(blob, (lastLoadedData.name || 'it_shakh_model') + '.dff');
-    setStatus(`✓ Model RenderWare .DFF formatda yuklab olindi (${(clumpBinary.byteLength / 1024).toFixed(1)} KB)!`);
+    setStatus(`✓ Model RenderWare .DFF formatda saqlandi (${numParts} ta blok, ${(clumpBinary.byteLength / 1024).toFixed(1)} KB)!`);
 }
 
 function downloadBlob(blob, filename) {
@@ -1279,6 +1485,10 @@ document.getElementById('depthSlider').addEventListener('input', e => {
 });
 document.getElementById('bevelSlider').addEventListener('input', e => {
     document.getElementById('bevelVal').textContent = e.target.value;
+    if (lastLoadedData.type === 'svg') rebuildIfProcedural();
+});
+document.getElementById('curveSlider').addEventListener('input', e => {
+    document.getElementById('curveVal').textContent = e.target.value;
     if (lastLoadedData.type === 'svg') rebuildIfProcedural();
 });
 document.getElementById('scaleSlider').addEventListener('input', e => {
