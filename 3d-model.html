@@ -1,0 +1,1355 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D MODEL STUDIO | IT SHAKH</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <!-- Three.js va Loaderlar -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/SVGLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <style>
+        :root {
+            --bg: #04060b;
+            --accent: #38bdf8;
+            --glow: 0 0 35px rgba(56, 189, 248, 0.65);
+            --text-color: #e5e7eb;
+            --card-bg: rgba(11, 18, 32, 0.78);
+            --border: rgba(56, 189, 248, 0.25);
+        }
+        body.night-mode {
+            --bg: #000000;
+            --accent: #00ff41;
+            --glow: 0 0 35px rgba(0, 255, 65, 0.65);
+            --text-color: #00ff41;
+            --card-bg: rgba(0, 20, 0, 0.78);
+            --border: rgba(0, 255, 65, 0.3);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text-color);
+            min-height: 100vh;
+            overflow-x: hidden;
+            transition: background 0.4s, color 0.4s;
+        }
+        header {
+            padding: 14px 22px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(12px);
+            background: rgba(4, 6, 11, 0.85);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .brand-wrap {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .back-btn {
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid var(--border);
+            color: var(--accent);
+            padding: 8px 14px;
+            border-radius: 10px;
+            text-decoration: none;
+            font: 700 11px monospace;
+            letter-spacing: 1px;
+            transition: 0.25s;
+        }
+        .back-btn:hover {
+            background: var(--accent);
+            color: #000;
+            box-shadow: var(--glow);
+        }
+        .logo-text {
+            font-weight: 800;
+            letter-spacing: 2px;
+            color: var(--accent);
+            font-size: 14px;
+            text-shadow: var(--glow);
+        }
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .mode-toggle {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 7px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 10px;
+            letter-spacing: 1px;
+        }
+
+        /* STUDIO LAYOUT */
+        .studio-container {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px;
+            min-height: calc(100vh - 65px);
+        }
+        .panel {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 18px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+        }
+        .panel-title {
+            font: 700 12px monospace;
+            color: var(--accent);
+            letter-spacing: 2px;
+            border-left: 3px solid var(--accent);
+            padding-left: 10px;
+            margin: 0;
+        }
+
+        /* DROPZONE */
+        .drop-zone {
+            border: 1.5px dashed var(--accent);
+            border-radius: 14px;
+            padding: 20px 14px;
+            text-align: center;
+            background: rgba(56, 189, 248, 0.04);
+            cursor: pointer;
+            transition: 0.25s;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            background: rgba(56, 189, 248, 0.12);
+            box-shadow: var(--glow);
+            transform: translateY(-2px);
+        }
+        .drop-zone input { display: none; }
+        .drop-icon {
+            font-size: 28px;
+            margin-bottom: 6px;
+            display: block;
+        }
+        .drop-main {
+            font-weight: 700;
+            font-size: 12px;
+            color: #fff;
+        }
+        .drop-sub {
+            font: 10px monospace;
+            color: #94a3b8;
+            margin-top: 5px;
+        }
+        .format-badges {
+            display: flex;
+            justify-content: center;
+            gap: 6px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .badge {
+            font: 700 9px monospace;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: rgba(56, 189, 248, 0.14);
+            color: var(--accent);
+            border: 1px solid var(--border);
+        }
+
+        /* CONTROLS */
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.28);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .control-row {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .control-label {
+            display: flex;
+            justify-content: space-between;
+            font: 11px monospace;
+            color: #cbd5e1;
+        }
+        .control-label b { color: var(--accent); }
+        input[type="range"] {
+            width: 100%;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+        .color-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        input[type="color"] {
+            width: 48px;
+            height: 30px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: transparent;
+            cursor: pointer;
+        }
+        .toggle-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .btn {
+            background: rgba(7, 16, 28, 0.9);
+            color: var(--text-color);
+            border: 1px solid var(--border);
+            padding: 10px 12px;
+            border-radius: 10px;
+            font: 700 10px monospace;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: 0.2s;
+            text-align: center;
+        }
+        .btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
+        }
+        .btn.active {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+        }
+        .btn-export {
+            background: var(--accent);
+            color: #001018;
+            border: none;
+            padding: 12px;
+            font-size: 11px;
+            font-weight: 800;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.35);
+        }
+        .btn-export:hover {
+            opacity: 0.92;
+            color: #000;
+            transform: translateY(-1px);
+        }
+        .export-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        /* VIEWPORT */
+        .viewport-panel {
+            position: relative;
+            background: radial-gradient(circle at center, #0c1628 0%, #04060b 100%);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 560px;
+        }
+        #viewport {
+            width: 100%;
+            flex: 1;
+            min-height: 520px;
+            position: relative;
+        }
+        .viewport-hud {
+            position: absolute;
+            top: 14px;
+            left: 14px;
+            right: 14px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .hud-box {
+            background: rgba(4, 10, 20, 0.78);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 8px 12px;
+            font: 10px monospace;
+            color: #94a3b8;
+            backdrop-filter: blur(6px);
+            pointer-events: auto;
+        }
+        .hud-box b { color: var(--accent); }
+        .status-bar {
+            padding: 10px 16px;
+            border-top: 1px solid var(--border);
+            background: rgba(2, 6, 12, 0.9);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font: 11px monospace;
+            color: #94a3b8;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        #status-msg { color: var(--accent); }
+
+        @media (max-width: 960px) {
+            .studio-container {
+                grid-template-columns: 1fr;
+            }
+            .viewport-panel {
+                min-height: 440px;
+                order: -1;
+            }
+            #viewport {
+                min-height: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="brand-wrap">
+        <a href="index.html" class="back-btn" id="backHomeBtn">← ASOSIY SAHIFA</a>
+        <div class="logo-text">IT SHAKH // 3D MODEL STUDIO</div>
+    </div>
+    <div class="header-actions">
+        <button class="mode-toggle" id="modeToggle">NIGHT MODE</button>
+    </div>
+</header>
+
+<div class="studio-container">
+    <!-- CHAP BOSHQARUV PANELI -->
+    <div class="panel">
+        <h2 class="panel-title">// FAYL YUKLASH</h2>
+        <label class="drop-zone" id="dropZone" for="fileInput">
+            <input type="file" id="fileInput" accept=".svg,.png,.obj,.dff">
+            <span class="drop-icon">🧊</span>
+            <div class="drop-main">FAYLNI TANLANG YOKI TASHLANG</div>
+            <div class="drop-sub">SVG va PNG ni 3D qiladi • OBJ va DFF ni ochadi</div>
+            <div class="format-badges">
+                <span class="badge">.SVG</span>
+                <span class="badge">.PNG</span>
+                <span class="badge">.OBJ</span>
+                <span class="badge">.DFF</span>
+            </div>
+        </label>
+
+        <div class="toggle-grid">
+            <button class="btn" id="demoSvgBtn" type="button">★ DEMO SVG 3D</button>
+            <button class="btn" id="resetCamBtn" type="button">⟲ KAMERANI TIKLASH</button>
+        </div>
+
+        <h2 class="panel-title">// 3D EXTRUDE & GEOMETRIYA</h2>
+        <div class="control-group">
+            <div class="control-row">
+                <div class="control-label">
+                    <span>3D QALINLIK (DEPTH)</span>
+                    <b id="depthVal">16</b>
+                </div>
+                <input type="range" id="depthSlider" min="1" max="80" step="1" value="16">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>QIRRA SILLIQLIGI (BEVEL)</span>
+                    <b id="bevelVal">1.5</b>
+                </div>
+                <input type="range" id="bevelSlider" min="0" max="6" step="0.5" value="1.5">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>MASSHTAB (SCALE)</span>
+                    <b id="scaleVal">1.0x</b>
+                </div>
+                <input type="range" id="scaleSlider" min="0.2" max="3.0" step="0.1" value="1.0">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>PNG DETALIZATSIYASI</span>
+                    <b id="resVal">96 px</b>
+                </div>
+                <input type="range" id="resSlider" min="48" max="160" step="16" value="96">
+            </div>
+        </div>
+
+        <h2 class="panel-title">// MATERIAL VA KO‘RINISH</h2>
+        <div class="control-group">
+            <div class="color-row">
+                <span style="font:11px monospace;color:#cbd5e1;">MODEL RANGI</span>
+                <input type="color" id="modelColor" value="#38bdf8">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>METALLIK (METALNESS)</span>
+                    <b id="metalVal">0.35</b>
+                </div>
+                <input type="range" id="metalSlider" min="0" max="1" step="0.05" value="0.35">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>G‘ADIR-BUDURLIK (ROUGHNESS)</span>
+                    <b id="roughVal">0.30</b>
+                </div>
+                <input type="range" id="roughSlider" min="0" max="1" step="0.05" value="0.30">
+            </div>
+
+            <div class="toggle-grid">
+                <button class="btn" id="wireframeBtn" type="button">🕸 WIREFRAME</button>
+                <button class="btn active" id="autoRotateBtn" type="button">↻ AVTO-AYLANISH</button>
+            </div>
+        </div>
+
+        <h2 class="panel-title">// EXPORT (YUKLAB OLISH)</h2>
+        <div class="export-grid">
+            <button class="btn btn-export" id="exportObjBtn" type="button">⬇ EXPORT .OBJ</button>
+            <button class="btn btn-export" id="exportDffBtn" type="button">⬇ EXPORT .DFF</button>
+        </div>
+    </div>
+
+    <!-- O'NG 3D VIEWPORT PANELI -->
+    <div class="viewport-panel">
+        <div id="viewport">
+            <div class="viewport-hud">
+                <div class="hud-box">
+                    FAYL: <b id="hudFile">DEMO_SHAKH.SVG</b> | FORMAT: <b id="hudFormat">SVG → 3D</b>
+                </div>
+                <div class="hud-box">
+                    VERTICES: <b id="hudVerts">0</b> | TRIANGLES: <b id="hudTris">0</b>
+                </div>
+            </div>
+        </div>
+        <div class="status-bar">
+            <span id="status-msg">✓ 3D Studio tayyor. Sichqoncha bilan aylantiring va yaqinlashtiring.</span>
+            <span>OBJ / DFF CONVERTER v1.0</span>
+        </div>
+    </div>
+</div>
+
+<script>
+// Asosiy sahifaga qaytganda login/start chiqmasligi uchun belgi qo'yish
+document.getElementById('backHomeBtn').addEventListener('click', () => {
+    try { sessionStorage.setItem('it_shakh_return_from_tool', '1'); } catch (e) {}
+});
+
+// Night Mode
+const modeToggle = document.getElementById('modeToggle');
+modeToggle.addEventListener('click', () => {
+    document.body.classList.toggle('night-mode');
+    modeToggle.textContent = document.body.classList.contains('night-mode') ? 'LIGHT MODE' : 'NIGHT MODE';
+});
+
+// ==================== THREE.JS SAHNA SOZLAMALARI ====================
+const viewport = document.getElementById('viewport');
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(45, viewport.clientWidth / viewport.clientHeight, 0.1, 5000);
+camera.position.set(0, 60, 180);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+viewport.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 1.6;
+
+// Yorug'liklar
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+scene.add(ambientLight);
+
+const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.95);
+dirLight1.position.set(120, 180, 150);
+scene.add(dirLight1);
+
+const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.55);
+dirLight2.position.set(-120, -80, -120);
+scene.add(dirLight2);
+
+// Grid
+const gridHelper = new THREE.GridHelper(260, 26, 0x38bdf8, 0x1e293b);
+gridHelper.position.y = -45;
+scene.add(gridHelper);
+
+// Asosiy 3D model guruhi
+let currentModelRoot = new THREE.Group();
+scene.add(currentModelRoot);
+
+// Qayta generatsiya qilish uchun xotira
+let lastLoadedData = {
+    type: 'svg',
+    name: 'DEMO_SHAKH',
+    rawSvg: null,
+    pngImage: null
+};
+
+let isWireframe = false;
+
+function setStatus(msg) {
+    document.getElementById('status-msg').textContent = msg;
+}
+
+function clearCurrentModel() {
+    while (currentModelRoot.children.length > 0) {
+        const child = currentModelRoot.children[0];
+        currentModelRoot.remove(child);
+        if (child.geometry) child.geometry.dispose();
+    }
+    currentModelRoot.scale.set(1, 1, 1);
+    currentModelRoot.position.set(0, 0, 0);
+    currentModelRoot.rotation.set(0, 0, 0);
+}
+
+function getActiveMaterial(customColor, texture = null) {
+    const colorHex = customColor || document.getElementById('modelColor').value;
+    const metalness = parseFloat(document.getElementById('metalSlider').value);
+    const roughness = parseFloat(document.getElementById('roughSlider').value);
+    return new THREE.MeshStandardMaterial({
+        color: texture ? 0xffffff : new THREE.Color(colorHex),
+        map: texture || null,
+        metalness: metalness,
+        roughness: roughness,
+        wireframe: isWireframe,
+        side: THREE.DoubleSide
+    });
+}
+
+function normalizeAndCenterGroup(group, targetSize = 95) {
+    const box = new THREE.Box3().setFromObject(group);
+    if (box.isEmpty()) return;
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const baseScale = targetSize / maxDim;
+    const userScale = parseFloat(document.getElementById('scaleSlider').value) || 1;
+
+    group.children.forEach(mesh => {
+        mesh.position.sub(center);
+    });
+    group.scale.setScalar(baseScale * userScale);
+    updateStats();
+}
+
+function updateStats() {
+    let verts = 0;
+    let tris = 0;
+    currentModelRoot.traverse(obj => {
+        if (obj.isMesh && obj.geometry) {
+            const pos = obj.geometry.attributes.position;
+            if (pos) {
+                verts += pos.count;
+                if (obj.geometry.index) {
+                    tris += Math.floor(obj.geometry.index.count / 3);
+                } else {
+                    tris += Math.floor(pos.count / 3);
+                }
+            }
+        }
+    });
+    document.getElementById('hudVerts').textContent = verts.toLocaleString();
+    document.getElementById('hudTris').textContent = tris.toLocaleString();
+}
+
+// ==================== 1. SVG -> 3D EXTRUDE ====================
+function build3DFromSVG(svgText, fileName = 'MODEL.SVG') {
+    clearCurrentModel();
+    const loader = new THREE.SVGLoader();
+    const svgData = loader.parse(svgText);
+
+    const depth = parseFloat(document.getElementById('depthSlider').value);
+    const bevel = parseFloat(document.getElementById('bevelSlider').value);
+
+    const extrudeSettings = {
+        depth: depth,
+        bevelEnabled: bevel > 0,
+        bevelThickness: bevel,
+        bevelSize: bevel * 0.8,
+        bevelSegments: 3,
+        curveSegments: 12
+    };
+
+    const mat = getActiveMaterial();
+    let meshCount = 0;
+
+    svgData.paths.forEach(path => {
+        const shapes = THREE.SVGLoader.createShapes(path);
+        shapes.forEach(shape => {
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.scale(1, -1, 1); // SVG Y o'qini to'g'rilash
+            geometry.computeVertexNormals();
+            const mesh = new THREE.Mesh(geometry, mat);
+            currentModelRoot.add(mesh);
+            meshCount++;
+        });
+    });
+
+    if (meshCount === 0) {
+        setStatus('⚠ SVG ichida vektor konturlar topilmadi.');
+        return;
+    }
+
+    normalizeAndCenterGroup(currentModelRoot);
+    document.getElementById('hudFile').textContent = fileName.toUpperCase();
+    document.getElementById('hudFormat').textContent = 'SVG → 3D';
+    setStatus(`✓ SVG 3D modelga aylantirildi (${meshCount} ta qism).`);
+}
+
+// ==================== 2. PNG -> 3D VOXEL / RELIEF MESH ====================
+function build3DFromPNG(img, fileName = 'IMAGE.PNG') {
+    clearCurrentModel();
+    const maxGrid = parseInt(document.getElementById('resSlider').value, 10) || 96;
+    const depth = parseFloat(document.getElementById('depthSlider').value) * 0.6;
+
+    const aspect = img.width / img.height;
+    const cols = aspect >= 1 ? maxGrid : Math.max(16, Math.round(maxGrid * aspect));
+    const rows = aspect >= 1 ? Math.max(16, Math.round(maxGrid / aspect)) : maxGrid;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = cols;
+    canvas.height = rows;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, cols, rows);
+    const imgData = ctx.getImageData(0, 0, cols, rows).data;
+
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+    const indices = [];
+
+    const cellW = 100 / cols;
+    const cellH = 100 / rows;
+    const offsetX = -50;
+    const offsetY = 50;
+
+    function addQuad(v0, v1, v2, v3, n, uv0, uv1, uv2, uv3) {
+        const base = positions.length / 3;
+        positions.push(...v0, ...v1, ...v2, ...v3);
+        for (let i = 0; i < 4; i++) normals.push(...n);
+        uvs.push(...uv0, ...uv1, ...uv2, ...uv3);
+        indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+
+    function getAlpha(x, y) {
+        if (x < 0 || x >= cols || y < 0 || y >= rows) return 0;
+        const idx = (y * cols + x) * 4;
+        return imgData[idx + 3];
+    }
+
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            const idx = (y * cols + x) * 4;
+            const r = imgData[idx];
+            const g = imgData[idx + 1];
+            const b = imgData[idx + 2];
+            const a = imgData[idx + 3];
+
+            if (a < 28) continue; // Shaffof piksellarni tashlab ketish
+
+            const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+            const zFront = (depth * 0.5) + lum * (depth * 0.25);
+            const zBack = -depth * 0.5;
+
+            const x0 = offsetX + x * cellW;
+            const x1 = x0 + cellW;
+            const y0 = offsetY - y * cellH;
+            const y1 = y0 - cellH;
+
+            const u0 = x / cols;
+            const u1 = (x + 1) / cols;
+            const v0 = 1 - y / rows;
+            const v1 = 1 - (y + 1) / rows;
+
+            // Old yuza
+            addQuad(
+                [x0, y1, zFront], [x1, y1, zFront], [x1, y0, zFront], [x0, y0, zFront],
+                [0, 0, 1],
+                [u0, v1], [u1, v1], [u1, v0], [u0, v0]
+            );
+            // Orqa yuza
+            addQuad(
+                [x1, y1, zBack], [x0, y1, zBack], [x0, y0, zBack], [x1, y0, zBack],
+                [0, 0, -1],
+                [u1, v1], [u0, v1], [u0, v0], [u1, v0]
+            );
+
+            // Yon devorlar (faqat chekkada bo'lsa)
+            if (getAlpha(x, y - 1) < 28) {
+                addQuad([x0, y0, zFront], [x1, y0, zFront], [x1, y0, zBack], [x0, y0, zBack], [0, 1, 0], [u0, v0], [u1, v0], [u1, v0], [u0, v0]);
+            }
+            if (getAlpha(x, y + 1) < 28) {
+                addQuad([x1, y1, zFront], [x0, y1, zFront], [x0, y1, zBack], [x1, y1, zBack], [0, -1, 0], [u1, v1], [u0, v1], [u0, v1], [u1, v1]);
+            }
+            if (getAlpha(x - 1, y) < 28) {
+                addQuad([x0, y1, zFront], [x0, y0, zFront], [x0, y0, zBack], [x0, y1, zBack], [-1, 0, 0], [u0, v1], [u0, v0], [u0, v0], [u0, v1]);
+            }
+            if (getAlpha(x + 1, y) < 28) {
+                addQuad([x1, y0, zFront], [x1, y1, zFront], [x1, y1, zBack], [x1, y0, zBack], [1, 0, 0], [u1, v0], [u1, v1], [u1, v1], [u1, v0]);
+            }
+        }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(indices);
+
+    const texture = new THREE.Texture(img);
+    texture.needsUpdate = true;
+
+    const mat = getActiveMaterial(null, texture);
+    const mesh = new THREE.Mesh(geometry, mat);
+    currentModelRoot.add(mesh);
+
+    normalizeAndCenterGroup(currentModelRoot);
+    document.getElementById('hudFile').textContent = fileName.toUpperCase();
+    document.getElementById('hudFormat').textContent = 'PNG → 3D';
+    setStatus('✓ PNG tasvir 3D modelga aylantirildi.');
+}
+
+// ==================== 3. OBJ LOADER ====================
+function loadOBJModel(objText, fileName) {
+    clearCurrentModel();
+    const loader = new THREE.OBJLoader();
+    const objGroup = loader.parse(objText);
+    const mat = getActiveMaterial();
+
+    objGroup.traverse(child => {
+        if (child.isMesh) {
+            child.material = mat;
+            if (child.geometry && !child.geometry.attributes.normal) {
+                child.geometry.computeVertexNormals();
+            }
+        }
+    });
+
+    while (objGroup.children.length > 0) {
+        currentModelRoot.add(objGroup.children[0]);
+    }
+
+    normalizeAndCenterGroup(currentModelRoot);
+    document.getElementById('hudFile').textContent = fileName.toUpperCase();
+    document.getElementById('hudFormat').textContent = 'OBJ 3D';
+    setStatus('✓ OBJ 3D model muvaffaqiyatli yuklandi.');
+}
+
+// ==================== 4. DFF (RENDERWARE) PARSER ====================
+function parseDFFBuffer(arrayBuffer, fileName) {
+    clearCurrentModel();
+    const dv = new DataView(arrayBuffer);
+    let offset = 0;
+    let meshesAdded = 0;
+    const mat = getActiveMaterial();
+
+    function parseSection(endLimit) {
+        while (offset + 12 <= endLimit) {
+            const type = dv.getUint32(offset, true);
+            const size = dv.getUint32(offset + 4, true);
+            const nextOffset = offset + 12 + size;
+            if (nextOffset > arrayBuffer.byteLength) break;
+
+            // Container bo'limlar: Clump (0x10), GeometryList (0x1A)
+            if (type === 0x0010 || type === 0x001A) {
+                offset += 12;
+                parseSection(nextOffset);
+            } else if (type === 0x000F) {
+                // Geometry (0x0F) -> ichida Struct (0x01)
+                const structType = dv.getUint32(offset + 12, true);
+                if (structType === 0x0001) {
+                    const mesh = readRWGeometryStruct(dv, offset + 24);
+                    if (mesh) {
+                        currentModelRoot.add(mesh);
+                        meshesAdded++;
+                    }
+                }
+                offset = nextOffset;
+            } else {
+                offset = nextOffset;
+            }
+        }
+    }
+
+    function readRWGeometryStruct(view, pos) {
+        try {
+            const flags = view.getUint32(pos, true);
+            const numTriangles = view.getUint32(pos + 4, true);
+            const numVertices = view.getUint32(pos + 8, true);
+            pos += 16;
+
+            if (numVertices === 0 || numVertices > 500000) return null;
+
+            // Lighting fuksiyalari (agar version < 0x34000 yoki native bo'lmasa)
+            const hasTexCoords = (flags & 0x04) !== 0 || (flags & 0x80) !== 0;
+            const hasPrelit = (flags & 0x08) !== 0;
+            const hasNormals = (flags & 0x10) !== 0;
+            let numUVSets = (flags >> 16) & 0xFF;
+            if (numUVSets === 0 && hasTexCoords) numUVSets = 1;
+
+            if (hasPrelit) pos += numVertices * 4;
+
+            let uvs = null;
+            if (numUVSets > 0) {
+                uvs = new Float32Array(numVertices * 2);
+                for (let i = 0; i < numVertices * 2; i++) {
+                    uvs[i] = view.getFloat32(pos, true);
+                    pos += 4;
+                }
+                if (numUVSets > 1) {
+                    pos += (numUVSets - 1) * numVertices * 8;
+                }
+            }
+
+            const indices = [];
+            for (let i = 0; i < numTriangles; i++) {
+                const v2 = view.getUint16(pos, true);
+                const v1 = view.getUint16(pos + 2, true);
+                const matId = view.getUint16(pos + 4, true);
+                const v3 = view.getUint16(pos + 6, true);
+                pos += 8;
+                indices.push(v1, v2, v3);
+            }
+
+            // Bounding sphere (x, y, z, r) + hasPosition + hasNormals
+            pos += 24;
+
+            const vertices = new Float32Array(numVertices * 3);
+            for (let i = 0; i < numVertices * 3; i++) {
+                vertices[i] = view.getFloat32(pos, true);
+                pos += 4;
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            if (uvs) geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+            geometry.setIndex(indices);
+
+            if (hasNormals && pos + numVertices * 12 <= view.byteLength) {
+                const normals = new Float32Array(numVertices * 3);
+                for (let i = 0; i < numVertices * 3; i++) {
+                    normals[i] = view.getFloat32(pos, true);
+                    pos += 4;
+                }
+                geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+            } else {
+                geometry.computeVertexNormals();
+            }
+
+            return new THREE.Mesh(geometry, mat);
+        } catch (err) {
+            return null;
+        }
+    }
+
+    parseSection(arrayBuffer.byteLength);
+
+    if (meshesAdded === 0) {
+        setStatus('⚠ DFF fayl ichida standart RenderWare geometriya topilmadi.');
+        return;
+    }
+
+    normalizeAndCenterGroup(currentModelRoot);
+    document.getElementById('hudFile').textContent = fileName.toUpperCase();
+    document.getElementById('hudFormat').textContent = 'DFF 3D';
+    setStatus(`✓ DFF model yuklandi (${meshesAdded} ta geometriya).`);
+}
+
+// ==================== EXPORT 1: WAVEFRONT .OBJ ====================
+function exportToOBJ() {
+    let objOut = '# IT SHAKH 3D MODEL STUDIO - OBJ EXPORT\n';
+    let vertexOffset = 1;
+
+    currentModelRoot.updateMatrixWorld(true);
+
+    currentModelRoot.traverse(child => {
+        if (!child.isMesh || !child.geometry) return;
+        const geom = child.geometry.clone();
+        geom.applyMatrix4(child.matrixWorld);
+        if (!geom.attributes.normal) geom.computeVertexNormals();
+
+        const pos = geom.attributes.position;
+        const norm = geom.attributes.normal;
+        const uv = geom.attributes.uv;
+        const index = geom.index;
+
+        objOut += `o Mesh_${vertexOffset}\n`;
+
+        for (let i = 0; i < pos.count; i++) {
+            objOut += `v ${pos.getX(i).toFixed(5)} ${pos.getY(i).toFixed(5)} ${pos.getZ(i).toFixed(5)}\n`;
+        }
+        if (uv) {
+            for (let i = 0; i < uv.count; i++) {
+                objOut += `vt ${uv.getX(i).toFixed(5)} ${uv.getY(i).toFixed(5)}\n`;
+            }
+        }
+        if (norm) {
+            for (let i = 0; i < norm.count; i++) {
+                objOut += `vn ${norm.getX(i).toFixed(5)} ${norm.getY(i).toFixed(5)} ${norm.getZ(i).toFixed(5)}\n`;
+            }
+        }
+
+        if (index) {
+            for (let i = 0; i < index.count; i += 3) {
+                const a = index.getX(i) + vertexOffset;
+                const b = index.getX(i + 1) + vertexOffset;
+                const c = index.getX(i + 2) + vertexOffset;
+                if (uv && norm) {
+                    objOut += `f ${a}/${a}/${a} ${b}/${b}/${b} ${c}/${c}/${c}\n`;
+                } else {
+                    objOut += `f ${a}//${a} ${b}//${b} ${c}//${c}\n`;
+                }
+            }
+        } else {
+            for (let i = 0; i < pos.count; i += 3) {
+                const a = i + vertexOffset;
+                const b = i + 1 + vertexOffset;
+                const c = i + 2 + vertexOffset;
+                objOut += `f ${a}//${a} ${b}//${b} ${c}//${c}\n`;
+            }
+        }
+
+        vertexOffset += pos.count;
+    });
+
+    const blob = new Blob([objOut], { type: 'text/plain;charset=utf-8' });
+    downloadBlob(blob, (lastLoadedData.name || 'it_shakh_model') + '.obj');
+    setStatus('✓ Model .OBJ formatda yuklab olindi!');
+}
+
+// ==================== EXPORT 2: RENDERWARE .DFF BINARY ====================
+function exportToDFF() {
+    currentModelRoot.updateMatrixWorld(true);
+
+    const allVertices = [];
+    const allNormals = [];
+    const allUVs = [];
+    const allTriangles = [];
+
+    currentModelRoot.traverse(child => {
+        if (!child.isMesh || !child.geometry) return;
+        const geom = child.geometry.clone();
+        geom.applyMatrix4(child.matrixWorld);
+        if (!geom.attributes.normal) geom.computeVertexNormals();
+
+        const pos = geom.attributes.position;
+        const norm = geom.attributes.normal;
+        const uv = geom.attributes.uv;
+        const index = geom.index;
+
+        const baseVertex = allVertices.length / 3;
+        if (baseVertex + pos.count > 65535) return; // RW 16-bit vertex index chegarasi
+
+        for (let i = 0; i < pos.count; i++) {
+            allVertices.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+            if (norm) {
+                allNormals.push(norm.getX(i), norm.getY(i), norm.getZ(i));
+            } else {
+                allNormals.push(0, 0, 1);
+            }
+            if (uv) {
+                allUVs.push(uv.getX(i), uv.getY(i));
+            } else {
+                allUVs.push(0, 0);
+            }
+        }
+
+        if (index) {
+            for (let i = 0; i < index.count; i += 3) {
+                allTriangles.push(
+                    baseVertex + index.getX(i),
+                    baseVertex + index.getX(i + 1),
+                    baseVertex + index.getX(i + 2)
+                );
+            }
+        } else {
+            for (let i = 0; i < pos.count; i += 3) {
+                allTriangles.push(baseVertex + i, baseVertex + i + 1, baseVertex + i + 2);
+            }
+        }
+    });
+
+    const numVerts = allVertices.length / 3;
+    const numTris = allTriangles.length / 3;
+
+    if (numVerts === 0) {
+        setStatus('⚠ Eksport qilish uchun 3D model mavjud emas!');
+        return;
+    }
+
+    const RW_VERSION = 0x1803FFFF; // RenderWare 3.6.0.3 (GTA SA / Mobile)
+
+    function makeSection(type, payloadBytes) {
+        const out = new Uint8Array(12 + payloadBytes.byteLength);
+        const dv = new DataView(out.buffer);
+        dv.setUint32(0, type, true);
+        dv.setUint32(4, payloadBytes.byteLength, true);
+        dv.setUint32(8, RW_VERSION, true);
+        out.set(new Uint8Array(payloadBytes.buffer || payloadBytes), 12);
+        return out;
+    }
+
+    function concatArrays(arrays) {
+        const total = arrays.reduce((acc, a) => acc + a.byteLength, 0);
+        const res = new Uint8Array(total);
+        let offset = 0;
+        arrays.forEach(a => {
+            res.set(a, offset);
+            offset += a.byteLength;
+        });
+        return res;
+    }
+
+    // 1. Clump Struct (12 bytes: Atomics=1, Lights=0, Cameras=0)
+    const clumpStructBuf = new ArrayBuffer(12);
+    const clumpStructDV = new DataView(clumpStructBuf);
+    clumpStructDV.setUint32(0, 1, true);
+    clumpStructDV.setUint32(4, 0, true);
+    clumpStructDV.setUint32(8, 0, true);
+    const clumpStruct = makeSection(0x0001, new Uint8Array(clumpStructBuf));
+
+    // 2. Frame List (0x0E)
+    const frameStructBuf = new ArrayBuffer(60);
+    const frameDV = new DataView(frameStructBuf);
+    frameDV.setUint32(0, 1, true); // 1 ta Frame
+    // Rotation Matrix (Identity)
+    frameDV.setFloat32(4, 1, true);
+    frameDV.setFloat32(20, 1, true);
+    frameDV.setFloat32(36, 1, true);
+    frameDV.setInt32(52, -1, true); // Parent frame = -1
+    frameDV.setUint32(56, 0, true);
+    const frameList = makeSection(0x000E, concatArrays([
+        makeSection(0x0001, new Uint8Array(frameStructBuf)),
+        makeSection(0x0003, new Uint8Array(0))
+    ]));
+
+    // 3. Material List (0x08)
+    const matListStructBuf = new ArrayBuffer(8);
+    const matListDV = new DataView(matListStructBuf);
+    matListDV.setUint32(0, 1, true);
+    matListDV.setInt32(4, -1, true);
+
+    const matStructBuf = new ArrayBuffer(28);
+    const matDV = new DataView(matStructBuf);
+    const hexColor = document.getElementById('modelColor').value.replace('#', '');
+    matDV.setUint32(0, 0, true);
+    matDV.setUint8(4, parseInt(hexColor.substring(0, 2), 16));
+    matDV.setUint8(5, parseInt(hexColor.substring(2, 4), 16));
+    matDV.setUint8(6, parseInt(hexColor.substring(4, 6), 16));
+    matDV.setUint8(7, 255);
+    matDV.setUint32(8, 1, true);
+    matDV.setUint32(12, 0, true); // Textured = 0
+    matDV.setFloat32(16, 1.0, true);
+    matDV.setFloat32(20, 1.0, true);
+    matDV.setFloat32(24, 1.0, true);
+
+    const materialSection = makeSection(0x0007, concatArrays([
+        makeSection(0x0001, new Uint8Array(matStructBuf)),
+        makeSection(0x0003, new Uint8Array(0))
+    ]));
+
+    const materialList = makeSection(0x0008, concatArrays([
+        makeSection(0x0001, new Uint8Array(matListStructBuf)),
+        materialSection
+    ]));
+
+    // 4. Geometry Struct (0x0F -> 0x01)
+    // Flags: TRISTRIP=0, POSITIONS(0x02) | TEXCOORDS(0x04) | NORMALS(0x10) = 0x16, 1 UV set (0x00010016)
+    const geomByteSize = 16 + (numVerts * 8) + (numTris * 8) + 24 + (numVerts * 12) + (numVerts * 12);
+    const geomBuf = new ArrayBuffer(geomByteSize);
+    const gDV = new DataView(geomBuf);
+    let ptr = 0;
+
+    gDV.setUint32(ptr, 0x00010016, true); ptr += 4;
+    gDV.setUint32(ptr, numTris, true); ptr += 4;
+    gDV.setUint32(ptr, numVerts, true); ptr += 4;
+    gDV.setUint32(ptr, 1, true); ptr += 4; // numMorphTargets = 1
+
+    // UVs
+    for (let i = 0; i < allUVs.length; i++) {
+        gDV.setFloat32(ptr, allUVs[i], true);
+        ptr += 4;
+    }
+
+    // Triangles (v2, v1, materialId, v3)
+    for (let i = 0; i < numTris; i++) {
+        const v1 = allTriangles[i * 3];
+        const v2 = allTriangles[i * 3 + 1];
+        const v3 = allTriangles[i * 3 + 2];
+        gDV.setUint16(ptr, v2, true);
+        gDV.setUint16(ptr + 2, v1, true);
+        gDV.setUint16(ptr + 4, 0, true);
+        gDV.setUint16(ptr + 6, v3, true);
+        ptr += 8;
+    }
+
+    // Bounding Sphere (x, y, z, radius, hasPos=1, hasNorm=1)
+    gDV.setFloat32(ptr, 0, true);
+    gDV.setFloat32(ptr + 4, 0, true);
+    gDV.setFloat32(ptr + 8, 0, true);
+    gDV.setFloat32(ptr + 12, 100.0, true);
+    gDV.setUint32(ptr + 16, 1, true);
+    gDV.setUint32(ptr + 20, 1, true);
+    ptr += 24;
+
+    // Vertices
+    for (let i = 0; i < allVertices.length; i++) {
+        gDV.setFloat32(ptr, allVertices[i], true);
+        ptr += 4;
+    }
+
+    // Normals
+    for (let i = 0; i < allNormals.length; i++) {
+        gDV.setFloat32(ptr, allNormals[i], true);
+        ptr += 4;
+    }
+
+    const geometrySection = makeSection(0x000F, concatArrays([
+        makeSection(0x0001, new Uint8Array(geomBuf)),
+        materialList,
+        makeSection(0x0003, new Uint8Array(0))
+    ]));
+
+    const geomListStructBuf = new ArrayBuffer(4);
+    new DataView(geomListStructBuf).setUint32(0, 1, true);
+    const geometryList = makeSection(0x001A, concatArrays([
+        makeSection(0x0001, new Uint8Array(geomListStructBuf)),
+        geometrySection
+    ]));
+
+    // 5. Atomic (0x14)
+    const atomicStructBuf = new ArrayBuffer(16);
+    const atomicDV = new DataView(atomicStructBuf);
+    atomicDV.setUint32(0, 0, true); // frameIndex = 0
+    atomicDV.setUint32(4, 0, true); // geomIndex = 0
+    atomicDV.setUint32(8, 5, true); // flags = 5
+    atomicDV.setUint32(12, 0, true);
+    const atomicSection = makeSection(0x0014, concatArrays([
+        makeSection(0x0001, new Uint8Array(atomicStructBuf)),
+        makeSection(0x0003, new Uint8Array(0))
+    ]));
+
+    // 6. Clump (0x10)
+    const clumpBinary = makeSection(0x0010, concatArrays([
+        clumpStruct,
+        frameList,
+        geometryList,
+        atomicSection,
+        makeSection(0x0003, new Uint8Array(0))
+    ]));
+
+    const blob = new Blob([clumpBinary], { type: 'application/octet-stream' });
+    downloadBlob(blob, (lastLoadedData.name || 'it_shakh_model') + '.dff');
+    setStatus(`✓ Model RenderWare .DFF formatda yuklab olindi (${(clumpBinary.byteLength / 1024).toFixed(1)} KB)!`);
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+// ==================== FAYL YUKLASH VA HODISALAR ====================
+const fileInput = document.getElementById('fileInput');
+const dropZone = document.getElementById('dropZone');
+
+function handleFile(file) {
+    if (!file) return;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const baseName = file.name.replace(/\.[^/.]+$/, '');
+
+    if (ext === 'svg') {
+        const reader = new FileReader();
+        reader.onload = e => {
+            lastLoadedData = { type: 'svg', name: baseName, rawSvg: e.target.result };
+            build3DFromSVG(e.target.result, file.name);
+        };
+        reader.readAsText(file);
+    } else if (ext === 'png') {
+        const reader = new FileReader();
+        reader.onload = e => {
+            const img = new Image();
+            img.onload = () => {
+                lastLoadedData = { type: 'png', name: baseName, pngImage: img };
+                build3DFromPNG(img, file.name);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    } else if (ext === 'obj') {
+        const reader = new FileReader();
+        reader.onload = e => {
+            lastLoadedData = { type: 'obj', name: baseName };
+            loadOBJModel(e.target.result, file.name);
+        };
+        reader.readAsText(file);
+    } else if (ext === 'dff') {
+        const reader = new FileReader();
+        reader.onload = e => {
+            lastLoadedData = { type: 'dff', name: baseName };
+            parseDFFBuffer(e.target.result, file.name);
+        };
+        reader.readAsArrayBuffer(file);
+    } else {
+        setStatus('⚠ Faqat .SVG, .PNG, .OBJ yoki .DFF fayllarni tanlang!');
+    }
+}
+
+fileInput.addEventListener('change', e => {
+    if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+
+// Parametrlar o'zgarganda qayta ishlash
+function rebuildIfProcedural() {
+    if (lastLoadedData.type === 'svg' && lastLoadedData.rawSvg) {
+        build3DFromSVG(lastLoadedData.rawSvg, lastLoadedData.name + '.SVG');
+    } else if (lastLoadedData.type === 'png' && lastLoadedData.pngImage) {
+        build3DFromPNG(lastLoadedData.pngImage, lastLoadedData.name + '.PNG');
+    } else {
+        normalizeAndCenterGroup(currentModelRoot);
+    }
+}
+
+function updateMaterialsOnScene() {
+    const colorHex = document.getElementById('modelColor').value;
+    const metalness = parseFloat(document.getElementById('metalSlider').value);
+    const roughness = parseFloat(document.getElementById('roughSlider').value);
+
+    currentModelRoot.traverse(child => {
+        if (child.isMesh && child.material) {
+            if (!child.material.map) {
+                child.material.color.set(colorHex);
+            }
+            child.material.metalness = metalness;
+            child.material.roughness = roughness;
+            child.material.wireframe = isWireframe;
+            child.material.needsUpdate = true;
+        }
+    });
+}
+
+document.getElementById('depthSlider').addEventListener('input', e => {
+    document.getElementById('depthVal').textContent = e.target.value;
+    rebuildIfProcedural();
+});
+document.getElementById('bevelSlider').addEventListener('input', e => {
+    document.getElementById('bevelVal').textContent = e.target.value;
+    if (lastLoadedData.type === 'svg') rebuildIfProcedural();
+});
+document.getElementById('scaleSlider').addEventListener('input', e => {
+    document.getElementById('scaleVal').textContent = parseFloat(e.target.value).toFixed(1) + 'x';
+    normalizeAndCenterGroup(currentModelRoot);
+});
+document.getElementById('resSlider').addEventListener('input', e => {
+    document.getElementById('resVal').textContent = e.target.value + ' px';
+    if (lastLoadedData.type === 'png') rebuildIfProcedural();
+});
+
+document.getElementById('modelColor').addEventListener('input', updateMaterialsOnScene);
+document.getElementById('metalSlider').addEventListener('input', e => {
+    document.getElementById('metalVal').textContent = parseFloat(e.target.value).toFixed(2);
+    updateMaterialsOnScene();
+});
+document.getElementById('roughSlider').addEventListener('input', e => {
+    document.getElementById('roughVal').textContent = parseFloat(e.target.value).toFixed(2);
+    updateMaterialsOnScene();
+});
+
+document.getElementById('wireframeBtn').addEventListener('click', function () {
+    isWireframe = !isWireframe;
+    this.classList.toggle('active', isWireframe);
+    updateMaterialsOnScene();
+});
+
+document.getElementById('autoRotateBtn').addEventListener('click', function () {
+    controls.autoRotate = !controls.autoRotate;
+    this.classList.toggle('active', controls.autoRotate);
+});
+
+document.getElementById('resetCamBtn').addEventListener('click', () => {
+    camera.position.set(0, 60, 180);
+    controls.target.set(0, 0, 0);
+    controls.update();
+});
+
+document.getElementById('exportObjBtn').addEventListener('click', exportToOBJ);
+document.getElementById('exportDffBtn').addEventListener('click', exportToDFF);
+
+// Demo SVG
+const DEMO_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <path d="M100 10 L175 50 L175 130 L100 190 L25 130 L25 50 Z M100 32 L45 62 L45 120 L100 165 L155 120 L155 62 Z"/>
+  <path d="M85 65 L125 65 L105 95 L130 95 L75 145 L90 105 L70 105 Z"/>
+</svg>`;
+
+function loadDemoSVG() {
+    lastLoadedData = { type: 'svg', name: 'IT_SHAKH_SHIELD', rawSvg: DEMO_SVG };
+    build3DFromSVG(DEMO_SVG, 'IT_SHAKH_SHIELD.SVG');
+}
+
+document.getElementById('demoSvgBtn').addEventListener('click', loadDemoSVG);
+
+// Oynani o'zgartirganda moslashish
+window.addEventListener('resize', () => {
+    camera.aspect = viewport.clientWidth / viewport.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+});
+
+// Render sikli
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+loadDemoSVG();
+animate();
+</script>
+</body>
+</html>
