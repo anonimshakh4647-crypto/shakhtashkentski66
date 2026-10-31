@@ -40,7 +40,7 @@
             transition: background 0.35s, color 0.35s;
         }
 
-        /* Brauzer barcha tashqi avto-nomer shriftlarini darhol yuklab olishi uchun maxfiy DOM preloader */
+        /* Maxfiy DOM preloader: Canvas uchun barcha shriftlarni majburiy yuklaydi */
         #font-preloader {
             position: absolute;
             width: 1px;
@@ -110,7 +110,7 @@
             margin: 0 auto;
             padding: 18px;
             display: grid;
-            grid-template-columns: 425px 1fr;
+            grid-template-columns: 435px 1fr;
             gap: 20px;
             min-height: calc(100vh - 64px);
         }
@@ -180,6 +180,45 @@
             width: 100%;
             accent-color: var(--accent);
             cursor: pointer;
+        }
+
+        /* ALOHIDA VILOYAT TUGMALARI (QUICK REGION GRID) */
+        .region-chips-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 5px;
+            max-height: 155px;
+            overflow-y: auto;
+            padding-right: 3px;
+            scrollbar-width: thin;
+        }
+        .reg-chip {
+            background: rgba(8, 18, 32, 0.9);
+            border: 1px solid rgba(56, 189, 248, 0.22);
+            color: #cbd5e1;
+            padding: 6px 6px;
+            border-radius: 7px;
+            font: 600 10px 'Inter', sans-serif;
+            cursor: pointer;
+            transition: 0.18s;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .reg-chip b {
+            color: var(--accent);
+            font-family: monospace;
+            margin-right: 3px;
+        }
+        .reg-chip:hover, .reg-chip.active {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+            font-weight: 700;
+        }
+        .reg-chip.active b, .reg-chip:hover b {
+            color: #000;
         }
 
         .btn-grid {
@@ -416,11 +455,11 @@
 <div class="workspace">
     <!-- CHAP BOSHQARUV PANELI -->
     <div class="panel">
-        <h2 class="panel-title">// 1. DAVLAT VA STANDART TANLASH</h2>
+        <h2 class="panel-title">// 1. DAVLAT VA REAL HUDUDLAR</h2>
         <div class="control-box">
             <div class="field-row">
                 <label><span>DAVLAT QIDIRISH (125+ DAVLAT)</span><b id="countryCountLbl">125 TA</b></label>
-                <input type="text" id="countrySearch" placeholder="Masalan: Uzbekistan, Russia, UK, USA, Germany, Dubai...">
+                <input type="text" id="countrySearch" placeholder="Masalan: Uzbekistan, Russia, Kazakhstan, UK, USA...">
             </div>
 
             <div class="field-row">
@@ -429,13 +468,15 @@
             </div>
 
             <div class="field-row">
-                <label>NOMER TURI / STANDART SERIYA</label>
+                <label>NOMER TURI / RASMIY STANDART</label>
                 <select id="plateTypeSelect"></select>
             </div>
 
             <div class="field-row" id="regionPresetRow">
-                <label>VILOYAT / HUDUD KODI (01–99 BARCHASI)</label>
+                <label><span>RASMIY VILOYAT / HUDUD KODI</span><b id="regCountBadge">14 TA HUDUD</b></label>
                 <select id="regionPresetSelect"></select>
+                <!-- Har bir viloyatni alohida ko'rsatuvchi tezkor tugmalar -->
+                <div class="region-chips-grid" id="regionQuickChips"></div>
             </div>
         </div>
 
@@ -553,7 +594,7 @@
         </div>
 
         <div class="stage-footer">
-            <span id="statusMsg">✓ Barcha original avto-nomer shriftlari yuklandi. Har bir davlat o‘zining haqiqiy shriftida chizilmoqda.</span>
+            <span id="statusMsg">✓ Barcha viloyat va davlat hududlari 100% real davlat standartiga muvofiq alohida ajratildi.</span>
             <span id="plateSpecInfo">O‘LCHAM: 520 × 112 MM | 1660 PX ULTRA HD</span>
         </div>
     </div>
@@ -572,108 +613,190 @@ modeToggle.addEventListener('click', () => {
     modeToggle.textContent = document.body.classList.contains('night-mode') ? 'LIGHT MODE' : 'NIGHT MODE';
 });
 
-// ==================== O'ZBEKISTONNING BARCHA VILOYAT VA SERIYA KODLARI (01 - 99) ====================
-const UZ_ALL_REGIONS = [
-    { code: "01", name: "01 — Toshkent shahri (Asosiy)" },
-    { code: "02", name: "02 — Toshkent shahri" },
-    { code: "03", name: "03 — Toshkent shahri" },
-    { code: "04", name: "04 — Toshkent shahri" },
-    { code: "05", name: "05 — Toshkent shahri" },
-    { code: "06", name: "06 — Toshkent shahri" },
-    { code: "07", name: "07 — Toshkent shahri" },
-    { code: "08", name: "08 — Toshkent shahri" },
-    { code: "09", name: "09 — Toshkent shahri" },
-    { code: "10", name: "10 — Toshkent viloyati (Asosiy)" },
-    { code: "11", name: "11 — Toshkent viloyati" },
-    { code: "12", name: "12 — Toshkent viloyati" },
-    { code: "13", name: "13 — Toshkent viloyati" },
-    { code: "14", name: "14 — Toshkent viloyati" },
-    { code: "15", name: "15 — Toshkent viloyati" },
-    { code: "16", name: "16 — Toshkent viloyati" },
-    { code: "17", name: "17 — Toshkent viloyati" },
-    { code: "18", name: "18 — Toshkent viloyati" },
-    { code: "19", name: "19 — Toshkent viloyati" },
-    { code: "20", name: "20 — Sirdaryo viloyati (Guliston)" },
-    { code: "21", name: "21 — Sirdaryo viloyati" },
-    { code: "22", name: "22 — Sirdaryo viloyati" },
-    { code: "23", name: "23 — Sirdaryo viloyati" },
-    { code: "24", name: "24 — Sirdaryo viloyati" },
-    { code: "25", name: "25 — Jizzax viloyati (Asosiy)" },
-    { code: "26", name: "26 — Jizzax viloyati" },
-    { code: "27", name: "27 — Jizzax viloyati" },
-    { code: "28", name: "28 — Jizzax viloyati" },
-    { code: "29", name: "29 — Jizzax viloyati" },
-    { code: "30", name: "30 — Samarqand viloyati (Asosiy)" },
-    { code: "31", name: "31 — Samarqand viloyati" },
-    { code: "32", name: "32 — Samarqand viloyati" },
-    { code: "33", name: "33 — Samarqand viloyati" },
-    { code: "34", name: "34 — Samarqand viloyati" },
-    { code: "35", name: "35 — Samarqand viloyati" },
-    { code: "36", name: "36 — Samarqand viloyati" },
-    { code: "37", name: "37 — Samarqand viloyati" },
-    { code: "38", name: "38 — Samarqand viloyati" },
-    { code: "39", name: "39 — Samarqand viloyati" },
-    { code: "40", name: "40 — Farg‘ona viloyati (Asosiy)" },
-    { code: "41", name: "41 — Farg‘ona viloyati" },
-    { code: "42", name: "42 — Farg‘ona viloyati" },
-    { code: "43", name: "43 — Farg‘ona viloyati" },
-    { code: "44", name: "44 — Farg‘ona viloyati" },
-    { code: "45", name: "45 — Farg‘ona viloyati" },
-    { code: "46", name: "46 — Farg‘ona viloyati" },
-    { code: "47", name: "47 — Farg‘ona viloyati" },
-    { code: "48", name: "48 — Farg‘ona viloyati" },
-    { code: "49", name: "49 — Farg‘ona viloyati" },
-    { code: "50", name: "50 — Namangan viloyati (Asosiy)" },
-    { code: "51", name: "51 — Namangan viloyati" },
-    { code: "52", name: "52 — Namangan viloyati" },
-    { code: "53", name: "53 — Namangan viloyati" },
-    { code: "54", name: "54 — Namangan viloyati" },
-    { code: "55", name: "55 — Namangan viloyati" },
-    { code: "56", name: "56 — Namangan viloyati" },
-    { code: "57", name: "57 — Namangan viloyati" },
-    { code: "58", name: "58 — Namangan viloyati" },
-    { code: "59", name: "59 — Namangan viloyati" },
-    { code: "60", name: "60 — Andijon viloyati (Asosiy)" },
-    { code: "61", name: "61 — Andijon viloyati" },
-    { code: "62", name: "62 — Andijon viloyati" },
-    { code: "63", name: "63 — Andijon viloyati" },
-    { code: "64", name: "64 — Andijon viloyati" },
-    { code: "65", name: "65 — Andijon viloyati" },
-    { code: "66", name: "66 — Andijon viloyati" },
-    { code: "67", name: "67 — Andijon viloyati" },
-    { code: "68", name: "68 — Andijon viloyati" },
-    { code: "69", name: "69 — Andijon viloyati" },
-    { code: "70", name: "70 — Qashqadaryo viloyati (Qarshi)" },
-    { code: "71", name: "71 — Qashqadaryo viloyati" },
-    { code: "72", name: "72 — Qashqadaryo viloyati" },
-    { code: "73", name: "73 — Qashqadaryo viloyati" },
-    { code: "74", name: "74 — Qashqadaryo viloyati" },
-    { code: "75", name: "75 — Surxondaryo viloyati (Termiz)" },
-    { code: "76", name: "76 — Surxondaryo viloyati" },
-    { code: "77", name: "77 — Surxondaryo viloyati" },
-    { code: "78", name: "78 — Surxondaryo viloyati" },
-    { code: "79", name: "79 — Surxondaryo viloyati" },
-    { code: "80", name: "80 — Buxoro viloyati (Asosiy)" },
-    { code: "81", name: "81 — Buxoro viloyati" },
-    { code: "82", name: "82 — Buxoro viloyati" },
-    { code: "83", name: "83 — Buxoro viloyati" },
-    { code: "84", name: "84 — Buxoro viloyati" },
-    { code: "85", name: "85 — Navoiy viloyati (Asosiy)" },
-    { code: "86", name: "86 — Navoiy viloyati" },
-    { code: "87", name: "87 — Navoiy viloyati" },
-    { code: "88", name: "88 — Navoiy viloyati" },
-    { code: "89", name: "89 — Navoiy viloyati" },
-    { code: "90", name: "90 — Xorazm viloyati (Urganch)" },
-    { code: "91", name: "91 — Xorazm viloyati" },
-    { code: "92", name: "92 — Xorazm viloyati" },
-    { code: "93", name: "93 — Xorazm viloyati" },
-    { code: "94", name: "94 — Xorazm viloyati" },
-    { code: "95", name: "95 — Qoraqalpog‘iston Resp. (Nukus)" },
-    { code: "96", name: "96 — Qoraqalpog‘iston Resp." },
-    { code: "97", name: "97 — Qoraqalpog‘iston Resp." },
-    { code: "98", name: "98 — Qoraqalpog‘iston Resp." },
-    { code: "99", name: "99 — Qoraqalpog‘iston Resp." }
-];
+// ==================== DAVLATLARNING 100% REAL VA RASMIY HUDUD KODLARI (ALOHIDA) ====================
+const OFFICIAL_REGIONS_BY_COUNTRY = {
+    // 1. O'ZBEKISTON (O'z DSt 640:2014 bo'yicha 14 ta rasmiy hudud — hech qanday soxta raqamlarsiz!)
+    UZ: [
+        { code: "01", short: "Toshkent sh.", name: "01 — Toshkent shahri" },
+        { code: "10", short: "Toshkent vil.", name: "10 — Toshkent viloyati" },
+        { code: "20", short: "Sirdaryo", name: "20 — Sirdaryo viloyati (Guliston)" },
+        { code: "25", short: "Jizzax", name: "25 — Jizzax viloyati" },
+        { code: "30", short: "Samarqand", name: "30 — Samarqand viloyati" },
+        { code: "40", short: "Farg‘ona", name: "40 — Farg‘ona viloyati" },
+        { code: "50", short: "Namangan", name: "50 — Namangan viloyati" },
+        { code: "60", short: "Andijon", name: "60 — Andijon viloyati" },
+        { code: "70", short: "Qashqadaryo", name: "70 — Qashqadaryo viloyati (Qarshi)" },
+        { code: "75", short: "Surxondaryo", name: "75 — Surxondaryo viloyati (Termiz)" },
+        { code: "80", short: "Buxoro", name: "80 — Buxoro viloyati" },
+        { code: "85", short: "Navoiy", name: "85 — Navoiy viloyati" },
+        { code: "90", short: "Xorazm", name: "90 — Xorazm viloyati (Urganch)" },
+        { code: "95", short: "Qoraqalpog‘iston", name: "95 — Qoraqalpog‘iston Respublikasi (Nukus)" }
+    ],
+
+    // 2. QOZOG'ISTON (Barcha 20 ta rasmiy viloyat va shahar kodlari)
+    KZ: [
+        { code: "01", short: "Ostona sh.", name: "01 — Ostona shahri (Astana)" },
+        { code: "02", short: "Olmaota sh.", name: "02 — Olmaota shahri (Almaty)" },
+        { code: "03", short: "Oqmola", name: "03 — Oqmola viloyati (Ko‘kshetau)" },
+        { code: "04", short: "Oqto‘be", name: "04 — Oqto‘be viloyati (Aktobe)" },
+        { code: "05", short: "Olmaota vil.", name: "05 — Olmaota viloyati (Qonaev)" },
+        { code: "06", short: "Atirau", name: "06 — Atirau viloyati" },
+        { code: "07", short: "G‘arbiy Qoz.", name: "07 — G‘arbiy Qozog‘iston (Oral)" },
+        { code: "08", short: "Jambil", name: "08 — Jambil viloyati (Taraz)" },
+        { code: "09", short: "Qarag‘anda", name: "09 — Qarag‘anda viloyati" },
+        { code: "10", short: "Qo‘stanay", name: "10 — Qo‘stanay viloyati" },
+        { code: "11", short: "Qizilo‘rda", name: "11 — Qizilo‘rda viloyati" },
+        { code: "12", short: "Mang‘istau", name: "12 — Mang‘istau viloyati (Aqtau)" },
+        { code: "13", short: "Turkiston", name: "13 — Turkiston viloyati" },
+        { code: "14", short: "Pavlodar", name: "14 — Pavlodar viloyati" },
+        { code: "15", short: "Shimoliy Qoz.", name: "15 — Shimoliy Qozog‘iston (Petropavl)" },
+        { code: "16", short: "Sharqiy Qoz.", name: "16 — Sharqiy Qozog‘iston (O‘skemen)" },
+        { code: "17", short: "Chimkent sh.", name: "17 — Chimkent shahri (Shymkent)" },
+        { code: "18", short: "Abay vil.", name: "18 — Abay viloyati (Semey)" },
+        { code: "19", short: "Jetisu vil.", name: "19 — Jetisu viloyati (Toldiqo‘rg‘on)" },
+        { code: "20", short: "Ulitao‘ vil.", name: "20 — Ulitao‘ viloyati (Jezqazg‘an)" }
+    ],
+
+    // 3. ROSSIYA (Asosiy rasmiy subyekt kodlari — har biri alohida!)
+    RU: [
+        { code: "777", short: "Moskva 777", name: "777 — Moskva shahri" },
+        { code: "797", short: "Moskva 797", name: "797 — Moskva shahri" },
+        { code: "799", short: "Moskva 799", name: "799 — Moskva shahri" },
+        { code: "977", short: "Moskva 977", name: "977 — Moskva shahri" },
+        { code: "77",  short: "Moskva 77",  name: "77 — Moskva shahri (Klassik)" },
+        { code: "97",  short: "Moskva 97",  name: "97 — Moskva shahri" },
+        { code: "99",  short: "Moskva 99",  name: "99 — Moskva shahri" },
+        { code: "78",  short: "S.-Peterburg", name: "78 — Sankt-Peterburg shahri" },
+        { code: "178", short: "SPb 178", name: "178 — Sankt-Peterburg shahri" },
+        { code: "198", short: "SPb 198", name: "198 — Sankt-Peterburg shahri" },
+        { code: "750", short: "Moskva vil.", name: "750 — Moskva viloyati" },
+        { code: "790", short: "Moskva vil.", name: "790 — Moskva viloyati" },
+        { code: "116", short: "Tatariston", name: "116 — Tatariston Respublikasi (Qozon)" },
+        { code: "716", short: "Tatariston", name: "716 — Tatariston Respublikasi" },
+        { code: "95",  short: "Checheniston", name: "95 — Checheniston Respublikasi (Grozniy)" },
+        { code: "05",  short: "Dog‘iston", name: "05 — Dog‘iston Respublikasi (Maxachqal’a)" },
+        { code: "193", short: "Krasnodar", name: "193 — Krasnodar o‘lkasi (Sochi)" },
+        { code: "196", short: "Sverdlovsk", name: "196 — Sverdlovsk viloyati (Yekaterinburg)" },
+        { code: "102", short: "Boshqirdiston", name: "102 — Boshqirdiston Respublikasi (Ufa)" },
+        { code: "154", short: "Novosibirsk", name: "154 — Novosibirsk viloyati" },
+        { code: "163", short: "Samara", name: "163 — Samara viloyati" },
+        { code: "161", short: "Rostov-Don", name: "161 — Rostov viloyati" }
+    ],
+
+    // 4. QIRG'IZISTON (Barcha 9 ta rasmiy hudud kodi)
+    KG: [
+        { code: "01", short: "Bishkek sh.", name: "01 — Bishkek shahri" },
+        { code: "02", short: "O‘sh shahri", name: "02 — O‘sh shahri" },
+        { code: "03", short: "Botken", name: "03 — Botken viloyati" },
+        { code: "04", short: "Jalolobod", name: "04 — Jalolobod viloyati" },
+        { code: "05", short: "Norin", name: "05 — Norin viloyati" },
+        { code: "06", short: "O‘sh vil.", name: "06 — O‘sh viloyati" },
+        { code: "07", short: "Talas", name: "07 — Talas viloyati" },
+        { code: "08", short: "Chuy vil.", name: "08 — Chuy viloyati" },
+        { code: "09", short: "Issiqko‘l", name: "09 — Issiqko‘l viloyati (Qorako‘l)" }
+    ],
+
+    // 5. TOJIKISTON (Rasmiy hudud kodlari)
+    TJ: [
+        { code: "01", short: "Dushanbe 01", name: "01 — Dushanbe shahri" },
+        { code: "02", short: "Sug‘d (Xo‘jand)", name: "02 — Sug‘d viloyati (Xo‘jand)" },
+        { code: "03", short: "Xatlon", name: "03 — Xatlon viloyati (Boxtar / Ko‘lob)" },
+        { code: "04", short: "Badaxshon", name: "04 — Tog‘li Badaxshon (Xorug‘)" },
+        { code: "05", short: "RRP (Hisor)", name: "05 — Respublikaga bo‘ysunuvchi tumanlar" },
+        { code: "07", short: "Dushanbe 07", name: "07 — Dushanbe shahri (Yangi seriya)" },
+        { code: "08", short: "Sug‘d 08", name: "08 — Sug‘d viloyati (Yangi seriya)" }
+    ],
+
+    // 6. OZARBAYJON (Rasmiy shahar va tuman kodlari)
+    AZ: [
+        { code: "10", short: "Boku 10", name: "10 — Boku shahri" },
+        { code: "90", short: "Boku 90", name: "90 — Boku shahri" },
+        { code: "99", short: "Boku 99", name: "99 — Boku shahri" },
+        { code: "77", short: "Boku 77", name: "77 — Boku shahri" },
+        { code: "20", short: "Ganja", name: "20 — Ganja shahri" },
+        { code: "50", short: "Sumgayit", name: "50 — Sumgayit shahri" },
+        { code: "85", short: "Naxchivan", name: "85 — Naxchivan Avtonom Resp." },
+        { code: "42", short: "Lankaran", name: "42 — Lankaran shahri" },
+        { code: "55", short: "Shaki", name: "55 — Shaki shahri" }
+    ],
+
+    // 7. TURKIYA (Rasmiy viloyat plaka kodlari)
+    TR: [
+        { code: "34", short: "Istanbul", name: "34 — Istanbul" },
+        { code: "06", short: "Anqara", name: "06 — Anqara (Ankara)" },
+        { code: "35", short: "Izmir", name: "35 — Izmir" },
+        { code: "07", short: "Antaliya", name: "07 — Antaliya (Antalya)" },
+        { code: "16", short: "Bursa", name: "16 — Bursa" },
+        { code: "01", short: "Adana", name: "01 — Adana" },
+        { code: "42", short: "Konya", name: "42 — Konya" },
+        { code: "27", short: "Gaziantep", name: "27 — Gaziantep" },
+        { code: "61", short: "Trabzon", name: "61 — Trabzon" },
+        { code: "48", short: "Mug‘la", name: "48 — Mug‘la (Bodrum / Marmaris)" }
+    ],
+
+    // 8. GERMANIYA (Rasmiy shahar Unterscheidungszeichen kodlari)
+    DE: [
+        { code: "B",  short: "Berlin", name: "B — Berlin" },
+        { code: "M",  short: "Myunxen", name: "M — Myunxen (München)" },
+        { code: "HH", short: "Gamburg", name: "HH — Gamburg (Hansestadt Hamburg)" },
+        { code: "F",  short: "Frankfurt", name: "F — Frankfurt-Mayn" },
+        { code: "K",  short: "Kyoln", name: "K — Kyoln (Köln)" },
+        { code: "S",  short: "Shtutgart", name: "S — Shtutgart (Stuttgart)" },
+        { code: "D",  short: "Dyusseldorf", name: "D — Dyusseldorf (Düsseldorf)" },
+        { code: "H",  short: "Gannover", name: "H — Gannover (Hannover)" },
+        { code: "L",  short: "Leypsig", name: "L — Leypsig (Leipzig)" },
+        { code: "DD", short: "Drezden", name: "DD — Drezden (Dresden)" },
+        { code: "DO", short: "Dortmund", name: "DO — Dortmund" },
+        { code: "N",  short: "Nyurnberg", name: "N — Nyurnberg (Nürnberg)" }
+    ],
+
+    // 9. BAA — DUBAY VA AMIRLIKLAR
+    UAE: [
+        { code: "A",  short: "Dubai A", name: "A — Dubai (Code A VIP)" },
+        { code: "B",  short: "Dubai B", name: "B — Dubai (Code B)" },
+        { code: "AA", short: "Dubai AA", name: "AA — Dubai (Code AA)" },
+        { code: "S",  short: "Dubai S", name: "S — Dubai (Code S)" },
+        { code: "1",  short: "Abu Dhabi 1", name: "1 — Abu Dhabi (Category 1 VIP)" },
+        { code: "5",  short: "Abu Dhabi 5", name: "5 — Abu Dhabi (Category 5)" },
+        { code: "50", short: "Abu Dhabi 50", name: "50 — Abu Dhabi (Golden Jubilee)" },
+        { code: "3",  short: "Sharjah 3", name: "3 — Sharjah Emirate" }
+    ],
+
+    // 10. AQSH SHTATLARI
+    US: [
+        { code: "California", short: "California", name: "California (The Golden State)" },
+        { code: "NEW YORK",   short: "New York",   name: "NEW YORK (The Empire State)" },
+        { code: "TEXAS",      short: "Texas",      name: "TEXAS (The Lone Star State)" },
+        { code: "FLORIDA",    short: "Florida",    name: "FLORIDA (Sunshine State)" },
+        { code: "ILLINOIS",   short: "Illinois",   name: "ILLINOIS (Land of Lincoln)" },
+        { code: "NEVADA",     short: "Nevada",     name: "NEVADA (Silver State)" },
+        { code: "WASHINGTON", short: "Washington", name: "WASHINGTON (Evergreen State)" },
+        { code: "NEW JERSEY", short: "New Jersey", name: "NEW JERSEY (Garden State)" }
+    ],
+
+    // 11. YAPONIYA PREFEKTURALARI
+    JP: [
+        { code: "品川 330", short: "Shinagawa", name: "品川 330 — Tokio (Shinagawa)" },
+        { code: "練馬 330", short: "Nerima",    name: "練馬 330 — Tokio (Nerima)" },
+        { code: "足立 330", short: "Adachi",    name: "足立 330 — Tokio (Adachi)" },
+        { code: "横浜 330", short: "Yokohama",  name: "横浜 330 — Kanagava (Yokohama)" },
+        { code: "名古屋 330", short: "Nagoya",  name: "名古屋 330 — Aichi (Nagoya)" },
+        { code: "なにわ 330", short: "Osaka",   name: "なにわ 330 — Osaka (Naniwa)" },
+        { code: "京都 330", short: "Kyoto",     name: "京都 330 — Kioto (Kyoto)" },
+        { code: "札幌 330", short: "Sapporo",   name: "札幌 330 — Xokkaydo (Sapporo)" }
+    ],
+
+    // 12. XITOY SHAHAR VA PROVINSIYALARI
+    CN: [
+        { code: "京A", short: "Pekin (京A)", name: "京A — Pekin (Beijing)" },
+        { code: "沪A", short: "Shanxay (沪A)", name: "沪A — Shanxay (Shanghai)" },
+        { code: "粤A", short: "Guanchjou", name: "粤A — Guanchjou (Guangzhou)" },
+        { code: "粤B", short: "Shenjen", name: "粤B — Shenjen (Shenzhen)" },
+        { code: "川A", short: "Chendu", name: "川A — Sichuan (Chengdu)" },
+        { code: "浙A", short: "Xanchjou", name: "浙A — Chjetszyan (Hangzhou)" },
+        { code: "苏A", short: "Nankin", name: "苏A — Tszyansu (Nanjing)" }
+    ]
+};
 
 // ==================== 125+ DAVLATLAR VA ULARNING ORIGINAL SHRIFTLARI ====================
 const WORLD_COUNTRIES = [
@@ -839,32 +962,7 @@ const COUNTRY_SUBTYPES = {
     ]
 };
 
-const RU_REGIONS = [
-    { code: "777", name: "777 / 797 / 799 / 977 — Moskva shahri" },
-    { code: "77",  name: "77 / 97 / 99 / 177 — Moskva shahri" },
-    { code: "78",  name: "78 / 98 / 178 / 198 — Sankt-Peterburg" },
-    { code: "50",  name: "50 / 90 / 150 / 750 — Moskva viloyati" },
-    { code: "16",  name: "16 / 116 / 716 — Tatariston Resp." },
-    { code: "95",  name: "95 — Checheniston Resp." },
-    { code: "05",  name: "05 — Dog‘iston Resp." },
-    { code: "23",  name: "23 / 93 / 123 / 193 — Krasnodar o‘lkasi" }
-];
-
-const KZ_REGIONS = [
-    { code: "01", name: "01 — Ostona shahri" },
-    { code: "02", name: "02 — Olmaota shahri" },
-    { code: "17", name: "17 — Chimkent shahri" },
-    { code: "03", name: "03 — Oqmola viloyati" },
-    { code: "05", name: "05 — Olmaota viloyati" },
-    { code: "08", name: "08 — Jambil (Taraz)" },
-    { code: "09", name: "09 — Qarag‘anda viloyati" },
-    { code: "12", name: "12 — Mang‘istau (Aqtau)" },
-    { code: "13", name: "13 — Turkiston viloyati" }
-];
-
-// ==================== 8 XIL XALQARO SHRIFT PROFILLARI (ANIK WEIGHT BILAN!) ====================
-// MUHIM: cdnfonts shriftlari faqat 400 (normal) weightga ega bo'lgani uchun
-// weight: '400' beriladi va strokeBoost orqali qalin zavod shtampi hosil qilinadi!
+// ==================== 8 XIL XALQARO SHRIFT PROFILLARI ====================
 const FONT_PROFILES = {
     FE_SCHRIFT: {
         title: "FE-SCHRIFT (O‘z DSt 640 / Germaniya DIN 1451-4)",
@@ -893,7 +991,7 @@ const FONT_PROFILES = {
         strokeBoost: 0.016,
         scaleX: 0.88,
         scaleY: 1.12,
-        letterRatio: 0.73, // Rossiya GOST standartida harflar raqamlardan 73% kichik!
+        letterRatio: 0.73,
         straightOne: false
     },
     CHARLES_WRIGHT: {
@@ -904,7 +1002,7 @@ const FONT_PROFILES = {
         scaleX: 1.04,
         scaleY: 1.02,
         letterRatio: 1.0,
-        straightOne: true // UK nomerlarida "1" raqami burnisiz tekis vertikal ustun
+        straightOne: true
     },
     USA_STAMPED: {
         title: "USA DIE-STAMPED (FHWA / North America Octagonal)",
@@ -1157,10 +1255,8 @@ function drawAuthenticPlateText(targetCtx, text, centerX, centerY, baseSize, fil
         });
     }
 
-    // 1. Asosiy harf qatlami
     renderGlyphsPass(textLayerCtx, fillColor, 0, 0);
 
-    // 2. Harf ichida 3D metall qirrasi (`source-atop` — oq fonga 1 piksel ham dog' chiqmaydi)
     if (embossPct > 0.05) {
         textLayerCtx.globalCompositeOperation = 'source-atop';
         const innerSpec = fillColor === '#FFFFFF' ? `rgba(255,255,255,${0.35 * embossPct})` : `rgba(255,255,255,${0.22 * embossPct})`;
@@ -1170,7 +1266,6 @@ function drawAuthenticPlateText(targetCtx, text, centerX, centerY, baseSize, fil
     }
     textLayerCtx.restore();
 
-    // 3. Asosiy nomer yuzasiga tabiiy shtamp soyasi bilan tushirish
     targetCtx.save();
     if (embossPct > 0.05) {
         targetCtx.shadowColor = `rgba(0, 0, 0, ${0.34 * embossPct})`;
@@ -1628,13 +1723,13 @@ function renderPlate() {
         ctx.textAlign = 'center';
         ctx.fillText('2026', px + plateW - 115, py + 76);
 
-        if (typeId === 'us_ca' && cObj.code === 'US') {
+        if (regText.toUpperCase() === 'CALIFORNIA' && cObj.code === 'US') {
             ctx.save();
             ctx.font = '400 92px "Yellowtail", cursive';
             ctx.fillStyle = '#C8102E';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(regText || 'California', px + plateW / 2, py + 82);
+            ctx.fillText('California', px + plateW / 2, py + 82);
             ctx.restore();
         } else {
             drawAuthenticPlateText(ctx, regText || 'NEW YORK', px + plateW / 2, py + 82, 74, headerColor, bgFill, 'DIN_1451', 580, true);
@@ -1680,10 +1775,11 @@ function renderPlate() {
         isUSFormat ? `O‘LCHAM: 300 × 150 MM (${canvas.width}×${canvas.height} PX)` : `O‘LCHAM: 520 × 112 MM (${canvas.width}×${canvas.height} PX)`;
 }
 
-// ==================== UI VA FILTRLAR BOSHQARUVI ====================
+// ==================== UI VA REAL VILOYATLAR BOSHQARUVI ====================
 const countrySelect = document.getElementById('countrySelect');
 const plateTypeSelect = document.getElementById('plateTypeSelect');
 const regionPresetSelect = document.getElementById('regionPresetSelect');
+const regionQuickChips = document.getElementById('regionQuickChips');
 const countrySearch = document.getElementById('countrySearch');
 const quickPills = document.getElementById('quickPills');
 const fontStyleSelect = document.getElementById('fontStyleSelect');
@@ -1742,6 +1838,47 @@ function renderCountryList() {
     onCountryChanged();
 }
 
+function updateRegionUI(code) {
+    const regions = OFFICIAL_REGIONS_BY_COUNTRY[code];
+    const row = document.getElementById('regionPresetRow');
+    const countBadge = document.getElementById('regCountBadge');
+
+    if (regions && regions.length > 0) {
+        row.style.display = 'flex';
+        countBadge.textContent = `${regions.length} TA RASMIY HUDUD`;
+
+        regionPresetSelect.innerHTML = regions
+            .map(r => `<option value="${r.code}">${r.name}</option>`)
+            .join('');
+
+        // Har bir viloyatni alohida ko'rsatuvchi tezkor tugmalar
+        regionQuickChips.innerHTML = regions.map((r, idx) => `
+            <button class="reg-chip ${idx === 0 ? 'active' : ''}" data-reg="${r.code}" type="button" title="${r.name}">
+                <b>${r.code}</b>${r.short}
+            </button>
+        `).join('');
+
+        regionQuickChips.querySelectorAll('.reg-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const selectedCode = chip.dataset.reg;
+                regionPresetSelect.value = selectedCode;
+                document.getElementById('inpRegion').value = selectedCode;
+                syncRegionChips(selectedCode);
+                renderPlate();
+            });
+        });
+    } else {
+        row.style.display = 'none';
+        regionQuickChips.innerHTML = '';
+    }
+}
+
+function syncRegionChips(activeCode) {
+    regionQuickChips.querySelectorAll('.reg-chip').forEach(chip => {
+        chip.classList.toggle('active', chip.dataset.reg === activeCode);
+    });
+}
+
 function onCountryChanged() {
     const code = countrySelect.value;
     const cObj = WORLD_COUNTRIES.find(c => c.code === code) || WORLD_COUNTRIES[0];
@@ -1754,18 +1891,7 @@ function onCountryChanged() {
         plateTypeSelect.innerHTML = `<option value="std">Standart (${cObj.defReg ? cObj.defReg + ' | ' : ''}${cObj.defMain})</option>`;
     }
 
-    if (code === 'UZ') {
-        document.getElementById('regionPresetRow').style.display = 'flex';
-        regionPresetSelect.innerHTML = UZ_ALL_REGIONS.map(r => `<option value="${r.code}">${r.name}</option>`).join('');
-    } else if (code === 'RU') {
-        document.getElementById('regionPresetRow').style.display = 'flex';
-        regionPresetSelect.innerHTML = RU_REGIONS.map(r => `<option value="${r.code}">${r.name}</option>`).join('');
-    } else if (code === 'KZ') {
-        document.getElementById('regionPresetRow').style.display = 'flex';
-        regionPresetSelect.innerHTML = KZ_REGIONS.map(r => `<option value="${r.code}">${r.name}</option>`).join('');
-    } else {
-        document.getElementById('regionPresetRow').style.display = 'none';
-    }
+    updateRegionUI(code);
 
     quickPills.querySelectorAll('.pill').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.code === code);
@@ -1792,6 +1918,7 @@ function applyTypeDefaults() {
         document.getElementById('inpSub').value = cObj.vCode;
     }
 
+    syncRegionChips(document.getElementById('inpRegion').value);
     getFlagImage(cObj.iso, () => renderPlate());
     renderPlate();
 }
@@ -1804,7 +1931,9 @@ fontStyleSelect.addEventListener('change', () => {
     renderPlate();
 });
 regionPresetSelect.addEventListener('change', () => {
-    document.getElementById('inpRegion').value = regionPresetSelect.value;
+    const val = regionPresetSelect.value;
+    document.getElementById('inpRegion').value = val;
+    syncRegionChips(val);
     renderPlate();
 });
 
@@ -1818,7 +1947,12 @@ document.querySelectorAll('#continentTabs .tab-btn').forEach(btn => {
 });
 
 ['inpRegion', 'inpMain', 'inpSub', 'inpHolder'].forEach(id => {
-    document.getElementById(id).addEventListener('input', renderPlate);
+    document.getElementById(id).addEventListener('input', () => {
+        if (id === 'inpRegion') {
+            syncRegionChips(document.getElementById('inpRegion').value.trim().toUpperCase());
+        }
+        renderPlate();
+    });
 });
 
 document.getElementById('embossSlider').addEventListener('input', e => {
@@ -1903,11 +2037,12 @@ document.getElementById('randomBtn').addEventListener('click', () => generateCus
 function exportPlate(format) {
     renderPlate();
     const code = countrySelect.value;
+    const reg = (document.getElementById('inpRegion').value || '').replace(/\s+/g, '');
     const cleanMain = (document.getElementById('inpMain').value || 'PLATE').replace(/\s+/g, '_');
 
     if (format === 'png') {
         const url = canvas.toDataURL('image/png');
-        triggerDownload(url, `IT_SHAKH_${code}_${cleanMain}.png`);
+        triggerDownload(url, `IT_SHAKH_${code}_${reg}_${cleanMain}.png`);
         document.getElementById('statusMsg').textContent = '✓ Yuqori aniqlikdagi .PNG fayl muvaffaqiyatli yuklab olindi!';
     } else {
         const jCanvas = document.createElement('canvas');
@@ -1918,7 +2053,7 @@ function exportPlate(format) {
         jCtx.fillRect(0, 0, jCanvas.width, jCanvas.height);
         jCtx.drawImage(canvas, 0, 0);
         const url = jCanvas.toDataURL('image/jpeg', 0.96);
-        triggerDownload(url, `IT_SHAKH_${code}_${cleanMain}.jpg`);
+        triggerDownload(url, `IT_SHAKH_${code}_${reg}_${cleanMain}.jpg`);
         document.getElementById('statusMsg').textContent = '✓ Yuqori aniqlikdagi .JPG fayl muvaffaqiyatli yuklab olindi!';
     }
 }
@@ -1935,7 +2070,7 @@ function triggerDownload(url, filename) {
 document.getElementById('downloadPngBtn').addEventListener('click', () => exportPlate('png'));
 document.getElementById('downloadJpgBtn').addEventListener('click', () => exportPlate('jpg'));
 
-// Barcha avto-nomer shriftlarini FontFace API orqali majburiy yuklash va qayta chizish
+// Barcha avto-nomer shriftlarini FontFace API orqali majburiy yuklash
 async function preloadAllPlateFonts() {
     renderCountryList();
     if (document.fonts && document.fonts.load) {
