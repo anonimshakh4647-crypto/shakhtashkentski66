@@ -188,6 +188,404 @@ input[type=range]{accent-color:var(--accent)}
 <div id="modal" class="hide" role="dialog" aria-modal="true"></div>
 
 <script>
+/* ===== SEG: GrabCut (GMM + graph cut) + guided-filter edge refinement. DOM-free. ===== */
+(function(root){
+'use strict';
+const tick=()=>new Promise(r=>setTimeout(r,0));
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+
+/* ---------- Boykov–Kolmogorov max-flow on a 4-connected grid ----------
+   cap[i*4+d]  residual capacity of arc i -> neighbour(d)   d: 0=left 1=right 2=up 3=down
+   tr[i]       source cap - sink cap (positive: linked to source, negative: to sink)          */
+function maxflow(w,h,cap,tr){
+  const n=w*h,NONE=-1,TERM=-2,ORPH=-3,INF=1e9;
+  const head=new Int32Array(n*4);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;
+    head[i*4]=x>0?i-1:-1;head[i*4+1]=x<w-1?i+1:-1;head[i*4+2]=y>0?i-w:-1;head[i*4+3]=y<h-1?i+w:-1;}
+  const parent=new Int32Array(n).fill(NONE),isSink=new Uint8Array(n),TS=new Int32Array(n),DIST=new Int32Array(n);
+  const nxt=new Int32Array(n).fill(-1),onext=new Int32Array(n).fill(-1);
+  let qf0=-1,ql0=-1,qf1=-1,ql1=-1,ofirst=-1,olast=-1,TIME=0,flow=0,cur=-1;
+  const sis=a=>head[a]*4+((a&3)^1);
+  const setActive=i=>{if(nxt[i]<0){if(ql1>=0)nxt[ql1]=i;else qf1=i;ql1=i;nxt[i]=i;}};
+  const nextActive=()=>{
+    for(;;){
+      let i=qf0;
+      if(i<0){i=qf0=qf1;ql0=ql1;qf1=ql1=-1;if(i<0)return -1;}
+      if(nxt[i]===i){qf0=ql0=-1;}else qf0=nxt[i];
+      nxt[i]=-1;
+      if(parent[i]!==NONE)return i;
+    }
+  };
+  const orphanFront=i=>{parent[i]=ORPH;onext[i]=ofirst;ofirst=i;};
+  const orphanRear=i=>{parent[i]=ORPH;onext[i]=-1;if(olast>=0)onext[olast]=i;else ofirst=i;olast=i;};
+
+  function augment(mid){
+    const ms=sis(mid),s=mid>>2,t=head[mid];
+    let bott=cap[mid],i;
+    for(i=s;;){const a=parent[i];if(a===TERM)break;const sa=sis(a);if(bott>cap[sa])bott=cap[sa];i=head[a];}
+    if(bott>tr[i])bott=tr[i];
+    for(i=t;;){const a=parent[i];if(a===TERM)break;if(bott>cap[a])bott=cap[a];i=head[a];}
+    if(bott>-tr[i])bott=-tr[i];
+    cap[ms]+=bott;cap[mid]-=bott;
+    for(i=s;;){const a=parent[i];if(a===TERM)break;const sa=sis(a);cap[a]+=bott;cap[sa]-=bott;if(cap[sa]<=0)orphanFront(i);i=head[a];}
+    tr[i]-=bott;if(tr[i]<=0)orphanFront(i);
+    for(i=t;;){const a=parent[i];if(a===TERM)break;const sa=sis(a);cap[sa]+=bott;cap[a]-=bott;if(cap[a]<=0)orphanFront(i);i=head[a];}
+    tr[i]+=bott;if(tr[i]>=0)orphanFront(i);
+    flow+=bott;
+  }
+  function procOrphan(i,sinkSide){
+    let dmin=INF,a0min=-1;
+    for(let d=0;d<4;d++){
+      const a0=i*4+d,j=head[a0];if(j<0)continue;
+      const c=sinkSide?cap[a0]:cap[sis(a0)];
+      if(c<=0)continue;
+      if((isSink[j]===1)===sinkSide&&parent[j]!==NONE){
+        let dd=0,jj=j;
+        for(;;){
+          if(TS[jj]===TIME){dd+=DIST[jj];break;}
+          const a=parent[jj];dd++;
+          if(a===TERM){TS[jj]=TIME;DIST[jj]=1;break;}
+          if(a===ORPH){dd=INF;break;}
+          jj=head[a];
+        }
+        if(dd<INF){
+          if(dd<dmin){a0min=a0;dmin=dd;}
+          for(let k=j;TS[k]!==TIME;k=head[parent[k]]){TS[k]=TIME;DIST[k]=dd--;}
+        }
+      }
+    }
+    parent[i]=a0min;
+    if(a0min>=0){TS[i]=TIME;DIST[i]=dmin+1;}
+    else{
+      for(let d=0;d<4;d++){
+        const a0=i*4+d,j=head[a0];if(j<0)continue;
+        if((isSink[j]===1)===sinkSide&&parent[j]!==NONE){
+          const a=parent[j],c=sinkSide?cap[a0]:cap[sis(a0)];
+          if(c>0)setActive(j);
+          if(a!==TERM&&a!==ORPH&&head[a]===i)orphanRear(j);
+        }
+      }
+    }
+  }
+  for(let i=0;i<n;i++)if(tr[i]!==0){isSink[i]=tr[i]>0?0:1;parent[i]=TERM;TS[i]=0;DIST[i]=1;setActive(i);}
+  for(;;){
+    let i=-1;
+    if(cur>=0){i=cur;nxt[i]=-1;if(parent[i]===NONE)i=-1;}
+    if(i<0){i=nextActive();if(i<0)break;}
+    let a=-1;
+    if(!isSink[i]){
+      for(let d=0;d<4;d++){
+        const aa=i*4+d,j=head[aa];if(j<0||cap[aa]<=0)continue;
+        if(parent[j]===NONE){isSink[j]=0;parent[j]=sis(aa);TS[j]=TS[i];DIST[j]=DIST[i]+1;setActive(j);}
+        else if(isSink[j]){a=aa;break;}
+        else if(TS[j]<=TS[i]&&DIST[j]>DIST[i]){parent[j]=sis(aa);TS[j]=TS[i];DIST[j]=DIST[i]+1;}
+      }
+    }else{
+      for(let d=0;d<4;d++){
+        const aa=i*4+d,j=head[aa];if(j<0)continue;const sa=sis(aa);if(cap[sa]<=0)continue;
+        if(parent[j]===NONE){isSink[j]=1;parent[j]=sa;TS[j]=TS[i];DIST[j]=DIST[i]+1;setActive(j);}
+        else if(!isSink[j]){a=sa;break;}
+        else if(TS[j]<=TS[i]&&DIST[j]>DIST[i]){parent[j]=sa;TS[j]=TS[i];DIST[j]=DIST[i]+1;}
+      }
+    }
+    TIME++;
+    if(a>=0){
+      nxt[i]=i;cur=i;
+      augment(a);
+      while(ofirst>=0){
+        const rest=onext[ofirst];onext[ofirst]=-1;olast=-1;
+        for(;;){
+          const np=ofirst;if(np<0)break;
+          ofirst=onext[np];if(ofirst<0)olast=-1;
+          procOrphan(np,isSink[np]===1);
+        }
+        ofirst=rest;
+      }
+    }else cur=-1;
+  }
+  const source=new Uint8Array(n);
+  for(let i=0;i<n;i++)source[i]=(parent[i]!==NONE&&!isSink[i])?1:0;
+  return{flow,source};
+}
+
+/* ---------- GMM in RGB ---------- */
+function inv3(c){ // c: [xx,xy,xz,yy,yz,zz] -> inverse (same layout) + det
+  const a=c[0],b=c[1],cc=c[2],d=c[3],e=c[4],f=c[5];
+  const A=d*f-e*e,B=-(b*f-e*cc),C=b*e-d*cc,D=a*f-cc*cc,E=-(a*e-b*cc),F=a*d-b*b;
+  const det=a*A+b*B+cc*C;
+  return{inv:[A/det,B/det,C/det,D/det,E/det,F/det],det};
+}
+function kmeansCenters(rgb,idx,K){
+  const m=idx.length,step=Math.max(1,Math.floor(m/12000)),S=[];
+  for(let t=0;t<m;t+=step)S.push(idx[t]);
+  const lum=i=>.299*rgb[i*3]+.587*rgb[i*3+1]+.114*rgb[i*3+2];
+  S.sort((a,b)=>lum(a)-lum(b));
+  let C=new Float64Array(K*3);
+  for(let k=0;k<K;k++){const p=S[Math.min(S.length-1,Math.floor((k+.5)/K*S.length))];C[k*3]=rgb[p*3];C[k*3+1]=rgb[p*3+1];C[k*3+2]=rgb[p*3+2];}
+  for(let it=0;it<8;it++){
+    const sum=new Float64Array(K*3),cnt=new Float64Array(K);
+    for(const p of S){let bk=0,bd=1e18;for(let k=0;k<K;k++){const dx=rgb[p*3]-C[k*3],dy=rgb[p*3+1]-C[k*3+1],dz=rgb[p*3+2]-C[k*3+2],d=dx*dx+dy*dy+dz*dz;if(d<bd){bd=d;bk=k;}}
+      sum[bk*3]+=rgb[p*3];sum[bk*3+1]+=rgb[p*3+1];sum[bk*3+2]+=rgb[p*3+2];cnt[bk]++;}
+    for(let k=0;k<K;k++)if(cnt[k]>0){C[k*3]=sum[k*3]/cnt[k];C[k*3+1]=sum[k*3+1]/cnt[k];C[k*3+2]=sum[k*3+2]/cnt[k];}
+  }
+  return C;
+}
+function nearestComp(C,K,r,g,b){let bk=0,bd=1e18;for(let k=0;k<K;k++){const dx=r-C[k*3],dy=g-C[k*3+1],dz=b-C[k*3+2],d=dx*dx+dy*dy+dz*dz;if(d<bd){bd=d;bk=k;}}return bk;}
+function estimate(rgb,idx,comp,K){
+  const cnt=new Float64Array(K),mu=new Float64Array(K*3),S=new Float64Array(K*6);
+  for(let t=0;t<idx.length;t++){const p=idx[t],k=comp[t],r=rgb[p*3],g=rgb[p*3+1],b=rgb[p*3+2];
+    cnt[k]++;mu[k*3]+=r;mu[k*3+1]+=g;mu[k*3+2]+=b;
+    S[k*6]+=r*r;S[k*6+1]+=r*g;S[k*6+2]+=r*b;S[k*6+3]+=g*g;S[k*6+4]+=g*b;S[k*6+5]+=b*b;}
+  const total=Math.max(1,idx.length),M={K,mu:new Float64Array(K*3),inv:new Float64Array(K*6),c:new Float64Array(K).fill(-1e9)};
+  for(let k=0;k<K;k++){
+    if(cnt[k]<4)continue;
+    const n=cnt[k],m0=mu[k*3]/n,m1=mu[k*3+1]/n,m2=mu[k*3+2]/n;
+    const c=[S[k*6]/n-m0*m0+3,S[k*6+1]/n-m0*m1,S[k*6+2]/n-m0*m2,S[k*6+3]/n-m1*m1+3,S[k*6+4]/n-m1*m2,S[k*6+5]/n-m2*m2+3];
+    const {inv,det}=inv3(c);if(!(det>1e-9))continue;
+    M.mu[k*3]=m0;M.mu[k*3+1]=m1;M.mu[k*3+2]=m2;for(let q=0;q<6;q++)M.inv[k*6+q]=inv[q];
+    M.c[k]=Math.log(n/total)-.5*Math.log(det);
+  }
+  return M;
+}
+function term(M,k,r,g,b){
+  const dx=r-M.mu[k*3],dy=g-M.mu[k*3+1],dz=b-M.mu[k*3+2],v=M.inv,o=k*6;
+  return M.c[k]-.5*(v[o]*dx*dx+v[o+3]*dy*dy+v[o+5]*dz*dz+2*(v[o+1]*dx*dy+v[o+2]*dx*dz+v[o+4]*dy*dz));
+}
+const TT=new Float64Array(16);
+function cost(M,r,g,b){
+  let m=-1e18;
+  for(let k=0;k<M.K;k++){const v=M.c[k]<-1e8?-1e9:term(M,k,r,g,b);TT[k]=v;if(v>m)m=v;}
+  let s=0;for(let k=0;k<M.K;k++)s+=Math.exp(TT[k]-m);
+  return-(m+Math.log(s));
+}
+function argComp(M,r,g,b){let bk=0,bv=-1e18;for(let k=0;k<M.K;k++){if(M.c[k]<-1e8)continue;const v=term(M,k,r,g,b);if(v>bv){bv=v;bk=k;}}return bk;}
+function fitFresh(rgb,idx,K){
+  if(idx.length<K*4)K=Math.max(1,Math.floor(idx.length/4));
+  const C=kmeansCenters(rgb,idx,K),comp=new Uint8Array(idx.length);
+  for(let t=0;t<idx.length;t++){const p=idx[t];comp[t]=nearestComp(C,K,rgb[p*3],rgb[p*3+1],rgb[p*3+2]);}
+  return estimate(rgb,idx,comp,K);
+}
+function refit(rgb,idx,M){
+  const comp=new Uint8Array(idx.length);
+  for(let t=0;t<idx.length;t++){const p=idx[t];comp[t]=argComp(M,rgb[p*3],rgb[p*3+1],rgb[p*3+2]);}
+  return estimate(rgb,idx,comp,M.K);
+}
+
+/* ---------- helpers ---------- */
+function downscale(data,w,h,maxSide){
+  const s=Math.max(1,Math.max(w,h)/maxSide),sw=Math.max(1,Math.round(w/s)),sh=Math.max(1,Math.round(h/s));
+  const out=new Float32Array(sw*sh*3),fx=w/sw,fy=h/sh;
+  for(let y=0;y<sh;y++){const y0=Math.floor(y*fy),y1=Math.max(y0+1,Math.min(h,Math.ceil((y+1)*fy)));
+    for(let x=0;x<sw;x++){const x0=Math.floor(x*fx),x1=Math.max(x0+1,Math.min(w,Math.ceil((x+1)*fx)));
+      let r=0,g=0,b=0,c=0;for(let yy=y0;yy<y1;yy++)for(let xx=x0;xx<x1;xx++){const p=(yy*w+xx)*4;r+=data[p];g+=data[p+1];b+=data[p+2];c++;}
+      const o=(y*sw+x)*3;out[o]=r/c;out[o+1]=g/c;out[o+2]=b/c;}}
+  return{rgb:out,w:sw,h:sh,scale:w/sw};
+}
+function morphGray(a,w,h,r,grow){
+  if(!r)return a;
+  const tmp=new Uint8Array(a.length),out=new Uint8Array(a.length);
+  for(let y=0;y<h;y++){const row=y*w;for(let x=0;x<w;x++){let v=grow?0:255;const x0=Math.max(0,x-r),x1=Math.min(w-1,x+r);
+    for(let k=x0;k<=x1;k++){const q=a[row+k];if(grow?q>v:q<v)v=q;}tmp[row+x]=v;}}
+  for(let x=0;x<w;x++)for(let y=0;y<h;y++){let v=grow?0:255;const y0=Math.max(0,y-r),y1=Math.min(h-1,y+r);
+    for(let k=y0;k<=y1;k++){const q=tmp[k*w+x];if(grow?q>v:q<v)v=q;}out[y*w+x]=v;}
+  return out;
+}
+function components(lab,w,h,val){ // 4-connected components of pixels equal to val; returns {id:Int32Array,sizes:[],touch:[]}
+  const n=w*h,id=new Int32Array(n).fill(-1),sizes=[],touch=[],stack=new Int32Array(n);let c=0;
+  for(let s=0;s<n;s++){
+    if(lab[s]!==val||id[s]>=0)continue;
+    let sp=0,size=0,tb=false;stack[sp++]=s;id[s]=c;
+    while(sp){const p=stack[--sp],x=p%w,y=(p-x)/w;size++;if(x===0||y===0||x===w-1||y===h-1)tb=true;
+      if(x>0&&lab[p-1]===val&&id[p-1]<0){id[p-1]=c;stack[sp++]=p-1;}
+      if(x<w-1&&lab[p+1]===val&&id[p+1]<0){id[p+1]=c;stack[sp++]=p+1;}
+      if(y>0&&lab[p-w]===val&&id[p-w]<0){id[p-w]=c;stack[sp++]=p-w;}
+      if(y<h-1&&lab[p+w]===val&&id[p+w]<0){id[p+w]=c;stack[sp++]=p+w;}}
+    sizes.push(size);touch.push(tb);c++;
+  }
+  return{id,sizes,touch};
+}
+
+/* ---------- GrabCut ---------- */
+async function grabcut(rgb,w,h,iters,progress){
+  const n=w*h,K=5,GAMMA=50;
+  // pairwise weights
+  let sum=0,cntp=0;
+  const dR=new Float32Array(n),dD=new Float32Array(n);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;
+    if(x<w-1){const j=i+1,d=(rgb[i*3]-rgb[j*3])**2+(rgb[i*3+1]-rgb[j*3+1])**2+(rgb[i*3+2]-rgb[j*3+2])**2;dR[i]=d;sum+=d;cntp++;}
+    if(y<h-1){const j=i+w,d=(rgb[i*3]-rgb[j*3])**2+(rgb[i*3+1]-rgb[j*3+1])**2+(rgb[i*3+2]-rgb[j*3+2])**2;dD[i]=d;sum+=d;cntp++;}}
+  const beta=1/(2*Math.max(1e-6,sum/cntp));
+  const base=new Float64Array(n*4);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;
+    if(x<w-1){const v=GAMMA*Math.exp(-beta*dR[i]);base[i*4+1]=v;base[(i+1)*4]=v;}
+    if(y<h-1){const v=GAMMA*Math.exp(-beta*dD[i]);base[i*4+3]=v;base[(i+w)*4+2]=v;}}
+  const BIG=4*GAMMA+10;
+
+  /* initial trimap: ring (top/left/right) -> bg model -> flood = probable bg */
+  const ring=new Uint8Array(n),rw=Math.max(2,Math.round(Math.min(w,h)*.03));
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(y<rw||x<rw||x>=w-rw)ring[y*w+x]=1;
+  const ringIdx=[];for(let i=0;i<n;i++)if(ring[i])ringIdx.push(i);
+  const bg0=fitFresh(rgb,Int32Array.from(ringIdx),3);
+  const rd=ringIdx.map(i=>cost(bg0,rgb[i*3],rgb[i*3+1],rgb[i*3+2])).sort((a,b)=>a-b);
+  const thr=rd[Math.floor(rd.length*.96)]*1.15+1;
+  const near=new Uint8Array(n);for(let i=0;i<n;i++)near[i]=cost(bg0,rgb[i*3],rgb[i*3+1],rgb[i*3+2])<=thr?1:0;
+  const flood=new Uint8Array(n),stack=new Int32Array(n);let sp=0;
+  for(const i of ringIdx)if(near[i]){flood[i]=1;stack[sp++]=i;}
+  while(sp){const p=stack[--sp],x=p%w,y=(p-x)/w;
+    if(x>0&&near[p-1]&&!flood[p-1]){flood[p-1]=1;stack[sp++]=p-1;}
+    if(x<w-1&&near[p+1]&&!flood[p+1]){flood[p+1]=1;stack[sp++]=p+1;}
+    if(y>0&&near[p-w]&&!flood[p-w]){flood[p-w]=1;stack[sp++]=p-w;}
+    if(y<h-1&&near[p+w]&&!flood[p+w]){flood[p+w]=1;stack[sp++]=p+w;}}
+  const hardBg=new Uint8Array(n),hardFg=new Uint8Array(n),lab=new Uint8Array(n);
+  const cx=w*.5,cy=h*.46,rx=w*.09,ry=h*.11;
+  let fgCount=0;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;
+    if(ring[i]&&flood[i])hardBg[i]=1;
+    if(!flood[i]){lab[i]=1;fgCount++;if(((x-cx)/rx)**2+((y-cy)/ry)**2<=1)hardFg[i]=1;}}
+  if(fgCount<n*.02){ // nothing differs from the border -> cannot segment
+    return{lab:new Uint8Array(n),failed:true,fg:null,bg:null};
+  }
+
+  let fgM=null,bgM=null,tr=new Float64Array(n);
+  for(let it=0;it<iters;it++){
+    const fi=[],bi=[];for(let i=0;i<n;i++)(lab[i]?fi:bi).push(i);
+    const fIdx=Int32Array.from(fi),bIdx=Int32Array.from(bi);
+    if(!fgM){fgM=fitFresh(rgb,fIdx,K);bgM=fitFresh(rgb,bIdx,K);}
+    else{fgM=refit(rgb,fIdx,fgM);bgM=refit(rgb,bIdx,bgM);}
+    let common=0;
+    for(let i=0;i<n;i++){
+      let cs,ct;
+      if(hardFg[i]){cs=BIG;ct=0;}
+      else if(hardBg[i]){cs=0;ct=BIG;}
+      else{const r=rgb[i*3],g=rgb[i*3+1],b=rgb[i*3+2];
+        cs=clamp(cost(bgM,r,g,b),0,40);  // cost of labelling as BACKGROUND
+        ct=clamp(cost(fgM,r,g,b),0,40);} // cost of labelling as FOREGROUND
+      tr[i]=cs-ct;
+    }
+    const res=maxflow(w,h,base.slice(),tr.slice());
+    let changed=0;for(let i=0;i<n;i++){const v=res.source[i];if(v!==lab[i])changed++;lab[i]=v;}
+    progress&&progress((it+1)/iters,changed);
+    await tick();
+    if(changed<n*.0005&&it>0)break;
+  }
+  return{lab,failed:false,fg:fgM,bg:bgM,hardFg};
+}
+
+/* ---------- guided filter (gray guide) ---------- */
+function boxMean(src,w,h,r){
+  const tmp=new Float32Array(src.length),out=new Float32Array(src.length),cs=new Float64Array(Math.max(w,h)+1);
+  for(let y=0;y<h;y++){const row=y*w;cs[0]=0;for(let x=0;x<w;x++)cs[x+1]=cs[x]+src[row+x];
+    for(let x=0;x<w;x++){const a=Math.max(0,x-r),b=Math.min(w-1,x+r);tmp[row+x]=(cs[b+1]-cs[a])/(b-a+1);}}
+  for(let x=0;x<w;x++){cs[0]=0;for(let y=0;y<h;y++)cs[y+1]=cs[y]+tmp[y*w+x];
+    for(let y=0;y<h;y++){const a=Math.max(0,y-r),b=Math.min(h-1,y+r);out[y*w+x]=(cs[b+1]-cs[a])/(b-a+1);}}
+  return out;
+}
+function guided(I,p,w,h,r,eps){
+  const n=w*h,Ip=new Float32Array(n),II=new Float32Array(n);
+  for(let i=0;i<n;i++){Ip[i]=I[i]*p[i];II[i]=I[i]*I[i];}
+  const mI=boxMean(I,w,h,r),mp=boxMean(p,w,h,r),mIp=boxMean(Ip,w,h,r),mII=boxMean(II,w,h,r);
+  const a=new Float32Array(n),b=new Float32Array(n);
+  for(let i=0;i<n;i++){const v=mII[i]-mI[i]*mI[i],c=mIp[i]-mI[i]*mp[i];a[i]=c/(v+eps);b[i]=mp[i]-a[i]*mI[i];}
+  const ma=boxMean(a,w,h,r),mb=boxMean(b,w,h,r),q=new Float32Array(n);
+  for(let i=0;i<n;i++)q[i]=ma[i]*I[i]+mb[i];
+  return q;
+}
+
+/* ---------- full pipeline ---------- */
+async function autoCut(data,w,h,progress){
+  progress=progress||(()=>{});
+  const sm=downscale(data,w,h,360);
+  progress(.02,'Rang modellari…');await tick();
+  const gc=await grabcut(sm.rgb,sm.w,sm.h,5,(f,c)=>progress(.05+.6*f,'Segmentatsiya '+Math.round(f*100)+'%'));
+  if(gc.failed)return{failed:true};
+  const sw=sm.w,sh=sm.h,n=sw*sh;
+  // clean up: keep main foreground blobs, fill small enclosed holes
+  let lab=gc.lab;
+  const cf=components(lab,sw,sh,1);
+  let big=0;for(const s of cf.sizes)if(s>big)big=s;
+  const keep=new Uint8Array(cf.sizes.length);
+  cf.sizes.forEach((s,k)=>{keep[k]=s>=big*.08?1:0;});
+  for(let i=0;i<n;i++)if(lab[i]&&!keep[cf.id[i]])lab[i]=0;
+  const cb=components(lab,sw,sh,0);
+  for(let i=0;i<n;i++)if(!lab[i]){const k=cb.id[i];if(!cb.touch[k]&&cb.sizes[k]<n*.012)lab[i]=1;}
+  progress(.68,'Sochlar orasidagi fon…');await tick();
+  const pk=downscale(data,w,h,640),pw=pk.w,ph=pk.h,pn=pw*ph;
+  // threshold from the background's own colour statistics (the fg model may have learned background pockets)
+  const bc=[];for(let i=0;i<n;i+=3)if(!lab[i])bc.push(cost(gc.bg,sm.rgb[i*3],sm.rgb[i*3+1],sm.rgb[i*3+2]));
+  bc.sort((a,b)=>a-b);const thrB=bc.length>50?bc[Math.floor(bc.length*.97)]:0;
+  let bgLike=new Uint8Array(pn);
+  if(bc.length>50)for(let i=0;i<pn;i++){const r=pk.rgb[i*3],g=pk.rgb[i*3+1],b=pk.rgb[i*3+2];
+    bgLike[i]=cost(gc.bg,r,g,b)<=thrB?255:0;}
+  bgLike=morphGray(morphGray(bgLike,pw,ph,1,false),pw,ph,1,true);
+  const pc=components(bgLike.map(v=>v?1:0),pw,ph,1),pocket=new Uint8Array(pn),keepP=new Uint8Array(pc.sizes.length);
+  const cx=pw*.5,cy=ph*.46,rx=pw*.09*1.8,ry=ph*.11*1.8,minArea=Math.max(60,pn*.0005);
+  pc.sizes.forEach((sz,k)=>{keepP[k]=sz>=minArea?1:0;});
+  for(let y=0;y<ph;y++)for(let x=0;x<pw;x++){const i=y*pw+x,k=pc.id[i];
+    if(k>=0&&((x-cx)/rx)**2+((y-cy)/ry)**2<=1)keepP[k]=0;}
+  for(let i=0;i<pn;i++){const k=pc.id[i];if(k>=0&&keepP[k])pocket[i]=1;}
+  if(root.__PSDBG)root.__PSDBG.pocket={thrB,bgLikePx:bgLike.reduce((a,v)=>a+(v?1:0),0),pn,comps:pc.sizes.length,top:pc.sizes.slice().sort((a,b)=>b-a).slice(0,6),minArea,kept:keepP.reduce((a,v)=>a+v,0),pocketPx:pocket.reduce((a,v)=>a+v,0)};
+  progress(.72,'Chekkalarni aniqlash…');await tick();
+  // soft upsample
+  const f=new Uint8Array(n);for(let i=0;i<n;i++)f[i]=lab[i]?255:0;
+  const soft=boxMean(Float32Array.from(f,v=>v/255),sw,sh,1);
+  const er=morphGray(f,sw,sh,2,false),di=morphGray(f,sw,sh,2,true);
+  const N=w*h,p=new Float32Array(N),I=new Float32Array(N);
+  const sx=sw/w,sy=sh/h;
+  for(let y=0;y<h;y++){
+    const v=y*sy-.5,y0=clamp(Math.floor(v),0,sh-1),y1=Math.min(sh-1,y0+1),fy=clamp(v-y0,0,1);
+    for(let x=0;x<w;x++){
+      const u=x*sx-.5,x0=clamp(Math.floor(u),0,sw-1),x1=Math.min(sw-1,x0+1),fx=clamp(u-x0,0,1);
+      const a=soft[y0*sw+x0]*(1-fx)+soft[y0*sw+x1]*fx,b=soft[y1*sw+x0]*(1-fx)+soft[y1*sw+x1]*fx;
+      const i=y*w+x;p[i]=a*(1-fy)+b*fy;
+      const q=i*4;I[i]=(.299*data[q]+.587*data[q+1]+.114*data[q+2])/255;
+    }
+    if((y&255)===255)await tick();
+  }
+  // uncertain band: re-classify with the learned GMMs at full resolution
+  for(let y=0;y<h;y++){
+    const ly=Math.min(sh-1,Math.floor(y*sy));
+    for(let x=0;x<w;x++){
+      const lx=Math.min(sw-1,Math.floor(x*sx)),li=ly*sw+lx;
+      if(er[li]===255||di[li]===0)continue;           // sure fg / sure bg
+      const i=y*w+x,q=i*4,r=data[q],g=data[q+1],b=data[q+2];
+      const d=cost(gc.bg,r,g,b)-cost(gc.fg,r,g,b);   // >0 : looks like foreground
+      const a=1/(1+Math.exp(-d/2.2));
+      p[i]=.75*a+.25*p[i];
+    }
+    if((y&255)===255)await tick();
+  }
+  progress(.82,'Silliqlash…');await tick();
+  const p2=Float32Array.from(p);
+  for(let y=0;y<h;y++){const py=Math.min(ph-1,Math.floor(y*ph/h))*pw;
+    for(let x=0;x<w;x++)if(pocket[py+Math.min(pw-1,Math.floor(x*pw/w))])p2[y*w+x]=0;}
+  const rad=Math.max(3,Math.round(Math.max(w,h)/170));
+  const toAlpha=q=>{const o=new Uint8Array(N);for(let i=0;i<N;i++){const v=clamp((q[i]-.5)*1.7+.5,0,1);o[i]=Math.round(v*255);}return o;};
+  const alphaPlain=toAlpha(guided(I,p,w,h,rad,1.5e-3));
+  await tick();
+  const alpha=toAlpha(guided(I,p2,w,h,rad,1.5e-3));
+  progress(1,'Tayyor');
+  return{failed:false,alpha,alphaPlain,low:{lab,w:sw,h:sh}};
+}
+
+/* ---------- edge colour decontamination ---------- */
+function decontaminate(data,alpha,w,h){
+  const N=w*h,m=new Float32Array(N),R=new Float32Array(N),G=new Float32Array(N),B=new Float32Array(N);
+  for(let i=0;i<N;i++){if(alpha[i]>245){m[i]=1;R[i]=data[i*4];G[i]=data[i*4+1];B[i]=data[i*4+2];}}
+  const r=Math.max(3,Math.round(Math.max(w,h)/400)),mm=boxMean(m,w,h,r),mr=boxMean(R,w,h,r),mg=boxMean(G,w,h,r),mb=boxMean(B,w,h,r);
+  const out=new Uint8ClampedArray(data);
+  for(let i=0;i<N;i++){
+    const a=alpha[i]/255;if(a>.96||mm[i]<.03)continue;
+    const k=clamp((.96-a)/.55,0,1),fr=mr[i]/mm[i],fg=mg[i]/mm[i],fb=mb[i]/mm[i],q=i*4;
+    out[q]=data[q]+(fr-data[q])*k;out[q+1]=data[q+1]+(fg-data[q+1])*k;out[q+2]=data[q+2]+(fb-data[q+2])*k;
+  }
+  return out;
+}
+
+root.PSseg={maxflow,autoCut,morphGray,decontaminate,boxMean,downscale,grabcut};
+})(typeof window!=='undefined'?window:globalThis);
+
+</script>
+<script>
 /* ===== FOTO 3x4 STUDIO — core ===== */
 (function(){
 'use strict';
@@ -236,7 +634,7 @@ const defP=()=>({zoom:1,tx:0,ty:0,rot:0,flip:false,adj:defAdj(),bg:'#ffffff',bgO
 let img=null;           // loaded image data
 let P=defP();
 const view={vz:1,vx:0,vy:0,guides:true,grid:false,rulers:true};
-const opt={wand:{tol:18,shift:0,feather:1.5,contig:true},brush:{size:34,hard:55,flow:85}};
+const opt={wand:{tol:18,shift:0,feather:1.5,contig:true,pockets:true},brush:{size:34,hard:55,flow:85}};
 let tool='move';
 PS.state={get P(){return P},set P(v){P=v},get img(){return img},view,opt,get tool(){return tool}};
 
@@ -282,7 +680,7 @@ function setImage(source,sw,sh,name){
   const maskCv=document.createElement('canvas');maskCv.width=w;maskCv.height=h;
   const maskCtx=maskCv.getContext('2d');const maskImg=new ImageData(w,h);maskImg.data.fill(255);maskCtx.putImageData(maskImg,0,0);
   const dimCv=document.createElement('canvas');dimCv.width=w;dimCv.height=h;
-  img={w,h,srcCv,srcData,maskCv,maskCtx,maskImg,dimCv,dimCtx:dimCv.getContext('2d'),name:name||'foto',origW:sw,origH:sh};
+  img={w,h,srcCv,colorCv:srcCv,srcData,maskCv,maskCtx,maskImg,dimCv,dimCtx:dimCv.getContext('2d'),name:name||'foto',origW:sw,origH:sh};
   const keep=P;P=defP();P.size=keep.size;P.dpi=keep.dpi;P.bg=keep.bg;P.bgOn=keep.bgOn;
   img.autoLv=computeAutoLevels(srcData);
   view.vz=1;view.vx=0;view.vy=0;wand=null;curMask=null;
@@ -411,7 +809,7 @@ function renderFrame(cv,W,Hh,o){
   scratchA.width=scratchB.width=W;scratchA.height=scratchB.height=Hh;
   const a=scratchA.getContext('2d',{willReadFrequently:true}),b=scratchB.getContext('2d',{willReadFrequently:true});
   a.imageSmoothingQuality=b.imageSmoothingQuality='high';
-  drawLayer(a,img.srcCv,W,Hh,0,0);drawLayer(b,img.maskCv,W,Hh,0,0);
+  drawLayer(a,img.colorCv,W,Hh,0,0);drawLayer(b,img.maskCv,W,Hh,0,0);
   const ad=a.getImageData(0,0,W,Hh),md=b.getImageData(0,0,W,Hh),A=ad.data,M=md.data,n=W*Hh;
   adjust(A,W,Hh);
   for(let i=0;i<n;i++)A[i*4+3]=M[i*4+3];
@@ -447,7 +845,7 @@ function render(){
   wctx.setTransform(dpr,0,0,dpr,0,0);
   wctx.fillStyle='#0f1218';wctx.fillRect(0,0,cssW,cssH);
   if(!img){return;}
-  if(dimDirty){const d=img.dimCtx;d.clearRect(0,0,img.w,img.h);d.globalCompositeOperation='source-over';d.drawImage(img.maskCv,0,0);d.globalCompositeOperation='source-in';d.drawImage(img.srcCv,0,0);d.globalCompositeOperation='source-over';dimDirty=false;PS.onMaskChanged&&PS.onMaskChanged();}
+  if(dimDirty){const d=img.dimCtx;d.clearRect(0,0,img.w,img.h);d.globalCompositeOperation='source-over';d.drawImage(img.maskCv,0,0);d.globalCompositeOperation='source-in';d.drawImage(img.colorCv,0,0);d.globalCompositeOperation='source-over';dimDirty=false;PS.onMaskChanged&&PS.onMaskChanged();}
   const fr=frameRect();
   wctx.imageSmoothingQuality='high';
   wctx.save();wctx.globalAlpha=.38;drawLayer(wctx,img.dimCv,fr.w,fr.h,fr.x,fr.y);wctx.restore();
@@ -584,8 +982,19 @@ function borderColor(){
   const med=a=>{a.sort((p,q)=>p-q);return a[a.length>>1];};
   return lab(med(R),med(G),med(B));
 }
+function runAuto(){
+  const o=opt.wand,w=img.w,hh=img.h,n=w*hh;
+  let a=o.pockets?wand.prob:wand.probPlain;
+  if(o.shift)a=PSseg.morphGray(a,w,hh,Math.abs(o.shift),o.shift<0);
+  const fr=Math.round(o.feather);
+  if(fr>=1)a=softBlur(a,fr);
+  const base=wand.base,d=img.maskImg.data;
+  for(let i=0;i<n;i++)d[i*4+3]=base[i]*a[i]/255;
+  img.maskCtx.putImageData(img.maskImg,0,0);dimDirty=true;requestRender();
+}
 function runWand(){
   if(!wand||!img)return;
+  if(wand.mode==='auto2'){runAuto();return;}
   const o=opt.wand,w=img.w,hh=img.h,n=w*hh;
   const key=wand.mode+'|'+(wand.seed||0)+'|'+o.tol+'|'+o.contig;
   if(wand.key!==key){wand.region=floodRegion(wand.seeds,wand.color,o.tol,o.contig);wand.key=key;}
@@ -600,13 +1009,31 @@ function runWand(){
   requestRender();
 }
 let wandTimer=0;
-function scheduleWand(){clearTimeout(wandTimer);wandTimer=setTimeout(()=>{runWand();replaceTop(wand.label,true);},40);}
+function scheduleWand(){clearTimeout(wandTimer);wandTimer=setTimeout(()=>{if(!wand)return;runWand();replaceTop(wand.label,true);},40);}
+async function startAuto(){
+  if(!img)return;
+  const baseMask=maskBytes();
+  PS.busy(true,'FON OLINMOQDA…');
+  try{
+    const res=await PSseg.autoCut(img.srcData.data,img.w,img.h,(f,msg)=>PS.busy(true,(msg||'').toUpperCase()));
+    if(res.failed){PS.busy(false);PS.toast('Fonni aniqlab bo\'lmadi: rasm chekkalari bilan portret farqlanmayapti. "Fonni olib tashlash" asbobi bilan fon ustiga bosing.');return;}
+    wand={mode:'auto2',base:baseMask,prob:res.alpha,probPlain:res.alphaPlain,label:'Fonni avto olib tashlash'};
+    opt.wand.shift=1;opt.wand.feather=1;
+    // restore natural colours at the edges (no dark halo from the old background)
+    const clean=PSseg.decontaminate(img.srcData.data,wand.prob,img.w,img.h);
+    const cv=document.createElement('canvas');cv.width=img.w;cv.height=img.h;
+    cv.getContext('2d').putImageData(new ImageData(clean,img.w,img.h),0,0);img.colorCv=cv;
+    runAuto();pushHist(wand.label,true);
+    PS.onWand&&PS.onWand();
+  }catch(e){console.error(e);PS.toast('Xato: '+e.message);}
+  PS.busy(false);
+}
 function startWand(mode,pt){
   if(!img)return;
+  if(mode==='auto'){startAuto();return;}
   const w=img.w,d=img.srcData.data;
-  wand={mode,base:maskBytes(),key:null,label:mode==='auto'?'Fonni avto olib tashlash':'Fonni olib tashlash'};
-  if(mode==='auto'){wand.color=borderColor();wand.seeds=borderSeeds();}
-  else{
+  wand={mode,base:maskBytes(),key:null,label:'Fonni olib tashlash'};
+  {
     const x=clamp(Math.round(pt.x),0,w-1),y=clamp(Math.round(pt.y),0,img.h-1);
     let r=0,g=0,b=0,c=0;for(let yy=-2;yy<=2;yy++)for(let xx=-2;xx<=2;xx++){const i=(clamp(y+yy,0,img.h-1)*w+clamp(x+xx,0,w-1))*4;r+=d[i];g+=d[i+1];b+=d[i+2];c++;}
     wand.color=lab(r/c,g/c,b/c);wand.seeds=[y*w+x];wand.seed=y*w+x;
@@ -730,7 +1157,7 @@ const hasImg=()=>!!S.img;
 /* ---------- toast / busy / modal ---------- */
 let toastT=0;
 PS.toast=(t)=>{const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>e.classList.remove('on'),2600);};
-PS.busy=(on)=>{let b=$('#busy');if(on&&!b){b=h('div',{id:'busy'},'ISHLANMOQDA…');$('#ws').append(b);}else if(!on&&b)b.remove();};
+PS.busy=(on,msg)=>{let b=$('#busy');if(on&&!b){b=h('div',{id:'busy'},msg||'ISHLANMOQDA…');$('#ws').append(b);}else if(on&&b&&msg)b.textContent=msg;else if(!on&&b)b.remove();};
 function modal(title,body){
   const m=$('#modal');m.replaceChildren(h('div',{class:'box'},h('h3',null,title),body,h('div',{style:'margin-top:16px;text-align:right'},h('button',{class:'btn pri',type:'button',onclick:()=>m.classList.add('hide')},'Yopish'))));
   m.classList.remove('hide');
@@ -831,10 +1258,11 @@ function buildOptions(){
       mkOptSlider('Chegara',{label:'Chegara siljishi',min:-6,max:6,step:1,get:()=>o.shift,set:v=>{o.shift=v;},fmt:v=>(v>0?'+':'')+v+' px',live:()=>PS.wandOptChanged(),reset:0}),
       mkOptSlider('Yumshatish',{label:'Yumshatish',min:0,max:8,step:.5,get:()=>o.feather,set:v=>{o.feather=v;},fmt:v=>v+' px',live:()=>PS.wandOptChanged()}),
       chk('Tutash',()=>o.contig,v=>{o.contig=v;PS.wandOptChanged();}),
+      chk('Soch orasidagi fonni tozalash',()=>o.pockets,v=>{o.pockets=v;PS.wandOptChanged();}),
       h('div',{class:'sepv'}),
-      h('button',{class:'btn sm',type:'button',onclick:()=>PS.startWand('auto')},'Avto-fon'),
+      h('button',{class:'btn sm pri',type:'button',onclick:()=>PS.startWand('auto')},'✨ Avto-fon'),
       h('button',{class:'btn sm',type:'button',onclick:()=>PS.resetMask()},'Maskani tiklash'),
-      h('span',{class:'chk'},'Fon ustiga bosing. Sezgirlikni o\'zgartirsangiz natija yangilanadi.')
+      h('span',{class:'chk'},'Avto-fon — bir bosishda. Yoki fon ustiga bosing (bir xil rangli fon uchun).')
     );
   }else{
     const o=S.opt.brush;
@@ -955,6 +1383,7 @@ PS.onRendered=()=>{
   const so=$('#stOut');if(so)so.textContent=PS.sizeInfo();
 };
 PS.onLoaded=()=>{PS.onSync();};
+PS.onWand=()=>{PS.onSync();};
 
 /* ---------- export (single photo) ---------- */
 const crcT=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
