@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI PHOTO ENHANCER & DEBLUR 4K | IT SHAKH</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #04060b;
+            --accent: #38bdf8;
+            --glow: 0 0 35px rgba(56, 189, 248, 0.65);
+            --text-color: #e5e7eb;
+            --card-bg: rgba(11, 18, 32, 0.86);
+            --border: rgba(56, 189, 248, 0.26);
+        }
+        body.night-mode {
+            --bg: #000000;
+            --accent: #00ff41;
+            --glow: 0 0 35px rgba(0, 255, 65, 0.65);
+            --text-color: #00ff41;
+            --card-bg: rgba(0, 20, 0, 0.86);
+            --border: rgba(0, 255, 65, 0.32);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text-color);
+            min-height: 100vh;
+            overflow-x: hidden;
+            transition: background 0.35s, color 0.35s;
+        }
+        header {
+            padding: 13px 22px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(12px);
+            background: rgba(4, 6, 11, 0.92);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .brand-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .back-btn {
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid var(--border);
+            color: var(--accent);
+            padding: 8px 14px;
+            border-radius: 10px;
+            text-decoration: none;
+            font: 700 11px monospace;
+            letter-spacing: 1px;
+            transition: 0.25s;
+        }
+        .back-btn:hover {
+            background: var(--accent);
+            color: #000;
+            box-shadow: var(--glow);
+        }
+        .logo-text {
+            font-weight: 800;
+            letter-spacing: 2px;
+            color: var(--accent);
+            font-size: 14px;
+            text-shadow: var(--glow);
+        }
+        .mode-toggle {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 7px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 10px;
+            letter-spacing: 1px;
+        }
+
+        /* WORKSPACE */
+        .workspace {
+            max-width: 1520px;
+            margin: 0 auto;
+            padding: 18px;
+            display: grid;
+            grid-template-columns: 390px 1fr;
+            gap: 20px;
+            min-height: calc(100vh - 64px);
+        }
+        .panel {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 16px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            gap: 13px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.55);
+        }
+        .panel-title {
+            font: 700 11px monospace;
+            color: var(--accent);
+            letter-spacing: 2px;
+            border-left: 3px solid var(--accent);
+            padding-left: 10px;
+            margin: 0;
+        }
+        .drop-zone {
+            border: 1.5px dashed var(--accent);
+            border-radius: 14px;
+            padding: 18px 12px;
+            text-align: center;
+            background: rgba(56, 189, 248, 0.04);
+            cursor: pointer;
+            transition: 0.25s;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            background: rgba(56, 189, 248, 0.12);
+            box-shadow: var(--glow);
+            transform: translateY(-2px);
+        }
+        .drop-zone input { display: none; }
+        .drop-icon { font-size: 26px; display: block; margin-bottom: 5px; }
+        .drop-main { font-weight: 700; font-size: 12px; color: #fff; }
+        .drop-sub { font: 10px monospace; color: #94a3b8; margin-top: 4px; }
+
+        .control-box {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.36);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .control-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .control-label {
+            display: flex;
+            justify-content: space-between;
+            font: 700 10px monospace;
+            color: #cbd5e1;
+        }
+        .control-label b { color: var(--accent); }
+        input[type="range"] {
+            width: 100%;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+        select {
+            width: 100%;
+            background: #07101e;
+            color: #fff;
+            border: 1px solid var(--border);
+            padding: 9px 10px;
+            border-radius: 8px;
+            font: 700 11px 'Inter', monospace;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .preset-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .btn-grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 6px;
+        }
+        .btn {
+            background: rgba(7, 16, 28, 0.92);
+            color: var(--text-color);
+            border: 1px solid var(--border);
+            padding: 9px 8px;
+            border-radius: 9px;
+            font: 700 10px monospace;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: 0.2s;
+            text-align: center;
+        }
+        .btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.22);
+        }
+        .btn.active {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+        }
+        .btn-export {
+            background: var(--accent);
+            color: #001018;
+            border: none;
+            padding: 13px;
+            font-size: 11px;
+            font-weight: 800;
+            box-shadow: 0 0 22px rgba(56, 189, 248, 0.35);
+        }
+        .btn-export:hover {
+            opacity: 0.92;
+            color: #000;
+            transform: translateY(-1px);
+        }
+
+        /* STAGE PANEL & BEFORE/AFTER SLIDER */
+        .stage-panel {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 600px;
+        }
+        .stage-toolbar {
+            padding: 11px 16px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(2, 6, 12, 0.9);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .compare-stage {
+            flex: 1;
+            position: relative;
+            overflow: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background-color: #060a12;
+            background-image:
+                radial-gradient(circle at 50% 45%, rgba(56, 189, 248, 0.1), transparent 70%),
+                linear-gradient(45deg, rgba(255,255,255,0.025) 25%, transparent 25%),
+                linear-gradient(-45deg, rgba(255,255,255,0.025) 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.025) 75%),
+                linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.025) 75%);
+            background-size: 100% 100%, 24px 24px, 24px 24px, 24px 24px, 24px 24px;
+            background-position: 0 0, 0 0, 0 12px, 12px -12px, -12px 0;
+            user-select: none;
+        }
+
+        /* SLIDER CONTAINER */
+        .compare-wrapper {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+            max-height: 540px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            transform-origin: center center;
+            transition: transform 0.15s ease;
+        }
+        #afterCanvas {
+            display: block;
+            max-width: 100%;
+            max-height: 540px;
+            width: auto;
+            height: auto;
+        }
+        .before-layer {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+            clip-path: inset(0 50% 0 0);
+        }
+        #beforeCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .slider-handle {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 50%;
+            width: 3px;
+            background: var(--accent);
+            box-shadow: 0 0 15px var(--accent);
+            cursor: ew-resize;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+        .slider-knob {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: #040812;
+            border: 2px solid var(--accent);
+            box-shadow: var(--glow);
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font: 700 13px monospace;
+        }
+        .tag-badge {
+            position: absolute;
+            top: 12px;
+            padding: 5px 10px;
+            border-radius: 7px;
+            font: 700 10px monospace;
+            letter-spacing: 1px;
+            z-index: 8;
+            pointer-events: none;
+            backdrop-filter: blur(6px);
+        }
+        .tag-before {
+            left: 12px;
+            background: rgba(15, 23, 42, 0.82);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #cbd5e1;
+        }
+        .tag-after {
+            right: 12px;
+            background: rgba(3, 18, 32, 0.88);
+            border: 1px solid var(--border);
+            color: var(--accent);
+        }
+
+        .stage-footer {
+            padding: 12px 18px;
+            border-top: 1px solid var(--border);
+            background: rgba(2, 6, 12, 0.94);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font: 11px monospace;
+            color: #94a3b8;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .stats-wrap {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .stats-wrap b { color: var(--accent); }
+        #statusMsg { color: var(--accent); }
+
+        @media (max-width: 1020px) {
+            .workspace { grid-template-columns: 1fr; }
+            .stage-panel { order: -1; min-height: 440px; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="brand-wrap">
+        <a href="index.html" class="back-btn" id="backHomeBtn">← ASOSIY SAHIFA</a>
+        <div class="logo-text">IT SHAKH // AI PHOTO ENHANCER &amp; DEBLUR 4K STUDIO</div>
+    </div>
+    <button class="mode-toggle" id="modeToggle">NIGHT MODE</button>
+</header>
+
+<div class="workspace">
+    <!-- CHAP BOSHQARUV PANELI -->
+    <div class="panel">
+        <h2 class="panel-title">// 1. XIRA RASMNI YUKLASH</h2>
+        <label class="drop-zone" id="dropZone" for="fileInput">
+            <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp">
+            <span class="drop-icon">✨</span>
+            <div class="drop-main">XIRA RASMNI TANLANG YOKI TASHLANG</div>
+            <div class="drop-sub">JPG • PNG • WEBP → ULTRA HD TINIQLASHTIRISH</div>
+        </label>
+
+        <div class="btn-grid">
+            <button class="btn" id="demoBlurBtn" type="button">★ DEMO XIRA RASM</button>
+            <button class="btn" id="resetParamsBtn" type="button">⟲ STANDART SOZLAMA</button>
+        </div>
+
+        <h2 class="panel-title">// 2. TAYYOR REJIM VA KATTALASHTIRISH (UPSCALE)</h2>
+        <div class="control-box">
+            <div class="control-row">
+                <div class="control-label"><span>TEZKOR AI REJIMLAR (PRESETS)</span></div>
+                <div class="preset-grid" id="presetButtons">
+                    <button class="btn active" data-preset="universal" type="button">🔥 ULTRA HD PRO</button>
+                    <button class="btn" data-preset="portrait" type="button">👤 YUZ VA PORTRET</button>
+                    <button class="btn" data-preset="text" type="button">📄 MATN / NOMER</button>
+                    <button class="btn" data-preset="logo" type="button">🛡 LOGO / GRAFIKA</button>
+                </div>
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>SUPER-RESOLUTION KATTALASHTIRISH</span>
+                    <b id="upscaleBadge">2x HD</b>
+                </div>
+                <div class="btn-grid-3" id="upscaleButtons">
+                    <button class="btn" data-scale="1" type="button">1x ASL</button>
+                    <button class="btn active" data-scale="2" type="button">2x HD</button>
+                    <button class="btn" data-scale="3" type="button">3x ULTRA 4K</button>
+                </div>
+            </div>
+        </div>
+
+        <h2 class="panel-title">// 3. TINIQLASHTIRISH VA DETAL SOZLAMALARI</h2>
+        <div class="control-box">
+            <div class="control-row">
+                <div class="control-label">
+                    <span>TINIQLASHTIRISH KUCHI (DEBLUR / SHARP)</span>
+                    <b id="sharpVal">135%</b>
+                </div>
+                <input type="range" id="sharpSlider" min="0" max="250" step="5" value="135">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>MIKRO-DETAL VA QIRRALAR (CLARITY)</span>
+                    <b id="clarityVal">65%</b>
+                </div>
+                <input type="range" id="claritySlider" min="0" max="150" step="5" value="65">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>SHOVQIN VA JPG ARTEFAKT TOZALASH (DENOISE)</span>
+                    <b id="denoiseVal">45%</b>
+                </div>
+                <input type="range" id="denoiseSlider" min="0" max="100" step="5" value="45">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>HDR KONTRAST (CONTRAST)</span>
+                    <b id="contrastVal">+15%</b>
+                </div>
+                <input type="range" id="contrastSlider" min="-40" max="60" step="2" value="15">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>YORQINLIK VA SOYA (BRIGHTNESS)</span>
+                    <b id="brightVal">+5%</b>
+                </div>
+                <input type="range" id="brightSlider" min="-40" max="50" step="2" value="5">
+            </div>
+
+            <div class="control-row">
+                <div class="control-label">
+                    <span>RANG JONLILIGI (VIBRANCE)</span>
+                    <b id="vibranceVal">+15%</b>
+                </div>
+                <input type="range" id="vibranceSlider" min="-50" max="60" step="5" value="15">
+            </div>
+        </div>
+
+        <h2 class="panel-title">// 4. YUKLAB OLISH (ULTRA HD)</h2>
+        <div class="btn-grid">
+            <button class="btn btn-export" id="exportPngBtn" type="button">⬇ EXPORT .PNG</button>
+            <button class="btn btn-export" id="exportJpgBtn" type="button">⬇ EXPORT .JPG</button>
+        </div>
+    </div>
+
+    <!-- O'NG SOLISHTIRISH VA NATIJA PANELI -->
+    <div class="stage-panel">
+        <div class="stage-toolbar">
+            <div class="toolbar-group">
+                <button class="btn active" id="splitModeBtn" type="button">◫ PARDALI SOLISHTIRISH (OLDIN / KEYIN)</button>
+                <button class="btn" id="fullAfterBtn" type="button">✨ FAQAT TINIQ NATIJA</button>
+            </div>
+            <div class="toolbar-group">
+                <span style="font:700 10px monospace;color:#94a3b8;">ZOOM: <b id="zoomVal" style="color:var(--accent);">100%</b></span>
+                <button class="btn" id="zoomOutBtn" type="button" style="padding:6px 10px;">−</button>
+                <button class="btn" id="zoomResetBtn" type="button" style="padding:6px 10px;">100%</button>
+                <button class="btn" id="zoomInBtn" type="button" style="padding:6px 10px;">+</button>
+            </div>
+        </div>
+
+        <div class="compare-stage" id="compareStage">
+            <div class="compare-wrapper" id="compareWrapper">
+                <div class="tag-badge tag-before" id="tagBefore">ASL XIRA RASM</div>
+                <div class="tag-badge tag-after">AI ULTRA HD TINIQ</div>
+
+                <!-- Tiniqlashtirilgan Natija (Orqa asosiy qatlam) -->
+                <canvas id="afterCanvas" width="900" height="600"></canvas>
+
+                <!-- Asl Xira Rasm (Ustki qirqilgan qatlam) -->
+                <div class="before-layer" id="beforeLayer">
+                    <canvas id="beforeCanvas" width="900" height="600"></canvas>
+                </div>
+
+                <!-- Suriladigan ajratuvchi chiziq -->
+                <div class="slider-handle" id="sliderHandle">
+                    <div class="slider-knob">↔</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stage-footer">
+            <span id="statusMsg">✓ Tayyor. O‘rtadagi chiziqni chapga-o‘ngga surib farqni ko‘ring!</span>
+            <div class="stats-wrap">
+                <span>ASL O‘LCHAM: <b id="origDimLbl">0×0</b></span>
+                <span>YANGI HD O‘LCHAM: <b id="newDimLbl">0×0</b></span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Asosiy sahifaga qaytganda login chiqmasligi uchun
+document.getElementById('backHomeBtn').addEventListener('click', () => {
+    try { sessionStorage.setItem('it_shakh_return_from_tool', '1'); } catch (e) {}
+});
+
+// Night Mode
+const modeToggle = document.getElementById('modeToggle');
+modeToggle.addEventListener('click', () => {
+    document.body.classList.toggle('night-mode');
+    modeToggle.textContent = document.body.classList.contains('night-mode') ? 'LIGHT MODE' : 'NIGHT MODE';
+});
+
+// Global o'zgaruvchilar
+let sourceImg = null;
+let currentFileName = 'it_shakh_enhanced';
+let upscaleFactor = 2;
+let currentZoom = 1;
+let splitPosition = 50;
+let isSplitView = true;
+let processTimer = null;
+
+const beforeCanvas = document.getElementById('beforeCanvas');
+const beforeCtx = beforeCanvas.getContext('2d');
+const afterCanvas = document.getElementById('afterCanvas');
+const afterCtx = afterCanvas.getContext('2d');
+
+function setStatus(msg) {
+    document.getElementById('statusMsg').textContent = msg;
+}
+
+// ==================== MULTI-SCALE DEBLUR, DENOISE & CLARITY ENGINE ====================
+
+// 1. Qirralarni saqlovchi Bilateral Denoise (JPG kubiklari va xira shovqinni yo'qotadi)
+function applyEdgePreservingDenoise(srcData, w, h, strengthPct) {
+    if (strengthPct <= 0.02) return new Uint8ClampedArray(srcData);
+    const out = new Uint8ClampedArray(srcData.length);
+    const thresh = 14 + strengthPct * 38;
+
+    for (let y = 0; y < h; y++) {
+        const y0 = Math.max(0, y - 1) * w;
+        const y1 = y * w;
+        const y2 = Math.min(h - 1, y + 1) * w;
+
+        for (let x = 0; x < w; x++) {
+            const x0 = Math.max(0, x - 1);
+            const x2 = Math.min(w - 1, x + 1);
+            const cIdx = (y1 + x) * 4;
+
+            const cr = srcData[cIdx];
+            const cg = srcData[cIdx + 1];
+            const cb = srcData[cIdx + 2];
+            const ca = srcData[cIdx + 3];
+
+            let sumR = cr * 2, sumG = cg * 2, sumB = cb * 2, wSum = 2;
+
+            const neighbors = [
+                (y0 + x) * 4,
+                (y2 + x) * 4,
+                (y1 + x0) * 4,
+                (y1 + x2) * 4,
+                (y0 + x0) * 4,
+                (y0 + x2) * 4,
+                (y2 + x0) * 4,
+                (y2 + x2) * 4
+            ];
+
+            for (let k = 0; k < 8; k++) {
+                const nIdx = neighbors[k];
+                const nr = srcData[nIdx], ng = srcData[nIdx + 1], nb = srcData[nIdx + 2];
+                const diff = Math.abs(cr - nr) + Math.abs(cg - ng) + Math.abs(cb - nb);
+                if (diff < thresh) {
+                    const weight = (thresh - diff) / thresh;
+                    sumR += nr * weight;
+                    sumG += ng * weight;
+                    sumB += nb * weight;
+                    wSum += weight;
+                }
+            }
+
+            const mix = Math.min(0.85, strengthPct * 0.85);
+            out[cIdx]     = cr * (1 - mix) + (sumR / wSum) * mix;
+            out[cIdx + 1] = cg * (1 - mix) + (sumG / wSum) * mix;
+            out[cIdx + 2] = cb * (1 - mix) + (sumB / wSum) * mix;
+            out[cIdx + 3] = ca;
+        }
+    }
+    return out;
+}
+
+// 2. Tezkor 1D Separable Gaussian Blur (Deconvolution va Unsharp Mask uchun)
+function buildBlurredRGB(srcBytes, w, h, sigma) {
+    const size = w * h * 3;
+    const tmp = new Float32Array(size);
+    const out = new Float32Array(size);
+
+    const kRadius = Math.max(1, Math.ceil(sigma * 2.4));
+    const kernel = new Float32Array(kRadius * 2 + 1);
+    let kSum = 0;
+    for (let i = -kRadius; i <= kRadius; i++) {
+        const v = Math.exp(-(i * i) / (2 * sigma * sigma));
+        kernel[i + kRadius] = v;
+        kSum += v;
+    }
+    for (let i = 0; i < kernel.length; i++) kernel[i] /= kSum;
+
+    // Gorizontal
+    for (let y = 0; y < h; y++) {
+        const rowOff = y * w;
+        for (let x = 0; x < w; x++) {
+            let r = 0, g = 0, b = 0;
+            for (let k = -kRadius; k <= kRadius; k++) {
+                const xx = Math.min(w - 1, Math.max(0, x + k));
+                const sIdx = (rowOff + xx) * 4;
+                const wgt = kernel[k + kRadius];
+                r += srcBytes[sIdx] * wgt;
+                g += srcBytes[sIdx + 1] * wgt;
+                b += srcBytes[sIdx + 2] * wgt;
+            }
+            const dIdx = (rowOff + x) * 3;
+            tmp[dIdx] = r;
+            tmp[dIdx + 1] = g;
+            tmp[dIdx + 2] = b;
+        }
+    }
+
+    // Vertikal
+    for (let y = 0; y < h; y++) {
+        const rowOff = y * w;
+        for (let x = 0; x < w; x++) {
+            let r = 0, g = 0, b = 0;
+            for (let k = -kRadius; k <= kRadius; k++) {
+                const yy = Math.min(h - 1, Math.max(0, y + k));
+                const sIdx = (yy * w + x) * 3;
+                const wgt = kernel[k + kRadius];
+                r += tmp[sIdx] * wgt;
+                g += tmp[sIdx + 1] * wgt;
+                b += tmp[sIdx + 2] * wgt;
+            }
+            const dIdx = (rowOff + x) * 3;
+            out[dIdx] = r;
+            out[dIdx + 1] = g;
+            out[dIdx + 2] = b;
+        }
+    }
+    return out;
+}
+
+// Halo (oq/qora chiziq) hosil qilmasdan detallarni kuchaytiruvchi funksiya
+function softDetailLimiter(delta, maxLimit) {
+    const absD = Math.abs(delta);
+    if (absD <= maxLimit) return delta;
+    const sign = delta < 0 ? -1 : 1;
+    return sign * (maxLimit + (absD - maxLimit) * 0.25);
+}
+
+// ==================== ASOSIY ENHANCE JARAYONI ====================
+function processEnhancement() {
+    if (!sourceImg) return;
+    setStatus('⏳ AI Multi-Scale Deblur va Super-Resolution ishlamoqda...');
+
+    requestAnimationFrame(() => {
+        const origW = sourceImg.naturalWidth || sourceImg.width;
+        const origH = sourceImg.naturalHeight || sourceImg.height;
+
+        // Maksimal xavfsiz o'lcham (brauzer qotib qolmasligi uchun 3600px gacha)
+        const maxAllowed = 3600;
+        let targetW = Math.round(origW * upscaleFactor);
+        let targetH = Math.round(origH * upscaleFactor);
+        if (Math.max(targetW, targetH) > maxAllowed) {
+            const ratio = maxAllowed / Math.max(targetW, targetH);
+            targetW = Math.round(targetW * ratio);
+            targetH = Math.round(targetH * ratio);
+        }
+
+        document.getElementById('origDimLbl').textContent = `${origW}×${origH} px`;
+        document.getElementById('newDimLbl').textContent = `${targetW}×${targetH} px`;
+
+        // 1. Before Canvas (Xira asl rasm)
+        beforeCanvas.width = targetW;
+        beforeCanvas.height = targetH;
+        beforeCtx.imageSmoothingEnabled = true;
+        beforeCtx.imageSmoothingQuality = 'low';
+        beforeCtx.drawImage(sourceImg, 0, 0, targetW, targetH);
+
+        // 2. After Canvas (Bosqichma-bosqich yuqori sifatli kattalashtirish)
+        afterCanvas.width = targetW;
+        afterCanvas.height = targetH;
+        afterCtx.imageSmoothingEnabled = true;
+        afterCtx.imageSmoothingQuality = 'high';
+        afterCtx.drawImage(sourceImg, 0, 0, targetW, targetH);
+
+        const imgData = afterCtx.getImageData(0, 0, targetW, targetH);
+        const rawPixels = imgData.data;
+
+        const sharpAmt = parseInt(document.getElementById('sharpSlider').value, 10) / 100;
+        const clarityAmt = parseInt(document.getElementById('claritySlider').value, 10) / 100;
+        const denoiseAmt = parseInt(document.getElementById('denoiseSlider').value, 10) / 100;
+        const contrastAmt = parseInt(document.getElementById('contrastSlider').value, 10) / 100;
+        const brightAmt = parseInt(document.getElementById('brightSlider').value, 10) * 1.8;
+        const vibranceAmt = parseInt(document.getElementById('vibranceSlider').value, 10) / 100;
+
+        // Bosqich 1: Edge-Preserving Denoise
+        const cleanBytes = applyEdgePreservingDenoise(rawPixels, targetW, targetH, denoiseAmt);
+
+        // Bosqich 2: Multi-Scale Deconvolution (Mayda detallar + O'rta struktura)
+        const blurFine = sharpAmt > 0.01 ? buildBlurredRGB(cleanBytes, targetW, targetH, 1.05) : null;
+        const blurMid  = clarityAmt > 0.01 ? buildBlurredRGB(cleanBytes, targetW, targetH, 3.2) : null;
+
+        // Kontrast koeffitsienti
+        const contrastFactor = (1 + contrastAmt) / (1 - Math.min(0.85, contrastAmt * 0.65));
+
+        const totalPixels = targetW * targetH;
+        for (let i = 0; i < totalPixels; i++) {
+            const p4 = i * 4;
+            const p3 = i * 3;
+
+            let r = cleanBytes[p4];
+            let g = cleanBytes[p4 + 1];
+            let b = cleanBytes[p4 + 2];
+
+            // Yuqori chastotali tiniqlashtirish (Fine Deconvolution)
+            if (blurFine) {
+                const dR = softDetailLimiter((r - blurFine[p3]) * sharpAmt * 1.65, 58);
+                const dG = softDetailLimiter((g - blurFine[p3 + 1]) * sharpAmt * 1.65, 58);
+                const dB = softDetailLimiter((b - blurFine[p3 + 2]) * sharpAmt * 1.65, 58);
+                r += dR;
+                g += dG;
+                b += dB;
+            }
+
+            // O'rta chastotali mikro-kontrast (Clarity / Deblur)
+            if (blurMid) {
+                const cR = softDetailLimiter((r - blurMid[p3]) * clarityAmt * 0.85, 42);
+                const cG = softDetailLimiter((g - blurMid[p3 + 1]) * clarityAmt * 0.85, 42);
+                const cB = softDetailLimiter((b - blurMid[p3 + 2]) * clarityAmt * 0.85, 42);
+                r += cR;
+                g += cG;
+                b += cB;
+            }
+
+            // Yorqinlik va Kontrast
+            r = (r - 128) * contrastFactor + 128 + brightAmt;
+            g = (g - 128) * contrastFactor + 128 + brightAmt;
+            b = (b - 128) * contrastFactor + 128 + brightAmt;
+
+            // Rang to'yinganligi (Vibrance)
+            if (Math.abs(vibranceAmt) > 0.01) {
+                const avg = 0.299 * r + 0.587 * g + 0.114 * b;
+                const maxC = Math.max(r, g, b);
+                const minC = Math.min(r, g, b);
+                const sat = (maxC - minC) / 255;
+                // Kam to'yingan ranglarni ko'proq jonlantiradi (teri rangini buzmaydi)
+                const boost = 1 + vibranceAmt * (1 - sat * 0.5);
+                r = avg + (r - avg) * boost;
+                g = avg + (g - avg) * boost;
+                b = avg + (b - avg) * boost;
+            }
+
+            rawPixels[p4]     = r < 0 ? 0 : (r > 255 ? 255 : r);
+            rawPixels[p4 + 1] = g < 0 ? 0 : (g > 255 ? 255 : g);
+            rawPixels[p4 + 2] = b < 0 ? 0 : (b > 255 ? 255 : b);
+        }
+
+        afterCtx.putImageData(imgData, 0, 0);
+        updateSplitSlider(splitPosition);
+        setStatus(`✓ Rasm muvaffaqiyatli tiniqlashtirildi (${targetW}×${targetH} px Ultra HD)!`);
+    });
+}
+
+function scheduleEnhancement() {
+    clearTimeout(processTimer);
+    processTimer = setTimeout(processEnhancement, 90);
+}
+
+// ==================== INTERAKTIV OLDIN / KEYIN SLAYDERI ====================
+const compareWrapper = document.getElementById('compareWrapper');
+const beforeLayer = document.getElementById('beforeLayer');
+const sliderHandle = document.getElementById('sliderHandle');
+const tagBefore = document.getElementById('tagBefore');
+
+function updateSplitSlider(pct) {
+    splitPosition = Math.max(0, Math.min(100, pct));
+    if (!isSplitView) {
+        beforeLayer.style.display = 'none';
+        sliderHandle.style.display = 'none';
+        tagBefore.style.display = 'none';
+        return;
+    }
+    beforeLayer.style.display = 'block';
+    sliderHandle.style.display = 'block';
+    tagBefore.style.display = splitPosition > 14 ? 'block' : 'none';
+
+    beforeLayer.style.clipPath = `inset(0 ${100 - splitPosition}% 0 0)`;
+    sliderHandle.style.left = `${splitPosition}%`;
+}
+
+let isDraggingSlider = false;
+function onPointerMoveSlider(e) {
+    if (!isDraggingSlider || !isSplitView) return;
+    const rect = compareWrapper.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const pct = ((clientX - rect.left) / rect.width) * 100;
+    updateSplitSlider(pct);
+}
+
+compareWrapper.addEventListener('mousedown', e => {
+    isDraggingSlider = true;
+    onPointerMoveSlider(e);
+});
+window.addEventListener('mousemove', onPointerMoveSlider);
+window.addEventListener('mouseup', () => { isDraggingSlider = false; });
+
+compareWrapper.addEventListener('touchstart', e => {
+    isDraggingSlider = true;
+    onPointerMoveSlider(e);
+}, { passive: true });
+window.addEventListener('touchmove', onPointerMoveSlider, { passive: true });
+window.addEventListener('touchend', () => { isDraggingSlider = false; });
+
+// ==================== TAYYOR REJIMLAR (PRESETS) ====================
+const PRESET_CONFIGS = {
+    universal: { sharp: 135, clarity: 65, denoise: 45, contrast: 15, bright: 5, vibrance: 15 },
+    portrait:  { sharp: 105, clarity: 45, denoise: 70, contrast: 10, bright: 8, vibrance: 12 },
+    text:      { sharp: 210, clarity: 115, denoise: 30, contrast: 36, bright: 4, vibrance: 0 },
+    logo:      { sharp: 185, clarity: 95, denoise: 60, contrast: 26, bright: 2, vibrance: 25 }
+};
+
+function applyPreset(name) {
+    const p = PRESET_CONFIGS[name] || PRESET_CONFIGS.universal;
+    document.getElementById('sharpSlider').value = p.sharp;
+    document.getElementById('sharpVal').textContent = p.sharp + '%';
+
+    document.getElementById('claritySlider').value = p.clarity;
+    document.getElementById('clarityVal').textContent = p.clarity + '%';
+
+    document.getElementById('denoiseSlider').value = p.denoise;
+    document.getElementById('denoiseVal').textContent = p.denoise + '%';
+
+    document.getElementById('contrastSlider').value = p.contrast;
+    document.getElementById('contrastVal').textContent = (p.contrast >= 0 ? '+' : '') + p.contrast + '%';
+
+    document.getElementById('brightSlider').value = p.bright;
+    document.getElementById('brightVal').textContent = (p.bright >= 0 ? '+' : '') + p.bright + '%';
+
+    document.getElementById('vibranceSlider').value = p.vibrance;
+    document.getElementById('vibranceVal').textContent = (p.vibrance >= 0 ? '+' : '') + p.vibrance + '%';
+
+    document.querySelectorAll('#presetButtons .btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.preset === name);
+    });
+
+    processEnhancement();
+}
+
+document.querySelectorAll('#presetButtons .btn').forEach(btn => {
+    btn.addEventListener('click', () => applyPreset(btn.dataset.preset));
+});
+
+document.querySelectorAll('#upscaleButtons .btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('#upscaleButtons .btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        upscaleFactor = parseInt(btn.dataset.scale, 10) || 2;
+        document.getElementById('upscaleBadge').textContent = upscaleFactor === 1 ? '1x ASL' : (upscaleFactor === 2 ? '2x HD' : '3x ULTRA 4K');
+        processEnhancement();
+    });
+});
+
+// Slayder hodisalari
+document.getElementById('sharpSlider').addEventListener('input', e => {
+    document.getElementById('sharpVal').textContent = e.target.value + '%';
+    scheduleEnhancement();
+});
+document.getElementById('claritySlider').addEventListener('input', e => {
+    document.getElementById('clarityVal').textContent = e.target.value + '%';
+    scheduleEnhancement();
+});
+document.getElementById('denoiseSlider').addEventListener('input', e => {
+    document.getElementById('denoiseVal').textContent = e.target.value + '%';
+    scheduleEnhancement();
+});
+document.getElementById('contrastSlider').addEventListener('input', e => {
+    const v = parseInt(e.target.value, 10);
+    document.getElementById('contrastVal').textContent = (v >= 0 ? '+' : '') + v + '%';
+    scheduleEnhancement();
+});
+document.getElementById('brightSlider').addEventListener('input', e => {
+    const v = parseInt(e.target.value, 10);
+    document.getElementById('brightVal').textContent = (v >= 0 ? '+' : '') + v + '%';
+    scheduleEnhancement();
+});
+document.getElementById('vibranceSlider').addEventListener('input', e => {
+    const v = parseInt(e.target.value, 10);
+    document.getElementById('vibranceVal').textContent = (v >= 0 ? '+' : '') + v + '%';
+    scheduleEnhancement();
+});
+
+document.getElementById('resetParamsBtn').addEventListener('click', () => applyPreset('universal'));
+
+// Ko'rish rejimi va Zoom
+document.getElementById('splitModeBtn').addEventListener('click', function () {
+    isSplitView = true;
+    this.classList.add('active');
+    document.getElementById('fullAfterBtn').classList.remove('active');
+    updateSplitSlider(splitPosition);
+});
+document.getElementById('fullAfterBtn').addEventListener('click', function () {
+    isSplitView = false;
+    this.classList.add('active');
+    document.getElementById('splitModeBtn').classList.remove('active');
+    updateSplitSlider(splitPosition);
+});
+
+function setZoom(z) {
+    currentZoom = Math.max(0.5, Math.min(4, z));
+    document.getElementById('zoomVal').textContent = Math.round(currentZoom * 100) + '%';
+    compareWrapper.style.transform = `scale(${currentZoom})`;
+}
+document.getElementById('zoomInBtn').addEventListener('click', () => setZoom(currentZoom * 1.25));
+document.getElementById('zoomOutBtn').addEventListener('click', () => setZoom(currentZoom / 1.25));
+document.getElementById('zoomResetBtn').addEventListener('click', () => setZoom(1));
+
+// Fayl yuklash
+const fileInput = document.getElementById('fileInput');
+const dropZone = document.getElementById('dropZone');
+
+function handleImageUpload(file) {
+    if (!file) return;
+    currentFileName = file.name.replace(/\.[^/.]+$/, '');
+    const reader = new FileReader();
+    reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+            sourceImg = img;
+            processEnhancement();
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+fileInput.addEventListener('change', e => {
+    if (e.target.files.length) handleImageUpload(e.target.files[0]);
+});
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleImageUpload(e.dataTransfer.files[0]);
+});
+
+// Export PNG va JPG
+function exportResult(format) {
+    if (!sourceImg) return;
+    const ext = format === 'png' ? 'png' : 'jpg';
+    const mime = format === 'png' ? 'image/png' : 'image/jpeg';
+    const url = afterCanvas.toDataURL(mime, 0.96);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentFileName}_IT_SHAKH_4K.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setStatus(`✓ Tiniqlashtirilgan rasm .${ext.toUpperCase()} formatda yuklab olindi!`);
+}
+
+document.getElementById('exportPngBtn').addEventListener('click', () => exportResult('png'));
+document.getElementById('exportJpgBtn').addEventListener('click', () => exportResult('jpg'));
+
+// ==================== DEMO XIRA RASM GENERATORI ====================
+// Sahifa ochilishi bilan xira rasm qanday tiniqlashishini ko'rsatib beradi
+function loadDemoBlurryImage() {
+    const sharpCanvas = document.createElement('canvas');
+    sharpCanvas.width = 480;
+    sharpCanvas.height = 300;
+    const sCtx = sharpCanvas.getContext('2d');
+
+    // Fon
+    const grad = sCtx.createLinearGradient(0, 0, 480, 300);
+    grad.addColorStop(0, '#091526');
+    grad.addColorStop(1, '#1e293b');
+    sCtx.fillStyle = grad;
+    sCtx.fillRect(0, 0, 480, 300);
+
+    // Kiber doira va qalqon
+    sCtx.strokeStyle = '#38bdf8';
+    sCtx.lineWidth = 6;
+    sCtx.beginPath();
+    sCtx.arc(130, 150, 82, 0, Math.PI * 2);
+    sCtx.stroke();
+
+    sCtx.fillStyle = '#f8fafc';
+    sCtx.font = '800 32px Inter, sans-serif';
+    sCtx.textAlign = 'center';
+    sCtx.fillText('IT SHAKH', 130, 152);
+    sCtx.fillStyle = '#38bdf8';
+    sCtx.font = '700 14px monospace';
+    sCtx.fillText('CYBER SECURITY', 130, 178);
+
+    // Avto-nomer va mayda matn namunasi
+    sCtx.fillStyle = '#f8fafc';
+    sCtx.fillRect(245, 75, 205, 58);
+    sCtx.strokeStyle = '#0f172a';
+    sCtx.lineWidth = 4;
+    sCtx.strokeRect(248, 78, 199, 52);
+    sCtx.fillStyle = '#0f172a';
+    sCtx.font = '800 28px monospace';
+    sCtx.fillText('01 | A 777 AA', 348, 114);
+
+    sCtx.fillStyle = '#e2e8f0';
+    sCtx.font = '700 19px Inter, sans-serif';
+    sCtx.textAlign = 'left';
+    sCtx.fillText('4K DEBLUR STUDIO', 248, 175);
+    sCtx.fillStyle = '#94a3b8';
+    sCtx.font = '600 13px monospace';
+    sCtx.fillText('• Xira matn va yuzlarni tiklash', 248, 202);
+    sCtx.fillText('• 2x / 3x Super-Resolution HD', 248, 224);
+
+    // Endi ushbu rasmni ataylab xiralashtiramiz (Blur qilamiz)
+    const blurryCanvas = document.createElement('canvas');
+    blurryCanvas.width = 480;
+    blurryCanvas.height = 300;
+    const bCtx = blurryCanvas.getContext('2d');
+    bCtx.filter = 'blur(1.4px)';
+    bCtx.drawImage(sharpCanvas, 0, 0);
+
+    const img = new Image();
+    img.onload = () => {
+        sourceImg = img;
+        currentFileName = 'it_shakh_demo';
+        processEnhancement();
+    };
+    img.src = blurryCanvas.toDataURL('image/jpeg', 0.82);
+}
+
+document.getElementById('demoBlurBtn').addEventListener('click', loadDemoBlurryImage);
+loadDemoBlurryImage();
+</script>
+</body>
+</html>
