@@ -1,0 +1,1858 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GTA SA DFF NIGHT LIGHT STUDIO | IT SHAKH</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- Three.js va Loaderlar -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/SVGLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <style>
+        :root {
+            --bg: #04060b;
+            --accent: #38bdf8;
+            --glow: 0 0 35px rgba(56, 189, 248, 0.65);
+            --text-color: #e5e7eb;
+            --card-bg: rgba(11, 18, 32, 0.86);
+            --border: rgba(56, 189, 248, 0.26);
+        }
+        body.night-mode {
+            --bg: #000000;
+            --accent: #00ff41;
+            --glow: 0 0 35px rgba(0, 255, 65, 0.65);
+            --text-color: #00ff41;
+            --card-bg: rgba(0, 20, 0, 0.86);
+            --border: rgba(0, 255, 65, 0.32);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text-color);
+            min-height: 100vh;
+            overflow-x: hidden;
+            transition: background 0.35s, color 0.35s;
+        }
+        header {
+            padding: 13px 22px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(12px);
+            background: rgba(4, 6, 11, 0.92);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .brand-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .back-btn {
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid var(--border);
+            color: var(--accent);
+            padding: 8px 14px;
+            border-radius: 10px;
+            text-decoration: none;
+            font: 700 11px monospace;
+            letter-spacing: 1px;
+            transition: 0.25s;
+        }
+        .back-btn:hover {
+            background: var(--accent);
+            color: #000;
+            box-shadow: var(--glow);
+        }
+        .logo-text {
+            font-weight: 800;
+            letter-spacing: 2px;
+            color: var(--accent);
+            font-size: 14px;
+            text-shadow: var(--glow);
+        }
+        .mode-toggle {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 7px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 10px;
+            letter-spacing: 1px;
+        }
+
+        /* WORKSPACE */
+        .workspace {
+            max-width: 1560px;
+            margin: 0 auto;
+            padding: 16px;
+            display: grid;
+            grid-template-columns: 430px 1fr;
+            gap: 18px;
+            min-height: calc(100vh - 62px);
+        }
+        .panel {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            gap: 11px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.55);
+            max-height: calc(100vh - 95px);
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+        .panel-title {
+            font: 700 11px monospace;
+            color: var(--accent);
+            letter-spacing: 2px;
+            border-left: 3px solid var(--accent);
+            padding-left: 10px;
+            margin: 2px 0 0 0;
+        }
+        .control-box {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 11px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.38);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .upload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .drop-card {
+            border: 1.5px dashed var(--accent);
+            border-radius: 12px;
+            padding: 12px 8px;
+            text-align: center;
+            background: rgba(56, 189, 248, 0.05);
+            cursor: pointer;
+            transition: 0.22s;
+        }
+        .drop-card:hover {
+            background: rgba(56, 189, 248, 0.14);
+            box-shadow: var(--glow);
+            transform: translateY(-1px);
+        }
+        .drop-card input { display: none; }
+        .drop-card b {
+            display: block;
+            font-size: 11px;
+            color: #fff;
+            margin-top: 4px;
+        }
+        .drop-card small {
+            font: 9px monospace;
+            color: #94a3b8;
+        }
+
+        .field-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .field-grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .field-grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 6px;
+        }
+        label {
+            font: 700 10px monospace;
+            color: #94a3b8;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        label b { color: var(--accent); }
+        select, input[type="text"] {
+            width: 100%;
+            background: #07101e;
+            color: #fff;
+            border: 1px solid var(--border);
+            padding: 8px 10px;
+            border-radius: 8px;
+            font: 700 11px 'Inter', monospace;
+            outline: none;
+        }
+        input[type="range"] {
+            width: 100%;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+        input[type="color"] {
+            width: 44px;
+            height: 28px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: transparent;
+            cursor: pointer;
+        }
+        .inline-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            font: 700 10px monospace;
+            color: #cbd5e1;
+        }
+
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .btn {
+            background: rgba(7, 16, 28, 0.92);
+            color: var(--text-color);
+            border: 1px solid var(--border);
+            padding: 9px 10px;
+            border-radius: 9px;
+            font: 700 10px monospace;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: 0.2s;
+            text-align: center;
+        }
+        .btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            box-shadow: 0 0 14px rgba(56, 189, 248, 0.22);
+        }
+        .btn.active {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+        }
+        .btn-export {
+            background: var(--accent);
+            color: #001018;
+            border: none;
+            padding: 12px;
+            font-size: 11px;
+            font-weight: 800;
+            box-shadow: 0 0 22px rgba(56, 189, 248, 0.35);
+        }
+        .btn-export:hover {
+            opacity: 0.92;
+            color: #000;
+            transform: translateY(-1px);
+        }
+
+        /* MAGIC RGB PILLS */
+        .magic-rgb-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .rgb-pill {
+            background: rgba(8, 16, 28, 0.9);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 7px 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font: 700 9px monospace;
+            color: #e2e8f0;
+            transition: 0.2s;
+            text-align: left;
+        }
+        .rgb-pill:hover, .rgb-pill.active {
+            border-color: var(--accent);
+            background: rgba(56, 189, 248, 0.16);
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+        }
+        .rgb-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+            flex-shrink: 0;
+            border: 1px solid rgba(255,255,255,0.4);
+        }
+
+        /* VIEWPORT PANEL */
+        .viewport-panel {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 600px;
+            position: relative;
+        }
+        .viewport-toolbar {
+            padding: 11px 16px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(2, 6, 12, 0.92);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            z-index: 10;
+        }
+        .sim-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        #viewport3d {
+            flex: 1;
+            width: 100%;
+            min-height: 490px;
+            position: relative;
+            background: radial-gradient(circle at center, #0f1c32 0%, #04070d 100%);
+            transition: background 0.5s ease;
+        }
+        #viewport3d.gta-night {
+            background: radial-gradient(circle at center, #040711 0%, #000002 100%);
+        }
+        .hud-overlay {
+            position: absolute;
+            top: 14px;
+            left: 14px;
+            right: 14px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .hud-card {
+            background: rgba(3, 9, 18, 0.85);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 8px 12px;
+            font: 700 10px monospace;
+            color: #94a3b8;
+            backdrop-filter: blur(6px);
+        }
+        .hud-card b { color: var(--accent); }
+
+        .zmodeler-guide {
+            position: absolute;
+            bottom: 14px;
+            left: 14px;
+            right: 14px;
+            background: rgba(3, 10, 20, 0.9);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px 14px;
+            font: 11px monospace;
+            color: #cbd5e1;
+            line-height: 1.5;
+            backdrop-filter: blur(8px);
+        }
+        .zmodeler-guide b { color: var(--accent); }
+
+        .stage-footer {
+            padding: 11px 16px;
+            border-top: 1px solid var(--border);
+            background: rgba(2, 6, 12, 0.95);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font: 11px monospace;
+            color: #94a3b8;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        #statusMsg { color: var(--accent); }
+
+        @media (max-width: 1040px) {
+            .workspace { grid-template-columns: 1fr; }
+            .panel { max-height: none; }
+            .viewport-panel { order: -1; min-height: 460px; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="brand-wrap">
+        <a href="index.html" class="back-btn" id="backHomeBtn">← ASOSIY SAHIFA</a>
+        <div class="logo-text">IT SHAKH // GTA SA &amp; ZMODELER 2.2.6 NIGHT LIGHT STUDIO</div>
+    </div>
+    <button class="mode-toggle" id="modeToggle">NIGHT MODE</button>
+</header>
+
+<div class="workspace">
+    <!-- CHAP BOSHQARUV PANELI -->
+    <div class="panel">
+        <h2 class="panel-title">// 1. DFF MOD YOKI LOGO YUKLASH</h2>
+        <div class="control-box">
+            <div class="upload-grid">
+                <label class="drop-card" for="baseDffInput">
+                    <input type="file" id="baseDffInput" accept=".dff,.obj,.svg,.png">
+                    <span>🚗 / 🛡</span>
+                    <b>ASOSIY MODEL / LOGO</b>
+                    <small>.DFF / .SVG / .PNG / .OBJ</small>
+                </label>
+
+                <label class="drop-card" for="addLogoInput">
+                    <input type="file" id="addLogoInput" accept=".svg,.png,.dff,.obj">
+                    <span>✨ + 🧊</span>
+                    <b>USTIGA LOGO QO‘SHISH</b>
+                    <small>Modelga yonuvchi logo ulash</small>
+                </label>
+            </div>
+
+            <div class="btn-grid">
+                <button class="btn" id="demoLogoBtn" type="button">★ DEMO YONUVCHI GERB</button>
+                <button class="btn" id="clearSceneBtn" type="button">✕ SAHNANI TOZALASH</button>
+            </div>
+
+            <div class="field-row">
+                <label><span>TANLANGAN QISM (ATOMIC / MESH)</span><b id="meshCountLbl">1 TA QISM</b></label>
+                <select id="meshPartSelect"></select>
+            </div>
+
+            <div class="field-row">
+                <label>QISM / DUMMY NOMI (ZModeler 2.2.6 Node Name)</label>
+                <input type="text" id="nodeNameInput" value="shakh_light_logo" placeholder="Masalan: extra1,taillights,shakh_logo">
+            </div>
+        </div>
+
+        <h2 class="panel-title">// 2. GTA SA KECHASI YONISH REJIMI</h2>
+        <div class="control-box">
+            <div class="field-row">
+                <label><span>YONISH USULI (GTA SA SHADER)</span><b>ZMODELER 2.2.6</b></label>
+                <select id="gtaLightModeSelect">
+                    <option value="vehiclelights" selected>1. Fara bilan yonadigan (ZModeler Magic RGB + vehiclelights128)</option>
+                    <option value="prelit_night">2. Kechasi doimiy o‘zi yonadigan (Prelit + Night Vertex + Emissive)</option>
+                    <option value="both_pro">3. KOMBO PRO (Fara Magic RGB + Prelit + 2DFX Corona Nuri)</option>
+                </select>
+            </div>
+
+            <div class="field-row">
+                <label><span>ZMODELER 2.2.6 FARA FUNKSIYASI (MAGIC RGB)</span></label>
+                <div class="magic-rgb-grid" id="magicRgbGrid">
+                    <button class="rgb-pill active" data-rgb="255,175,0" data-code="FL" type="button">
+                        <span class="rgb-dot" style="background:#ffaf00;"></span>
+                        <div><b>[FL] OLD CHAP FARA</b><br><small>RGB: 255, 175, 0</small></div>
+                    </button>
+                    <button class="rgb-pill" data-rgb="0,255,200" data-code="FR" type="button">
+                        <span class="rgb-dot" style="background:#00ffc8;"></span>
+                        <div><b>[FR] OLD O‘NG FARA</b><br><small>RGB: 0, 255, 200</small></div>
+                    </button>
+                    <button class="rgb-pill" data-rgb="185,255,0" data-code="RL" type="button">
+                        <span class="rgb-dot" style="background:#b9ff00;"></span>
+                        <div><b>[RL] ORQA CHAP STOP</b><br><small>RGB: 185, 255, 0</small></div>
+                    </button>
+                    <button class="rgb-pill" data-rgb="255,60,0" data-code="RR" type="button">
+                        <span class="rgb-dot" style="background:#ff3c00;"></span>
+                        <div><b>[RR] ORQA O‘NG STOP</b><br><small>RGB: 255, 60, 0</small></div>
+                    </button>
+                </div>
+            </div>
+
+            <div class="inline-row">
+                <span>KECHASI YONADIGAN NUR RANGI (NEON / LED)</span>
+                <input type="color" id="glowColorPicker" value="#00f0ff">
+            </div>
+
+            <div class="field-row">
+                <label><span>NUR KUCHI (EMISSIVE / AMBIENT BOOST)</span><b id="glowPowerVal">3.5x</b></label>
+                <input type="range" id="glowPowerSlider" min="0.5" max="6.0" step="0.25" value="3.5">
+            </div>
+
+            <div class="field-row">
+                <label><span>TXD TEKSTURA NOMI (.DFF ICHIGA YOZILADI)</span></label>
+                <input type="text" id="txdTexNameInput" value="vehiclelights128" maxlength="31">
+            </div>
+
+            <div class="btn-grid">
+                <button class="btn active" id="enable2dfxBtn" type="button">🌟 2DFX CORONA: ON</button>
+                <button class="btn active" id="enablePrelitBtn" type="button">💎 PRELIT VERTEX: ON</button>
+            </div>
+        </div>
+
+        <h2 class="panel-title">// 3. POZITSIYA VA 3D QALINLIK (JOYLASHTIRISH)</h2>
+        <div class="control-box">
+            <div class="field-grid-2">
+                <div class="field-row">
+                    <label><span>3D QALINLIK (EXTRUDE)</span><b id="depthVal">8</b></label>
+                    <input type="range" id="depthSlider" min="1" max="50" step="1" value="8">
+                </div>
+                <div class="field-row">
+                    <label><span>O‘LCHAMI (SCALE)</span><b id="scaleVal">1.00x</b></label>
+                    <input type="range" id="scaleSlider" min="0.05" max="3.0" step="0.05" value="1.0">
+                </div>
+            </div>
+
+            <div class="field-grid-3">
+                <div class="field-row">
+                    <label><span>SURISH X</span><b id="posXVal">0</b></label>
+                    <input type="range" id="posXSlider" min="-150" max="150" step="1" value="0">
+                </div>
+                <div class="field-row">
+                    <label><span>SURISH Y</span><b id="posYVal">0</b></label>
+                    <input type="range" id="posYSlider" min="-150" max="150" step="1" value="0">
+                </div>
+                <div class="field-row">
+                    <label><span>SURISH Z</span><b id="posZVal">0</b></label>
+                    <input type="range" id="posZSlider" min="-150" max="150" step="1" value="0">
+                </div>
+            </div>
+
+            <div class="field-row">
+                <label><span>AYLANTIRISH Y (BURCHAK)</span><b id="rotYVal">0°</b></label>
+                <input type="range" id="rotYSlider" min="-180" max="180" step="5" value="0">
+            </div>
+        </div>
+
+        <h2 class="panel-title">// 4. GTA SA (.DFF VA .PNG TEKSTURA) EXPORT</h2>
+        <div class="btn-grid">
+            <button class="btn btn-export" id="exportDffBtn" type="button">⬇ EXPORT GTA .DFF</button>
+            <button class="btn btn-export" id="exportTexBtn" type="button">🖼 EXPORT TXD .PNG</button>
+        </div>
+    </div>
+
+    <!-- O'NG 3D KUN/TUN SIMULYATOR PANELI -->
+    <div class="viewport-panel">
+        <div class="viewport-toolbar">
+            <div class="sim-buttons">
+                <button class="btn" id="daySimBtn" type="button">☀ KUNDUZGI REJIM (12:00)</button>
+                <button class="btn active" id="nightSimBtn" type="button">🌙 TUNGI + FARA YOQILGAN (00:00)</button>
+                <button class="btn" id="headlightToggleBtn" type="button">💡 FARANI O‘CHIRIB/YOQISH</button>
+            </div>
+            <div class="sim-buttons">
+                <button class="btn" id="wireBtn" type="button">🕸 SETKA</button>
+                <button class="btn active" id="rotateBtn" type="button">↻ AYLANISH</button>
+            </div>
+        </div>
+
+        <div id="viewport3d" class="gta-night">
+            <div class="hud-overlay">
+                <div class="hud-card">
+                    VAQT: <b id="hudTime">00:00 (TUNGI REJIM)</b> | FARA: <b id="hudLights">YOQILGAN (ON)</b>
+                </div>
+                <div class="hud-card">
+                    QISMLAR: <b id="hudParts">1</b> | VERTICES: <b id="hudVerts">0</b> | TRIS: <b id="hudTris">0</b>
+                </div>
+            </div>
+
+            <div class="zmodeler-guide" id="zmGuideBox">
+                <b>⚙ ZModeler 2.2.6 / GTA SA Ma’lumoti:</b> Tanlangan qismga <b id="guideRgbTxt">RGB(255, 175, 0) [FL]</b> + <b id="guideTexTxt">vehiclelights128</b> teksturasi + <b>Prelit Night Vertex (0x0253F2F9)</b> va <b>2DFX Corona</b> yozildi. Mashina chirog‘i yoqilganda yoki kechasi 100% yonadi!
+            </div>
+        </div>
+
+        <div class="stage-footer">
+            <span id="statusMsg">✓ GTA San Andreas (RenderWare 3.6.0.3 — 0x1803FFFF) Night Light Studio tayyor!</span>
+            <span>ZMODELER 2.2.6 COMPATIBLE</span>
+        </div>
+    </div>
+</div>
+
+<script>
+// Asosiy sahifaga qaytganda login chiqmasligi uchun
+document.getElementById('backHomeBtn').addEventListener('click', () => {
+    try { sessionStorage.setItem('it_shakh_return_from_tool', '1'); } catch (e) {}
+});
+
+// Night Mode UI
+const modeToggle = document.getElementById('modeToggle');
+modeToggle.addEventListener('click', () => {
+    document.body.classList.toggle('night-mode');
+    modeToggle.textContent = document.body.classList.contains('night-mode') ? 'LIGHT MODE' : 'NIGHT MODE';
+});
+
+// ==================== THREE.JS GTA SA TUNGI/KUNDUZGI SIMULYATOR ====================
+const viewport = document.getElementById('viewport3d');
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(45, viewport.clientWidth / viewport.clientHeight, 0.1, 6000);
+camera.position.set(0, 45, 175);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+viewport.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 1.4;
+
+// Yorug'liklar (Kun va Tun rejimlari uchun)
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.18);
+scene.add(ambientLight);
+
+const sunLight = new THREE.DirectionalLight(0xffffff, 0.25);
+sunLight.position.set(120, 200, 150);
+scene.add(sunLight);
+
+// Kechasi logotipdan taraladigan Neon/Corona point light
+const coronaPointLight = new THREE.PointLight(0x00f0ff, 2.5, 260);
+coronaPointLight.position.set(0, 10, 25);
+scene.add(coronaPointLight);
+
+// Corona Sprite (GTA SA 2dfx corona ko'rinishi)
+let coronaSprite = null;
+function createCoronaSprite() {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createRadialGradient(64, 64, 2, 64, 64, 62);
+    grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    grad.addColorStop(0.25, 'rgba(0, 240, 255, 0.65)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+
+    const tex = new THREE.CanvasTexture(c);
+    const mat = new THREE.SpriteMaterial({
+        map: tex,
+        color: 0x00f0ff,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    });
+    coronaSprite = new THREE.Sprite(mat);
+    coronaSprite.scale.set(115, 115, 1);
+    scene.add(coronaSprite);
+}
+createCoronaSprite();
+
+const gridHelper = new THREE.GridHelper(280, 28, 0x38bdf8, 0x111c2d);
+gridHelper.position.y = -48;
+scene.add(gridHelper);
+
+// Sahnadagi barcha 3D qismlar (Atomics)
+const modelRoot = new THREE.Group();
+scene.add(modelRoot);
+
+// Har bir qismning GTA SA metadatasi:
+// { mesh, name, isLightLogo, magicRGB:[255,175,0], magicCode:'FL', glowHex:'#00f0ff', glowPower:3.5, texName:'vehiclelights128', rawSvg, isProcedural }
+let sceneParts = [];
+let selectedPartIndex = 0;
+
+let isNightModeSim = true;
+let headlightsOn = true;
+let isWireframe = false;
+let enable2dfx = true;
+let enablePrelit = true;
+
+function setStatus(msg) {
+    document.getElementById('statusMsg').textContent = msg;
+}
+
+// ==================== GEOMETRIYANI TO'G'RILASH VA WELD ====================
+function fixWindingAndWeld(geom, flipWinding = true) {
+    const posAttr = geom.attributes.position;
+    if (!posAttr) return geom;
+
+    if (!geom.index && flipWinding) {
+        const posArr = posAttr.array;
+        for (let i = 0; i < posAttr.count; i += 3) {
+            const i1 = (i + 1) * 3;
+            const i2 = (i + 2) * 3;
+            for (let k = 0; k < 3; k++) {
+                const t = posArr[i1 + k];
+                posArr[i1 + k] = posArr[i2 + k];
+                posArr[i2 + k] = t;
+            }
+        }
+        posAttr.needsUpdate = true;
+    }
+
+    geom.computeVertexNormals();
+    if (geom.index) return geom;
+
+    const normAttr = geom.attributes.normal;
+    const uvAttr = geom.attributes.uv;
+    const newPos = [], newNorm = [], newUV = [], indices = [];
+    const map = new Map();
+
+    for (let i = 0; i < posAttr.count; i++) {
+        const px = posAttr.getX(i), py = posAttr.getY(i), pz = posAttr.getZ(i);
+        const nx = normAttr ? normAttr.getX(i) : 0;
+        const ny = normAttr ? normAttr.getY(i) : 0;
+        const nz = normAttr ? normAttr.getZ(i) : 1;
+        const key = `${Math.round(px * 500)}_${Math.round(py * 500)}_${Math.round(pz * 500)}_${Math.round(nx * 100)}_${Math.round(ny * 100)}_${Math.round(nz * 100)}`;
+
+        let idx = map.get(key);
+        if (idx === undefined) {
+            idx = newPos.length / 3;
+            map.set(key, idx);
+            newPos.push(px, py, pz);
+            newNorm.push(nx, ny, nz);
+            if (uvAttr) {
+                newUV.push(uvAttr.getX(i), uvAttr.getY(i));
+            } else {
+                // Avtomatik planar UV (GTA SA vehiclelights128 teksturasi uchun)
+                newUV.push((px + 50) / 100, (py + 50) / 100);
+            }
+        }
+        indices.push(idx);
+    }
+
+    const welded = new THREE.BufferGeometry();
+    welded.setAttribute('position', new THREE.Float32BufferAttribute(newPos, 3));
+    welded.setAttribute('normal', new THREE.Float32BufferAttribute(newNorm, 3));
+    welded.setAttribute('uv', new THREE.Float32BufferAttribute(newUV, 2));
+    welded.setIndex(indices);
+    geom.dispose();
+    return welded;
+}
+
+// ==================== SAHNA QISMLARINI BOSHQARISH ====================
+function addPartToScene(mesh, name, isLightLogo = true, extraMeta = {}) {
+    const partObj = {
+        mesh: mesh,
+        name: name || `shakh_part_${sceneParts.length + 1}`,
+        isLightLogo: isLightLogo,
+        magicRGB: extraMeta.magicRGB || [255, 175, 0],
+        magicCode: extraMeta.magicCode || 'FL',
+        glowHex: extraMeta.glowHex || document.getElementById('glowColorPicker').value,
+        glowPower: extraMeta.glowPower || parseFloat(document.getElementById('glowPowerSlider').value),
+        texName: extraMeta.texName || document.getElementById('txdTexNameInput').value || 'vehiclelights128',
+        baseScale: extraMeta.baseScale || 1.0,
+        userScale: 1.0,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        rotY: 0,
+        rawSvg: extraMeta.rawSvg || null
+    };
+
+    modelRoot.add(mesh);
+    sceneParts.push(partObj);
+    selectedPartIndex = sceneParts.length - 1;
+    refreshPartsDropdown();
+    loadSelectedPartToUI();
+    applySimulationLighting();
+    updateHUDStats();
+}
+
+function clearAllParts() {
+    sceneParts.forEach(p => {
+        modelRoot.remove(p.mesh);
+        if (p.mesh.geometry) p.mesh.geometry.dispose();
+    });
+    sceneParts = [];
+    selectedPartIndex = 0;
+    refreshPartsDropdown();
+    updateHUDStats();
+}
+
+function refreshPartsDropdown() {
+    const sel = document.getElementById('meshPartSelect');
+    document.getElementById('meshCountLbl').textContent = `${sceneParts.length} TA QISM`;
+    sel.innerHTML = sceneParts.map((p, idx) =>
+        `<option value="${idx}" ${idx === selectedPartIndex ? 'selected' : ''}>[${idx + 1}] ${p.name} ${p.isLightLogo ? '⚡ (YONUVCHI)' : '(ODDIY)'}</option>`
+    ).join('');
+    document.getElementById('hudParts').textContent = sceneParts.length;
+}
+
+function loadSelectedPartToUI() {
+    const part = sceneParts[selectedPartIndex];
+    if (!part) return;
+
+    document.getElementById('nodeNameInput').value = part.name;
+    document.getElementById('glowColorPicker').value = part.glowHex;
+    document.getElementById('glowPowerSlider').value = part.glowPower;
+    document.getElementById('glowPowerVal').textContent = part.glowPower.toFixed(2) + 'x';
+    document.getElementById('txdTexNameInput').value = part.texName;
+
+    document.getElementById('scaleSlider').value = part.userScale;
+    document.getElementById('scaleVal').textContent = part.userScale.toFixed(2) + 'x';
+    document.getElementById('posXSlider').value = part.offsetX;
+    document.getElementById('posXVal').textContent = part.offsetX;
+    document.getElementById('posYSlider').value = part.offsetY;
+    document.getElementById('posYVal').textContent = part.offsetY;
+    document.getElementById('posZSlider').value = part.offsetZ;
+    document.getElementById('posZVal').textContent = part.offsetZ;
+    document.getElementById('rotYSlider').value = part.rotY;
+    document.getElementById('rotYVal').textContent = part.rotY + '°';
+
+    document.querySelectorAll('#magicRgbGrid .rgb-pill').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.code === part.magicCode);
+    });
+
+    updateGuideText();
+}
+
+function updateGuideText() {
+    const part = sceneParts[selectedPartIndex];
+    if (!part) return;
+    document.getElementById('guideRgbTxt').textContent = `RGB(${part.magicRGB.join(', ')}) [${part.magicCode}]`;
+    document.getElementById('guideTexTxt').textContent = part.texName;
+}
+
+// ==================== KUN / TUN VA FARA SIMULYATSIYASI ====================
+function applySimulationLighting() {
+    viewport.classList.toggle('gta-night', isNightModeSim);
+
+    if (isNightModeSim) {
+        ambientLight.intensity = 0.14;
+        sunLight.intensity = 0.20;
+        document.getElementById('hudTime').textContent = '00:00 (GTA SA TUN)';
+    } else {
+        ambientLight.intensity = 0.85;
+        sunLight.intensity = 1.10;
+        document.getElementById('hudTime').textContent = '12:00 (GTA SA KUN)';
+    }
+
+    document.getElementById('hudLights').textContent = headlightsOn ? 'YOQILGAN (ON)' : 'O‘CHIRILGAN (OFF)';
+
+    const lightMode = document.getElementById('gtaLightModeSelect').value;
+    // Qachon logo yonadi?
+    // Agar 'prelit_night' bo'lsa kechasi doim yonadi, agar 'vehiclelights' bo'lsa fara yoqilganda yonadi
+    const shouldGlowNow = isNightModeSim
+        ? (headlightsOn || lightMode === 'prelit_night' || lightMode === 'both_pro')
+        : (headlightsOn && lightMode !== 'prelit_night');
+
+    let activeGlowColor = new THREE.Color('#00f0ff');
+    let anyGlowing = false;
+
+    sceneParts.forEach((part, idx) => {
+        if (!part.mesh || !part.mesh.material) return;
+        const mat = part.mesh.material;
+        mat.wireframe = isWireframe;
+
+        if (part.isLightLogo) {
+            const c = new THREE.Color(part.glowHex);
+            if (idx === selectedPartIndex) activeGlowColor = c;
+
+            if (shouldGlowNow) {
+                anyGlowing = true;
+                mat.color.copy(c);
+                mat.emissive.copy(c);
+                mat.emissiveIntensity = isNightModeSim ? (part.glowPower * 0.45) : (part.glowPower * 0.2);
+                mat.roughness = 0.15;
+                mat.metalness = 0.1;
+            } else {
+                // Kunduzi yoki fara o'chiq payti (xira oyna/plastik ko'rinishida)
+                mat.color.copy(c).multiplyScalar(0.45);
+                mat.emissive.setHex(0x000000);
+                mat.emissiveIntensity = 0;
+                mat.roughness = 0.35;
+                mat.metalness = 0.5;
+            }
+        } else {
+            // Mashinaning oddiy kuzov qismlari
+            mat.color.setHex(0x94a3b8);
+            mat.emissive.setHex(0x000000);
+            mat.emissiveIntensity = 0;
+            mat.roughness = 0.4;
+            mat.metalness = 0.65;
+        }
+        mat.needsUpdate = true;
+    });
+
+    // 2DFX Corona va PointLight
+    const activePart = sceneParts[selectedPartIndex];
+    if (activePart && activePart.mesh) {
+        coronaPointLight.position.copy(activePart.mesh.position);
+        coronaPointLight.position.z += 18;
+        if (coronaSprite) {
+            coronaSprite.position.copy(activePart.mesh.position);
+            coronaSprite.position.z += 6;
+        }
+    }
+
+    coronaPointLight.color.copy(activeGlowColor);
+    coronaPointLight.intensity = (shouldGlowNow && anyGlowing) ? 2.4 : 0;
+
+    if (coronaSprite) {
+        coronaSprite.material.color.copy(activeGlowColor);
+        coronaSprite.visible = (shouldGlowNow && anyGlowing && enable2dfx && isNightModeSim);
+    }
+}
+
+function updateHUDStats() {
+    let verts = 0, tris = 0;
+    sceneParts.forEach(p => {
+        const g = p.mesh.geometry;
+        if (g && g.attributes.position) {
+            verts += g.attributes.position.count;
+            tris += g.index ? Math.floor(g.index.count / 3) : Math.floor(g.attributes.position.count / 3);
+        }
+    });
+    document.getElementById('hudVerts').textContent = verts.toLocaleString();
+    document.getElementById('hudTris').textContent = tris.toLocaleString();
+}
+
+// ==================== 1. SVG / PNG / OBJ -> YONUVCHI 3D LOGO YARATISH ====================
+function create3DLogoFromSVG(svgText, nameStr = 'shakh_light_logo', replaceAll = false) {
+    if (replaceAll) clearAllParts();
+
+    const loader = new THREE.SVGLoader();
+    const svgData = loader.parse(svgText);
+    const depth = parseFloat(document.getElementById('depthSlider').value) || 8;
+
+    const extrudeSettings = {
+        depth: depth,
+        bevelEnabled: true,
+        bevelThickness: 1.0,
+        bevelSize: 0.75,
+        bevelSegments: 2,
+        curveSegments: 10
+    };
+
+    const allPositions = [];
+    const allNormals = [];
+    const allUVs = [];
+    const allIndices = [];
+
+    svgData.paths.forEach(path => {
+        const shapes = THREE.SVGLoader.createShapes(path);
+        shapes.forEach(shape => {
+            const rawG = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            rawG.scale(1, -1, 1);
+            const cleanG = fixWindingAndWeld(rawG, true);
+
+            const pos = cleanG.attributes.position;
+            const norm = cleanG.attributes.normal;
+            const uv = cleanG.attributes.uv;
+            const idx = cleanG.index;
+            const baseV = allPositions.length / 3;
+
+            for (let i = 0; i < pos.count; i++) {
+                allPositions.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+                allNormals.push(norm.getX(i), norm.getY(i), norm.getZ(i));
+                allUVs.push(uv ? uv.getX(i) : 0.5, uv ? uv.getY(i) : 0.5);
+            }
+            if (idx) {
+                for (let i = 0; i < idx.count; i++) {
+                    allIndices.push(baseV + idx.getX(i));
+                }
+            }
+            cleanG.dispose();
+        });
+    });
+
+    if (allPositions.length === 0) {
+        setStatus('⚠ SVG fayl ichida kontur topilmadi.');
+        return;
+    }
+
+    const mergedGeom = new THREE.BufferGeometry();
+    mergedGeom.setAttribute('position', new THREE.Float32BufferAttribute(allPositions, 3));
+    mergedGeom.setAttribute('normal', new THREE.Float32BufferAttribute(allNormals, 3));
+    mergedGeom.setAttribute('uv', new THREE.Float32BufferAttribute(allUVs, 2));
+    mergedGeom.setIndex(allIndices);
+
+    // Markazga keltirish va UV koordinatalarini [0..1] ga normallashtirish
+    mergedGeom.computeBoundingBox();
+    const box = mergedGeom.boundingBox;
+    const center = new THREE.Vector3();
+    const size = new THREE.Vector3();
+    box.getCenter(center);
+    box.getSize(size);
+    mergedGeom.translate(-center.x, -center.y, -center.z);
+
+    // Tekstura (vehiclelights128) to'g'ri tushishi uchun toza planar UV
+    const posAttr = mergedGeom.attributes.position;
+    const uvAttr = mergedGeom.attributes.uv;
+    const maxW = Math.max(1, size.x);
+    const maxH = Math.max(1, size.y);
+    for (let i = 0; i < posAttr.count; i++) {
+        const u = (posAttr.getX(i) / maxW) + 0.5;
+        const v = (posAttr.getY(i) / maxH) + 0.5;
+        uvAttr.setXY(i, Math.max(0.02, Math.min(0.98, u)), Math.max(0.02, Math.min(0.98, v)));
+    }
+    uvAttr.needsUpdate = true;
+
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const baseScale = 75 / maxDim;
+
+    const mat = new THREE.MeshStandardMaterial({
+        color: 0x00f0ff,
+        emissive: 0x00f0ff,
+        emissiveIntensity: 1.5,
+        side: THREE.DoubleSide
+    });
+
+    const mesh = new THREE.Mesh(mergedGeom, mat);
+    mesh.scale.setScalar(baseScale);
+
+    addPartToScene(mesh, nameStr, true, {
+        baseScale: baseScale,
+        rawSvg: svgText
+    });
+
+    setStatus(`✓ "${nameStr}" 3D yonuvchi logotipi yaratildi va GTA SA chiroq rejimiga ulandi!`);
+}
+
+// PNG rasmdan 3D yonuvchi logo yaratish
+function create3DLogoFromPNG(img, nameStr = 'shakh_png_light', replaceAll = false) {
+    if (replaceAll) clearAllParts();
+    const grid = 84;
+    const depth = parseFloat(document.getElementById('depthSlider').value) || 8;
+    const aspect = img.width / img.height;
+    const cols = aspect >= 1 ? grid : Math.max(16, Math.round(grid * aspect));
+    const rows = aspect >= 1 ? Math.max(16, Math.round(grid / aspect)) : grid;
+
+    const c = document.createElement('canvas');
+    c.width = cols;
+    c.height = rows;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, cols, rows);
+    const rgba = ctx.getImageData(0, 0, cols, rows).data;
+
+    const positions = [], normals = [], uvs = [], indices = [];
+    const cellW = 80 / cols, cellH = 80 / rows;
+    const offX = -40, offY = 40;
+
+    function addQuad(v0, v1, v2, v3, n, u0, v0_uv, u1, v1_uv) {
+        const b = positions.length / 3;
+        positions.push(...v0, ...v1, ...v2, ...v3);
+        for (let i = 0; i < 4; i++) normals.push(...n);
+        uvs.push(u0, v1_uv, u1, v1_uv, u1, v0_uv, u0, v0_uv);
+        indices.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    }
+
+    function alphaAt(x, y) {
+        if (x < 0 || x >= cols || y < 0 || y >= rows) return 0;
+        return rgba[(y * cols + x) * 4 + 3];
+    }
+
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            const a = alphaAt(x, y);
+            if (a < 32) continue;
+            const zF = depth * 0.5, zB = -depth * 0.5;
+            const x0 = offX + x * cellW, x1 = x0 + cellW;
+            const y0 = offY - y * cellH, y1 = y0 - cellH;
+            const u0 = x / cols, u1 = (x + 1) / cols;
+            const v0 = 1 - y / rows, v1 = 1 - (y + 1) / rows;
+
+            addQuad([x0, y1, zF], [x1, y1, zF], [x1, y0, zF], [x0, y0, zF], [0, 0, 1], u0, v0, u1, v1);
+            addQuad([x1, y1, zB], [x0, y1, zB], [x0, y0, zB], [x1, y0, zB], [0, 0, -1], u0, v0, u1, v1);
+            if (alphaAt(x, y - 1) < 32) addQuad([x0, y0, zF], [x1, y0, zF], [x1, y0, zB], [x0, y0, zB], [0, 1, 0], u0, v0, u1, v0);
+            if (alphaAt(x, y + 1) < 32) addQuad([x1, y1, zF], [x0, y1, zF], [x0, y1, zB], [x1, y1, zB], [0, -1, 0], u0, v1, u1, v1);
+            if (alphaAt(x - 1, y) < 32) addQuad([x0, y1, zF], [x0, y0, zF], [x0, y0, zB], [x0, y1, zB], [-1, 0, 0], u0, v0, u0, v1);
+            if (alphaAt(x + 1, y) < 32) addQuad([x1, y0, zF], [x1, y1, zF], [x1, y1, zB], [x1, y0, zB], [1, 0, 0], u1, v0, u1, v1);
+        }
+    }
+
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geom.setIndex(indices);
+
+    const mat = new THREE.MeshStandardMaterial({ color: 0x00f0ff, emissive: 0x00f0ff, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geom, mat);
+    addPartToScene(mesh, nameStr, true, { baseScale: 1.0 });
+    setStatus(`✓ PNG rasm 3D yonuvchi GTA SA logotipiga aylantirildi!`);
+}
+
+// ==================== 2. GTA SA RENDERWARE (.DFF) PARSER ====================
+function loadGTADFFBuffer(arrayBuffer, fileName, replaceAll = true) {
+    if (replaceAll) clearAllParts();
+    const dv = new DataView(arrayBuffer);
+    let offset = 0;
+    const frameNames = [];
+    const parsedGeoms = [];
+
+    function readString(start, maxLen) {
+        let s = '';
+        for (let i = 0; i < maxLen && start + i < arrayBuffer.byteLength; i++) {
+            const code = dv.getUint8(start + i);
+            if (code === 0) break;
+            s += String.fromCharCode(code);
+        }
+        return s;
+    }
+
+    function walkSections(endLimit) {
+        while (offset + 12 <= endLimit) {
+            const type = dv.getUint32(offset, true);
+            const size = dv.getUint32(offset + 4, true);
+            const ver = dv.getUint32(offset + 8, true);
+            const nextOff = offset + 12 + size;
+            if (nextOff > arrayBuffer.byteLength) break;
+
+            if (type === 0x0010 || type === 0x001A || type === 0x000E) {
+                offset += 12;
+                walkSections(nextOff);
+            } else if (type === 0x0253F2FE) {
+                // Rockstar Node Name
+                frameNames.push(readString(offset + 12, size));
+                offset = nextOff;
+            } else if (type === 0x000F) {
+                // Geometry
+                const structType = dv.getUint32(offset + 12, true);
+                if (structType === 0x0001) {
+                    const g = parseRWGeometryStruct(dv, offset + 24, ver);
+                    if (g) parsedGeoms.push(g);
+                }
+                offset = nextOff;
+            } else {
+                offset = nextOff;
+            }
+        }
+    }
+
+    function parseRWGeometryStruct(view, pos, rwVer) {
+        try {
+            const flags = view.getUint32(pos, true);
+            const numTris = view.getUint32(pos + 4, true);
+            const numVerts = view.getUint32(pos + 8, true);
+            pos += 16;
+
+            // Eski RW versiyalarida (GTA 3 / VC < 0x1003FFFF) 12 bayt surfaceProps bo'ladi
+            if (rwVer < 0x1003FFFF) {
+                pos += 12;
+            }
+
+            if (numVerts === 0 || numVerts > 250000 || (flags & 0x01000000)) return null;
+
+            const hasTex = (flags & 0x04) !== 0 || (flags & 0x80) !== 0;
+            const hasPrelit = (flags & 0x08) !== 0;
+            const hasNormals = (flags & 0x10) !== 0;
+            let numUVs = (flags >> 16) & 0xFF;
+            if (numUVs === 0 && hasTex) numUVs = 1;
+
+            if (hasPrelit) pos += numVerts * 4;
+
+            let uvs = null;
+            if (numUVs > 0) {
+                uvs = new Float32Array(numVerts * 2);
+                for (let i = 0; i < numVerts * 2; i++) {
+                    uvs[i] = view.getFloat32(pos, true);
+                    pos += 4;
+                }
+                if (numUVs > 1) pos += (numUVs - 1) * numVerts * 8;
+            }
+
+            const indices = [];
+            for (let i = 0; i < numTris; i++) {
+                const v2 = view.getUint16(pos, true);
+                const v1 = view.getUint16(pos + 2, true);
+                const v3 = view.getUint16(pos + 6, true);
+                pos += 8;
+                indices.push(v1, v2, v3);
+            }
+
+            pos += 24; // Bounding Sphere (x,y,z,r,hasPos,hasNorm)
+
+            const verts = new Float32Array(numVerts * 3);
+            for (let i = 0; i < numVerts * 3; i++) {
+                verts[i] = view.getFloat32(pos, true);
+                pos += 4;
+            }
+
+            const geom = new THREE.BufferGeometry();
+            geom.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+            if (uvs) geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+            geom.setIndex(indices);
+
+            if (hasNormals && pos + numVerts * 12 <= view.byteLength) {
+                const norms = new Float32Array(numVerts * 3);
+                for (let i = 0; i < numVerts * 3; i++) {
+                    norms[i] = view.getFloat32(pos, true);
+                    pos += 4;
+                }
+                geom.setAttribute('normal', new THREE.BufferAttribute(norms, 3));
+            } else {
+                geom.computeVertexNormals();
+            }
+            return geom;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    walkSections(arrayBuffer.byteLength);
+
+    if (parsedGeoms.length === 0) {
+        setStatus('⚠ DFF fayl ichida ochiq geometriya topilmadi (yoki locked DFF).');
+        return;
+    }
+
+    // Umumiy o'lchamni normallashtirish
+    const tempGroup = new THREE.Group();
+    parsedGeoms.forEach(g => tempGroup.add(new THREE.Mesh(g)));
+    const box = new THREE.Box3().setFromObject(tempGroup);
+    const size = new THREE.Vector3(), center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const autoScale = 95 / maxDim;
+
+    parsedGeoms.forEach((geom, idx) => {
+        geom.translate(-center.x, -center.y, -center.z);
+        const mat = new THREE.MeshStandardMaterial({ color: 0x00f0ff, side: THREE.DoubleSide });
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.scale.setScalar(autoScale);
+
+        const partName = frameNames[idx + 1] || frameNames[idx] || `${fileName.replace(/\.dff$/i, '')}_${idx + 1}`;
+        const isLikelyLight = /light|logo|badge|neon|extra|taillight|headlight|shakh/i.test(partName) || parsedGeoms.length === 1;
+        addPartToScene(mesh, partName, isLikelyLight, { baseScale: autoScale });
+    });
+
+    setStatus(`✓ GTA SA .DFF yuklandi (${parsedGeoms.length} ta qism). Istalgan qismni tanlab kechasi yonadigan qiling!`);
+}
+
+// ==================== 3. GTA SA + ZMODELER 2.2.6 BINARY .DFF EXPORTER ====================
+// Material RGB + Texture (0x0006) + Prelit (0x08) + Rockstar Night Vertex Colors (0x0253F2F9) + 2DFX Light (0x0253F2F8)
+function exportGTADFF() {
+    if (sceneParts.length === 0) {
+        setStatus('⚠ Eksport qilish uchun sahnada model yo‘q!');
+        return;
+    }
+
+    modelRoot.updateMatrixWorld(true);
+    const RW_VERSION = 0x1803FFFF; // RenderWare 3.6.0.3 (GTA San Andreas & ZModeler 2.2.6)
+    const lightMode = document.getElementById('gtaLightModeSelect').value;
+
+    function makeSection(type, payloadBytes) {
+        const out = new Uint8Array(12 + payloadBytes.byteLength);
+        const dv = new DataView(out.buffer);
+        dv.setUint32(0, type, true);
+        dv.setUint32(4, payloadBytes.byteLength, true);
+        dv.setUint32(8, RW_VERSION, true);
+        out.set(new Uint8Array(payloadBytes.buffer || payloadBytes), 12);
+        return out;
+    }
+
+    function concatArrays(arrays) {
+        const total = arrays.reduce((acc, a) => acc + a.byteLength, 0);
+        const res = new Uint8Array(total);
+        let off = 0;
+        arrays.forEach(a => { res.set(a, off); off += a.byteLength; });
+        return res;
+    }
+
+    function makePaddedStringSection(str) {
+        const raw = new TextEncoder().encode(str);
+        const padLen = Math.ceil((raw.length + 1) / 4) * 4;
+        const buf = new Uint8Array(padLen);
+        buf.set(raw, 0);
+        return makeSection(0x0002, buf);
+    }
+
+    function makeNodeNamePlg(str) {
+        const raw = new TextEncoder().encode(str.slice(0, 23));
+        return makeSection(0x0253F2FE, raw);
+    }
+
+    function hexToRgb(hex) {
+        const clean = hex.replace('#', '');
+        return [
+            parseInt(clean.substring(0, 2), 16) || 0,
+            parseInt(clean.substring(2, 4), 16) || 240,
+            parseInt(clean.substring(4, 6), 16) || 255
+        ];
+    }
+
+    // Har bir qismni (Atomic) 64,000 vertex chegarasida tayyorlash
+    const exportChunks = [];
+
+    sceneParts.forEach((part, idx) => {
+        const geom = part.mesh.geometry.clone();
+        geom.applyMatrix4(part.mesh.matrixWorld);
+        if (!geom.attributes.normal) geom.computeVertexNormals();
+
+        const pos = geom.attributes.position;
+        const norm = geom.attributes.normal;
+        const uv = geom.attributes.uv;
+        const index = geom.index;
+
+        if (!pos || pos.count === 0) return;
+
+        const maxV = Math.min(pos.count, 64000);
+        const verts = [], norms = [], uvs = [], tris = [];
+
+        for (let i = 0; i < maxV; i++) {
+            verts.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+            norms.push(norm ? norm.getX(i) : 0, norm ? norm.getY(i) : 0, norm ? norm.getZ(i) : 1);
+            uvs.push(uv ? uv.getX(i) : 0.5, uv ? uv.getY(i) : 0.5);
+        }
+
+        if (index) {
+            for (let i = 0; i < index.count; i += 3) {
+                const a = index.getX(i), b = index.getX(i + 1), c = index.getX(i + 2);
+                if (a < maxV && b < maxV && c < maxV) tris.push(a, b, c);
+            }
+        } else {
+            for (let i = 0; i + 2 < maxV; i += 3) {
+                tris.push(i, i + 1, i + 2);
+            }
+        }
+
+        exportChunks.push({
+            name: part.name || `shakh_part_${idx + 1}`,
+            isLightLogo: part.isLightLogo,
+            magicRGB: part.magicRGB,
+            glowRGB: hexToRgb(part.glowHex),
+            glowPower: part.glowPower,
+            texName: part.texName || 'vehiclelights128',
+            verts, norms, uvs, tris,
+            centerPos: part.mesh.position
+        });
+        geom.dispose();
+    });
+
+    const numParts = exportChunks.length;
+
+    // 1. Clump Struct (0x0001)
+    const clumpStructBuf = new ArrayBuffer(12);
+    const csDV = new DataView(clumpStructBuf);
+    csDV.setUint32(0, numParts, true);
+    csDV.setUint32(4, 0, true);
+    csDV.setUint32(8, 0, true);
+    const clumpStruct = makeSection(0x0001, new Uint8Array(clumpStructBuf));
+
+    // 2. Frame List (0x000E) + Rockstar 2DFX Light Effect (0x0253F2F8)
+    const totalFrames = 1 + numParts;
+    const frameStructBuf = new ArrayBuffer(4 + totalFrames * 56);
+    const fDV = new DataView(frameStructBuf);
+    fDV.setUint32(0, totalFrames, true);
+
+    const frameExtensions = [];
+    for (let f = 0; f < totalFrames; f++) {
+        const b = 4 + f * 56;
+        fDV.setFloat32(b + 0, 1.0, true);
+        fDV.setFloat32(b + 16, 1.0, true);
+        fDV.setFloat32(b + 32, 1.0, true);
+        fDV.setInt32(b + 48, f === 0 ? -1 : 0, true);
+        fDV.setUint32(b + 52, 0, true);
+
+        const fName = f === 0 ? 'vehicle_Light_Root' : exportChunks[f - 1].name;
+        const extChildren = [makeNodeNamePlg(fName)];
+
+        // Root frame ichiga GTA SA 2DFX Corona Light effektini yozish (kechasi haqiqiy nur taratishi uchun)
+        if (f === 0 && enable2dfx) {
+            const activeChunk = exportChunks[selectedPartIndex] || exportChunks[0];
+            const [cr, cg, cb] = activeChunk.glowRGB;
+
+            // 2DFX Light entry: 4 (count=1) + 12 (pos) + 4 (type=0) + 4 (size=76) + 76 (Light data) = 100 bytes
+            const fxBuf = new ArrayBuffer(100);
+            const fxDV = new DataView(fxBuf);
+            fxDV.setUint32(0, 1, true); // 1 ta 2dfx effekt
+            fxDV.setFloat32(4, activeChunk.centerPos.x, true);
+            fxDV.setFloat32(8, activeChunk.centerPos.y, true);
+            fxDV.setFloat32(12, activeChunk.centerPos.z, true);
+            fxDV.setUint32(16, 0, true);  // Effect Type 0 = Light
+            fxDV.setUint32(20, 76, true); // Light struct size = 76 bytes
+
+            // Light color RGBA
+            fxDV.setUint8(24, cr);
+            fxDV.setUint8(25, cg);
+            fxDV.setUint8(26, cb);
+            fxDV.setUint8(27, 255);
+            fxDV.setFloat32(28, 120.0, true); // Corona Far Clip (uzoqlikdan ko'rinishi)
+            fxDV.setFloat32(32, 1.5, true);   // Pointlight Range
+            fxDV.setFloat32(36, 0.85, true);  // Corona Size
+            fxDV.setFloat32(40, 2.0, true);   // Shadow Size
+            fxDV.setUint8(44, 0);             // Corona Show Mode (0 = DEFAULT)
+            fxDV.setUint8(45, 0);             // Corona Enable Reflection
+            fxDV.setUint8(46, 0);             // Corona Flare Type
+            fxDV.setUint8(47, 40);            // Shadow Color Multiplier
+            fxDV.setUint8(48, 2);             // Flags1: AT_NIGHT (2 = faqat kechasi yonadi!)
+
+            const corName = new TextEncoder().encode('coronastar');
+            new Uint8Array(fxBuf, 49, corName.length).set(corName);
+            const shdName = new TextEncoder().encode('shad_exp');
+            new Uint8Array(fxBuf, 73, shdName.length).set(shdName);
+
+            extChildren.push(makeSection(0x0253F2F8, new Uint8Array(fxBuf)));
+        }
+
+        frameExtensions.push(makeSection(0x0003, concatArrays(extChildren)));
+    }
+
+    const frameList = makeSection(0x000E, concatArrays([
+        makeSection(0x0001, new Uint8Array(frameStructBuf)),
+        ...frameExtensions
+    ]));
+
+    // 3. GeometryList (0x001A) va Atomics (0x0014)
+    const geometrySections = [];
+    const atomicSections = [];
+
+    exportChunks.forEach((chunk, chunkIdx) => {
+        const numVerts = chunk.verts.length / 3;
+        const numTris = chunk.tris.length / 3;
+
+        // Material (0x0007) yaratish
+        const matStructBuf = new ArrayBuffer(28);
+        const mDV = new DataView(matStructBuf);
+
+        // Agar Fara Magic RGB rejimi bo'lsa, ZModeler 2.2.6 Magic RGB rangini qo'yamiz
+        const useMagicRGB = chunk.isLightLogo && (lightMode === 'vehiclelights' || lightMode === 'both_pro');
+        const [mr, mg, mb] = useMagicRGB ? chunk.magicRGB : (chunk.isLightLogo ? chunk.glowRGB : [220, 225, 235]);
+
+        mDV.setUint32(0, 0, true);
+        mDV.setUint8(4, mr);
+        mDV.setUint8(5, mg);
+        mDV.setUint8(6, mb);
+        mDV.setUint8(7, 255);
+        mDV.setUint32(8, 1, true);
+        mDV.setUint32(12, 1, true); // isTextured = 1 (Texture 0x0006 bloki bor!)
+
+        // SurfaceProps: Kechasi kuchli yonishi uchun Ambient qiymatini oshiramiz (Self-Illumination)
+        const ambientVal = chunk.isLightLogo ? Math.max(1.5, chunk.glowPower) : 0.75;
+        mDV.setFloat32(16, ambientVal, true); // ambient (emissive brightness in GTA SA!)
+        mDV.setFloat32(20, 1.0, true);        // specular
+        mDV.setFloat32(24, 1.0, true);        // diffuse
+
+        // Texture (0x0006) bloki — ZModeler 2.2.6 va GTA SA vehiclelights128 ni tanishi uchun SHART!
+        const texStructBuf = new ArrayBuffer(4);
+        new DataView(texStructBuf).setUint32(0, 0x1106, true); // Linear filter + Wrap UV
+        const textureSection = makeSection(0x0006, concatArrays([
+            makeSection(0x0001, new Uint8Array(texStructBuf)),
+            makePaddedStringSection(chunk.texName),
+            makePaddedStringSection(''), // alpha mask bo'sh
+            makeSection(0x0003, new Uint8Array(0))
+        ]));
+
+        const materialSection = makeSection(0x0007, concatArrays([
+            makeSection(0x0001, new Uint8Array(matStructBuf)),
+            textureSection,
+            makeSection(0x0003, new Uint8Array(0))
+        ]));
+
+        const matListStructBuf = new ArrayBuffer(8);
+        const mlDV = new DataView(matListStructBuf);
+        mlDV.setUint32(0, 1, true);
+        mlDV.setInt32(4, -1, true);
+        const materialList = makeSection(0x0008, concatArrays([
+            makeSection(0x0001, new Uint8Array(matListStructBuf)),
+            materialSection
+        ]));
+
+        // Geometry Struct (0x000F -> 0x0001)
+        // Flags: POSITIONS(0x02) | TEXTURED(0x04) | PRELIT(0x08) | NORMALS(0x10) | LIGHT(0x20) | MODULATE(0x40) | 1 UV Set(0x00010000)
+        const writePrelit = enablePrelit && chunk.isLightLogo;
+        const rwFlags = writePrelit ? 0x0001007E : 0x00010076;
+        const prelitBytes = writePrelit ? (numVerts * 4) : 0;
+
+        const geomByteSize = 16 + prelitBytes + (numVerts * 8) + (numTris * 8) + 24 + (numVerts * 12) + (numVerts * 12);
+        const geomBuf = new ArrayBuffer(geomByteSize);
+        const gDV = new DataView(geomBuf);
+        let ptr = 0;
+
+        gDV.setUint32(ptr, rwFlags, true); ptr += 4;
+        gDV.setUint32(ptr, numTris, true); ptr += 4;
+        gDV.setUint32(ptr, numVerts, true); ptr += 4;
+        gDV.setUint32(ptr, 1, true); ptr += 4;
+
+        // Prelit Vertex Colors (Kechasi yonuvchi rang)
+        if (writePrelit) {
+            const [gr, gg, gb] = chunk.glowRGB;
+            for (let i = 0; i < numVerts; i++) {
+                gDV.setUint8(ptr, gr);
+                gDV.setUint8(ptr + 1, gg);
+                gDV.setUint8(ptr + 2, gb);
+                gDV.setUint8(ptr + 3, 255);
+                ptr += 4;
+            }
+        }
+
+        // UVs
+        for (let i = 0; i < chunk.uvs.length; i++) {
+            gDV.setFloat32(ptr, chunk.uvs[i], true);
+            ptr += 4;
+        }
+
+        // Triangles (v2, v1, matId, v3)
+        for (let i = 0; i < numTris; i++) {
+            gDV.setUint16(ptr, chunk.tris[i * 3 + 1], true);
+            gDV.setUint16(ptr + 2, chunk.tris[i * 3], true);
+            gDV.setUint16(ptr + 4, 0, true);
+            gDV.setUint16(ptr + 6, chunk.tris[i * 3 + 2], true);
+            ptr += 8;
+        }
+
+        // Bounding Sphere
+        gDV.setFloat32(ptr, 0, true);
+        gDV.setFloat32(ptr + 4, 0, true);
+        gDV.setFloat32(ptr + 8, 0, true);
+        gDV.setFloat32(ptr + 12, 120.0, true);
+        gDV.setUint32(ptr + 16, 1, true);
+        gDV.setUint32(ptr + 20, 1, true);
+        ptr += 24;
+
+        // Vertices
+        for (let i = 0; i < chunk.verts.length; i++) {
+            gDV.setFloat32(ptr, chunk.verts[i], true);
+            ptr += 4;
+        }
+
+        // Normals
+        for (let i = 0; i < chunk.norms.length; i++) {
+            gDV.setFloat32(ptr, chunk.norms[i], true);
+            ptr += 4;
+        }
+
+        // BinMeshPLG (0x050E)
+        const totalIndices = numTris * 3;
+        const binMeshBuf = new ArrayBuffer(20 + totalIndices * 4);
+        const bmDV = new DataView(binMeshBuf);
+        bmDV.setUint32(0, 0, true);
+        bmDV.setUint32(4, 1, true);
+        bmDV.setUint32(8, totalIndices, true);
+        bmDV.setUint32(12, totalIndices, true);
+        bmDV.setUint32(16, 0, true);
+        let bmPtr = 20;
+        for (let i = 0; i < totalIndices; i++) {
+            bmDV.setUint32(bmPtr, chunk.tris[i], true);
+            bmPtr += 4;
+        }
+        const geomExts = [makeSection(0x050E, new Uint8Array(binMeshBuf))];
+
+        // Rockstar Extra Night Vertex Colors (0x0253F2F9) — Kechasi 100% yorqin yonishi uchun!
+        if (writePrelit) {
+            const nvcBuf = new ArrayBuffer(4 + numVerts * 4);
+            const nvcDV = new DataView(nvcBuf);
+            nvcDV.setUint32(0, 0x01, true); // magic = 1
+            const [gr, gg, gb] = chunk.glowRGB;
+            for (let i = 0; i < numVerts; i++) {
+                const off = 4 + i * 4;
+                nvcDV.setUint8(off, gr);
+                nvcDV.setUint8(off + 1, gg);
+                nvcDV.setUint8(off + 2, gb);
+                nvcDV.setUint8(off + 3, 255);
+            }
+            geomExts.push(makeSection(0x0253F2F9, new Uint8Array(nvcBuf)));
+        }
+
+        const geometrySection = makeSection(0x000F, concatArrays([
+            makeSection(0x0001, new Uint8Array(geomBuf)),
+            materialList,
+            makeSection(0x0003, concatArrays(geomExts))
+        ]));
+        geometrySections.push(geometrySection);
+
+        // Atomic (0x0014)
+        const atomicBuf = new ArrayBuffer(16);
+        const aDV = new DataView(atomicBuf);
+        aDV.setUint32(0, chunkIdx + 1, true);
+        aDV.setUint32(4, chunkIdx, true);
+        aDV.setUint32(8, 5, true);
+        aDV.setUint32(12, 0, true);
+        atomicSections.push(makeSection(0x0014, concatArrays([
+            makeSection(0x0001, new Uint8Array(atomicBuf)),
+            makeSection(0x0003, new Uint8Array(0))
+        ])));
+    });
+
+    const geomListStructBuf = new ArrayBuffer(4);
+    new DataView(geomListStructBuf).setUint32(0, numParts, true);
+    const geometryList = makeSection(0x001A, concatArrays([
+        makeSection(0x0001, new Uint8Array(geomListStructBuf)),
+        ...geometrySections
+    ]));
+
+    const clumpBinary = makeSection(0x0010, concatArrays([
+        clumpStruct,
+        frameList,
+        geometryList,
+        ...atomicSections,
+        makeSection(0x0003, new Uint8Array(0))
+    ]));
+
+    const activeName = (exportChunks[selectedPartIndex]?.name || 'it_shakh_gta_light').replace(/\s+/g, '_');
+    const blob = new Blob([clumpBinary], { type: 'application/octet-stream' });
+    downloadFile(blob, `${activeName}.dff`);
+    setStatus(`✓ ZModeler 2.2.6 va GTA SA uchun tayyor "${activeName}.dff" (${(clumpBinary.byteLength / 1024).toFixed(1)} KB) yuklab olindi!`);
+}
+
+// ==================== 4. TXD UCHUN MAXSUS EMISSIVE .PNG TEKSTURA GENERATORI ====================
+function exportGTATexturePNG() {
+    const part = sceneParts[selectedPartIndex] || sceneParts[0];
+    const glowHex = part ? part.glowHex : document.getElementById('glowColorPicker').value;
+    const texName = (part ? part.texName : document.getElementById('txdTexNameInput').value) || 'vehiclelights128';
+
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = 512;
+    const ctx = c.getContext('2d');
+
+    // GTA SA vehiclelights128 uslubidagi LED / Neon nurli tekstura
+    ctx.fillStyle = glowHex;
+    ctx.fillRect(0, 0, 512, 512);
+
+    const rad = ctx.createRadialGradient(256, 256, 20, 256, 256, 250);
+    rad.addColorStop(0, '#ffffff');
+    rad.addColorStop(0.45, glowHex);
+    rad.addColorStop(1, '#111827');
+    ctx.fillStyle = rad;
+    ctx.fillRect(0, 0, 512, 512);
+
+    // LED optik chiziqlari
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 2;
+    for (let y = 0; y < 512; y += 16) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(512, y);
+        ctx.stroke();
+    }
+
+    c.toBlob(blob => {
+        downloadFile(blob, `${texName}.png`);
+        setStatus(`✓ TXD Workshop / Magic.TXD uchun "${texName}.png" teksturasi yuklab olindi!`);
+    }, 'image/png');
+}
+
+function downloadFile(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+// ==================== FAYL YUKLASH VA UI HODISALARI ====================
+function handleUploadedFile(file, replaceAll) {
+    if (!file) return;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/\s+/g, '_');
+
+    if (ext === 'dff') {
+        const reader = new FileReader();
+        reader.onload = e => loadGTADFFBuffer(e.target.result, file.name, replaceAll);
+        reader.readAsArrayBuffer(file);
+    } else if (ext === 'svg') {
+        const reader = new FileReader();
+        reader.onload = e => create3DLogoFromSVG(e.target.result, cleanName, replaceAll);
+        reader.readAsText(file);
+    } else if (ext === 'png') {
+        const reader = new FileReader();
+        reader.onload = e => {
+            const img = new Image();
+            img.onload = () => create3DLogoFromPNG(img, cleanName, replaceAll);
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    } else if (ext === 'obj') {
+        const reader = new FileReader();
+        reader.onload = e => {
+            if (replaceAll) clearAllParts();
+            const loader = new THREE.OBJLoader();
+            const obj = loader.parse(e.target.result);
+            obj.traverse(ch => {
+                if (ch.isMesh && ch.geometry) {
+                    const g = fixWindingAndWeld(ch.geometry, false);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x00f0ff, side: THREE.DoubleSide });
+                    addPartToScene(new THREE.Mesh(g, mat), cleanName, true);
+                }
+            });
+        };
+        reader.readAsText(file);
+    }
+}
+
+document.getElementById('baseDffInput').addEventListener('change', e => {
+    if (e.target.files.length) handleUploadedFile(e.target.files[0], true);
+});
+document.getElementById('addLogoInput').addEventListener('change', e => {
+    if (e.target.files.length) handleUploadedFile(e.target.files[0], false);
+});
+
+document.getElementById('meshPartSelect').addEventListener('change', e => {
+    selectedPartIndex = parseInt(e.target.value, 10) || 0;
+    loadSelectedPartToUI();
+    applySimulationLighting();
+});
+
+document.getElementById('nodeNameInput').addEventListener('input', e => {
+    const part = sceneParts[selectedPartIndex];
+    if (part) {
+        part.name = e.target.value.trim() || 'shakh_light';
+        refreshPartsDropdown();
+    }
+});
+
+document.querySelectorAll('#magicRgbGrid .rgb-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('#magicRgbGrid .rgb-pill').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const part = sceneParts[selectedPartIndex];
+        if (part) {
+            part.magicRGB = btn.dataset.rgb.split(',').map(Number);
+            part.magicCode = btn.dataset.code;
+            part.isLightLogo = true;
+            refreshPartsDropdown();
+            updateGuideText();
+            applySimulationLighting();
+        }
+    });
+});
+
+document.getElementById('gtaLightModeSelect').addEventListener('change', applySimulationLighting);
+
+document.getElementById('glowColorPicker').addEventListener('input', e => {
+    const part = sceneParts[selectedPartIndex];
+    if (part) {
+        part.glowHex = e.target.value;
+        part.isLightLogo = true;
+        applySimulationLighting();
+    }
+});
+
+document.getElementById('glowPowerSlider').addEventListener('input', e => {
+    const val = parseFloat(e.target.value);
+    document.getElementById('glowPowerVal').textContent = val.toFixed(2) + 'x';
+    const part = sceneParts[selectedPartIndex];
+    if (part) {
+        part.glowPower = val;
+        applySimulationLighting();
+    }
+});
+
+document.getElementById('txdTexNameInput').addEventListener('input', e => {
+    const part = sceneParts[selectedPartIndex];
+    if (part) {
+        part.texName = e.target.value.trim() || 'vehiclelights128';
+        updateGuideText();
+    }
+});
+
+// Pozitsiya va O'lcham slayderlari
+function updateSelectedPartTransform() {
+    const part = sceneParts[selectedPartIndex];
+    if (!part || !part.mesh) return;
+
+    part.userScale = parseFloat(document.getElementById('scaleSlider').value) || 1;
+    part.offsetX = parseFloat(document.getElementById('posXSlider').value) || 0;
+    part.offsetY = parseFloat(document.getElementById('posYSlider').value) || 0;
+    part.offsetZ = parseFloat(document.getElementById('posZSlider').value) || 0;
+    part.rotY = parseFloat(document.getElementById('rotYSlider').value) || 0;
+
+    part.mesh.scale.setScalar(part.baseScale * part.userScale);
+    part.mesh.position.set(part.offsetX, part.offsetY, part.offsetZ);
+    part.mesh.rotation.y = THREE.MathUtils.degToRad(part.rotY);
+
+    document.getElementById('scaleVal').textContent = part.userScale.toFixed(2) + 'x';
+    document.getElementById('posXVal').textContent = part.offsetX;
+    document.getElementById('posYVal').textContent = part.offsetY;
+    document.getElementById('posZVal').textContent = part.offsetZ;
+    document.getElementById('rotYVal').textContent = part.rotY + '°';
+
+    applySimulationLighting();
+}
+
+['scaleSlider', 'posXSlider', 'posYSlider', 'posZSlider', 'rotYSlider'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateSelectedPartTransform);
+});
+
+document.getElementById('depthSlider').addEventListener('input', e => {
+    document.getElementById('depthVal').textContent = e.target.value;
+    const part = sceneParts[selectedPartIndex];
+    if (part && part.rawSvg) {
+        const savedName = part.name;
+        const savedSvg = part.rawSvg;
+        modelRoot.remove(part.mesh);
+        sceneParts.splice(selectedPartIndex, 1);
+        create3DLogoFromSVG(savedSvg, savedName, false);
+    }
+});
+
+// Kun / Tun va Fara tugmalari
+document.getElementById('daySimBtn').addEventListener('click', function () {
+    isNightModeSim = false;
+    this.classList.add('active');
+    document.getElementById('nightSimBtn').classList.remove('active');
+    applySimulationLighting();
+});
+
+document.getElementById('nightSimBtn').addEventListener('click', function () {
+    isNightModeSim = true;
+    headlightsOn = true;
+    this.classList.add('active');
+    document.getElementById('daySimBtn').classList.remove('active');
+    applySimulationLighting();
+});
+
+document.getElementById('headlightToggleBtn').addEventListener('click', () => {
+    headlightsOn = !headlightsOn;
+    applySimulationLighting();
+});
+
+document.getElementById('wireBtn').addEventListener('click', function () {
+    isWireframe = !isWireframe;
+    this.classList.toggle('active', isWireframe);
+    applySimulationLighting();
+});
+
+document.getElementById('rotateBtn').addEventListener('click', function () {
+    controls.autoRotate = !controls.autoRotate;
+    this.classList.toggle('active', controls.autoRotate);
+});
+
+document.getElementById('enable2dfxBtn').addEventListener('click', function () {
+    enable2dfx = !enable2dfx;
+    this.classList.toggle('active', enable2dfx);
+    this.textContent = enable2dfx ? '🌟 2DFX CORONA: ON' : '🌟 2DFX CORONA: OFF';
+    applySimulationLighting();
+});
+
+document.getElementById('enablePrelitBtn').addEventListener('click', function () {
+    enablePrelit = !enablePrelit;
+    this.classList.toggle('active', enablePrelit);
+    this.textContent = enablePrelit ? '💎 PRELIT VERTEX: ON' : '💎 PRELIT VERTEX: OFF';
+});
+
+document.getElementById('exportDffBtn').addEventListener('click', exportGTADFF);
+document.getElementById('exportTexBtn').addEventListener('click', exportGTATexturePNG);
+
+// Demo GTA SA Yonuvchi Gerb
+const DEMO_SHAKH_CREST_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <path d="M100 8 L178 48 L178 128 L100 192 L22 128 L22 48 Z M100 28 L42 58 L42 118 L100 168 L158 118 L158 58 Z"/>
+  <path d="M55 42 L72 18 L100 36 L128 18 L145 42 L132 52 L68 52 Z"/>
+  <path d="M84 68 L124 68 L104 98 L130 98 L74 150 L90 108 L68 108 Z"/>
+</svg>`;
+
+function loadDemoGlowLogo() {
+    create3DLogoFromSVG(DEMO_SHAKH_CREST_SVG, 'shakh_hood_light', true);
+}
+
+document.getElementById('demoLogoBtn').addEventListener('click', loadDemoGlowLogo);
+document.getElementById('clearSceneBtn').addEventListener('click', clearAllParts);
+
+window.addEventListener('resize', () => {
+    camera.aspect = viewport.clientWidth / viewport.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+});
+
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+loadDemoGlowLogo();
+animate();
+</script>
+</body>
+</html>
