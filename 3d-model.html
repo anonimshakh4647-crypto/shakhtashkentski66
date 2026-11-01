@@ -466,7 +466,7 @@
         </div>
         <div class="status-bar">
             <span id="status-msg">✓ Fayl tanlang (.JPG, .PNG, .SVG, .OBJ yoki .DFF). Avto-nomer va diskalar/obyektlar alohida aniq algoritmda 3D qilinadi.</span>
-            <span>DUAL-ENGINE CAD 3D DFF v9.0</span>
+            <span>WATERTIGHT CAD 3D DFF v10.0</span>
         </div>
     </div>
 </div>
@@ -486,7 +486,6 @@ modeToggle.addEventListener('click', () => {
 let targetDffMaxSpan = 1.9781336;
 const VIEWPORT_DISPLAY_SPAN = 110.0;
 
-// Rejim: 'auto' | 'plate' | 'object'
 let userSelectedMode = 'auto';
 
 // ==================== THREE.JS SAHNA SOZLAMALARI ====================
@@ -589,37 +588,6 @@ function smoothScalarFieldSDF(field, W, H, passes = 2) {
         dst = tmp;
     }
     return src;
-}
-
-// Morfologik yopish va tozalash (Diska va logotiplardagi mayda yaltiroq dog'larni va uzilishlarni yo'qotadi)
-function morphologicalCloseAndCleanField(field, W, H) {
-    const dilated = new Float32Array(W * H);
-    for (let y = 1; y < H - 1; y++) {
-        const row = y * W;
-        for (let x = 1; x < W - 1; x++) {
-            const i = row + x;
-            let maxV = field[i];
-            if (field[i - 1] > maxV) maxV = field[i - 1];
-            if (field[i + 1] > maxV) maxV = field[i + 1];
-            if (field[i - W] > maxV) maxV = field[i - W];
-            if (field[i + W] > maxV) maxV = field[i + W];
-            dilated[i] = maxV;
-        }
-    }
-    const eroded = new Float32Array(W * H);
-    for (let y = 1; y < H - 1; y++) {
-        const row = y * W;
-        for (let x = 1; x < W - 1; x++) {
-            const i = row + x;
-            let minV = dilated[i];
-            if (dilated[i - 1] < minV) minV = dilated[i - 1];
-            if (dilated[i + 1] < minV) minV = dilated[i + 1];
-            if (dilated[i - W] < minV) minV = dilated[i - W];
-            if (dilated[i + W] < minV) minV = dilated[i + W];
-            eroded[i] = minV;
-        }
-    }
-    return eroded;
 }
 
 function traceSubPixelContours(field, W, H, threshold = 0.5) {
@@ -900,6 +868,19 @@ function isPointInPolygon(pt, poly) {
     return inside;
 }
 
+// Ko'p nuqtali tekshiruv (Hole o'zining haqiqiy Outer poligoniga xatosiz birikishi uchun)
+function isHoleInsideOuter(holePts, outerPts) {
+    const n = holePts.length;
+    const idx0 = 0;
+    const idx1 = Math.floor(n / 3);
+    const idx2 = Math.floor((2 * n) / 3);
+    let hits = 0;
+    if (isPointInPolygon(holePts[idx0], outerPts)) hits++;
+    if (isPointInPolygon(holePts[idx1], outerPts)) hits++;
+    if (isPointInPolygon(holePts[idx2], outerPts)) hits++;
+    return hits >= 2;
+}
+
 function buildExactShapesFromField(rawField, W, H, worldW, worldH, minPixelArea = 4.0, rdpEps = 0.42, maxWorldArea = Infinity, smoothPasses = 5, sdfPasses = 2, preserveSharpCorners = true) {
     const sdfField = sdfPasses > 0 ? smoothScalarFieldSDF(rawField, W, H, sdfPasses) : rawField;
     const rawLoops = traceSubPixelContours(sdfField, W, H, 0.50);
@@ -936,9 +917,8 @@ function buildExactShapesFromField(rawField, W, H, worldW, worldH, minPixelArea 
     outers.sort((a, b) => a.area - b.area);
 
     holes.forEach(h => {
-        const testPt = h.pts[0];
         for (let i = 0; i < outers.length; i++) {
-            if (outers[i].area > h.area && isPointInPolygon(testPt, outers[i].pts)) {
+            if (outers[i].area > h.area && isHoleInsideOuter(h.pts, outers[i].pts)) {
                 outers[i].holes.push(h.pts);
                 break;
             }
@@ -1019,8 +999,6 @@ function detectIsLicensePlateImage(img) {
     if (userSelectedMode === 'object') return false;
 
     const aspect = img.width / img.height;
-    // Avto nomerlar har doim gorizontal to'rtburchak (proporsiyasi 1.85 .. 5.8 oralig'ida) bo'ladi.
-    // Diskalar, logotiplar, belgilar esa kvadratga yaqin (0.7 .. 1.65) yoki shaffof fonli bo'ladi.
     if (aspect < 1.80 || aspect > 5.80) return false;
 
     const sampleW = 160;
@@ -1037,7 +1015,6 @@ function detectIsLicensePlateImage(img) {
     for (let i = 3; i < data.length; i += 4) {
         if (data[i] < 60) transparentCount++;
     }
-    // Agar rasmning > 12% qismi shaffof bo'lsa (masalan shaffof fonli PNG logo/diska), u obyekt rejimiga o'tadi
     if (transparentCount / total > 0.12) return false;
     return true;
 }
@@ -1584,17 +1561,131 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
     setStatus(`✓ ${fileName.toUpperCase()} (Avto-Nomer rejimi) 100% tiniq CAD-vektor 3D modelga aylantirildi!`);
 }
 
-// ==================== 2-ENGINE: DISKA, LOGOTIP VA BOSHQA OBYEKTLAR UCHUN SPECULAR-FREE 3D ENGINE ====================
-// Bu engine:
-// 1) Shaffof chekkadagi oq halo-hoshiyalarni (white fringe) 100% tozalaydi.
-// 2) Qora metall ustidagi kulrang yaltiroq blinlarni (specular highlights) alohida g'adir-budur qatlam qilmasdan,
-//    silliq asosiy qora korpusga birlashtiradi!
-// 3) Sariq, qizil, ko'k, yashil va xrom/kumush qismlarni silliq 3D bo'rtma qatlam qilib chiqaradi!
+// ==================== 2-ENGINE: DISKA, LOGOTIP VA UMUMIY RASMLAR UCHUN WATERTIGHT BFS CAD ENGINE ====================
+// BFS Connected-Component Despeckler:
+// Yuzadagi barcha mayda yaltiroq shu'lalarni (specular blotches) va shovqinlarni atrofidagi asosiy rangga choksiz birlashtiradi!
+function despeckleLabelGridBFS(labelGrid, W, H, minComponentSize) {
+    const total = W * H;
+    const visited = new Uint8Array(total);
+    const queue = new Int32Array(total);
+    const compPixels = new Int32Array(total);
+    const dirs = [-1, 1, -W, W];
+
+    for (let startIdx = 0; startIdx < total; startIdx++) {
+        const myLabel = labelGrid[startIdx];
+        if (myLabel === 0 || visited[startIdx]) continue;
+
+        let qHead = 0, qTail = 0;
+        let compCount = 0;
+        queue[qTail++] = startIdx;
+        visited[startIdx] = 1;
+
+        const neighborCounts = new Map();
+
+        while (qHead < qTail) {
+            const curr = queue[qHead++];
+            compPixels[compCount++] = curr;
+
+            for (let d = 0; d < 4; d++) {
+                const ni = curr + dirs[d];
+                if (ni < 0 || ni >= total) continue;
+                const nLabel = labelGrid[ni];
+                if (nLabel === myLabel) {
+                    if (!visited[ni]) {
+                        visited[ni] = 1;
+                        queue[qTail++] = ni;
+                    }
+                } else if (nLabel > 0) {
+                    neighborCounts.set(nLabel, (neighborCounts.get(nLabel) || 0) + 1);
+                }
+            }
+        }
+
+        // Agar bu rang bo'lakchasi mayda dog'/blin bo'lsa (< minComponentSize) va boshqa rang ichida yotsa,
+        // uni atrofidagi asosiy rangga qo'shib yuboramiz!
+        if (compCount < minComponentSize && neighborCounts.size > 0) {
+            let bestNeighbor = 0;
+            let bestCnt = -1;
+            for (const [nLab, cnt] of neighborCounts.entries()) {
+                if (cnt > bestCnt) {
+                    bestCnt = cnt;
+                    bestNeighbor = nLab;
+                }
+            }
+            if (bestNeighbor > 0) {
+                for (let k = 0; k < compCount; k++) {
+                    labelGrid[compPixels[k]] = bestNeighbor;
+                }
+            }
+        }
+    }
+}
+
+// Obyekt siluetidagi (solidMask) mayda changlarni va mikro-teshiklarni BFS bilan tozalash
+function cleanBinarySilhouetteBFS(solidMask, W, H, minFgSize = 40, minHoleSize = 30) {
+    const total = W * H;
+    const visited = new Uint8Array(total);
+    const queue = new Int32Array(total);
+    const compPixels = new Int32Array(total);
+    const dirs = [-1, 1, -W, W];
+
+    // 1. Mayda yakka foreground changlarni o'chirish
+    for (let i = 0; i < total; i++) {
+        if (solidMask[i] === 1 && !visited[i]) {
+            let qHead = 0, qTail = 0, compCount = 0;
+            queue[qTail++] = i;
+            visited[i] = 1;
+            while (qHead < qTail) {
+                const curr = queue[qHead++];
+                compPixels[compCount++] = curr;
+                for (let d = 0; d < 4; d++) {
+                    const ni = curr + dirs[d];
+                    if (ni >= 0 && ni < total && solidMask[ni] === 1 && !visited[ni]) {
+                        visited[ni] = 1;
+                        queue[qTail++] = ni;
+                    }
+                }
+            }
+            if (compCount < minFgSize) {
+                for (let k = 0; k < compCount; k++) solidMask[compPixels[k]] = 0;
+            }
+        }
+    }
+
+    // 2. Obyekt ichidagi mikro-teshikchalarni (< minHoleSize) yopish
+    visited.fill(0);
+    for (let i = 0; i < total; i++) {
+        if (solidMask[i] === 0 && !visited[i]) {
+            let qHead = 0, qTail = 0, compCount = 0;
+            let touchesBorder = false;
+            queue[qTail++] = i;
+            visited[i] = 1;
+            while (qHead < qTail) {
+                const curr = queue[qHead++];
+                compPixels[compCount++] = curr;
+                const cy = Math.floor(curr / W);
+                const cx = curr % W;
+                if (cx === 0 || cx === W - 1 || cy === 0 || cy === H - 1) touchesBorder = true;
+                for (let d = 0; d < 4; d++) {
+                    const ni = curr + dirs[d];
+                    if (ni >= 0 && ni < total && solidMask[ni] === 0 && !visited[ni]) {
+                        visited[ni] = 1;
+                        queue[qTail++] = ni;
+                    }
+                }
+            }
+            if (!touchesBorder && compCount < minHoleSize) {
+                for (let k = 0; k < compCount; k++) solidMask[compPixels[k]] = 1;
+            }
+        }
+    }
+}
+
 function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
     const baseDepth = parseFloat(document.getElementById('depthSlider').value) || 3.5;
     const reliefHeight = parseFloat(document.getElementById('reliefSlider').value) || 1.6;
     const smoothPasses = parseInt(document.getElementById('sharpSlider').value, 10) || 5;
-    const targetLongSide = 1050;
+    const targetLongSide = 920;
 
     const aspect = img.width / img.height;
     const wRaw = aspect >= 1 ? targetLongSide : Math.max(240, Math.round(targetLongSide * aspect));
@@ -1602,6 +1693,7 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
 
     const W = wRaw + 2;
     const H = hRaw + 2;
+    const totalGrid = W * H;
 
     const canvas = document.createElement('canvas');
     canvas.width = wRaw;
@@ -1615,24 +1707,33 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
     const worldW = aspect >= 1 ? VIEWPORT_DISPLAY_SPAN : VIEWPORT_DISPLAY_SPAN * aspect;
     const worldH = aspect >= 1 ? VIEWPORT_DISPLAY_SPAN / aspect : VIEWPORT_DISPLAY_SPAN;
 
-    // 1. Burchaklardan fon shaffof yoki oq/bir xil rangda ekanligini tekshirish
-    let cornerTrans = 0;
-    let cornerWhite = 0;
-    const cornerCoords = [
-        [2, 2], [wRaw - 3, 2], [2, hRaw - 3], [wRaw - 3, hRaw - 3],
-        [Math.floor(wRaw * 0.5), 2], [Math.floor(wRaw * 0.5), hRaw - 3]
-    ];
-    cornerCoords.forEach(([cx, cy]) => {
+    // 1. Фон shaffof yoki yaxlit oq/bir xil rangda ekanligini aniqlash
+    let transCorners = 0;
+    const cornerSamples = [];
+    const cPts = [[1, 1], [wRaw - 2, 1], [1, hRaw - 2], [wRaw - 2, hRaw - 2]];
+    cPts.forEach(([cx, cy]) => {
         const idx = (cy * wRaw + cx) * 4;
-        if (imgData[idx + 3] < 80) cornerTrans++;
-        else if (imgData[idx] > 235 && imgData[idx + 1] > 235 && imgData[idx + 2] > 235) cornerWhite++;
+        if (imgData[idx + 3] < 100) transCorners++;
+        else cornerSamples.push([imgData[idx], imgData[idx + 1], imgData[idx + 2]]);
     });
 
-    const hasSolidWhiteBg = (cornerTrans === 0 && cornerWhite >= 4);
+    const isTransparentPng = transCorners >= 2;
+    let bgR = 255, bgG = 255, bgB = 255;
+    let hasUniformCornerBg = false;
+
+    if (!isTransparentPng && cornerSamples.length >= 3) {
+        bgR = Math.round(cornerSamples.reduce((s, c) => s + c[0], 0) / cornerSamples.length);
+        bgG = Math.round(cornerSamples.reduce((s, c) => s + c[1], 0) / cornerSamples.length);
+        bgB = Math.round(cornerSamples.reduce((s, c) => s + c[2], 0) / cornerSamples.length);
+        const maxDiff = Math.max(...cornerSamples.map(c => Math.hypot(c[0] - bgR, c[1] - bgG, c[2] - bgB)));
+        if (maxDiff < 28) hasUniformCornerBg = true;
+    }
 
     // 2. Obyektning haqiqiy siluet maskasini (solidMask) qurish
-    const solidMask = new Uint8Array(W * H);
-    const silhouetteField = new Float32Array(W * H);
+    const solidMask = new Uint8Array(totalGrid);
+    const rClean = new Uint8Array(totalGrid);
+    const gClean = new Uint8Array(totalGrid);
+    const bClean = new Uint8Array(totalGrid);
 
     for (let y = 0; y < hRaw; y++) {
         const dstRow = (y + 1) * W;
@@ -1641,30 +1742,32 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
             const idx = (srcRow + x) * 4;
             const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2], a = imgData[idx + 3];
             const fi = dstRow + (x + 1);
+            rClean[fi] = r;
+            gClean[fi] = g;
+            bClean[fi] = b;
 
-            if (hasSolidWhiteBg) {
-                const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-                const chr = Math.max(r, g, b) - Math.min(r, g, b);
-                if (lum < 242 || chr > 18) {
-                    solidMask[fi] = 1;
-                    silhouetteField[fi] = Math.min(1.0, Math.max((248 - lum) / 30, chr / 25));
-                }
+            if (isTransparentPng) {
+                if (a >= 128) solidMask[fi] = 1;
+            } else if (hasUniformCornerBg) {
+                const distBg = Math.hypot(r - bgR, g - bgG, b - bgB);
+                if (a >= 128 && distBg > 24) solidMask[fi] = 1;
             } else {
-                // Shaffof PNG (masalan Diska): chetidagi yarim-shaffof oq halo kirmasligi uchun a >= 135
-                if (a >= 135) {
-                    solidMask[fi] = 1;
-                }
-                silhouetteField[fi] = Math.max(0.0, Math.min(1.0, (a - 65) / 140));
+                if (a >= 128) solidMask[fi] = 1;
             }
         }
     }
 
-    // 3. Shaffof chegaragacha bo'lgan masofa (distToEdge):
-    // Chegaradan <= 5 piksel masofadagi oqish halo-piksellar "Oq/Xrom" qatlamiga o'tib ketmasligi uchun!
-    const distToEdge = new Uint8Array(W * H);
-    for (let i = 0; i < W * H; i++) {
+    cleanBinarySilhouetteBFS(solidMask, W, H, 45, 30);
+
+    // 3. ALPHA EDGE DE-FRINGING (3-Pass Inward Color Propagation):
+    // Shaffof chegara yaqinidagi (distToEdge <= 4) oqish anti-aliasing hoshiyalarni ichki haqiqiy rang bilan almashtiramiz!
+    const distToEdge = new Uint8Array(totalGrid);
+    for (let i = 0; i < totalGrid; i++) {
         distToEdge[i] = solidMask[i] ? 255 : 0;
     }
+    const dirs4 = [-1, 1, -W, W];
+    const dirs8 = [-1, 1, -W, W, -W - 1, -W + 1, W - 1, W + 1];
+
     for (let pass = 1; pass <= 6; pass++) {
         for (let y = 1; y < H - 1; y++) {
             const row = y * W;
@@ -1680,162 +1783,217 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
         }
     }
 
-    // 4. SEMANTIK RANG GURUHLASH (Specular-Free Semantic Segmentation):
-    // - Dark/Black Metal (shu jumladan barcha kulrang yaltiroq blinlar!) -> Bitta yaxlit silliq Qora Korpus (#14171C)
-    // - Chromatic Hue Buckets (Sariq/Oltin, Qizil, Ko'k/Moviy, Yashil, Olovrang, Binafsha) -> Silliq 3D Bo'rtma Qatlamlar
-    // - Chrome / Silver / White (Markaziy kumush halqa va ichki oq detallar) -> Silliq Xrom 3D Qatlam (#EAEEF4)
-    const hueBuckets = [
-        { name: 'YELLOW_GOLD',   field: new Float32Array(W * H), sumR: 0, sumG: 0, sumB: 0, count: 0 },
-        { name: 'RED_CRIMSON',   field: new Float32Array(W * H), sumR: 0, sumG: 0, sumB: 0, count: 0 },
-        { name: 'BLUE_CYAN',     field: new Float32Array(W * H), sumR: 0, sumG: 0, sumB: 0, count: 0 },
-        { name: 'GREEN_EMERALD', field: new Float32Array(W * H), sumR: 0, sumG: 0, sumB: 0, count: 0 },
-        { name: 'ORANGE_AMBER',  field: new Float32Array(W * H), sumR: 0, sumG: 0, sumB: 0, count: 0 },
-        { name: 'PURPLE_VIOLET', field: new Float32Array(W * H), sumR: 0, sumG: 0, sumB: 0, count: 0 }
-    ];
+    // Ichkaridagi toza piksellardan (distToEdge >= 4) tashqi chegaraga qarab rangni tarqatamiz (White Fringe 100% yo'qoladi!)
+    for (let targetDist = 3; targetDist >= 1; targetDist--) {
+        for (let y = 1; y < H - 1; y++) {
+            const row = y * W;
+            for (let x = 1; x < W - 1; x++) {
+                const i = row + x;
+                if (distToEdge[i] !== targetDist) continue;
 
-    const chromeSilverField = new Float32Array(W * H);
-    let chromeSumR = 0, chromeSumG = 0, chromeSumB = 0, chromeCount = 0;
+                const r = rClean[i], g = gClean[i], b = bClean[i];
+                const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                const chr = Math.max(r, g, b) - Math.min(r, g, b);
 
-    let darkBodySumR = 0, darkBodySumG = 0, darkBodySumB = 0, darkBodyCount = 0;
-
-    for (let y = 0; y < hRaw; y++) {
-        const dstRow = (y + 1) * W;
-        const srcRow = y * wRaw;
-        for (let x = 0; x < wRaw; x++) {
-            const fi = dstRow + (x + 1);
-            if (!solidMask[fi]) continue;
-
-            const idx = (srcRow + x) * 4;
-            const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
-            const maxC = Math.max(r, g, b);
-            const minC = Math.min(r, g, b);
-            const chroma = maxC - minC;
-            const sat = maxC > 0 ? (chroma / maxC) : 0;
-            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-
-            // 1) Yorqin rangli (Chromatic) qismlar (masalan Diskaning Sariq yuzalari, Qizil logolar va h.k.)
-            if (chroma >= 36 && sat >= 0.26 && lum >= 35) {
-                let hue = 0;
-                if (maxC === r) {
-                    hue = ((g - b) / chroma) % 6;
-                } else if (maxC === g) {
-                    hue = (b - r) / chroma + 2;
-                } else {
-                    hue = (r - g) / chroma + 4;
+                // Agar chegara pikseli oqish/kulrang halo bo'lsa, ichkaridagi qo'shnisining rangini oladi
+                if (lum > 110 && chr < 50) {
+                    for (let d = 0; d < 8; d++) {
+                        const ni = i + dirs8[d];
+                        if (distToEdge[ni] > targetDist) {
+                            rClean[i] = rClean[ni];
+                            gClean[i] = gClean[ni];
+                            bClean[i] = bClean[ni];
+                            break;
+                        }
+                    }
                 }
-                hue = Math.round(hue * 60);
-                if (hue < 0) hue += 360;
-
-                let bIdx = 0;
-                if (hue >= 40 && hue < 82)       bIdx = 0; // Sariq / Oltin
-                else if (hue < 18 || hue >= 335) bIdx = 1; // Qizil
-                else if (hue >= 170 && hue < 265) bIdx = 2; // Ko'k / Moviy
-                else if (hue >= 82 && hue < 170)  bIdx = 3; // Yashil
-                else if (hue >= 18 && hue < 40)   bIdx = 4; // Olovrang
-                else                              bIdx = 5; // Binafsha
-
-                const bucket = hueBuckets[bIdx];
-                bucket.field[fi] = Math.min(1.0, (chroma - 20) / 45);
-                // Rangni eng tiniq/yorqin piksellardan yig'amiz (qoramtir soyalar rangni xiralashtirmasligi uchun)
-                if (chroma > 75 && lum > 90) {
-                    bucket.sumR += r;
-                    bucket.sumG += g;
-                    bucket.sumB += b;
-                    bucket.count++;
-                }
-                continue;
             }
-
-            // 2) Xrom / Kumush / Oq ichki detallar (masalan Diska markazidagi kumush halqa):
-            // Chegaradagi oq anti-aliasing halo kirmasligi uchun distToEdge[fi] >= 5 bo'lishi shart!
-            if (lum >= 168 && chroma < 36 && distToEdge[fi] >= 5) {
-                chromeSilverField[fi] = Math.min(1.0, (lum - 145) / 55);
-                chromeSumR += r;
-                chromeSumG += g;
-                chromeSumB += b;
-                chromeCount++;
-                continue;
-            }
-
-            // 3) Qora metall va uning ustidagi barcha kulrang yaltiroq shu'lalar (Specular highlights):
-            // Bularning barchasi asosiy korpusga birlashadi (hech qanday alohida kulrang dog' chiqmaydi!)
-            darkBodySumR += r;
-            darkBodySumG += g;
-            darkBodySumB += b;
-            darkBodyCount++;
         }
     }
 
-    // Asosiy korpus rangi (Diska kabi qora metall obyektlar uchun chuqur grafit-qora #14171C)
-    let baseBodyColor = new THREE.Color(0.078, 0.090, 0.110);
-    if (darkBodyCount > 50) {
-        const avgR = darkBodySumR / darkBodyCount;
-        const avgG = darkBodySumG / darkBodyCount;
-        const avgB = darkBodySumB / darkBodyCount;
-        const avgLum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
-        if (avgLum < 85) {
-            baseBodyColor.setRGB(0.078, 0.090, 0.110); // Chuqur silliq qora metall
-        } else {
-            baseBodyColor.setRGB(avgR / 255, avgG / 255, avgB / 255);
+    // 4. ADAPTIVE COLOR PALETTE CLUSTERING (Obyektning barcha haqiqiy ranglarini topish):
+    // Qora metall va uning ustidagi kulrang yaltiroq shu'lalar (lum < 118, chr < 28) bitta silliq Qora Metall klasteriga birlashadi!
+    const palette = []; // [{ id, r, g, b, sumR, sumG, sumB, count, isDarkBase, zPriority }]
+
+    function getOrAssignPaletteCluster(r, g, b, isSamplePass = false) {
+        const maxC = Math.max(r, g, b);
+        const minC = Math.min(r, g, b);
+        const chr = maxC - minC;
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        // Qora metall + to'q kulrang yaltiroq shu'lalar (Diska spitsalari va korpusi silliq chiqishi uchun)
+        if (lum < 118 && chr < 28) {
+            r = 20; g = 23; b = 28;
+        } else if (lum > 195 && chr < 28) {
+            // Yorqin Kumush / Xrom / Oq (masalan Diska markaziy halqasi yoki oq logo)
+            r = 238; g = 242; b = 247;
+        } else if (chr < 28) {
+            // O'rta kumush / titan kulrang (118..195)
+            r = 165; g = 172; b = 182;
+        }
+
+        let bestCluster = null;
+        let bestDist = Infinity;
+        for (let i = 0; i < palette.length; i++) {
+            const c = palette[i];
+            const d = Math.hypot(c.r - r, c.g - g, c.b - b);
+            if (d < bestDist) {
+                bestDist = d;
+                bestCluster = c;
+            }
+        }
+
+        const mergeThreshold = chr >= 35 ? 68 : 48;
+        if (bestCluster && bestDist < mergeThreshold) {
+            if (isSamplePass) {
+                bestCluster.count++;
+                bestCluster.sumR += r;
+                bestCluster.sumG += g;
+                bestCluster.sumB += b;
+                if (!bestCluster.isLockedColor) {
+                    bestCluster.r = Math.round(bestCluster.sumR / bestCluster.count);
+                    bestCluster.g = Math.round(bestCluster.sumG / bestCluster.count);
+                    bestCluster.b = Math.round(bestCluster.sumB / bestCluster.count);
+                }
+            }
+            return bestCluster;
+        }
+
+        if (isSamplePass && palette.length < 8) {
+            const isLocked = (r === 20 && g === 23 && b === 28) || (r === 238 && g === 242 && b === 247);
+            const newC = {
+                id: palette.length + 1,
+                r, g, b,
+                sumR: r, sumG: g, sumB: b,
+                count: 1,
+                isLockedColor: isLocked
+            };
+            palette.push(newC);
+            return newC;
+        }
+
+        return bestCluster;
+    }
+
+    // Ichki barqaror piksellardan (distToEdge >= 3) rang palitrasini yig'amiz
+    let totalSolidPixels = 0;
+    for (let y = 2; y < H - 2; y += 2) {
+        const row = y * W;
+        for (let x = 2; x < W - 2; x += 2) {
+            const i = row + x;
+            if (!solidMask[i]) continue;
+            totalSolidPixels += 4;
+            if (distToEdge[i] < 3) continue;
+            getOrAssignPaletteCluster(rClean[i], gClean[i], bClean[i], true);
         }
     }
 
+    if (palette.length === 0) {
+        getOrAssignPaletteCluster(20, 23, 28, true);
+    }
+
+    // Kam uchraydigan (< 0.3%) tasodifiy klasterlarni eng yaqin asosiy klasterga qo'shamiz
+    const minClusterCount = Math.max(12, (totalSolidPixels / 4) * 0.003);
+    let filteredPalette = palette.filter(c => c.count >= minClusterCount);
+    if (filteredPalette.length === 0) filteredPalette = [palette[0]];
+
+    // Klasterlarni tartiblash: Eng ko'p maydonni egallagan (yoki eng to'q) rang 0-indeksda (Asosiy Korpus),
+    // qolgan yorqin/rangli detallar esa ustki relief qatlamlarda!
+    filteredPalette.sort((a, b) => {
+        const lumA = 0.299 * a.r + 0.587 * a.g + 0.114 * a.b;
+        const lumB = 0.299 * b.r + 0.587 * b.g + 0.114 * b.b;
+        const scoreA = a.count * (lumA < 50 ? 2.5 : 1.0);
+        const scoreB = b.count * (lumB < 50 ? 2.5 : 1.0);
+        return scoreB - scoreA;
+    });
+
+    filteredPalette.forEach((c, idx) => {
+        c.id = idx + 1;
+    });
+
+    // 5. Har bir foreground pikselni eng yaqin klasterga biriktirish (labelGrid)
+    const labelGrid = new Uint8Array(totalGrid);
+    for (let i = 0; i < totalGrid; i++) {
+        if (!solidMask[i]) continue;
+        const r = rClean[i], g = gClean[i], b = bClean[i];
+        const maxC = Math.max(r, g, b), minC = Math.min(r, g, b);
+        const chr = maxC - minC;
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        let tr = r, tg = g, tb = b;
+        if (lum < 118 && chr < 28) {
+            tr = 20; tg = 23; tb = 28;
+        } else if (lum > 195 && chr < 28) {
+            tr = 238; tg = 242; tb = 247;
+        } else if (chr < 28) {
+            tr = 165; tg = 172; tb = 182;
+        }
+
+        let bestId = filteredPalette[0].id;
+        let bestDist = Infinity;
+        for (let k = 0; k < filteredPalette.length; k++) {
+            const c = filteredPalette[k];
+            const d = Math.hypot(c.r - tr, c.g - tg, c.b - tb);
+            if (d < bestDist) {
+                bestDist = d;
+                bestId = c.id;
+            }
+        }
+        labelGrid[i] = bestId;
+    }
+
+    // 6. BFS CONNECTED-COMPONENT DESPECKLING:
+    // Yuzadagi barcha mayda kulrang/oq yaltiroq dog'larni (< 220 px) atrofidagi asosiy rangga choksiz qo'shib yuboramiz!
+    const despeckleSize = Math.max(65, Math.round(totalSolidPixels * 0.00055));
+    despeckleLabelGridBFS(labelGrid, W, H, Math.round(despeckleSize * 0.35));
+    despeckleLabelGridBFS(labelGrid, W, H, despeckleSize);
+
+    // 7. WATERTIGHT NESTED-LAYER EXTRUSION:
+    // - 1-qatlam (id = 1, Asosiy Korpus, masalan Diskaning Qora korpusi):
+    //   Ichki yuzada barcha ustki ranglarning (Sariq, Xrom) tagidan to'liq o'tadi (tirqish qolmasligi uchun!),
+    //   tashqi chegarada (distToEdge <= 2) esa ustki rang (Sariq) bor joyda 2px ichkariga tortiladi (orqadan qora chiqib qolmasligi uchun!).
     const allLayerGeoms = [];
-    const totalPixels = wRaw * hRaw;
+    const numLayers = filteredPalette.length;
 
-    // 1-QATLAM: OBYEKTNING YAXLIT 3D ASOS KORPUSI (Barcha spitsa teshiklari va markaziy teshik silliq kesilgan holda!)
-    const cleanedSilhouette = morphologicalCloseAndCleanField(silhouetteField, W, H);
-    const baseShapes = buildExactShapesFromField(
-        cleanedSilhouette, W, H, worldW, worldH,
-        24.0, 0.35, Infinity, smoothPasses + 1, 2, false
-    );
-    createExtrudeGeometriesFromShapes(baseShapes, baseDepth, -baseDepth * 0.5, baseBodyColor, allLayerGeoms, 8);
+    for (let k = 0; k < numLayers; k++) {
+        const cluster = filteredPalette[k];
+        const myId = cluster.id;
+        const layerField = new Float32Array(totalGrid);
+        let activePixels = 0;
 
-    // Old va orqa tomonda rangli yuzalar simmetrik va silliq bo'rtib turishi uchun:
-    const frontAndBackDepth = baseDepth + reliefHeight * 0.65;
-    const frontAndBackZOffset = -frontAndBackDepth * 0.5;
+        for (let i = 0; i < totalGrid; i++) {
+            if (!solidMask[i]) continue;
+            const lab = labelGrid[i];
 
-    // 2-QATLAM: YORQIN RANGLI QATAMLAR (Masalan, Diskaning Sariq yuzalari va spitsalari)
-    hueBuckets.forEach(bucket => {
-        if (bucket.count < totalPixels * 0.0015) return;
+            if (lab === myId) {
+                layerField[i] = 1.0;
+                activePixels++;
+            } else if (lab > myId && distToEdge[i] > 2) {
+                // Quyi qatlam ichki zonada ustki qatlamning tagini ham to'ldiradi -> 0% tirqish!
+                layerField[i] = 1.0;
+                activePixels++;
+            }
+        }
 
-        const avgR = Math.min(255, Math.round(bucket.sumR / bucket.count));
-        const avgG = Math.min(255, Math.round(bucket.sumG / bucket.count));
-        const avgB = Math.min(255, Math.round(bucket.sumB / bucket.count));
+        if (activePixels < 30) continue;
 
-        // Morfologik yopish orqali spitsalar ustidagi mayda uzilishlarni birlashtiramiz
-        const closedField = morphologicalCloseAndCleanField(bucket.field, W, H);
+        // Har bir keyingi rang qatlami z-fighting bo'lmasligi uchun aniq pog'ona bilan qalinlashadi
+        const layerDepth = k === 0
+            ? baseDepth
+            : (baseDepth + reliefHeight * (0.32 + 0.18 * k));
+        const layerZOffset = -layerDepth * 0.5;
+
         const shapes = buildExactShapesFromField(
-            closedField, W, H, worldW, worldH,
-            18.0, 0.32, Infinity, smoothPasses + 1, 2, false
+            layerField, W, H, worldW, worldH,
+            16.0, 0.32, Infinity, smoothPasses + 1, 2, false
         );
 
         if (shapes.length > 0) {
             createExtrudeGeometriesFromShapes(
                 shapes,
-                frontAndBackDepth,
-                frontAndBackZOffset,
-                new THREE.Color(avgR / 255, avgG / 255, avgB / 255),
-                allLayerGeoms,
-                8
-            );
-        }
-    });
-
-    // 3-QATLAM: XROM / KUMUSH MARKAZIY HALQA VA ICHKI DETALLAR (#EEF2F6)
-    if (chromeCount > totalPixels * 0.002) {
-        const closedChrome = morphologicalCloseAndCleanField(chromeSilverField, W, H);
-        const chromeShapes = buildExactShapesFromField(
-            closedChrome, W, H, worldW, worldH,
-            24.0, 0.32, Infinity, smoothPasses + 2, 2, false
-        );
-        if (chromeShapes.length > 0) {
-            const chromeDepth = baseDepth + reliefHeight * 0.85;
-            createExtrudeGeometriesFromShapes(
-                chromeShapes,
-                chromeDepth,
-                -chromeDepth * 0.5,
-                new THREE.Color(0.93, 0.95, 0.97),
+                layerDepth,
+                layerZOffset,
+                new THREE.Color(cluster.r / 255, cluster.g / 255, cluster.b / 255),
                 allLayerGeoms,
                 8
             );
@@ -1848,10 +2006,9 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
     setSingleUnifiedMeshToScene(unifiedGeom);
     document.getElementById('hudFile').textContent = fileName.toUpperCase();
     document.getElementById('hudMode').textContent = 'OBYEKT / DISKA / LOGO';
-    setStatus(`✓ ${fileName.toUpperCase()} (Obyekt/Diska rejimi) yaltiroq dog'larsiz va oq hoshiyalarsiz silliq 3D modelga aylantirildi!`);
+    setStatus(`✓ ${fileName.toUpperCase()} (${filteredPalette.length} ta toza rang qatlami bilan) yuqori sifatli 3D modelga aylantirildi!`);
 }
 
-// Umumiy dispatcher: rasm turiga qarab Avto-Nomer yoki Obyekt/Diska dvigatelini ishga tushiradi
 function build3DFromImage(img, fileName = 'IMAGE.PNG') {
     const isPlate = detectIsLicensePlateImage(img);
     if (isPlate) {
