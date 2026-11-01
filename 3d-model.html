@@ -348,7 +348,7 @@
             <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.svg,.obj,.dff">
             <span class="drop-icon">💎</span>
             <div class="drop-main">FAYLNI TANLANG YOKI TASHLANG</div>
-            <div class="drop-sub">UZ va RUS bayroqlari hamda yozuvlarni 100% bir tekisda 3D DFF ga o‘tkazadi</div>
+            <div class="drop-sub">Har qanday rangdagi nomer, yozuv va bayroqlarni 100% bir tekisda 3D DFF ga o‘tkazadi</div>
             <div class="format-badges">
                 <span class="badge">.JPG</span>
                 <span class="badge">.PNG</span>
@@ -449,8 +449,8 @@
             </div>
         </div>
         <div class="status-bar">
-            <span id="status-msg">✓ Fayl tanlang (.JPG, .PNG, .SVG, .OBJ yoki .DFF).</span>
-            <span>LOSSLESS EXACT DFF v6.3</span>
+            <span id="status-msg">✓ Fayl tanlang (.JPG, .PNG, .SVG, .OBJ yoki .DFF). Barcha ranglar va bayroqlar avtomatik aniqlanadi.</span>
+            <span>UNIVERSAL COLOR &amp; FLAG DFF v7.0</span>
         </div>
     </div>
 </div>
@@ -834,7 +834,270 @@ function buildExactShapesFromField(field, W, H, worldW, worldH, minPixelArea = 2
     });
 }
 
-// ==================== JPG / PNG -> LOSSLESS MULTI-COLOR 3D VECTOR EXTRUDE ====================
+function createExactRectShape(x0, y0, x1, y1) {
+    const minX = Math.min(x0, x1), maxX = Math.max(x0, x1);
+    const minY = Math.min(y0, y1), maxY = Math.max(y0, y1);
+    const shape = new THREE.Shape();
+    shape.moveTo(minX, minY);
+    shape.lineTo(maxX, minY);
+    shape.lineTo(maxX, maxY);
+    shape.lineTo(minX, maxY);
+    shape.closePath();
+    return shape;
+}
+
+// ==================== UNIVERSAL COLOR & EXACT FLAG 3D ENGINE ====================
+// 1. Nomerning haqiqiy ichki fon rangini (Oq, Yashil, Ko'k, Sariq, Qizil, Qora va h.k.) aniqlash
+function detectPlateBackgroundColor(imgData, wRaw, hRaw) {
+    const buckets = new Map();
+
+    function sampleStrip(xStart, xEnd, yStart, yEnd) {
+        const x0 = Math.max(0, Math.floor(wRaw * xStart));
+        const x1 = Math.min(wRaw - 1, Math.floor(wRaw * xEnd));
+        const y0 = Math.max(0, Math.floor(hRaw * yStart));
+        const y1 = Math.min(hRaw - 1, Math.floor(hRaw * yEnd));
+
+        for (let y = y0; y <= y1; y += 2) {
+            for (let x = x0; x <= x1; x += 2) {
+                const idx = (y * wRaw + x) * 4;
+                if (imgData[idx + 3] < 100) continue;
+                const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
+                const qr = Math.round(r / 12) * 12;
+                const qg = Math.round(g / 12) * 12;
+                const qb = Math.round(b / 12) * 12;
+                const key = (qr << 16) | (qg << 8) | qb;
+                let entry = buckets.get(key);
+                if (!entry) {
+                    entry = { count: 0, sumR: 0, sumG: 0, sumB: 0 };
+                    buckets.set(key, entry);
+                }
+                entry.count++;
+                entry.sumR += r;
+                entry.sumG += g;
+                entry.sumB += b;
+            }
+        }
+    }
+
+    // Raqamlar tepasidagi va pastidagi ochiq fon chiziqlari
+    sampleStrip(0.08, 0.72, 0.11, 0.17);
+    sampleStrip(0.08, 0.72, 0.72, 0.78);
+
+    if (buckets.size === 0) {
+        sampleStrip(0.15, 0.85, 0.15, 0.85);
+    }
+
+    let bestEntry = null;
+    for (const entry of buckets.values()) {
+        if (!bestEntry || entry.count > bestEntry.count) {
+            bestEntry = entry;
+        }
+    }
+
+    if (!bestEntry || bestEntry.count === 0) {
+        return { r: 255, g: 255, b: 255 };
+    }
+
+    const avgR = Math.round(bestEntry.sumR / bestEntry.count);
+    const avgG = Math.round(bestEntry.sumG / bestEntry.count);
+    const avgB = Math.round(bestEntry.sumB / bestEntry.count);
+
+    // Agar deyarli oq bo'lsa, sof oqqa tekislaymiz
+    if (avgR > 228 && avgG > 228 && avgB > 228 && Math.max(avgR, avgG, avgB) - Math.min(avgR, avgG, avgB) < 25) {
+        return { r: 255, g: 255, b: 255 };
+    }
+    return { r: avgR, g: avgG, b: avgB };
+}
+
+function medianValue(arr) {
+    if (!arr || arr.length === 0) return 0;
+    const sorted = arr.slice().sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+}
+
+// 2. O'zbekiston (UZ) va Rossiya (RUS) bayroqlarini nomer fonining rangidan qat'i nazar 100% aniq topish
+function detectLicensePlateFlags(imgData, wRaw, hRaw) {
+    const xStart = Math.floor(wRaw * 0.68);
+    const xEnd = Math.floor(wRaw * 0.975);
+    const yStart = Math.floor(hRaw * 0.08);
+    const yEnd = Math.floor(hRaw * 0.80);
+
+    function isRedPixel(r, g, b) {
+        return r > 125 && r > g + 35 && r > b + 35;
+    }
+    function isWhitePixel(r, g, b) {
+        return r > 190 && g > 190 && b > 190 && (Math.max(r, g, b) - Math.min(r, g, b)) < 40;
+    }
+    function isCyanBluePixel(r, g, b) {
+        return (b > 95 || g > 95) && b > r + 22 && r < 145;
+    }
+    function isGreenPixel(r, g, b) {
+        return g > 85 && g > r + 20 && g >= b - 10;
+    }
+
+    // A) O'ZBEKISTON BAYROG'INI QIDIRISH:
+    // Ikki ingichka Qizil chiziq (r1 va r2) orasida Oq chiziq, tepasida Ko'k va pastida Yashil chiziq!
+    const uzCols = [];
+    const uzMaxY = Math.floor(hRaw * 0.56);
+
+    for (let x = xStart; x <= xEnd; x++) {
+        // Shu ustundagi qizil segmentlarni topamiz
+        const redSegs = [];
+        let rTop = -1, rBot = -1;
+        for (let y = yStart; y <= uzMaxY; y++) {
+            const idx = (y * wRaw + x) * 4;
+            if (imgData[idx + 3] >= 80 && isRedPixel(imgData[idx], imgData[idx + 1], imgData[idx + 2])) {
+                if (rTop === -1) rTop = y;
+                rBot = y;
+            } else if (rTop !== -1) {
+                redSegs.push({ top: rTop, bot: rBot, h: rBot - rTop + 1 });
+                rTop = -1;
+            }
+        }
+        if (rTop !== -1) redSegs.push({ top: rTop, bot: rBot, h: rBot - rTop + 1 });
+
+        // 2 ta ingichka qizil chiziq juftligini tekshiramiz
+        for (let i = 0; i < redSegs.length - 1; i++) {
+            const s1 = redSegs[i];
+            const s2 = redSegs[i + 1];
+            const whiteGap = s2.top - s1.bot - 1;
+            if (s1.h >= 1 && s1.h <= hRaw * 0.05 && s2.h >= 1 && s2.h <= hRaw * 0.05 &&
+                whiteGap >= hRaw * 0.025 && whiteGap <= hRaw * 0.16) {
+
+                // Orasidagi piksellar haqiqatan oq ekanligini tekshiramiz
+                const midY = Math.floor((s1.bot + s2.top) * 0.5);
+                const mIdx = (midY * wRaw + x) * 4;
+                if (!isWhitePixel(imgData[mIdx], imgData[mIdx + 1], imgData[mIdx + 2])) continue;
+
+                // s1 tepasida Ko'k chiziq borligini tekshiramiz
+                const checkBlueY = Math.max(yStart, s1.top - Math.max(3, Math.floor(whiteGap * 0.5)));
+                const bIdx = (checkBlueY * wRaw + x) * 4;
+                if (!isCyanBluePixel(imgData[bIdx], imgData[bIdx + 1], imgData[bIdx + 2])) continue;
+
+                // s2 pastida Yashil chiziq borligini tekshiramiz
+                const checkGreenY = Math.min(uzMaxY, s2.bot + Math.max(3, Math.floor(whiteGap * 0.5)));
+                const gIdx = (checkGreenY * wRaw + x) * 4;
+                if (!isGreenPixel(imgData[gIdx], imgData[gIdx + 1], imgData[gIdx + 2])) continue;
+
+                // Ko'k va Yashil chiziqlarning tashqi chegarasini topamiz (agar nomer foni ko'k/yashil bo'lsa, whiteGap * 1.12 bilan cheklanadi)
+                const expectedBandH = Math.round(whiteGap * 1.10);
+                let bTop = s1.top - 1;
+                while (bTop > yStart && (s1.top - bTop) <= expectedBandH * 1.35) {
+                    const idx = ((bTop - 1) * wRaw + x) * 4;
+                    if (!isCyanBluePixel(imgData[idx], imgData[idx + 1], imgData[idx + 2]) &&
+                        !isWhitePixel(imgData[idx], imgData[idx + 1], imgData[idx + 2])) break;
+                    bTop--;
+                }
+
+                let gBot = s2.bot + 1;
+                while (gBot < uzMaxY && (gBot - s2.bot) <= expectedBandH * 1.35) {
+                    const idx = ((gBot + 1) * wRaw + x) * 4;
+                    if (!isGreenPixel(imgData[idx], imgData[idx + 1], imgData[idx + 2])) break;
+                    gBot++;
+                }
+
+                // Agar nomerning o'zi ko'k yoki yashil bo'lsa, simmetrik balandlikni olamiz
+                let blueH = s1.top - bTop;
+                let greenH = gBot - s2.bot;
+                if (blueH > expectedBandH * 1.25 && greenH <= expectedBandH * 1.25) {
+                    bTop = s1.top - greenH;
+                } else if (greenH > expectedBandH * 1.25 && blueH <= expectedBandH * 1.25) {
+                    gBot = s2.bot + blueH;
+                } else if (blueH > expectedBandH * 1.25 && greenH > expectedBandH * 1.25) {
+                    bTop = s1.top - expectedBandH;
+                    gBot = s2.bot + expectedBandH;
+                }
+
+                uzCols.push({
+                    x,
+                    bTop,
+                    r1Top: s1.top,
+                    r1Bot: s1.bot + 1,
+                    r2Top: s2.top,
+                    r2Bot: s2.bot + 1,
+                    gBot: gBot + 1
+                });
+                break;
+            }
+        }
+    }
+
+    if (uzCols.length >= 8) {
+        return {
+            type: 'UZ',
+            minX: uzCols[0].x,
+            maxX: uzCols[uzCols.length - 1].x + 1,
+            bTop: medianValue(uzCols.map(c => c.bTop)),
+            r1Top: medianValue(uzCols.map(c => c.r1Top)),
+            r1Bot: medianValue(uzCols.map(c => c.r1Bot)),
+            r2Top: medianValue(uzCols.map(c => c.r2Top)),
+            r2Bot: medianValue(uzCols.map(c => c.r2Bot)),
+            gBot: medianValue(uzCols.map(c => c.gBot))
+        };
+    }
+
+    // B) ROSSIYA (RUS) BAYROG'INI QIDIRISH (Oq - Ko'k - Qizil):
+    const rusCols = [];
+    for (let x = xStart; x <= xEnd; x++) {
+        // Qalin Qizil segmentni topamiz va uning tepasida xuddi shunday qalin Ko'k segment borligini tekshiramiz
+        let rTop = -1, rBot = -1;
+        for (let y = yStart; y <= yEnd; y++) {
+            const idx = (y * wRaw + x) * 4;
+            if (imgData[idx + 3] >= 80 && isRedPixel(imgData[idx], imgData[idx + 1], imgData[idx + 2])) {
+                if (rTop === -1) rTop = y;
+                rBot = y;
+            } else if (rTop !== -1) {
+                const redH = rBot - rTop + 1;
+                if (redH >= hRaw * 0.03 && redH <= hRaw * 0.16) {
+                    // Tepasida Ko'k segment bormi?
+                    let bBot = rTop - 1;
+                    let bTop = bBot;
+                    while (bTop > yStart && (bBot - bTop) <= redH * 1.4) {
+                        const bIdx = (bTop * wRaw + x) * 4;
+                        if (!isCyanBluePixel(imgData[bIdx], imgData[bIdx + 1], imgData[bIdx + 2])) break;
+                        bTop--;
+                    }
+                    bTop++;
+                    const blueH = bBot - bTop + 1;
+                    if (blueH >= hRaw * 0.03 && Math.abs(blueH - redH) <= Math.max(blueH, redH) * 0.5) {
+                        const stripeH = Math.round((blueH + redH) * 0.5);
+                        const wTop = Math.max(yStart, bTop - stripeH);
+                        // Tepasida Oq piksellar borligini tekshiramiz
+                        const wMidY = Math.floor((wTop + bTop) * 0.5);
+                        const wIdx = (wMidY * wRaw + x) * 4;
+                        if (isWhitePixel(imgData[wIdx], imgData[wIdx + 1], imgData[wIdx + 2])) {
+                            rusCols.push({
+                                x,
+                                wTop,
+                                bTop,
+                                rTop,
+                                rBot: rBot + 1
+                            });
+                            break;
+                        }
+                    }
+                }
+                rTop = -1;
+            }
+        }
+    }
+
+    if (rusCols.length >= 8) {
+        return {
+            type: 'RUS',
+            minX: rusCols[0].x,
+            maxX: rusCols[rusCols.length - 1].x + 1,
+            wTop: medianValue(rusCols.map(c => c.wTop)),
+            bTop: medianValue(rusCols.map(c => c.bTop)),
+            rTop: medianValue(rusCols.map(c => c.rTop)),
+            rBot: medianValue(rusCols.map(c => c.rBot))
+        };
+    }
+
+    return null;
+}
+
+// ==================== JPG / PNG -> UNIVERSAL MULTI-COLOR 3D VECTOR EXTRUDE ====================
 function build3DFromImage(img, fileName = 'NOMER.PNG') {
     const baseDepth = parseFloat(document.getElementById('depthSlider').value) || 2.5;
     const reliefHeight = parseFloat(document.getElementById('reliefSlider').value) || 1.6;
@@ -859,214 +1122,187 @@ function build3DFromImage(img, fileName = 'NOMER.PNG') {
     const worldW = aspect >= 1 ? VIEWPORT_DISPLAY_SPAN : VIEWPORT_DISPLAY_SPAN * aspect;
     const worldH = aspect >= 1 ? VIEWPORT_DISPLAY_SPAN / aspect : VIEWPORT_DISPLAY_SPAN;
 
-    const silhouetteField  = new Float32Array(W * H);
-    const darkField        = new Float32Array(W * H);
-    const blueField        = new Float32Array(W * H);
-    const greenField       = new Float32Array(W * H);
-    const redField         = new Float32Array(W * H);
-    const yellowField      = new Float32Array(W * H);
-    const detailLightField = new Float32Array(W * H);
+    // 1. Nomerning ichki fon rangini (Oq, Yashil, Ko'k, Sariq, Qizil, Qora va h.k.) avtomatik aniqlash
+    const plateBg = detectPlateBackgroundColor(imgData, wRaw, hRaw);
+    const plateBgLum = 0.299 * plateBg.r + 0.587 * plateBg.g + 0.114 * plateBg.b;
 
-    let blueCnt = 0, greenCnt = 0, redCnt = 0, yellowCnt = 0, detailLightCnt = 0;
+    // 2. Bayroqni (UZ yoki RUS) avtomatik aniqlash
+    const detectedFlag = detectLicensePlateFlags(imgData, wRaw, hRaw);
+    const flagMask = new Uint8Array(W * H);
 
-    // 1-BOSQICH: Rang maydonlarini yuqori aniqlikda ajratish
-    // (Oqish/kulrang fon piksellari hech qachon ko'k qatlamga tushib qolmasligi uchun saturation >= 0.35 va chroma >= 50)
+    if (detectedFlag) {
+        const pad = 2;
+        const fyMin = detectedFlag.type === 'UZ' ? detectedFlag.bTop : detectedFlag.wTop;
+        const fyMax = detectedFlag.type === 'UZ' ? detectedFlag.gBot : detectedFlag.rBot;
+        for (let y = Math.max(0, fyMin - pad); y <= Math.min(hRaw - 1, fyMax + pad); y++) {
+            for (let x = Math.max(0, detectedFlag.minX - pad); x <= Math.min(wRaw - 1, detectedFlag.maxX + pad); x++) {
+                flagMask[(y + 1) * W + (x + 1)] = 1;
+            }
+        }
+    }
+
+    const silhouetteField = new Float32Array(W * H);
+    const bottomTextField = new Float32Array(W * H);
+    let bottomTextCnt = 0;
+
+    // 3. Fondan farq qiluvchi BARCHA OLD ELEMENTLARNING (Harflar, Raqamlar, Ramka, UZ/RUS, Belgilar) rang palitrasini yig'ish
+    const colorClusters = []; // [{ r, g, b, sumR, sumG, sumB, count, field }]
+
+    function findOrCreateColorCluster(r, g, b) {
+        // Sof oq va sof qorani aniq etalonga tortamiz
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+        if (lum < 45 && chroma < 30) {
+            r = 10; g = 12; b = 16;
+        } else if (lum > 225 && chroma < 25) {
+            r = 252; g = 253; b = 255;
+        }
+
+        let bestCluster = null;
+        let bestDist = Infinity;
+        for (let i = 0; i < colorClusters.length; i++) {
+            const c = colorClusters[i];
+            const d = Math.hypot(c.r - r, c.g - g, c.b - b);
+            if (d < bestDist) {
+                bestDist = d;
+                bestCluster = c;
+            }
+        }
+
+        if (bestCluster && bestDist < 52) {
+            bestCluster.count++;
+            bestCluster.sumR += r;
+            bestCluster.sumG += g;
+            bestCluster.sumB += b;
+            bestCluster.r = Math.round(bestCluster.sumR / bestCluster.count);
+            bestCluster.g = Math.round(bestCluster.sumG / bestCluster.count);
+            bestCluster.b = Math.round(bestCluster.sumB / bestCluster.count);
+            return bestCluster;
+        }
+
+        if (colorClusters.length < 10) {
+            const newC = {
+                r, g, b,
+                sumR: r, sumG: g, sumB: b,
+                count: 1,
+                field: new Float32Array(W * H)
+            };
+            colorClusters.push(newC);
+            return newC;
+        }
+
+        return bestCluster;
+    }
+
+    // Birinchi o'tish: Ichki barqaror (anti-aliasing bo'lmagan) old piksellardan haqiqiy rang klasterlarini topish
+    for (let y = 1; y < hRaw - 1; y += 2) {
+        const isBottomFrameZone = (y > hRaw * 0.815 && y < hRaw * 0.965);
+        const isOuterBorder = (y < hRaw * 0.082 || y > hRaw * 0.815);
+
+        for (let x = 1; x < wRaw - 1; x += 2) {
+            const fi = (y + 1) * W + (x + 1);
+            if (flagMask[fi]) continue;
+
+            const idx = (y * wRaw + x) * 4;
+            const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2], a = imgData[idx + 3];
+            if (a < 45) continue;
+
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            if (isBottomFrameZone && lum > 95 && x > wRaw * 0.16 && x < wRaw * 0.84) continue;
+
+            // Qo'shni piksel bilan rang farqi kichik bo'lsa (qirra shovqini emas, haqiqiy rang markazi)
+            const idxR = (y * wRaw + (x + 1)) * 4;
+            const grad = Math.abs(r - imgData[idxR]) + Math.abs(g - imgData[idxR + 1]) + Math.abs(b - imgData[idxR + 2]);
+            if (grad > 35) continue;
+
+            const distToBg = Math.hypot(r - plateBg.r, g - plateBg.g, b - plateBg.b);
+            const isFrameEdge = isOuterBorder || x < wRaw * 0.025 || x > wRaw * 0.975;
+
+            if (distToBg > 48 || (isFrameEdge && lum < 75)) {
+                findOrCreateColorCluster(r, g, b);
+            }
+        }
+    }
+
+    // Agar qora ramka klasteri hali yo'q bo'lsa, uni qo'shamiz
+    findOrCreateColorCluster(10, 12, 16);
+
+    // Ikkinchi o'tish: Har bir pikselni Sub-Pixel Color Projection orqali o'zining aniq rang qatlamiga yozish
     for (let y = 0; y < hRaw; y++) {
         const dstRow = (y + 1) * W;
         const srcRow = y * wRaw;
-        const isBottomFrameZone = (y > hRaw * 0.82 && y < hRaw * 0.96);
+        const isBottomFrameZone = (y > hRaw * 0.815 && y < hRaw * 0.965);
+        const isOuterBorder = (y < hRaw * 0.082 || y > hRaw * 0.815);
 
         for (let x = 0; x < wRaw; x++) {
             const idx = (srcRow + x) * 4;
-            const r = imgData[idx];
-            const g = imgData[idx + 1];
-            const b = imgData[idx + 2];
-            const a = imgData[idx + 3];
+            const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2], a = imgData[idx + 3];
             const fi = dstRow + (x + 1);
 
             if (a < 45) continue;
             silhouetteField[fi] = 1.0;
 
-            const maxC = Math.max(r, g, b);
-            const minC = Math.min(r, g, b);
-            const chroma = maxC - minC;
-            const sat = maxC > 0 ? (chroma / maxC) : 0;
+            if (flagMask[fi]) continue;
+
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-            // Pastki qora ramka ichidagi oq/kumush/moviy mayda yozuvlar ("IT SHAKH MOTORS - TASHKENT")
-            if (isBottomFrameZone && lum > 95 && x > wRaw * 0.18 && x < wRaw * 0.82) {
-                detailLightField[fi] = Math.min(1.0, (lum - 80) / 70);
-                detailLightCnt++;
-                darkField[fi] = 0.0;
+            // Pastki qora ramka ustidagi yozuv ("IT SHAKH MOTORS • TASHKENT")
+            if (isBottomFrameZone && lum > 90 && x > wRaw * 0.16 && x < wRaw * 0.84) {
+                bottomTextField[fi] = Math.min(1.0, (lum - 70) / 70);
+                bottomTextCnt++;
                 continue;
             }
 
-            // Haqiqiy to'yingan rangli elementlar (Bayroq chiziqlari, UZ kodi, logolar)
-            if (chroma >= 42 && sat >= 0.30 && lum > 22 && lum < 210) {
-                let hue = 0;
-                if (maxC === r) {
-                    hue = ((g - b) / chroma) % 6;
-                } else if (maxC === g) {
-                    hue = (b - r) / chroma + 2;
-                } else {
-                    hue = (r - g) / chroma + 4;
-                }
-                hue = Math.round(hue * 60);
-                if (hue < 0) hue += 360;
+            const isFrameEdge = isOuterBorder || x < wRaw * 0.025 || x > wRaw * 0.975;
 
-                const strength = Math.min(1.0, (chroma - 30) / 45);
-
-                if (hue < 28 || hue >= 332) {
-                    redField[fi] = Math.min(1.0, strength * 1.3);
-                    redCnt++;
-                } else if (hue >= 170 && hue <= 262 && chroma >= 52 && sat >= 0.35 && lum < 195) {
-                    blueField[fi] = strength;
-                    blueCnt++;
-                } else if (hue >= 75 && hue < 170 && chroma >= 45 && sat >= 0.32 && lum < 200) {
-                    greenField[fi] = strength;
-                    greenCnt++;
-                } else if (hue >= 28 && hue < 75 && chroma >= 50 && sat >= 0.35) {
-                    yellowField[fi] = strength;
-                    yellowCnt++;
-                } else if (lum < 135) {
-                    darkField[fi] = Math.max(0.0, Math.min(1.0, (165 - lum) / 70));
-                }
-            } else {
-                // Qora harflar, raqamlar va tashqi ramka (Oq fon lum > 170 bo'lgani uchun 0 bo'lib qoladi)
-                const darkness = Math.max(0.0, Math.min(1.0, (168 - lum) / 72));
-                darkField[fi] = darkness;
-            }
-        }
-    }
-
-    // 2-BOSQICH: O'ZBEKISTON (UZ) VA ROSSIYA (RUS) BAYROQLARINI AVTOMATIK ANIQLASH VA 100% BIR TEKIS QILISH
-    const maxFlagScanY = Math.floor(hRaw * 0.78);
-
-    for (let x = Math.floor(wRaw * 0.45); x <= wRaw; x++) {
-        // Shu ustundagi (x) BIRINCHI uzluksiz Ko'k segmentni [bTop .. bBot] topamiz
-        let bTop = -1, bBot = -1;
-        for (let y = 1; y <= maxFlagScanY; y++) {
-            if (blueField[y * W + x] >= 0.45) {
-                if (bTop === -1) bTop = y;
-                bBot = y;
-            } else if (bTop !== -1 && (y - bBot) > 3) {
-                break; // Birinchi ko'k chiziq tugadi ("UZ" yozuviga o'tib ketmaslik uchun to'xtaymiz!)
-            }
-        }
-
-        if (bTop === -1) continue;
-        const blueH = bBot - bTop + 1;
-        if (blueH < 3 || blueH > hRaw * 0.25) continue;
-
-        // A) O'ZBEKISTON BAYROG'I TEKSHIRUVI: Ko'k segment ostida Yashil segment [gTop .. gBot] bormi?
-        let gTop = -1, gBot = -1;
-        const greenSearchLimit = Math.min(hRaw, bBot + Math.floor(blueH * 3.2));
-        for (let y = bBot + 1; y <= greenSearchLimit; y++) {
-            if (greenField[y * W + x] >= 0.45) {
-                if (gTop === -1) gTop = y;
-                gBot = y;
-            } else if (gTop !== -1 && (y - gBot) > 3) {
-                break;
-            }
-        }
-
-        if (gTop !== -1) {
-            const greenH = gBot - gTop + 1;
-            if (greenH >= 3 && greenH <= hRaw * 0.25 && Math.abs(blueH - greenH) <= Math.max(blueH, greenH) * 0.65) {
-                // BU USTUN — O'ZBEKISTON BAYROG'I!
-                // 1) Ko'k chiziq [bTop .. bBot] (ichidagi oq oy-yulduzlar bilan)
-                for (let y = bTop; y <= bBot; y++) {
-                    const fi = y * W + x;
-                    const idx = ((y - 1) * wRaw + (x - 1)) * 4;
-                    const lum = 0.299 * imgData[idx] + 0.587 * imgData[idx + 1] + 0.114 * imgData[idx + 2];
-                    darkField[fi] = 0.0;
-                    if (lum > 185 && blueField[fi] < 0.6) {
-                        detailLightField[fi] = 1.0;
-                        blueField[fi] = 0.0;
-                        detailLightCnt++;
-                    } else {
-                        blueField[fi] = 1.0;
-                        detailLightField[fi] = 0.0;
-                    }
-                }
-                // 2) Ko'k va Yashil orasidagi Qizil-Oq-Qizil qism [bBot + 1 .. gTop - 1]
-                const midSpan = (gTop - 1) - bBot;
-                const redBand = Math.max(1, Math.round(midSpan * 0.18));
-                for (let y = bBot + 1; y < gTop; y++) {
-                    const fi = y * W + x;
-                    const idx = ((y - 1) * wRaw + (x - 1)) * 4;
-                    const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
-                    darkField[fi] = 0.0;
-                    blueField[fi] = 0.0;
-                    greenField[fi] = 0.0;
-                    const isRedRow = (y <= bBot + redBand) || (y >= gTop - redBand) || (r > g + 18 && r > b + 18);
-                    if (isRedRow) {
-                        redField[fi] = 1.0;
-                        detailLightField[fi] = 0.0;
-                        redCnt++;
-                    } else {
-                        detailLightField[fi] = 1.0;
-                        redField[fi] = 0.0;
-                        detailLightCnt++;
-                    }
-                }
-                // 3) Yashil chiziq [gTop .. gBot]
-                for (let y = gTop; y <= gBot; y++) {
-                    const fi = y * W + x;
-                    darkField[fi] = 0.0;
-                    greenField[fi] = 1.0;
-                    detailLightField[fi] = 0.0;
-                }
+            // Agar plita foni ham qora bo'lsa-yu, piksel tashqi ramkada yotsa
+            if (plateBgLum < 45 && isFrameEdge && lum < 65) {
+                const darkCluster = findOrCreateColorCluster(10, 12, 16);
+                darkCluster.field[fi] = 1.0;
                 continue;
             }
-        }
 
-        // B) ROSSIYA (RUS) BAYROG'I TEKSHIRUVI:
-        // Ko'k segment [bTop .. bBot] ostida bevosita Qizil segment [rTop .. rBot] joylashgan bo'lsa!
-        let rTop = -1, rBot = -1;
-        const redSearchLimit = Math.min(hRaw, bBot + Math.floor(blueH * 1.8));
-        for (let y = bBot; y <= redSearchLimit; y++) {
-            if (redField[y * W + x] >= 0.45) {
-                if (rTop === -1) rTop = y;
-                rBot = y;
-            } else if (rTop !== -1 && (y - rBot) > 3) {
-                break;
+            const distToBg = Math.hypot(r - plateBg.r, g - plateBg.g, b - plateBg.b);
+            if (distToBg <= 22) continue;
+
+            // Piksel qaysi old rang klasteriga (C_i) tegishli ekanligini va sub-piksel ulushini (t) topamiz
+            let bestCluster = null;
+            let bestScore = Infinity;
+            let bestT = 0;
+
+            for (let i = 0; i < colorClusters.length; i++) {
+                const c = colorClusters[i];
+                const vx = c.r - plateBg.r;
+                const vy = c.g - plateBg.g;
+                const vz = c.b - plateBg.b;
+                const vLenSq = vx * vx + vy * vy + vz * vz;
+                if (vLenSq < 400) continue;
+
+                const px = r - plateBg.r;
+                const py = g - plateBg.g;
+                const pz = b - plateBg.b;
+
+                const t = Math.max(0.0, Math.min(1.0, (px * vx + py * vy + pz * vz) / vLenSq));
+                if (t < 0.18) continue;
+
+                // Yo'nalish chizig'idan og'ish masofasi (Anti-aliased qirralar aynan shu chiziqda yotadi!)
+                const perpX = px - t * vx;
+                const perpY = py - t * vy;
+                const perpZ = pz - t * vz;
+                const perpDist = Math.hypot(perpX, perpY, perpZ);
+
+                const directDist = Math.hypot(r - c.r, g - c.g, b - c.b);
+                const score = Math.min(directDist, perpDist * 1.35);
+
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestCluster = c;
+                    bestT = t;
+                }
             }
-        }
 
-        if (rTop !== -1 && (rTop - bBot) <= Math.max(5, Math.round(blueH * 0.35))) {
-            const redH = rBot - rTop + 1;
-            if (redH >= 3 && Math.abs(blueH - redH) <= Math.max(blueH, redH) * 0.6) {
-                // BU USTUN — ROSSIYA BAYROG'I (Oq tepada + Ko'k o'rtada + Qizil pastda)!
-                const stripeH = Math.round((blueH + redH) * 0.5);
-                const wTop = Math.max(1, bTop - stripeH);
-
-                // 1) Tepadagi OQ chiziq [wTop .. bTop - 1]
-                for (let y = wTop; y < bTop; y++) {
-                    const fi = y * W + x;
-                    detailLightField[fi] = 1.0;
-                    darkField[fi] = 0.0;
-                    blueField[fi] = 0.0;
-                    redField[fi] = 0.0;
-                    detailLightCnt++;
-                }
-                // 2) O'rtadagi KO'K chiziq [bTop .. bBot]
-                for (let y = bTop; y <= bBot; y++) {
-                    const fi = y * W + x;
-                    blueField[fi] = 1.0;
-                    darkField[fi] = 0.0;
-                    detailLightField[fi] = 0.0;
-                    redField[fi] = 0.0;
-                }
-                // 3) Pastdagi QIZIL chiziq [bBot + 1 .. rBot]
-                for (let y = bBot + 1; y <= rBot; y++) {
-                    const fi = y * W + x;
-                    redField[fi] = 1.0;
-                    darkField[fi] = 0.0;
-                    blueField[fi] = 0.0;
-                    detailLightField[fi] = 0.0;
-                    redCnt++;
-                }
+            if (bestCluster && bestScore < 75) {
+                bestCluster.field[fi] = Math.min(1.0, Math.max(bestT, distToBg / 85));
             }
         }
     }
@@ -1120,48 +1356,80 @@ function build3DFromImage(img, fileName = 'NOMER.PNG') {
         });
     }
 
-    // BARCHA BO'RTMA QATAMLAR UCHUN YAGONA TEKIS BALANDLIK (Z = reliefHeight)
     const UNIFORM_RELIEF_DEPTH = reliefHeight + 0.2;
     const UNIFORM_Z_OFFSET = -0.2;
-    // Rangli detallar hech qachon butun plitani qoplab olmasligi uchun maksimal yuza chegarasi (15%)
-    const maxColorFeatureArea = worldW * worldH * 0.15;
 
-    // 1-QATLAM: SOF OQ ASOS PLITASI (#FFFFFF)
+    // 1-QATLAM: NOMERNING HAQIQIY FON RANGIDAGI ASOS PLITASI (Oq, Yashil, Ko'k, Sariq, Qizil, Qora va h.k.)
     const baseShapes = buildExactShapesFromField(silhouetteField, W, H, worldW, worldH, 25, 0.35);
-    createSharpExtrudeGeometry(baseShapes, baseDepth, -baseDepth, new THREE.Color(1.0, 1.0, 1.0));
+    createSharpExtrudeGeometry(
+        baseShapes,
+        baseDepth,
+        -baseDepth,
+        new THREE.Color(plateBg.r / 255, plateBg.g / 255, plateBg.b / 255)
+    );
 
-    // 2-QATLAM: QORA HARFLAR, RAQAMLAR VA TASHQI RAMKA (#08090C)
-    const darkShapes = buildExactShapesFromField(darkField, W, H, worldW, worldH, 6.0, 0.24);
-    createSharpExtrudeGeometry(darkShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.031, 0.035, 0.047));
+    // 2-QATLAM: BARCHA RANGLI VA QORA/OQ BO'RTMA HARFLAR, RAQAMLAR, RAMKA VA BELGILAR
+    colorClusters.forEach(cluster => {
+        if (cluster.count < 3) return;
+        const shapes = buildExactShapesFromField(cluster.field, W, H, worldW, worldH, 2.5, 0.20);
+        if (shapes.length > 0) {
+            createSharpExtrudeGeometry(
+                shapes,
+                UNIFORM_RELIEF_DEPTH,
+                UNIFORM_Z_OFFSET,
+                new THREE.Color(cluster.r / 255, cluster.g / 255, cluster.b / 255)
+            );
+        }
+    });
 
-    // 3-QATLAM: BAYROQ KO'K CHIZIG'I VA "UZ" YOZUVI (#0099B5)
-    if (blueCnt > 6) {
-        const blueShapes = buildExactShapesFromField(blueField, W, H, worldW, worldH, 2.5, 0.18, maxColorFeatureArea);
-        createSharpExtrudeGeometry(blueShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.0, 0.60, 0.71));
+    // 3-QATLAM: O'ZBEKISTON (UZ) YOKI ROSSIYA (RUS) BAYROG'I — 100% BIR TEKIS VA ANIQ GEOMETRIK CHIZIQLARDA!
+    if (detectedFlag) {
+        const scaleX = worldW / (W - 2);
+        const scaleY = worldH / (H - 2);
+        const toWX = px => px * scaleX - worldW * 0.5;
+        const toWY = py => worldH * 0.5 - py * scaleY;
+
+        const wx0 = toWX(detectedFlag.minX);
+        const wx1 = toWX(detectedFlag.maxX);
+
+        if (detectedFlag.type === 'UZ') {
+            const wy0 = toWY(detectedFlag.bTop);
+            const wy1 = toWY(detectedFlag.r1Top);
+            const wy2 = toWY(detectedFlag.r1Bot);
+            const wy3 = toWY(detectedFlag.r2Top);
+            const wy4 = toWY(detectedFlag.r2Bot);
+            const wy5 = toWY(detectedFlag.gBot);
+
+            // 1) Ko'k chiziq
+            createSharpExtrudeGeometry([createExactRectShape(wx0, wy1, wx1, wy0)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.0, 0.60, 0.71));
+            // 2) Yuqori qizil chiziq
+            createSharpExtrudeGeometry([createExactRectShape(wx0, wy2, wx1, wy1)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.843, 0.07, 0.15));
+            // 3) O'rta oq chiziq
+            createSharpExtrudeGeometry([createExactRectShape(wx0, wy3, wx1, wy2)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.99, 0.99, 1.0));
+            // 4) Pastki qizil chiziq
+            createSharpExtrudeGeometry([createExactRectShape(wx0, wy4, wx1, wy3)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.843, 0.07, 0.15));
+            // 5) Yashil chiziq
+            createSharpExtrudeGeometry([createExactRectShape(wx0, wy5, wx1, wy4)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.118, 0.71, 0.227));
+        } else if (detectedFlag.type === 'RUS') {
+            const wy0 = toWY(detectedFlag.wTop);
+            const wy1 = toWY(detectedFlag.bTop);
+            const wy2 = toWY(detectedFlag.rTop);
+            const wy3 = toWY(detectedFlag.rBot);
+
+            // 1) Yuqori Oq chiziq
+            createSharpExtrudeGeometry([createExactRectShape(wx0, wy1, wx1, wy0)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.99, 0.99, 1.0));
+            // 2) O'rta Ko'k chiziq
+            createSharpExtrudeGeometry([createExactRectShape(wx0, wy2, wx1, wy1)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.0, 0.28, 0.68));
+            // 3) Pastki Qizil chiziq
+            createSharpExtrudeGeometry([createExactRectShape(wx0, wy3, wx1, wy2)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.84, 0.15, 0.18));
+        }
     }
 
-    // 4-QATLAM: BAYROQ YASHIL CHIZIG'I (#1EB53A)
-    if (greenCnt > 6) {
-        const greenShapes = buildExactShapesFromField(greenField, W, H, worldW, worldH, 2.5, 0.18, maxColorFeatureArea);
-        createSharpExtrudeGeometry(greenShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.118, 0.71, 0.227));
-    }
-
-    // 5-QATLAM: BAYROQ QIZIL CHIZIQLARI (#D71226)
-    if (redCnt > 3) {
-        const redShapes = buildExactShapesFromField(redField, W, H, worldW, worldH, 1.2, 0.15, maxColorFeatureArea);
-        createSharpExtrudeGeometry(redShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.843, 0.07, 0.15));
-    }
-
-    // 6-QATLAM: SARIQ / OLTIN ELEMENTLAR (#F59E0B)
-    if (yellowCnt > 6) {
-        const yellowShapes = buildExactShapesFromField(yellowField, W, H, worldW, worldH, 2.5, 0.18, maxColorFeatureArea);
-        createSharpExtrudeGeometry(yellowShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.96, 0.62, 0.04));
-    }
-
-    // 7-QATLAM: O'ZBEKISTON VA ROSSIYA BAYROG'IDAGI OQ CHIZIQ HAMDA RAMKA PASTIDAGI OQ YOZUVLAR (#FFFFFF)
-    if (detailLightCnt > 3) {
-        const detailShapes = buildExactShapesFromField(detailLightField, W, H, worldW, worldH, 1.2, 0.14, maxColorFeatureArea);
-        createSharpExtrudeGeometry(detailShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.98, 0.99, 1.0));
+    // 4-QATLAM: PASTKI QORA RAMKA USTIDAGI OQ YOZUVLAR ("IT SHAKH MOTORS • TASHKENT")
+    if (bottomTextCnt > 3) {
+        const maxBottomArea = worldW * worldH * 0.008;
+        const bottomShapes = buildExactShapesFromField(bottomTextField, W, H, worldW, worldH, 1.2, 0.14, maxBottomArea);
+        createSharpExtrudeGeometry(bottomShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.98, 0.99, 1.0));
     }
 
     const unifiedGeom = combineGeometriesLossless(allLayerGeoms);
@@ -1169,7 +1437,7 @@ function build3DFromImage(img, fileName = 'NOMER.PNG') {
 
     setSingleUnifiedMeshToScene(unifiedGeom);
     document.getElementById('hudFile').textContent = fileName.toUpperCase();
-    setStatus(`✓ ${fileName.toUpperCase()} barcha bayroq chiziqlari (UZ / RUS) va yozuvlari bir tekisda 3D modelga aylantirildi!`);
+    setStatus(`✓ ${fileName.toUpperCase()} barcha ranglari va bayroq chiziqlari 100% bir tekisda 3D modelga aylantirildi!`);
 }
 
 // ==================== LOSSLESS EXACT GEOMETRY COMBINER ====================
@@ -1392,8 +1660,7 @@ function build3DFromSVG(svgText, fileName = 'MODEL.SVG') {
 
     const tempGeoms = [];
     shapeItems.forEach((item) => {
-        const lum = 0.299 * item.color.r + 0.587 * item.color.g + 0.114 * item.color.b;
-        const isBase = lum > 0.85 && item.order === 0;
+        const isBase = item.order === 0;
         const itemDepth = isBase ? depth : (depth + relief);
 
         const g = new THREE.ExtrudeGeometry(item.shape, {
