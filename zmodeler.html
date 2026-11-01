@@ -1,0 +1,2134 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZModeler v2.2.6 (Build 992) Web | IT SHAKH</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Three.js va Boshqaruv kutubxonalari -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <style>
+        :root {
+            --bg-dark: #070b14;
+            --panel-bg: #0f172a;
+            --panel-header: #1e293b;
+            --border-col: rgba(56, 189, 248, 0.25);
+            --accent: #38bdf8;
+            --accent-hover: #0284c7;
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --vp-bg: #111827;
+            --danger: #ef4444;
+            --success: #22c55e;
+        }
+        body.classic-zm-theme {
+            --bg-dark: #2b2b2b;
+            --panel-bg: #383838;
+            --panel-header: #4a4a4a;
+            --border-col: #5c5c5c;
+            --accent: #ffa500;
+            --accent-hover: #cc8400;
+            --text-main: #f0f0f0;
+            --text-muted: #bdbdbd;
+            --vp-bg: #222629;
+        }
+        * { box-sizing: border-box; user-select: none; }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 1. YUQORI MENYU VA ASBOBLAR PANELI */
+        .top-header {
+            height: 40px;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border-col);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            z-index: 100;
+        }
+        .brand-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .back-link {
+            background: rgba(56, 189, 248, 0.12);
+            border: 1px solid var(--border-col);
+            color: var(--accent);
+            padding: 5px 10px;
+            border-radius: 6px;
+            text-decoration: none;
+            font: 700 11px 'JetBrains Mono', monospace;
+            transition: 0.2s;
+        }
+        .back-link:hover {
+            background: var(--accent);
+            color: #000;
+        }
+        .zm-title {
+            font: 800 13px 'JetBrains Mono', monospace;
+            color: var(--accent);
+            letter-spacing: 1px;
+        }
+        .zm-build {
+            font: 600 10px 'JetBrains Mono', monospace;
+            color: var(--text-muted);
+            background: rgba(255,255,255,0.06);
+            padding: 3px 7px;
+            border-radius: 4px;
+        }
+
+        /* ZMODELER EDITING LEVELS BAR */
+        .zm-toolbar {
+            height: 42px;
+            background: var(--panel-header);
+            border-bottom: 1px solid var(--border-col);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 12px;
+            overflow-x: auto;
+        }
+        .tool-sep {
+            width: 1px;
+            height: 24px;
+            background: var(--border-col);
+            margin: 0 4px;
+        }
+        .tb-btn {
+            background: rgba(0, 0, 0, 0.35);
+            color: var(--text-main);
+            border: 1px solid var(--border-col);
+            padding: 5px 10px;
+            border-radius: 6px;
+            font: 700 11px 'JetBrains Mono', monospace;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: 0.15s;
+            white-space: nowrap;
+        }
+        .tb-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .tb-btn.active {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+        }
+        .tb-btn.export-dff {
+            background: var(--accent);
+            color: #000;
+            font-weight: 800;
+        }
+        .axis-btn {
+            width: 28px;
+            justify-content: center;
+            padding: 5px 0;
+        }
+        .axis-btn.x-axis.active { background: #ef4444; color: #fff; border-color: #ef4444; }
+        .axis-btn.y-axis.active { background: #22c55e; color: #000; border-color: #22c55e; }
+        .axis-btn.z-axis.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+
+        /* 2. ASOSIY ISHCHI MAYDON (3 USTUN) */
+        .main-workspace {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 260px 1fr 290px;
+            min-height: 0;
+        }
+
+        /* CHAP PANEL: TOOLS TREE */
+        .side-panel {
+            background: var(--panel-bg);
+            border-right: 1px solid var(--border-col);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow-y: auto;
+        }
+        .side-panel.right {
+            border-right: none;
+            border-left: 1px solid var(--border-col);
+        }
+        .section-header {
+            background: var(--panel-header);
+            padding: 8px 12px;
+            font: 700 11px 'JetBrains Mono', monospace;
+            color: var(--accent);
+            border-bottom: 1px solid var(--border-col);
+            border-top: 1px solid var(--border-col);
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tree-group {
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .tree-category {
+            font: 700 10px 'JetBrains Mono', monospace;
+            color: var(--text-muted);
+            padding: 4px 6px;
+            text-transform: uppercase;
+        }
+        .tool-grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 5px;
+        }
+        .zm-action-btn {
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-main);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 7px 8px;
+            border-radius: 6px;
+            font: 600 11px 'Inter', sans-serif;
+            cursor: pointer;
+            text-align: left;
+            transition: 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .zm-action-btn:hover {
+            border-color: var(--accent);
+            background: rgba(56, 189, 248, 0.1);
+            color: var(--accent);
+        }
+        .zm-action-btn.active {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+            font-weight: 700;
+        }
+        .zm-action-btn.danger:hover {
+            border-color: var(--danger);
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+        }
+
+        /* O'RTA: 4 TA VIEWPORT GRID */
+        .viewports-wrapper {
+            background: #000;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 2px;
+            position: relative;
+            min-height: 0;
+        }
+        .viewports-wrapper.single-view {
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
+        }
+        .vp-cell {
+            position: relative;
+            background: var(--vp-bg);
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .vp-cell.active-vp {
+            border-color: var(--accent);
+        }
+        .vp-cell.hidden-vp {
+            display: none;
+        }
+        .vp-header {
+            position: absolute;
+            top: 6px;
+            left: 8px;
+            right: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .vp-badge {
+            background: rgba(7, 11, 20, 0.82);
+            border: 1px solid var(--border-col);
+            color: var(--accent);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font: 700 10px 'JetBrains Mono', monospace;
+            pointer-events: auto;
+            cursor: pointer;
+        }
+        .vp-controls {
+            display: flex;
+            gap: 4px;
+            pointer-events: auto;
+        }
+        .vp-mini-btn {
+            background: rgba(7, 11, 20, 0.82);
+            border: 1px solid var(--border-col);
+            color: var(--text-main);
+            padding: 2px 7px;
+            border-radius: 4px;
+            font: 700 10px 'JetBrains Mono', monospace;
+            cursor: pointer;
+        }
+        .vp-mini-btn:hover {
+            background: var(--accent);
+            color: #000;
+        }
+        .vp-canvas-mount {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* O'NG PANEL: SCENE NODES HIERARCHY & MATERIAL EDITOR */
+        .nodes-list {
+            max-height: 230px;
+            overflow-y: auto;
+            padding: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .node-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 5px 8px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid transparent;
+            font: 600 11px 'JetBrains Mono', monospace;
+            cursor: pointer;
+        }
+        .node-item:hover {
+            border-color: rgba(56, 189, 248, 0.35);
+        }
+        .node-item.selected {
+            background: rgba(56, 189, 248, 0.18);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        .node-left {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .node-type-tag {
+            font-size: 9px;
+            padding: 1px 4px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--accent);
+        }
+
+        /* TRANSFORM & MATERIAL INPUTS */
+        .prop-box {
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .prop-row {
+            display: grid;
+            grid-template-columns: 65px 1fr;
+            align-items: center;
+            gap: 6px;
+            font: 600 11px 'JetBrains Mono', monospace;
+            color: var(--text-muted);
+        }
+        .xyz-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 4px;
+        }
+        .zm-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--border-col);
+            color: #fff;
+            padding: 5px 6px;
+            border-radius: 5px;
+            font: 600 11px 'JetBrains Mono', monospace;
+        }
+        .zm-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        /* PASTKI ZMODELER LOG VA STATUS BAR */
+        .bottom-log-bar {
+            height: 78px;
+            background: var(--panel-bg);
+            border-top: 1px solid var(--border-col);
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            font: 11px 'JetBrains Mono', monospace;
+        }
+        .log-messages {
+            padding: 6px 12px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            color: #cbd5e1;
+        }
+        .log-entry.info { color: #38bdf8; }
+        .log-entry.ok { color: #22c55e; }
+        .log-entry.warn { color: #f59e0b; }
+        .stats-summary {
+            border-left: 1px solid var(--border-col);
+            padding: 8px 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 4px;
+            background: rgba(0, 0, 0, 0.25);
+        }
+        .stat-line {
+            display: flex;
+            justify-content: space-between;
+            color: var(--text-muted);
+        }
+        .stat-line b { color: var(--accent); }
+    </style>
+</head>
+<body>
+
+<!-- YUQORI BREND VA NAVIGATSIYA -->
+<header class="top-header">
+    <div class="brand-left">
+        <a href="index.html" class="back-link">← ASOSIY SAHIFA</a>
+        <a href="3d-model.html" class="back-link">🧊 3D NOMER STUDIO</a>
+        <span class="zm-title">ZModeler v2.2.6 (Build 992) — WEB EDITION</span>
+        <span class="zm-build">RenderWare DFF / OBJ / 3DS Engine</span>
+    </div>
+    <div style="display:flex; gap:8px;">
+        <button class="tb-btn" id="themeToggleBtn" type="button">🎨 CLASSIC ZM THEME</button>
+    </div>
+</header>
+
+<!-- ZMODELER 2.2.6 ASOSIY TOOLBAR (EDITING LEVELS + AXIS + IMPORT/EXPORT) -->
+<div class="zm-toolbar">
+    <input type="file" id="importFileInput" accept=".dff,.obj,.png,.jpg,.jpeg" style="display:none;" multiple>
+    <button class="tb-btn" id="btnNewScene" type="button">📄 New</button>
+    <button class="tb-btn" id="btnImportFile" type="button">📂 Import .DFF / .OBJ</button>
+    <button class="tb-btn export-dff" id="btnExportDFF" type="button">💾 Export GTA SA .DFF</button>
+    <button class="tb-btn" id="btnExportOBJ" type="button">⬇ Export .OBJ</button>
+
+    <div class="tool-sep"></div>
+
+    <!-- EDITING LEVELS (Object, Vertex, Edge, Polygon) -->
+    <span style="font:700 10px monospace;color:var(--text-muted);">LEVEL:</span>
+    <button class="tb-btn active" data-level="object" id="lvlObjectBtn" type="button">📦 Object</button>
+    <button class="tb-btn" data-level="vertex" id="lvlVertexBtn" type="button">⚫ Vertex</button>
+    <button class="tb-btn" data-level="edge" id="lvlEdgeBtn" type="button">📏 Edge</button>
+    <button class="tb-btn" data-level="polygon" id="lvlPolyBtn" type="button">🔺 Polygon</button>
+
+    <div class="tool-sep"></div>
+
+    <!-- AXIS LOCK (X, Y, Z) -->
+    <span style="font:700 10px monospace;color:var(--text-muted);">AXIS:</span>
+    <button class="tb-btn axis-btn x-axis active" id="axisXBtn" type="button">X</button>
+    <button class="tb-btn axis-btn y-axis active" id="axisYBtn" type="button">Y</button>
+    <button class="tb-btn axis-btn z-axis active" id="axisZBtn" type="button">Z</button>
+
+    <div class="tool-sep"></div>
+
+    <!-- DISPLAY CONTROLS -->
+    <button class="tb-btn" id="btnToggle4View" type="button">⊞ 4-Viewports</button>
+    <button class="tb-btn" id="btnToggleWire" type="button">🕸 Wireframe</button>
+    <button class="tb-btn" id="btnToggleNormals" type="button">📏 Normals</button>
+    <button class="tb-btn" id="btnFitView" type="button">🎯 Fit View</button>
+</div>
+
+<!-- ASOSIY 3 USTUNLI ISHCHI MAYDON -->
+<div class="main-workspace">
+
+    <!-- CHAP PANEL: ZMODELER TOOLS TREE (Create, Modify, Select, Surface) -->
+    <aside class="side-panel">
+        <div class="section-header">
+            <span>🛠 TOOLS TREE</span>
+            <span>v2.2.6</span>
+        </div>
+
+        <div class="tree-group">
+            <div class="tree-category">▾ Create Primitives</div>
+            <div class="tool-grid-2">
+                <button class="zm-action-btn" data-create="box">🧊 Box</button>
+                <button class="zm-action-btn" data-create="sphere">🌐 Sphere</button>
+                <button class="zm-action-btn" data-create="cylinder">🛢 Cylinder</button>
+                <button class="zm-action-btn" data-create="cone">🔺 Cone</button>
+                <button class="zm-action-btn" data-create="torus">🍩 Torus</button>
+                <button class="zm-action-btn" data-create="plane">▭ Plane</button>
+            </div>
+            <button class="zm-action-btn" data-create="dummy" style="margin-top:3px;">🎯 Create GTA Dummy Helper</button>
+
+            <div class="tree-category" style="margin-top:8px;">▾ Modify / Transform</div>
+            <div class="tool-grid-2">
+                <button class="zm-action-btn active" id="toolMoveBtn">✥ Move (W)</button>
+                <button class="zm-action-btn" id="toolRotateBtn">↻ Rotate (E)</button>
+                <button class="zm-action-btn" id="toolScaleBtn">⤢ Scale (R)</button>
+                <button class="zm-action-btn" id="toolCloneBtn">❐ Clone</button>
+            </div>
+
+            <div class="tree-category" style="margin-top:8px;">▾ Geometry Operations</div>
+            <div class="tool-grid-2">
+                <button class="zm-action-btn" id="btnMirrorX">⇄ Mirror X</button>
+                <button class="zm-action-btn" id="btnMirrorY">⇅ Mirror Y</button>
+                <button class="zm-action-btn" id="btnFlipNormals">🔄 Flip Normals</button>
+                <button class="zm-action-btn" id="btnCenterAxis">⊕ Center Axis</button>
+                <button class="zm-action-btn" id="btnAttachAll">🔗 Attach All</button>
+                <button class="zm-action-btn" id="btnSubdivide">⊞ Subdivide</button>
+            </div>
+
+            <div class="tree-category" style="margin-top:8px;">▾ Surface &amp; Shading</div>
+            <div class="tool-grid-2">
+                <button class="zm-action-btn" id="btnSmoothNormals">✨ Smooth</button>
+                <button class="zm-action-btn" id="btnFlatNormals">💎 Flat Shade</button>
+                <button class="zm-action-btn" id="btnUvPlanar">🗺 UV Planar</button>
+                <button class="zm-action-btn" id="btnUvBox">📦 UV Box</button>
+            </div>
+
+            <div class="tree-category" style="margin-top:8px;">▾ Select Tools</div>
+            <div class="tool-grid-2">
+                <button class="zm-action-btn" id="btnSelectAll">☑ Select All</button>
+                <button class="zm-action-btn" id="btnSelectInvert">⇄ Invert</button>
+            </div>
+            <button class="zm-action-btn danger" id="btnDeleteNode" style="margin-top:4px;">🗑 Delete Selected (Del)</button>
+        </div>
+    </aside>
+
+    <!-- O'RTA: 4 TA VIEWPORT (3D, Front, Right, Top) -->
+    <main class="viewports-wrapper" id="viewportsGrid">
+        <!-- 1: 3D Perspective -->
+        <div class="vp-cell active-vp" id="vpCell0" data-vp="0">
+            <div class="vp-header">
+                <span class="vp-badge">3D Perspective</span>
+                <div class="vp-controls">
+                    <button class="vp-mini-btn" data-max="0" title="Kattalashtirish / Kichraytirish">⛶</button>
+                </div>
+            </div>
+            <div class="vp-canvas-mount" id="vpMount0"></div>
+        </div>
+
+        <!-- 2: Front (XY) -->
+        <div class="vp-cell" id="vpCell1" data-vp="1">
+            <div class="vp-header">
+                <span class="vp-badge">Front (XY)</span>
+                <div class="vp-controls">
+                    <button class="vp-mini-btn" data-max="1" title="Kattalashtirish / Kichraytirish">⛶</button>
+                </div>
+            </div>
+            <div class="vp-canvas-mount" id="vpMount1"></div>
+        </div>
+
+        <!-- 3: Right (ZY) -->
+        <div class="vp-cell" id="vpCell2" data-vp="2">
+            <div class="vp-header">
+                <span class="vp-badge">Right (ZY)</span>
+                <div class="vp-controls">
+                    <button class="vp-mini-btn" data-max="2" title="Kattalashtirish / Kichraytirish">⛶</button>
+                </div>
+            </div>
+            <div class="vp-canvas-mount" id="vpMount2"></div>
+        </div>
+
+        <!-- 4: Top (XZ) -->
+        <div class="vp-cell" id="vpCell3" data-vp="3">
+            <div class="vp-header">
+                <span class="vp-badge">Top (XZ)</span>
+                <div class="vp-controls">
+                    <button class="vp-mini-btn" data-max="3" title="Kattalashtirish / Kichraytirish">⛶</button>
+                </div>
+            </div>
+            <div class="vp-canvas-mount" id="vpMount3"></div>
+        </div>
+    </main>
+
+    <!-- O'NG PANEL: SCENE NODES TREE, TRANSFORM VA MATERIALS EDITOR -->
+    <aside class="side-panel right">
+        <div class="section-header">
+            <span>🌳 SCENE NODES (HIERARCHY)</span>
+            <span id="nodeCountBadge">0</span>
+        </div>
+        <div class="nodes-list" id="sceneNodesList"></div>
+
+        <div class="section-header">
+            <span>📐 NODE PROPERTIES</span>
+        </div>
+        <div class="prop-box">
+            <div class="prop-row">
+                <span>NODE NAME</span>
+                <input type="text" class="zm-input" id="propNodeName" placeholder="bonnet_ok">
+            </div>
+            <div class="prop-row">
+                <span>POS X/Y/Z</span>
+                <div class="xyz-inputs">
+                    <input type="number" step="0.05" class="zm-input" id="posX" value="0">
+                    <input type="number" step="0.05" class="zm-input" id="posY" value="0">
+                    <input type="number" step="0.05" class="zm-input" id="posZ" value="0">
+                </div>
+            </div>
+            <div class="prop-row">
+                <span>ROT X/Y/Z</span>
+                <div class="xyz-inputs">
+                    <input type="number" step="5" class="zm-input" id="rotX" value="0">
+                    <input type="number" step="5" class="zm-input" id="rotY" value="0">
+                    <input type="number" step="5" class="zm-input" id="rotZ" value="0">
+                </div>
+            </div>
+            <div class="prop-row">
+                <span>SCALE</span>
+                <div class="xyz-inputs">
+                    <input type="number" step="0.1" class="zm-input" id="sclX" value="1">
+                    <input type="number" step="0.1" class="zm-input" id="sclY" value="1">
+                    <input type="number" step="0.1" class="zm-input" id="sclZ" value="1">
+                </div>
+            </div>
+        </div>
+
+        <div class="section-header">
+            <span>🎨 MATERIALS EDITOR</span>
+        </div>
+        <div class="prop-box">
+            <div class="prop-row">
+                <span>MAT NAME</span>
+                <input type="text" class="zm-input" id="matNameInput" value="vehiclegeneric256">
+            </div>
+            <div class="prop-row">
+                <span>DIFFUSE</span>
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <input type="color" id="matColorPicker" value="#38bdf8">
+                    <span id="matColorHex" style="font-size:11px; color:#fff;">#38BDF8</span>
+                </div>
+            </div>
+            <div class="prop-row">
+                <span>SPECULAR</span>
+                <input type="range" id="matSpecSlider" min="0" max="1" step="0.05" value="0.25">
+            </div>
+            <div class="prop-row">
+                <span>ROUGHNESS</span>
+                <input type="range" id="matRoughSlider" min="0" max="1" step="0.05" value="0.35">
+            </div>
+            <div class="prop-row">
+                <span>OPACITY</span>
+                <input type="range" id="matAlphaSlider" min="0.1" max="1" step="0.05" value="1.0">
+            </div>
+            <input type="file" id="texUploadInput" accept=".png,.jpg,.jpeg,.webp" style="display:none;">
+            <button class="zm-action-btn" id="btnUploadTex" type="button" style="justify-content:center;">🖼 Load Texture (.PNG / .JPG)</button>
+            <button class="tb-btn export-dff" id="btnApplyMat" type="button" style="width:100%; justify-content:center; padding:8px;">✓ Apply Material to Selected</button>
+        </div>
+    </aside>
+</div>
+
+<!-- PASTKI ZMODELER CONSOLE LOG VA STATISTIKA -->
+<footer class="bottom-log-bar">
+    <div class="log-messages" id="zmConsoleLog"></div>
+    <div class="stats-summary">
+        <div class="stat-line"><span>ACTIVE LEVEL:</span> <b id="statLevel">OBJECT MODE</b></div>
+        <div class="stat-line"><span>SELECTED NODE:</span> <b id="statSelected">NONE</b></div>
+        <div class="stat-line"><span>TOTAL VERTICES:</span> <b id="statVerts">0</b></div>
+        <div class="stat-line"><span>TOTAL POLYGONS:</span> <b id="statPolys">0</b></div>
+    </div>
+</footer>
+
+<script>
+// ==================== ZMODELER CONSOLE LOGGER ====================
+function zmLog(text, type = 'info') {
+    const box = document.getElementById('zmConsoleLog');
+    const div = document.createElement('div');
+    div.className = 'log-entry ' + type;
+    const time = new Date().toLocaleTimeString('uz-UZ', { hour12: false });
+    div.textContent = `[${time}] ${text}`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+zmLog('ZModeler v2.2.6 (Build 992) Web Engine initialized.', 'info');
+zmLog('Loaded filters: GTA_SanAndreas_DFF.zmf, WaveFrontOBJ.zmf, 3ds.zmf', 'ok');
+zmLog('Loaded plugins: CreateTools.zmp, ModifyTools.zmp, SelectTools.zmp, EditingLevels.zmp, UVMapping.zmp', 'ok');
+
+// Theme Toggle
+document.getElementById('themeToggleBtn').addEventListener('click', function () {
+    document.body.classList.toggle('classic-zm-theme');
+    this.textContent = document.body.classList.contains('classic-zm-theme')
+        ? '🌌 IT SHAKH CYBER THEME'
+        : '🎨 CLASSIC ZM THEME';
+});
+
+// ==================== THREE.JS SCENE VA 4-VIEWPORT ENGINE ====================
+const scene = new THREE.Scene();
+
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.80);
+scene.add(ambientLight);
+
+const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.90);
+dirLight1.position.set(15, 25, 20);
+scene.add(dirLight1);
+
+const dirLight2 = new THREE.DirectionalLight(0x93c5fd, 0.45);
+dirLight2.position.set(-15, -10, -15);
+scene.add(dirLight2);
+
+// Grid va O'qlar
+const mainGrid = new THREE.GridHelper(12, 24, 0x38bdf8, 0x334155);
+scene.add(mainGrid);
+
+const axesHelper = new THREE.AxesHelper(2.5);
+scene.add(axesHelper);
+
+// Barcha 3D obyektlar va Dummylar saqlanadigan ildiz guruh
+const modelRoot = new THREE.Group();
+modelRoot.name = 'Scene_Root';
+scene.add(modelRoot);
+
+// Vertex/Edge/Polygon editing level vizualizatorlari
+const helperGroup = new THREE.Group();
+scene.add(helperGroup);
+
+let selectedObject = null;
+let editingLevel = 'object'; // 'object' | 'vertex' | 'edge' | 'polygon'
+let isWireframeGlobal = false;
+let showNormalsGlobal = false;
+let activeAxes = { x: true, y: true, z: true };
+
+// 4 ta Viewport konfiguratsiyasi
+const viewports = [];
+const vpConfigs = [
+    { id: 0, name: '3D Perspective', type: 'perspective', pos: [3.5, 2.6, 4.2] },
+    { id: 1, name: 'Front (XY)',     type: 'ortho',       pos: [0, 0, 10],   up: [0, 1, 0] },
+    { id: 2, name: 'Right (ZY)',     type: 'ortho',       pos: [10, 0, 0],   up: [0, 1, 0] },
+    { id: 3, name: 'Top (XZ)',       type: 'ortho',       pos: [0, 10, 0],   up: [0, 0, -1] }
+];
+
+vpConfigs.forEach(cfg => {
+    const mount = document.getElementById('vpMount' + cfg.id);
+    const w = mount.clientWidth || 400;
+    const h = mount.clientHeight || 300;
+    const aspect = w / h;
+
+    let cam;
+    if (cfg.type === 'perspective') {
+        cam = new THREE.PerspectiveCamera(45, aspect, 0.01, 1000);
+    } else {
+        const frustum = 3.5;
+        cam = new THREE.OrthographicCamera(-frustum * aspect, frustum * aspect, frustum, -frustum, -100, 1000);
+        cam.up.set(...cfg.up);
+    }
+    cam.position.set(...cfg.pos);
+    cam.lookAt(0, 0, 0);
+
+    const ren = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    ren.setSize(w, h);
+    ren.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    mount.appendChild(ren.domElement);
+
+    const orb = new THREE.OrbitControls(cam, ren.domElement);
+    orb.enableDamping = true;
+    orb.dampingFactor = 0.08;
+    if (cfg.type === 'ortho') {
+        orb.enableRotate = false; // Ortografik oynalarda 2D pan/zoom
+    }
+
+    viewports.push({
+        id: cfg.id,
+        mount,
+        camera: cam,
+        renderer: ren,
+        controls: orb,
+        type: cfg.type
+    });
+});
+
+// 3D Transform Gizmo (Asosiy 3D Viewportda)
+const transformControl = new THREE.TransformControls(viewports[0].camera, viewports[0].renderer.domElement);
+transformControl.addEventListener('dragging-changed', e => {
+    viewports[0].controls.enabled = !e.value;
+});
+transformControl.addEventListener('change', () => {
+    if (selectedObject) {
+        syncInspectorFromSelected();
+        rebuildEditingLevelHelpers();
+    }
+});
+scene.add(transformControl);
+
+// Viewportni kattalashtirish / 4-view rejimi
+let maximizedVpId = null;
+
+function updateViewportLayout() {
+    const grid = document.getElementById('viewportsGrid');
+    if (maximizedVpId === null) {
+        grid.classList.remove('single-view');
+        viewports.forEach(vp => {
+            document.getElementById('vpCell' + vp.id).classList.remove('hidden-vp');
+        });
+    } else {
+        grid.classList.add('single-view');
+        viewports.forEach(vp => {
+            const cell = document.getElementById('vpCell' + vp.id);
+            cell.classList.toggle('hidden-vp', vp.id !== maximizedVpId);
+        });
+    }
+    resizeAllViewports();
+}
+
+document.querySelectorAll('[data-max]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const id = parseInt(btn.getAttribute('data-max'), 10);
+        maximizedVpId = (maximizedVpId === id) ? null : id;
+        updateViewportLayout();
+    });
+});
+
+document.getElementById('btnToggle4View').addEventListener('click', () => {
+    maximizedVpId = maximizedVpId === null ? 0 : null;
+    updateViewportLayout();
+});
+
+function resizeAllViewports() {
+    viewports.forEach(vp => {
+        const w = vp.mount.clientWidth;
+        const h = vp.mount.clientHeight;
+        if (w === 0 || h === 0) return;
+        const aspect = w / h;
+        if (vp.type === 'perspective') {
+            vp.camera.aspect = aspect;
+        } else {
+            const frustum = 3.5;
+            vp.camera.left = -frustum * aspect;
+            vp.camera.right = frustum * aspect;
+            vp.camera.top = frustum;
+            vp.camera.bottom = -frustum;
+        }
+        vp.camera.updateProjectionMatrix();
+        vp.renderer.setSize(w, h);
+    });
+}
+window.addEventListener('resize', resizeAllViewports);
+
+// ==================== SAHNA DARAXTI (HIERARCHY) VA TANLASH ====================
+const raycaster = new THREE.Raycaster();
+const mouseVec = new THREE.Vector2();
+
+viewports.forEach(vp => {
+    vp.renderer.domElement.addEventListener('pointerdown', e => {
+        document.querySelectorAll('.vp-cell').forEach(c => c.classList.remove('active-vp'));
+        document.getElementById('vpCell' + vp.id).classList.add('active-vp');
+
+        if (e.button !== 0 || transformControl.dragging) return;
+        const rect = vp.renderer.domElement.getBoundingClientRect();
+        mouseVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouseVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(mouseVec, vp.camera);
+        const meshes = [];
+        modelRoot.traverse(obj => {
+            if (obj.isMesh && obj.visible) meshes.push(obj);
+        });
+
+        const hits = raycaster.intersectObjects(meshes, false);
+        if (hits.length > 0) {
+            selectSceneNode(hits[0].object);
+        }
+    });
+});
+
+function selectSceneNode(obj) {
+    selectedObject = obj;
+    if (obj && obj.visible) {
+        transformControl.attach(obj);
+    } else {
+        transformControl.detach();
+    }
+    syncInspectorFromSelected();
+    rebuildSceneNodesTreeUI();
+    rebuildEditingLevelHelpers();
+    updateGlobalStats();
+}
+
+function syncInspectorFromSelected() {
+    const nameInput = document.getElementById('propNodeName');
+    if (!selectedObject) {
+        nameInput.value = '';
+        document.getElementById('statSelected').textContent = 'NONE';
+        return;
+    }
+    nameInput.value = selectedObject.name || 'unnamed_node';
+    document.getElementById('statSelected').textContent = selectedObject.name;
+
+    document.getElementById('posX').value = selectedObject.position.x.toFixed(3);
+    document.getElementById('posY').value = selectedObject.position.y.toFixed(3);
+    document.getElementById('posZ').value = selectedObject.position.z.toFixed(3);
+
+    document.getElementById('rotX').value = THREE.MathUtils.radToDeg(selectedObject.rotation.x).toFixed(1);
+    document.getElementById('rotY').value = THREE.MathUtils.radToDeg(selectedObject.rotation.y).toFixed(1);
+    document.getElementById('rotZ').value = THREE.MathUtils.radToDeg(selectedObject.rotation.z).toFixed(1);
+
+    document.getElementById('sclX').value = selectedObject.scale.x.toFixed(2);
+    document.getElementById('sclY').value = selectedObject.scale.y.toFixed(2);
+    document.getElementById('sclZ').value = selectedObject.scale.z.toFixed(2);
+
+    if (selectedObject.isMesh && selectedObject.material && selectedObject.material.color) {
+        const hex = '#' + selectedObject.material.color.getHexString();
+        document.getElementById('matColorPicker').value = hex;
+        document.getElementById('matColorHex').textContent = hex.toUpperCase();
+        document.getElementById('matNameInput').value = selectedObject.material.name || 'vehiclegeneric256';
+    }
+}
+
+function rebuildSceneNodesTreeUI() {
+    const container = document.getElementById('sceneNodesList');
+    container.innerHTML = '';
+    let count = 0;
+
+    modelRoot.children.forEach(node => {
+        count++;
+        const item = document.createElement('div');
+        item.className = 'node-item' + (node === selectedObject ? ' selected' : '');
+
+        const left = document.createElement('div');
+        left.className = 'node-left';
+
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = node.visible;
+        chk.addEventListener('click', ev => {
+            ev.stopPropagation();
+            node.visible = chk.checked;
+            if (!node.visible && selectedObject === node) transformControl.detach();
+            updateGlobalStats();
+        });
+
+        const tag = document.createElement('span');
+        tag.className = 'node-type-tag';
+        tag.textContent = node.userData.isDummy ? 'DUMMY' : 'MESH';
+
+        const label = document.createElement('span');
+        label.textContent = node.name || ('node_' + count);
+
+        left.appendChild(chk);
+        left.appendChild(tag);
+        left.appendChild(label);
+        item.appendChild(left);
+
+        item.addEventListener('click', () => selectSceneNode(node));
+        container.appendChild(item);
+    });
+
+    document.getElementById('nodeCountBadge').textContent = count;
+}
+
+function updateGlobalStats() {
+    let verts = 0;
+    let polys = 0;
+    modelRoot.traverse(obj => {
+        if (obj.isMesh && obj.geometry && obj.visible) {
+            const pos = obj.geometry.attributes.position;
+            if (pos) {
+                verts += pos.count;
+                if (obj.geometry.index) {
+                    polys += Math.floor(obj.geometry.index.count / 3);
+                } else {
+                    polys += Math.floor(pos.count / 3);
+                }
+            }
+        }
+    });
+    document.getElementById('statVerts').textContent = verts.toLocaleString();
+    document.getElementById('statPolys').textContent = polys.toLocaleString();
+}
+
+// ==================== EDITING LEVELS (OBJECT, VERTEX, EDGE, POLYGON) & NORMALS ====================
+function rebuildEditingLevelHelpers() {
+    while (helperGroup.children.length > 0) {
+        const c = helperGroup.children[0];
+        helperGroup.remove(c);
+        if (c.geometry) c.geometry.dispose();
+        if (c.material) c.material.dispose();
+    }
+
+    if (!selectedObject || !selectedObject.isMesh || !selectedObject.geometry) return;
+    selectedObject.updateMatrixWorld(true);
+    const geom = selectedObject.geometry.clone();
+    geom.applyMatrix4(selectedObject.matrixWorld);
+
+    if (editingLevel === 'vertex') {
+        const ptsMat = new THREE.PointsMaterial({ color: 0xff3b30, size: 0.045 });
+        const pts = new THREE.Points(geom, ptsMat);
+        helperGroup.add(pts);
+    } else if (editingLevel === 'edge') {
+        const edgesGeom = new THREE.EdgesGeometry(geom, 1);
+        const lineMat = new THREE.LineBasicMaterial({ color: 0x00ff41 });
+        helperGroup.add(new THREE.LineSegments(edgesGeom, lineMat));
+    } else if (editingLevel === 'polygon') {
+        const wireMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, wireframe: true, transparent: true, opacity: 0.65 });
+        helperGroup.add(new THREE.Mesh(geom, wireMat));
+    }
+
+    if (showNormalsGlobal && geom.attributes.normal) {
+        const pos = geom.attributes.position;
+        const norm = geom.attributes.normal;
+        const linePts = [];
+        const step = Math.max(1, Math.floor(pos.count / 1200));
+        for (let i = 0; i < pos.count; i += step) {
+            const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+            const nx = norm.getX(i), ny = norm.getY(i), nz = norm.getZ(i);
+            linePts.push(new THREE.Vector3(vx, vy, vz));
+            linePts.push(new THREE.Vector3(vx + nx * 0.08, vy + ny * 0.08, vz + nz * 0.08));
+        }
+        const nGeom = new THREE.BufferGeometry().setFromPoints(linePts);
+        helperGroup.add(new THREE.LineSegments(nGeom, new THREE.LineBasicMaterial({ color: 0x38bdf8 })));
+    }
+}
+
+document.querySelectorAll('[data-level]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-level]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        editingLevel = btn.getAttribute('data-level');
+        document.getElementById('statLevel').textContent = editingLevel.toUpperCase() + ' MODE';
+        rebuildEditingLevelHelpers();
+        zmLog(`Switched to ${editingLevel.toUpperCase()} editing level.`, 'info');
+    });
+});
+
+// ==================== CREATE TOOLS (PRIMITIVES & GTA DUMMY) ====================
+function createDefaultMaterial(name = 'vehiclegeneric256', colorHex = 0x38bdf8) {
+    const mat = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        metalness: 0.15,
+        roughness: 0.35,
+        wireframe: isWireframeGlobal,
+        side: THREE.DoubleSide
+    });
+    mat.name = name;
+    return mat;
+}
+
+document.querySelectorAll('[data-create]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const type = btn.getAttribute('data-create');
+        let geom = null;
+        let name = type + '_ok';
+
+        if (type === 'box') geom = new THREE.BoxGeometry(1.2, 0.8, 1.8);
+        else if (type === 'sphere') geom = new THREE.SphereGeometry(0.8, 28, 20);
+        else if (type === 'cylinder') geom = new THREE.CylinderGeometry(0.6, 0.6, 1.4, 28);
+        else if (type === 'cone') geom = new THREE.ConeGeometry(0.7, 1.4, 28);
+        else if (type === 'torus') geom = new THREE.TorusGeometry(0.65, 0.22, 20, 36);
+        else if (type === 'plane') geom = new THREE.PlaneGeometry(1.98, 0.44, 4, 2);
+        else if (type === 'dummy') {
+            const dummy = new THREE.Group();
+            dummy.name = 'chassis_dummy';
+            dummy.userData.isDummy = true;
+            const dHelper = new THREE.AxesHelper(0.45);
+            dummy.add(dHelper);
+            modelRoot.add(dummy);
+            selectSceneNode(dummy);
+            zmLog('Created GTA SA Dummy node: chassis_dummy', 'ok');
+            return;
+        }
+
+        if (geom) {
+            // Vertex ranglarini ham qo'shamiz (DFF Prelit uchun)
+            const count = geom.attributes.position.count;
+            const colArr = new Float32Array(count * 3);
+            const c = new THREE.Color(document.getElementById('matColorPicker').value);
+            for (let i = 0; i < count; i++) {
+                colArr[i * 3] = c.r;
+                colArr[i * 3 + 1] = c.g;
+                colArr[i * 3 + 2] = c.b;
+            }
+            geom.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
+
+            const mat = createDefaultMaterial(name + '_mat', c.getHex());
+            const mesh = new THREE.Mesh(geom, mat);
+            mesh.name = name;
+            modelRoot.add(mesh);
+            selectSceneNode(mesh);
+            zmLog(`Created 3D primitive: ${name}`, 'ok');
+        }
+    });
+});
+
+// ==================== MODIFY TOOLS (MOVE, ROTATE, SCALE, MIRROR, FLIP, ATTACH, SUBDIVIDE) ====================
+function setTransformMode(mode, btnId) {
+    transformControl.setMode(mode);
+    ['toolMoveBtn', 'toolRotateBtn', 'toolScaleBtn'].forEach(id => {
+        document.getElementById(id).classList.toggle('active', id === btnId);
+    });
+}
+document.getElementById('toolMoveBtn').addEventListener('click', () => setTransformMode('translate', 'toolMoveBtn'));
+document.getElementById('toolRotateBtn').addEventListener('click', () => setTransformMode('rotate', 'toolRotateBtn'));
+document.getElementById('toolScaleBtn').addEventListener('click', () => setTransformMode('scale', 'toolScaleBtn'));
+
+// Axis Lock Toggles
+function updateTransformAxes() {
+    transformControl.showX = activeAxes.x;
+    transformControl.showY = activeAxes.y;
+    transformControl.showZ = activeAxes.z;
+}
+document.getElementById('axisXBtn').addEventListener('click', function () {
+    activeAxes.x = !activeAxes.x;
+    this.classList.toggle('active', activeAxes.x);
+    updateTransformAxes();
+});
+document.getElementById('axisYBtn').addEventListener('click', function () {
+    activeAxes.y = !activeAxes.y;
+    this.classList.toggle('active', activeAxes.y);
+    updateTransformAxes();
+});
+document.getElementById('axisZBtn').addEventListener('click', function () {
+    activeAxes.z = !activeAxes.z;
+    this.classList.toggle('active', activeAxes.z);
+    updateTransformAxes();
+});
+
+// Clone
+document.getElementById('toolCloneBtn').addEventListener('click', () => {
+    if (!selectedObject || !selectedObject.isMesh) return;
+    const clone = selectedObject.clone();
+    clone.geometry = selectedObject.geometry.clone();
+    clone.material = selectedObject.material.clone();
+    clone.name = selectedObject.name + '_copy';
+    clone.position.x += 0.25;
+    modelRoot.add(clone);
+    selectSceneNode(clone);
+    zmLog(`Cloned object: ${clone.name}`, 'ok');
+});
+
+// Mirror X / Y
+function mirrorSelectedGeometry(axis = 'x') {
+    if (!selectedObject || !selectedObject.isMesh) return;
+    const g = selectedObject.geometry;
+    g.scale(axis === 'x' ? -1 : 1, axis === 'y' ? -1 : 1, axis === 'z' ? -1 : 1);
+    // Winding orderni to'g'rilash
+    const pos = g.attributes.position;
+    if (g.index) {
+        const idx = g.index.array;
+        for (let i = 0; i < idx.length; i += 3) {
+            const tmp = idx[i + 1];
+            idx[i + 1] = idx[i + 2];
+            idx[i + 2] = tmp;
+        }
+        g.index.needsUpdate = true;
+    } else {
+        for (let i = 0; i < pos.count; i += 3) {
+            const bx = pos.getX(i + 1), by = pos.getY(i + 1), bz = pos.getZ(i + 1);
+            pos.setXYZ(i + 1, pos.getX(i + 2), pos.getY(i + 2), pos.getZ(i + 2));
+            pos.setXYZ(i + 2, bx, by, bz);
+        }
+    }
+    g.computeVertexNormals();
+    rebuildEditingLevelHelpers();
+    zmLog(`Mirrored ${selectedObject.name} along ${axis.toUpperCase()} axis.`, 'ok');
+}
+
+document.getElementById('btnMirrorX').addEventListener('click', () => mirrorSelectedGeometry('x'));
+document.getElementById('btnMirrorY').addEventListener('click', () => mirrorSelectedGeometry('y'));
+
+// Flip Normals
+document.getElementById('btnFlipNormals').addEventListener('click', () => {
+    if (!selectedObject || !selectedObject.isMesh) return;
+    const g = selectedObject.geometry;
+    if (g.index) {
+        const idx = g.index.array;
+        for (let i = 0; i < idx.length; i += 3) {
+            const tmp = idx[i + 1];
+            idx[i + 1] = idx[i + 2];
+            idx[i + 2] = tmp;
+        }
+        g.index.needsUpdate = true;
+    }
+    const norm = g.attributes.normal;
+    if (norm) {
+        for (let i = 0; i < norm.count; i++) {
+            norm.setXYZ(i, -norm.getX(i), -norm.getY(i), -norm.getZ(i));
+        }
+        norm.needsUpdate = true;
+    }
+    rebuildEditingLevelHelpers();
+    zmLog(`Flipped surface normals on ${selectedObject.name}.`, 'ok');
+});
+
+// Center Axis
+document.getElementById('btnCenterAxis').addEventListener('click', () => {
+    if (!selectedObject || !selectedObject.isMesh) return;
+    selectedObject.geometry.center();
+    selectedObject.position.set(0, 0, 0);
+    syncInspectorFromSelected();
+    rebuildEditingLevelHelpers();
+    zmLog(`Centered pivot axis to origin (0,0,0) for ${selectedObject.name}.`, 'ok');
+});
+
+// Attach All Meshes into 1 Unified Mesh
+document.getElementById('btnAttachAll').addEventListener('click', () => {
+    const meshes = [];
+    modelRoot.traverse(obj => {
+        if (obj.isMesh && obj.visible) meshes.push(obj);
+    });
+    if (meshes.length < 2) {
+        zmLog('Attach requires at least 2 visible meshes in the scene.', 'warn');
+        return;
+    }
+
+    const combinedPos = [];
+    const combinedNorm = [];
+    const combinedCol = [];
+    const combinedUV = [];
+
+    meshes.forEach(m => {
+        m.updateMatrixWorld(true);
+        const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+        g.applyMatrix4(m.matrixWorld);
+        if (!g.attributes.normal) g.computeVertexNormals();
+
+        const pos = g.attributes.position;
+        const norm = g.attributes.normal;
+        const col = g.attributes.color;
+        const uv = g.attributes.uv;
+        const mCol = (m.material && m.material.color) ? m.material.color : new THREE.Color(0x38bdf8);
+
+        for (let i = 0; i < pos.count; i++) {
+            combinedPos.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+            combinedNorm.push(norm.getX(i), norm.getY(i), norm.getZ(i));
+            if (col) {
+                combinedCol.push(col.getX(i), col.getY(i), col.getZ(i));
+            } else {
+                combinedCol.push(mCol.r, mCol.g, mCol.b);
+            }
+            if (uv) {
+                combinedUV.push(uv.getX(i), uv.getY(i));
+            } else {
+                combinedUV.push(0.5, 0.5);
+            }
+        }
+        g.dispose();
+    });
+
+    const newGeom = new THREE.BufferGeometry();
+    newGeom.setAttribute('position', new THREE.Float32BufferAttribute(combinedPos, 3));
+    newGeom.setAttribute('normal', new THREE.Float32BufferAttribute(combinedNorm, 3));
+    newGeom.setAttribute('color', new THREE.Float32BufferAttribute(combinedCol, 3));
+    newGeom.setAttribute('uv', new THREE.Float32BufferAttribute(combinedUV, 2));
+
+    const indices = [];
+    for (let i = 0; i < combinedPos.length / 3; i++) indices.push(i);
+    newGeom.setIndex(indices);
+
+    const mainName = meshes[0].name || 'bonnet_ok';
+    meshes.forEach(m => {
+        modelRoot.remove(m);
+        m.geometry.dispose();
+    });
+
+    const unifiedMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        metalness: 0.15,
+        roughness: 0.35,
+        wireframe: isWireframeGlobal,
+        side: THREE.DoubleSide
+    });
+    const unifiedMesh = new THREE.Mesh(newGeom, unifiedMat);
+    unifiedMesh.name = mainName;
+    modelRoot.add(unifiedMesh);
+    selectSceneNode(unifiedMesh);
+    zmLog(`Attached ${meshes.length} objects into single unified mesh: ${mainName}`, 'ok');
+});
+
+// Subdivide (1-level midpoint triangle subdivision)
+document.getElementById('btnSubdivide').addEventListener('click', () => {
+    if (!selectedObject || !selectedObject.isMesh) return;
+    const g = selectedObject.geometry.index ? selectedObject.geometry.toNonIndexed() : selectedObject.geometry;
+    const pos = g.attributes.position;
+    if (pos.count > 20000) {
+        zmLog('Mesh is already high-poly (>20,000 verts). Subdivision skipped to stay within DFF 65k limit.', 'warn');
+        return;
+    }
+
+    const newPos = [];
+    const col = g.attributes.color;
+    const newCol = [];
+
+    for (let i = 0; i < pos.count; i += 3) {
+        const v0 = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
+        const v1 = new THREE.Vector3(pos.getX(i + 1), pos.getY(i + 1), pos.getZ(i + 1));
+        const v2 = new THREE.Vector3(pos.getX(i + 2), pos.getY(i + 2), pos.getZ(i + 2));
+
+        const m01 = v0.clone().add(v1).multiplyScalar(0.5);
+        const m12 = v1.clone().add(v2).multiplyScalar(0.5);
+        const m20 = v2.clone().add(v0).multiplyScalar(0.5);
+
+        const tris = [
+            [v0, m01, m20],
+            [m01, v1, m12],
+            [m20, m12, v2],
+            [m01, m12, m20]
+        ];
+        const c0 = col ? [col.getX(i), col.getY(i), col.getZ(i)] : [0.22, 0.74, 0.97];
+        tris.forEach(t => {
+            t.forEach(v => {
+                newPos.push(v.x, v.y, v.z);
+                newCol.push(c0[0], c0[1], c0[2]);
+            });
+        });
+    }
+
+    const subGeom = new THREE.BufferGeometry();
+    subGeom.setAttribute('position', new THREE.Float32BufferAttribute(newPos, 3));
+    subGeom.setAttribute('color', new THREE.Float32BufferAttribute(newCol, 3));
+    subGeom.computeVertexNormals();
+    selectedObject.geometry.dispose();
+    selectedObject.geometry = subGeom;
+    updateGlobalStats();
+    rebuildEditingLevelHelpers();
+    zmLog(`Subdivided ${selectedObject.name} (${(newPos.length / 9).toLocaleString()} polygons).`, 'ok');
+});
+
+// Smooth / Flat Normals & UV Mapping
+document.getElementById('btnSmoothNormals').addEventListener('click', () => {
+    if (!selectedObject || !selectedObject.isMesh) return;
+    selectedObject.geometry.computeVertexNormals();
+    if (selectedObject.material) {
+        selectedObject.material.flatShading = false;
+        selectedObject.material.needsUpdate = true;
+    }
+    zmLog(`Calculated smooth normals for ${selectedObject.name}.`, 'ok');
+});
+
+document.getElementById('btnFlatNormals').addEventListener('click', () => {
+    if (!selectedObject || !selectedObject.isMesh) return;
+    if (selectedObject.material) {
+        selectedObject.material.flatShading = true;
+        selectedObject.material.needsUpdate = true;
+    }
+    zmLog(`Applied flat shading to ${selectedObject.name}.`, 'ok');
+});
+
+document.getElementById('btnUvPlanar').addEventListener('click', () => {
+    if (!selectedObject || !selectedObject.isMesh) return;
+    const g = selectedObject.geometry;
+    g.computeBoundingBox();
+    const bb = g.boundingBox;
+    const spanX = Math.max(1e-4, bb.max.x - bb.min.x);
+    const spanY = Math.max(1e-4, bb.max.y - bb.min.y);
+    const pos = g.attributes.position;
+    const uvs = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+        uvs[i * 2] = (pos.getX(i) - bb.min.x) / spanX;
+        uvs[i * 2 + 1] = (pos.getY(i) - bb.min.y) / spanY;
+    }
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    zmLog(`Generated Planar XY UV coordinates for ${selectedObject.name}.`, 'ok');
+});
+
+document.getElementById('btnUvBox').addEventListener('click', () => {
+    if (!selectedObject || !selectedObject.isMesh) return;
+    const g = selectedObject.geometry;
+    g.computeBoundingBox();
+    const bb = g.boundingBox;
+    const sx = Math.max(1e-4, bb.max.x - bb.min.x);
+    const sy = Math.max(1e-4, bb.max.y - bb.min.y);
+    const sz = Math.max(1e-4, bb.max.z - bb.min.z);
+    const pos = g.attributes.position;
+    const norm = g.attributes.normal;
+    const uvs = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+        const nx = norm ? Math.abs(norm.getX(i)) : 0;
+        const ny = norm ? Math.abs(norm.getY(i)) : 0;
+        const nz = norm ? Math.abs(norm.getZ(i)) : 1;
+        if (nx >= ny && nx >= nz) {
+            uvs[i * 2] = (pos.getZ(i) - bb.min.z) / sz;
+            uvs[i * 2 + 1] = (pos.getY(i) - bb.min.y) / sy;
+        } else if (ny >= nx && ny >= nz) {
+            uvs[i * 2] = (pos.getX(i) - bb.min.x) / sx;
+            uvs[i * 2 + 1] = (pos.getZ(i) - bb.min.z) / sz;
+        } else {
+            uvs[i * 2] = (pos.getX(i) - bb.min.x) / sx;
+            uvs[i * 2 + 1] = (pos.getY(i) - bb.min.y) / sy;
+        }
+    }
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    zmLog(`Generated Box 6-Axis UV mapping for ${selectedObject.name}.`, 'ok');
+});
+
+// Delete
+function deleteSelectedNode() {
+    if (!selectedObject) return;
+    const name = selectedObject.name;
+    transformControl.detach();
+    modelRoot.remove(selectedObject);
+    if (selectedObject.geometry) selectedObject.geometry.dispose();
+    selectedObject = modelRoot.children[0] || null;
+    selectSceneNode(selectedObject);
+    zmLog(`Deleted node: ${name}`, 'warn');
+}
+document.getElementById('btnDeleteNode').addEventListener('click', deleteSelectedNode);
+
+window.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return;
+    if (e.key === 'Delete') deleteSelectedNode();
+    else if (e.key.toLowerCase() === 'w') setTransformMode('translate', 'toolMoveBtn');
+    else if (e.key.toLowerCase() === 'e') setTransformMode('rotate', 'toolRotateBtn');
+    else if (e.key.toLowerCase() === 'r') setTransformMode('scale', 'toolScaleBtn');
+});
+
+// Inspector Input Events
+['posX', 'posY', 'posZ', 'rotX', 'rotY', 'rotZ', 'sclX', 'sclY', 'sclZ'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => {
+        if (!selectedObject) return;
+        selectedObject.position.set(
+            parseFloat(document.getElementById('posX').value) || 0,
+            parseFloat(document.getElementById('posY').value) || 0,
+            parseFloat(document.getElementById('posZ').value) || 0
+        );
+        selectedObject.rotation.set(
+            THREE.MathUtils.degToRad(parseFloat(document.getElementById('rotX').value) || 0),
+            THREE.MathUtils.degToRad(parseFloat(document.getElementById('rotY').value) || 0),
+            THREE.MathUtils.degToRad(parseFloat(document.getElementById('rotZ').value) || 0)
+        );
+        selectedObject.scale.set(
+            parseFloat(document.getElementById('sclX').value) || 1,
+            parseFloat(document.getElementById('sclY').value) || 1,
+            parseFloat(document.getElementById('sclZ').value) || 1
+        );
+        rebuildEditingLevelHelpers();
+    });
+});
+
+document.getElementById('propNodeName').addEventListener('input', e => {
+    if (!selectedObject) return;
+    selectedObject.name = e.target.value.replace(/[^a-zA-Z0-9_]/g, '_');
+    rebuildSceneNodesTreeUI();
+});
+
+// ==================== MATERIALS EDITOR ====================
+let uploadedTexture = null;
+
+document.getElementById('matColorPicker').addEventListener('input', e => {
+    document.getElementById('matColorHex').textContent = e.target.value.toUpperCase();
+});
+
+document.getElementById('btnUploadTex').addEventListener('click', () => {
+    document.getElementById('texUploadInput').click();
+});
+
+document.getElementById('texUploadInput').addEventListener('change', e => {
+    if (!e.target.files.length) return;
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = ev => {
+        const img = new Image();
+        img.onload = () => {
+            const tex = new THREE.Texture(img);
+            tex.needsUpdate = true;
+            uploadedTexture = tex;
+            zmLog(`Loaded texture image: ${file.name} (${img.width}x${img.height})`, 'ok');
+            applyMaterialToSelected();
+        };
+        img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+});
+
+function applyMaterialToSelected() {
+    if (!selectedObject || !selectedObject.isMesh) {
+        zmLog('Select a 3D mesh first to apply material.', 'warn');
+        return;
+    }
+    const hex = document.getElementById('matColorPicker').value;
+    const col = new THREE.Color(hex);
+    const spec = parseFloat(document.getElementById('matSpecSlider').value) || 0.2;
+    const rough = parseFloat(document.getElementById('matRoughSlider').value) || 0.35;
+    const alpha = parseFloat(document.getElementById('matAlphaSlider').value) || 1.0;
+    const matName = document.getElementById('matNameInput').value || 'vehiclegeneric256';
+
+    // Vertex ranglarini ham yangilab yozamiz (DFF exportda rang saqlanib qolishi uchun!)
+    const g = selectedObject.geometry;
+    if (g && g.attributes.position) {
+        const count = g.attributes.position.count;
+        const cArr = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+            cArr[i * 3] = col.r;
+            cArr[i * 3 + 1] = col.g;
+            cArr[i * 3 + 2] = col.b;
+        }
+        g.setAttribute('color', new THREE.Float32BufferAttribute(cArr, 3));
+    }
+
+    selectedObject.material = new THREE.MeshStandardMaterial({
+        name: matName,
+        color: uploadedTexture ? 0xffffff : col,
+        map: uploadedTexture || null,
+        metalness: spec,
+        roughness: rough,
+        transparent: alpha < 1.0,
+        opacity: alpha,
+        wireframe: isWireframeGlobal,
+        side: THREE.DoubleSide
+    });
+    zmLog(`Applied material "${matName}" (${hex.toUpperCase()}) to ${selectedObject.name}.`, 'ok');
+}
+
+document.getElementById('btnApplyMat').addEventListener('click', applyMaterialToSelected);
+
+// Display Toggles
+document.getElementById('btnToggleWire').addEventListener('click', function () {
+    isWireframeGlobal = !isWireframeGlobal;
+    this.classList.toggle('active', isWireframeGlobal);
+    modelRoot.traverse(obj => {
+        if (obj.isMesh && obj.material) {
+            obj.material.wireframe = isWireframeGlobal;
+            obj.material.needsUpdate = true;
+        }
+    });
+});
+
+document.getElementById('btnToggleNormals').addEventListener('click', function () {
+    showNormalsGlobal = !showNormalsGlobal;
+    this.classList.toggle('active', showNormalsGlobal);
+    rebuildEditingLevelHelpers();
+});
+
+function fitCameraToScene() {
+    const box = new THREE.Box3().setFromObject(modelRoot);
+    if (box.isEmpty()) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 0.5);
+
+    viewports[0].camera.position.set(center.x + maxDim * 1.4, center.y + maxDim * 1.0, center.z + maxDim * 1.6);
+    viewports.forEach(vp => {
+        vp.controls.target.copy(center);
+        vp.controls.update();
+    });
+    zmLog('Fitted all 4 viewports to active model bounds.', 'info');
+}
+document.getElementById('btnFitView').addEventListener('click', fitCameraToScene);
+
+// ==================== GTA SAN ANDREAS .DFF PARSER (MULTI-PART & FRAME-AWARE) ====================
+function importDFFBuffer(arrayBuffer, fileName) {
+    const dv = new DataView(arrayBuffer);
+    let offset = 0;
+    const frameNames = [];
+    const geometries = [];
+
+    function parseSections(endLimit) {
+        while (offset + 12 <= endLimit) {
+            const type = dv.getUint32(offset, true);
+            const size = dv.getUint32(offset + 4, true);
+            const nextOffset = offset + 12 + size;
+            if (nextOffset > arrayBuffer.byteLength) break;
+
+            if (type === 0x0010 || type === 0x001A || type === 0x000E) {
+                offset += 12;
+                parseSections(nextOffset);
+            } else if (type === 0x0253F2FE) {
+                // Node Name Extension
+                const bytes = new Uint8Array(arrayBuffer, offset + 12, size);
+                let str = new TextDecoder().decode(bytes).replace(/\0/g, '').trim();
+                if (str) frameNames.push(str);
+                offset = nextOffset;
+            } else if (type === 0x000F) {
+                const g = readRWGeometrySection(dv, offset + 12, nextOffset);
+                if (g) geometries.push(g);
+                offset = nextOffset;
+            } else {
+                offset = nextOffset;
+            }
+        }
+    }
+
+    function parseMaterialColorsFromGeometry(view, startPos, endPos) {
+        const matColors = [];
+        let p = startPos;
+        while (p + 12 <= endPos) {
+            const t = view.getUint32(p, true);
+            const s = view.getUint32(p + 4, true);
+            const n = p + 12 + s;
+            if (n > endPos) break;
+            if (t === 0x0008) {
+                let mp = p + 12;
+                while (mp + 12 <= n) {
+                    const mt = view.getUint32(mp, true);
+                    const ms = view.getUint32(mp + 4, true);
+                    const mn = mp + 12 + ms;
+                    if (mn > n) break;
+                    if (mt === 0x0007 && mp + 24 + 8 <= mn) {
+                        const stPos = mp + 24;
+                        const r = view.getUint8(stPos + 4) / 255;
+                        const g = view.getUint8(stPos + 5) / 255;
+                        const b = view.getUint8(stPos + 6) / 255;
+                        matColors.push([r, g, b]);
+                    }
+                    mp = mn;
+                }
+            }
+            p = n;
+        }
+        return matColors;
+    }
+
+    function readRWGeometrySection(view, sectionStart, sectionEnd) {
+        try {
+            const structType = view.getUint32(sectionStart, true);
+            const structSize = view.getUint32(sectionStart + 4, true);
+            if (structType !== 0x0001) return null;
+
+            const matColors = parseMaterialColorsFromGeometry(view, sectionStart + 12 + structSize, sectionEnd);
+
+            let pos = sectionStart + 12;
+            const flags = view.getUint32(pos, true);
+            const numTriangles = view.getUint32(pos + 4, true);
+            const numVertices = view.getUint32(pos + 8, true);
+            pos += 16;
+
+            if (numVertices === 0 || numVertices > 500000) return null;
+
+            const hasTexCoords = (flags & 0x04) !== 0 || (flags & 0x80) !== 0;
+            const hasPrelit = (flags & 0x08) !== 0;
+            const hasNormals = (flags & 0x10) !== 0;
+            let numUVSets = (flags >> 16) & 0xFF;
+            if (numUVSets === 0 && hasTexCoords) numUVSets = 1;
+
+            let prelitColors = null;
+            if (hasPrelit) {
+                prelitColors = new Float32Array(numVertices * 3);
+                for (let i = 0; i < numVertices; i++) {
+                    prelitColors[i * 3] = view.getUint8(pos) / 255;
+                    prelitColors[i * 3 + 1] = view.getUint8(pos + 1) / 255;
+                    prelitColors[i * 3 + 2] = view.getUint8(pos + 2) / 255;
+                    pos += 4;
+                }
+            }
+
+            let uvs = null;
+            if (numUVSets > 0) {
+                uvs = new Float32Array(numVertices * 2);
+                for (let i = 0; i < numVertices * 2; i++) {
+                    uvs[i] = view.getFloat32(pos, true);
+                    pos += 4;
+                }
+                if (numUVSets > 1) {
+                    pos += (numUVSets - 1) * numVertices * 8;
+                }
+            }
+
+            const indices = [];
+            const triMatIds = [];
+            for (let i = 0; i < numTriangles; i++) {
+                const v2 = view.getUint16(pos, true);
+                const v1 = view.getUint16(pos + 2, true);
+                const matId = view.getUint16(pos + 4, true);
+                const v3 = view.getUint16(pos + 6, true);
+                pos += 8;
+                indices.push(v1, v2, v3);
+                triMatIds.push(matId);
+            }
+
+            pos += 24;
+
+            const vertices = new Float32Array(numVertices * 3);
+            for (let i = 0; i < numVertices * 3; i++) {
+                vertices[i] = view.getFloat32(pos, true);
+                pos += 4;
+            }
+
+            if (!prelitColors && matColors.length > 0) {
+                prelitColors = new Float32Array(numVertices * 3);
+                for (let i = 0; i < numTriangles; i++) {
+                    const mc = matColors[triMatIds[i]] || matColors[0] || [0.22, 0.74, 0.97];
+                    const a = indices[i * 3], b = indices[i * 3 + 1], c = indices[i * 3 + 2];
+                    [a, b, c].forEach(vi => {
+                        if (vi < numVertices) {
+                            prelitColors[vi * 3] = mc[0];
+                            prelitColors[vi * 3 + 1] = mc[1];
+                            prelitColors[vi * 3 + 2] = mc[2];
+                        }
+                    });
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            if (uvs) geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+            if (prelitColors) geometry.setAttribute('color', new THREE.BufferAttribute(prelitColors, 3));
+            geometry.setIndex(indices);
+
+            if (hasNormals && pos + numVertices * 12 <= view.byteLength) {
+                const normals = new Float32Array(numVertices * 3);
+                for (let i = 0; i < numVertices * 3; i++) {
+                    normals[i] = view.getFloat32(pos, true);
+                    pos += 4;
+                }
+                geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+            } else {
+                geometry.computeVertexNormals();
+            }
+
+            return geometry;
+        } catch (err) {
+            return null;
+        }
+    }
+
+    parseSections(arrayBuffer.byteLength);
+
+    if (geometries.length === 0) {
+        zmLog(`Error: No valid RenderWare geometry found in ${fileName}`, 'warn');
+        return;
+    }
+
+    const baseFileName = fileName.replace(/\.[^/.]+$/, '');
+    geometries.forEach((geom, idx) => {
+        const hasVertColors = !!geom.attributes.color;
+        const mat = new THREE.MeshStandardMaterial({
+            name: baseFileName + '_mat_' + idx,
+            color: hasVertColors ? 0xffffff : 0x38bdf8,
+            vertexColors: hasVertColors,
+            metalness: 0.12,
+            roughness: 0.35,
+            wireframe: isWireframeGlobal,
+            side: THREE.DoubleSide
+        });
+        const mesh = new THREE.Mesh(geom, mat);
+        // Frame nomlaridan mosini beramiz (masalan bonnet_ok)
+        const fName = frameNames[idx + (frameNames.length > geometries.length ? 1 : 0)] || frameNames[idx] || `${baseFileName}_${idx}`;
+        mesh.name = fName;
+        modelRoot.add(mesh);
+    });
+
+    selectSceneNode(modelRoot.children[modelRoot.children.length - 1]);
+    fitCameraToScene();
+    zmLog(`GTA_SanAndreas_DFF.zmf: Imported "${fileName}" (${geometries.length} mesh nodes, ${frameNames.length} frames).`, 'ok');
+}
+
+// ==================== MULTI-OBJECT / UNIFIED .DFF EXPORTER ====================
+function exportSceneToDFF() {
+    const meshes = [];
+    modelRoot.traverse(obj => {
+        if (obj.isMesh && obj.visible && obj.geometry) meshes.push(obj);
+    });
+
+    if (meshes.length === 0) {
+        zmLog('Export aborted: Scene has no visible meshes to export.', 'warn');
+        return;
+    }
+
+    // Barcha ko'rinib turgan detallarni bitta DFF ichiga yig'amiz
+    const uPos = [];
+    const uNorm = [];
+    const uCol = [];
+    const uUV = [];
+    const indices = [];
+
+    let vOffset = 0;
+    meshes.forEach(m => {
+        m.updateMatrixWorld(true);
+        const g = m.geometry.clone();
+        g.applyMatrix4(m.matrixWorld);
+        if (!g.attributes.normal) g.computeVertexNormals();
+
+        const pos = g.attributes.position;
+        const norm = g.attributes.normal;
+        const col = g.attributes.color;
+        const uv = g.attributes.uv;
+        const idx = g.index;
+        const fallbackC = (m.material && m.material.color) ? m.material.color : new THREE.Color(0x38bdf8);
+
+        for (let i = 0; i < pos.count; i++) {
+            uPos.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+            uNorm.push(norm.getX(i), norm.getY(i), norm.getZ(i));
+            if (col) {
+                uCol.push(col.getX(i), col.getY(i), col.getZ(i));
+            } else {
+                uCol.push(fallbackC.r, fallbackC.g, fallbackC.b);
+            }
+            if (uv) {
+                uUV.push(uv.getX(i), uv.getY(i));
+            } else {
+                uUV.push(0.5, 0.5);
+            }
+        }
+
+        if (idx) {
+            for (let i = 0; i < idx.count; i += 3) {
+                indices.push(idx.getX(i) + vOffset, idx.getX(i + 1) + vOffset, idx.getX(i + 2) + vOffset);
+            }
+        } else {
+            for (let i = 0; i < pos.count; i += 3) {
+                indices.push(i + vOffset, i + 1 + vOffset, i + 2 + vOffset);
+            }
+        }
+        vOffset += pos.count;
+        g.dispose();
+    });
+
+    const numVerts = uPos.length / 3;
+    const numTris = Math.floor(indices.length / 3);
+
+    if (numVerts > 65535) {
+        zmLog(`Warning: Vertex count (${numVerts}) exceeds standard 16-bit DFF limit (65,535).`, 'warn');
+    }
+
+    // DFF o'lchamini (targetDffMaxSpan) tekshirish va Bounding Radius hisoblash
+    let maxRadiusSq = 0;
+    for (let i = 0; i < uPos.length; i += 3) {
+        const rSq = uPos[i] ** 2 + uPos[i + 1] ** 2 + uPos[i + 2] ** 2;
+        if (rSq > maxRadiusSq) maxRadiusSq = rSq;
+    }
+    const boundingRadius = Math.sqrt(maxRadiusSq) || 1.0;
+
+    // Materiallar palitrasi
+    const materialsPalette = [];
+    const colorToMatIdx = new Map();
+    const triMatIndices = new Uint16Array(numTris);
+    const matSplits = [];
+
+    function getOrCreateMat(r, g, b) {
+        const qr = Math.min(255, Math.round(r / 4) * 4);
+        const qg = Math.min(255, Math.round(g / 4) * 4);
+        const qb = Math.min(255, Math.round(b / 4) * 4);
+        const key = (qr << 16) | (qg << 8) | qb;
+        let mIdx = colorToMatIdx.get(key);
+        if (mIdx !== undefined) return mIdx;
+        if (materialsPalette.length < 64) {
+            mIdx = materialsPalette.length;
+            materialsPalette.push({ r: qr, g: qg, b: qb });
+            matSplits.push([]);
+            colorToMatIdx.set(key, mIdx);
+            return mIdx;
+        }
+        return 0;
+    }
+
+    for (let i = 0; i < numTris; i++) {
+        const v1 = indices[i * 3];
+        const v2 = indices[i * 3 + 1];
+        const v3 = indices[i * 3 + 2];
+        const r = Math.round(((uCol[v1 * 3] + uCol[v2 * 3] + uCol[v3 * 3]) / 3) * 255);
+        const g = Math.round(((uCol[v1 * 3 + 1] + uCol[v2 * 3 + 1] + uCol[v3 * 3 + 1]) / 3) * 255);
+        const b = Math.round(((uCol[v1 * 3 + 2] + uCol[v2 * 3 + 2] + uCol[v3 * 3 + 2]) / 3) * 255);
+        const mIdx = getOrCreateMat(r, g, b);
+        triMatIndices[i] = mIdx;
+        matSplits[mIdx].push(v1, v2, v3);
+    }
+
+    const RW_VERSION = 0x1803FFFF;
+    function makeSection(type, payloadBytes) {
+        const out = new Uint8Array(12 + payloadBytes.byteLength);
+        const dv = new DataView(out.buffer);
+        dv.setUint32(0, type, true);
+        dv.setUint32(4, payloadBytes.byteLength, true);
+        dv.setUint32(8, RW_VERSION, true);
+        out.set(new Uint8Array(payloadBytes.buffer || payloadBytes), 12);
+        return out;
+    }
+    function concatArrays(arrays) {
+        const total = arrays.reduce((acc, a) => acc + a.byteLength, 0);
+        const res = new Uint8Array(total);
+        let off = 0;
+        arrays.forEach(a => { res.set(a, off); off += a.byteLength; });
+        return res;
+    }
+
+    const nodeName = ((selectedObject && selectedObject.name) || meshes[0].name || 'bonnet_ok').replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 22);
+    const nameBytes = new TextEncoder().encode(nodeName);
+    const nodeNameExt = makeSection(0x0003, makeSection(0x0253F2FE, nameBytes));
+
+    const clumpStructBuf = new ArrayBuffer(12);
+    new DataView(clumpStructBuf).setUint32(0, 1, true);
+    const clumpStruct = makeSection(0x0001, new Uint8Array(clumpStructBuf));
+
+    const frameStructBuf = new ArrayBuffer(60);
+    const frameDV = new DataView(frameStructBuf);
+    frameDV.setUint32(0, 1, true);
+    frameDV.setFloat32(4, 1.0, true);
+    frameDV.setFloat32(20, 1.0, true);
+    frameDV.setFloat32(36, 1.0, true);
+    frameDV.setInt32(52, -1, true);
+    const frameList = makeSection(0x000E, concatArrays([makeSection(0x0001, new Uint8Array(frameStructBuf)), nodeNameExt]));
+
+    const numMats = materialsPalette.length;
+    const matListStructBuf = new ArrayBuffer(4 + numMats * 4);
+    const matListDV = new DataView(matListStructBuf);
+    matListDV.setUint32(0, numMats, true);
+    for (let m = 0; m < numMats; m++) matListDV.setInt32(4 + m * 4, -1, true);
+
+    const materialSections = [makeSection(0x0001, new Uint8Array(matListStructBuf))];
+    for (let m = 0; m < numMats; m++) {
+        const mc = materialsPalette[m];
+        const matStructBuf = new ArrayBuffer(28);
+        const matDV = new DataView(matStructBuf);
+        matDV.setUint8(4, mc.r);
+        matDV.setUint8(5, mc.g);
+        matDV.setUint8(6, mc.b);
+        matDV.setUint8(7, 255);
+        matDV.setUint32(8, 1, true);
+        matDV.setFloat32(16, 1.0, true);
+        matDV.setFloat32(20, 0.04, true);
+        matDV.setFloat32(24, 1.0, true);
+        materialSections.push(makeSection(0x0007, concatArrays([makeSection(0x0001, new Uint8Array(matStructBuf)), makeSection(0x0003, new Uint8Array(0))])));
+    }
+    const materialList = makeSection(0x0008, concatArrays(materialSections));
+
+    const rwFlags = 0x0001007E;
+    const geomByteSize = 16 + (numVerts * 4) + (numVerts * 8) + (numTris * 8) + 24 + (numVerts * 12) + (numVerts * 12);
+    const geomBuf = new ArrayBuffer(geomByteSize);
+    const gDV = new DataView(geomBuf);
+    let ptr = 0;
+
+    gDV.setUint32(ptr, rwFlags, true); ptr += 4;
+    gDV.setUint32(ptr, numTris, true); ptr += 4;
+    gDV.setUint32(ptr, numVerts, true); ptr += 4;
+    gDV.setUint32(ptr, 1, true); ptr += 4;
+
+    for (let i = 0; i < numVerts; i++) {
+        gDV.setUint8(ptr, Math.min(255, Math.round(uCol[i * 3] * 255)));
+        gDV.setUint8(ptr + 1, Math.min(255, Math.round(uCol[i * 3 + 1] * 255)));
+        gDV.setUint8(ptr + 2, Math.min(255, Math.round(uCol[i * 3 + 2] * 255)));
+        gDV.setUint8(ptr + 3, 255);
+        ptr += 4;
+    }
+    for (let i = 0; i < numVerts; i++) {
+        gDV.setFloat32(ptr, uUV[i * 2], true);
+        gDV.setFloat32(ptr + 4, uUV[i * 2 + 1], true);
+        ptr += 8;
+    }
+    for (let i = 0; i < numTris; i++) {
+        gDV.setUint16(ptr, indices[i * 3 + 1], true);
+        gDV.setUint16(ptr + 2, indices[i * 3], true);
+        gDV.setUint16(ptr + 4, triMatIndices[i], true);
+        gDV.setUint16(ptr + 6, indices[i * 3 + 2], true);
+        ptr += 8;
+    }
+
+    gDV.setFloat32(ptr + 12, boundingRadius, true);
+    gDV.setUint32(ptr + 16, 1, true);
+    gDV.setUint32(ptr + 20, 1, true);
+    ptr += 24;
+
+    for (let i = 0; i < numVerts; i++) {
+        gDV.setFloat32(ptr, uPos[i * 3], true);
+        gDV.setFloat32(ptr + 4, uPos[i * 3 + 1], true);
+        gDV.setFloat32(ptr + 8, uPos[i * 3 + 2], true);
+        ptr += 12;
+    }
+    for (let i = 0; i < numVerts; i++) {
+        gDV.setFloat32(ptr, uNorm[i * 3], true);
+        gDV.setFloat32(ptr + 4, uNorm[i * 3 + 1], true);
+        gDV.setFloat32(ptr + 8, uNorm[i * 3 + 2], true);
+        ptr += 12;
+    }
+
+    const activeSplits = [];
+    let totalSplitIndices = 0;
+    for (let m = 0; m < numMats; m++) {
+        if (matSplits[m].length > 0) {
+            activeSplits.push({ matIdx: m, indices: matSplits[m] });
+            totalSplitIndices += matSplits[m].length;
+        }
+    }
+
+    const binMeshBuf = new ArrayBuffer(12 + activeSplits.length * 8 + totalSplitIndices * 4);
+    const bmDV = new DataView(binMeshBuf);
+    bmDV.setUint32(0, 0, true);
+    bmDV.setUint32(4, activeSplits.length, true);
+    bmDV.setUint32(8, totalSplitIndices, true);
+    let bmPtr = 12;
+    activeSplits.forEach(sp => {
+        bmDV.setUint32(bmPtr, sp.indices.length, true);
+        bmDV.setUint32(bmPtr + 4, sp.matIdx, true);
+        bmPtr += 8;
+        sp.indices.forEach(idx => { bmDV.setUint32(bmPtr, idx, true); bmPtr += 4; });
+    });
+
+    const geometrySection = makeSection(0x000F, concatArrays([
+        makeSection(0x0001, new Uint8Array(geomBuf)),
+        materialList,
+        makeSection(0x0003, makeSection(0x050E, new Uint8Array(binMeshBuf)))
+    ]));
+
+    const geomListStructBuf = new ArrayBuffer(4);
+    new DataView(geomListStructBuf).setUint32(0, 1, true);
+    const geometryList = makeSection(0x001A, concatArrays([makeSection(0x0001, new Uint8Array(geomListStructBuf)), geometrySection]));
+
+    const atomicStructBuf = new ArrayBuffer(16);
+    new DataView(atomicStructBuf).setUint32(8, 5, true);
+    const atomicSection = makeSection(0x0014, concatArrays([makeSection(0x0001, new Uint8Array(atomicStructBuf)), makeSection(0x0003, new Uint8Array(0))]));
+
+    const clumpBinary = makeSection(0x0010, concatArrays([
+        clumpStruct,
+        frameList,
+        geometryList,
+        atomicSection,
+        makeSection(0x0003, new Uint8Array(0))
+    ]));
+
+    const blob = new Blob([clumpBinary], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nodeName + '.dff';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    zmLog(`GTA_SanAndreas_DFF.zmf: Exported "${nodeName}.dff" (${numVerts.toLocaleString()} vertices, ${numTris.toLocaleString()} polygons, ${numMats} materials).`, 'ok');
+}
+
+function exportSceneToOBJ() {
+    let objOut = `# ZModeler v2.2.6 Web Edition - WaveFrontOBJ.zmf\n`;
+    let vOffset = 1;
+    modelRoot.traverse(m => {
+        if (!m.isMesh || !m.visible || !m.geometry) return;
+        m.updateMatrixWorld(true);
+        const g = m.geometry.clone();
+        g.applyMatrix4(m.matrixWorld);
+        if (!g.attributes.normal) g.computeVertexNormals();
+
+        objOut += `o ${m.name || 'mesh'}\n`;
+        const pos = g.attributes.position;
+        const norm = g.attributes.normal;
+        const col = g.attributes.color;
+        const idx = g.index;
+
+        for (let i = 0; i < pos.count; i++) {
+            const x = pos.getX(i).toFixed(6), y = pos.getY(i).toFixed(6), z = pos.getZ(i).toFixed(6);
+            if (col) {
+                objOut += `v ${x} ${y} ${z} ${col.getX(i).toFixed(4)} ${col.getY(i).toFixed(4)} ${col.getZ(i).toFixed(4)}\n`;
+            } else {
+                objOut += `v ${x} ${y} ${z}\n`;
+            }
+        }
+        for (let i = 0; i < norm.count; i++) {
+            objOut += `vn ${norm.getX(i).toFixed(5)} ${norm.getY(i).toFixed(5)} ${norm.getZ(i).toFixed(5)}\n`;
+        }
+        if (idx) {
+            for (let i = 0; i < idx.count; i += 3) {
+                const a = idx.getX(i) + vOffset, b = idx.getX(i + 1) + vOffset, c = idx.getX(i + 2) + vOffset;
+                objOut += `f ${a}//${a} ${b}//${b} ${c}//${c}\n`;
+            }
+        } else {
+            for (let i = 0; i < pos.count; i += 3) {
+                const a = i + vOffset, b = i + 1 + vOffset, c = i + 2 + vOffset;
+                objOut += `f ${a}//${a} ${b}//${b} ${c}//${c}\n`;
+            }
+        }
+        vOffset += pos.count;
+        g.dispose();
+    });
+
+    const blob = new Blob([objOut], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = ((selectedObject && selectedObject.name) || 'zmodeler_export') + '.obj';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    zmLog('WaveFrontOBJ.zmf: Scene exported to .OBJ format.', 'ok');
+}
+
+// ==================== FILE IMPORT / NEW / EXPORT HANDLERS ====================
+document.getElementById('btnImportFile').addEventListener('click', () => {
+    document.getElementById('importFileInput').click();
+});
+
+document.getElementById('importFileInput').addEventListener('change', e => {
+    Array.from(e.target.files).forEach(file => {
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (ext === 'dff') {
+            const reader = new FileReader();
+            reader.onload = ev => importDFFBuffer(ev.target.result, file.name);
+            reader.readAsArrayBuffer(file);
+        } else if (ext === 'obj') {
+            const reader = new FileReader();
+            reader.onload = ev => {
+                const loader = new THREE.OBJLoader();
+                const objGroup = loader.parse(ev.target.result);
+                objGroup.traverse(child => {
+                    if (child.isMesh) {
+                        child.material = createDefaultMaterial(file.name.replace(/\.[^/.]+$/, '') + '_mat');
+                        child.name = child.name || file.name.replace(/\.[^/.]+$/, '');
+                        modelRoot.add(child.clone());
+                    }
+                });
+                selectSceneNode(modelRoot.children[modelRoot.children.length - 1]);
+                fitCameraToScene();
+                zmLog(`WaveFrontOBJ.zmf: Imported "${file.name}".`, 'ok');
+            };
+            reader.readAsText(file);
+        }
+    });
+});
+
+document.getElementById('btnNewScene').addEventListener('click', () => {
+    transformControl.detach();
+    clearCurrentModel();
+    selectedObject = null;
+    rebuildSceneNodesTreeUI();
+    rebuildEditingLevelHelpers();
+    updateGlobalStats();
+    zmLog('Created new empty ZModeler scene.', 'info');
+});
+
+document.getElementById('btnExportDFF').addEventListener('click', exportSceneToDFF);
+document.getElementById('btnExportOBJ').addEventListener('click', exportSceneToOBJ);
+
+document.getElementById('btnSelectAll').addEventListener('click', () => {
+    if (modelRoot.children.length > 0) selectSceneNode(modelRoot.children[0]);
+});
+document.getElementById('btnSelectInvert').addEventListener('click', () => {
+    const idx = modelRoot.children.indexOf(selectedObject);
+    if (modelRoot.children.length > 1) {
+        selectSceneNode(modelRoot.children[(idx + 1) % modelRoot.children.length]);
+    }
+});
+
+// Drag & Drop DFF / OBJ support
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => {
+    e.preventDefault();
+    if (e.dataTransfer.files.length) {
+        const dt = document.getElementById('importFileInput');
+        dt.files = e.dataTransfer.files;
+        dt.dispatchEvent(new Event('change'));
+    }
+});
+
+// ==================== RENDER LOOP (ALL 4 VIEWPORTS) ====================
+function animate() {
+    requestAnimationFrame(animate);
+    viewports.forEach(vp => {
+        if (maximizedVpId !== null && vp.id !== maximizedVpId) return;
+        vp.controls.update();
+        vp.renderer.render(scene, vp.camera);
+    });
+}
+
+setTimeout(resizeAllViewports, 80);
+animate();
+</script>
+</body>
+</html>
