@@ -428,7 +428,7 @@
                     <span>METALLIK (METALNESS)</span>
                     <b id="metalVal">0.10</b>
                 </div>
-                <input type="range" id="metalSlider" min="0" max="1" step="0.02" value="0.10">
+                <input type="range" id="metalSlider" min="0.0" max="1" step="0.02" value="0.10">
             </div>
 
             <div class="control-row">
@@ -466,7 +466,7 @@
         </div>
         <div class="status-bar">
             <span id="status-msg">✓ Fayl tanlang (.JPG, .PNG, .SVG, .OBJ yoki .DFF). Barcha mayda va katta yozuvlar xatosiz 3D qilinadi.</span>
-            <span>PRECISION TYPOGRAPHY &amp; CAD DFF v12.1</span>
+            <span>PRECISION TYPOGRAPHY &amp; CAD DFF v12.2</span>
         </div>
     </div>
 </div>
@@ -772,7 +772,6 @@ function smoothLoopScaleAdaptive(pts, worldSpan, userSmoothPasses = 4, preserveS
     return curr;
 }
 
-// TUZATILDI: "U" harfining ichki egri chizig'ini qirqib yuborgan cosA sikli olib tashlandi
 function simplifyClosedPolygonCyclic(pts, epsilon = 0.25) {
     const n = pts.length;
     if (n < 6) return pts;
@@ -1278,6 +1277,8 @@ function detectLicensePlateFlags(imgData, wRaw, hRaw) {
     return null;
 }
 
+// TUZATILDI: BFS qidiruvida fon yarim yo'lda (U harfining ichida 45 gradusda) uzilib qolmasligi uchun
+// to'liq komponent tekshiriladi — natijada U harfining ichi hech qachon yopiq stiker deb hisoblanib bo'yalib qolmaydi!
 function extractEnclosedWhiteDetailsInColoredBadges(colorClusters, imgData, wRaw, hRaw, W, H, badgeWhiteField) {
     const total = W * H;
     const dirs = [-1, 1, -W, W];
@@ -1311,7 +1312,10 @@ function extractEnclosedWhiteDetailsInColoredBadges(colorClusters, imgData, wRaw
 
                 while (qHead < qTail) {
                     const curr = queue[qHead++];
-                    comp[compCount++] = curr;
+                    if (compCount <= maxHolePixels) {
+                        comp[compCount] = curr;
+                    }
+                    compCount++;
 
                     const cy = Math.floor(curr / W);
                     const cx = curr % W;
@@ -1327,11 +1331,7 @@ function extractEnclosedWhiteDetailsInColoredBadges(colorClusters, imgData, wRaw
                             boundaryClusterHits++;
                         } else if (!visited[ni]) {
                             visited[ni] = 1;
-                            if (compCount < maxHolePixels * 2) {
-                                queue[qTail++] = ni;
-                            } else {
-                                touchesImageBorder = true;
-                            }
+                            queue[qTail++] = ni;
                         }
                     }
                 }
@@ -1348,10 +1348,10 @@ function extractEnclosedWhiteDetailsInColoredBadges(colorClusters, imgData, wRaw
                         const idx = (py * wRaw + px) * 4;
                         const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
                         const pLum = 0.299 * r + 0.587 * g + 0.114 * b;
+                        const pChr = Math.max(r, g, b) - Math.min(r, g, b);
 
-                        field[fi] = 1.0;
-
-                        if (pLum > 155) {
+                        if (pLum > 165 && pChr < 40) {
+                            field[fi] = 1.0;
                             badgeWhiteField[fi] = Math.max(badgeWhiteField[fi], Math.min(1.0, (pLum - 140) / 75));
                             addedWhitePixels++;
                         }
@@ -1406,7 +1406,6 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         }
     }
 
-    // Pastki qora ramka chizig'ining (Bottom Frame Bar) boshlanish Y koordinatasini aniqlash
     let bottomBarStartY = Math.floor(hRaw * 0.865);
     const scanX1 = Math.floor(wRaw * 0.22);
     const scanX2 = Math.floor(wRaw * 0.78);
@@ -1487,7 +1486,6 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
             const pChr = Math.max(r, g, b) - Math.min(r, g, b);
 
-            // Oq yoki Sariq nomerlarda (`plateBgLum > 160`) kulrang/oq bolt piksellarini (`lum > 80 && pChr < 32`) klaster sifatida olmaslik!
             if (plateBgLum > 160 && lum > 80 && pChr < 32) continue;
 
             const idxL = (y * wRaw + (x - 2)) * 4;
@@ -1572,7 +1570,6 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
             const pChr = Math.max(r, g, b) - Math.min(r, g, b);
 
-            // PASTKI QORA RAMKA VA UNING USTIDAGI YOZUV ("IT SHAKH MOTORS • TASHKENT"):
             if (isBottomBar) {
                 if (lum < 215 || (x > wRaw * 0.10 && x < wRaw * 0.90 && y < hRaw * 0.98)) {
                     darkFrameCluster.field[fi] = 1.0;
@@ -1590,7 +1587,6 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
                 continue;
             }
 
-            // TUZATILDI: Tashqi qora ramka chegarasida (`isFrameEdge`) hech qachon ko'k rang chiqmasligi uchun!
             const isFrameEdge = isOuterBorder || x < wRaw * 0.028 || x > wRaw * 0.972;
             if (isFrameEdge) {
                 const distToBgEdge = Math.hypot(r - plateBg.r, g - plateBg.g, b - plateBg.b);
@@ -1611,7 +1607,6 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
                 const c = colorClusters[i];
                 const cChr = Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b);
 
-                // TUZATILDI: Kulrang/oq bolt va qirra piksellari (`pChr < 32`) hech qachon Ko'k (`UZ`) klasteriga tushmaydi!
                 if (cChr > 35) {
                     if (pChr < 32) continue;
                     if (c.b > c.r + 25 && b <= r + 15) continue;
