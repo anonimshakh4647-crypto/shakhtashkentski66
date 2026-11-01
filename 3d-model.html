@@ -353,7 +353,7 @@
             <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.svg,.obj,.dff">
             <span class="drop-icon">💎</span>
             <div class="drop-main">FAYLNI TANLANG YOKI TASHLANG</div>
-            <div class="drop-sub">Avto-nomer, diska, logotip va obyektlarni tiniq 3D DFF ga aylantiradi</div>
+            <div class="drop-sub">2000px Ultra-HD aniqlikda barcha mayda va katta yozuvlarni 3D DFF ga o‘tkazadi</div>
             <div class="format-badges">
                 <span class="badge">.JPG</span>
                 <span class="badge">.PNG</span>
@@ -376,19 +376,19 @@
             <button class="btn" id="resetCamBtn" type="button" style="margin-top:4px;">⟲ KAMERANI TIKLASH</button>
         </div>
 
-        <h2 class="panel-title">// SILLIQ VEKTOR EXTRUDE VA DFF O‘LCHAMI</h2>
+        <h2 class="panel-title">// ULTRA-HD YOZUV VA EXTRUDE SOZLAMALARI</h2>
         <div class="control-group">
             <div class="control-row">
                 <div class="control-label">
                     <span>ASOS QALINLIGI (BASE DEPTH)</span>
-                    <b id="depthVal">3.5</b>
+                    <b id="depthVal">3.0</b>
                 </div>
-                <input type="range" id="depthSlider" min="0.5" max="25" step="0.5" value="3.5">
+                <input type="range" id="depthSlider" min="0.5" max="25" step="0.5" value="3.0">
             </div>
 
             <div class="control-row">
                 <div class="control-label">
-                    <span>USTKI QATLAM BO‘RTMASI (RELIEF)</span>
+                    <span>YOZUV VA DETAL BO‘RTMASI (RELIEF)</span>
                     <b id="reliefVal">1.6</b>
                 </div>
                 <input type="range" id="reliefSlider" min="0.2" max="8" step="0.2" value="1.6">
@@ -396,10 +396,10 @@
 
             <div class="control-row">
                 <div class="control-label">
-                    <span>QIRRA SILLIQLASH (EDGE SMOOTHING)</span>
-                    <b id="sharpVal">ULTRA SILLIQ (5)</b>
+                    <span>HARF VA QIRRA ANIQLIGI (TYPOGRAPHY)</span>
+                    <b id="sharpVal">ULTRA TINIQ (4)</b>
                 </div>
-                <input type="range" id="sharpSlider" min="2" max="8" step="1" value="5">
+                <input type="range" id="sharpSlider" min="1" max="7" step="1" value="4">
             </div>
 
             <div class="control-row">
@@ -426,9 +426,9 @@
             <div class="control-row">
                 <div class="control-label">
                     <span>METALLIK (METALNESS)</span>
-                    <b id="metalVal">0.12</b>
+                    <b id="metalVal">0.10</b>
                 </div>
-                <input type="range" id="metalSlider" min="0" max="1" step="0.02" value="0.12">
+                <input type="range" id="metalSlider" min="0" max="1" step="0.02" value="0.10">
             </div>
 
             <div class="control-row">
@@ -465,8 +465,8 @@
             </div>
         </div>
         <div class="status-bar">
-            <span id="status-msg">✓ Fayl tanlang (.JPG, .PNG, .SVG, .OBJ yoki .DFF). Avto-nomer va diskalar/obyektlar alohida aniq algoritmda 3D qilinadi.</span>
-            <span>WATERTIGHT CAD 3D DFF v10.0</span>
+            <span id="status-msg">✓ Fayl tanlang (.JPG, .PNG, .SVG, .OBJ yoki .DFF). Barcha mayda va katta yozuvlar 2000px Ultra-HD aniqlikda 3D qilinadi.</span>
+            <span>ULTRA-HD TYPOGRAPHY &amp; CAD DFF v11.0</span>
         </div>
     </div>
 </div>
@@ -567,8 +567,9 @@ function createVertexColorMaterial() {
     });
 }
 
-// ==================== ULTRA-SMOOTH SDF & MACRO-CORNER CAD CONTOUR ENGINE ====================
-function smoothScalarFieldSDF(field, W, H, passes = 2) {
+// ==================== ULTRA-HD TYPOGRAPHY & CAD CONTOUR ENGINE ====================
+function smoothScalarFieldSDF(field, W, H, passes = 1) {
+    if (passes <= 0) return field;
     let src = field;
     let dst = new Float32Array(W * H);
     for (let p = 0; p < passes; p++) {
@@ -590,7 +591,7 @@ function smoothScalarFieldSDF(field, W, H, passes = 2) {
     return src;
 }
 
-function traceSubPixelContours(field, W, H, threshold = 0.5) {
+function traceSubPixelContours(field, W, H, threshold = 0.54) {
     const H_OFFSET = (H + 1) * (W + 1);
     const nextMap = new Map();
 
@@ -680,7 +681,7 @@ function traceSubPixelContours(field, W, H, threshold = 0.5) {
         const pts = [];
         let currId = startId;
         let safety = 0;
-        while (currId !== undefined && !visited.has(currId) && safety++ < 150000) {
+        while (currId !== undefined && !visited.has(currId) && safety++ < 200000) {
             visited.add(currId);
             const step = nextMap.get(currId);
             if (!step) break;
@@ -694,15 +695,26 @@ function traceSubPixelContours(field, W, H, threshold = 0.5) {
     return loops;
 }
 
-function smoothLoopWithMacroCorners(pts, smoothPasses = 5, preserveSharpCorners = true) {
+// SCALE-ADAPTIVE TYPOGRAPHY SMOOTHING:
+// - Mayda harflar ("TREASURED ISLANDS", "IT SHAKH MOTORS", "2026") va harf ichidagi teshiklar (A, R, D, 6, 0, 8)
+//   uchun barcha shrift burchaklari (> 20 gradus) qat'iy mixlanadi va faqat 1-2 marta yengil 3-nuqtali tekislash qilinadi!
+// - Katta raqamlar ("77777", "01 A 777 AA") uchun esa burchak va seriflar mixlanib, uzun qiya chiziqlar silliqlanadi!
+function smoothLoopScaleAdaptive(pts, worldSpan, userSmoothPasses = 4, preserveSharpCorners = true) {
     const n = pts.length;
-    if (n < 8) return pts;
+    if (n < 6) return pts;
+
+    const isTinyTypography = worldSpan < 6.8;
+    const isMediumTypography = worldSpan >= 6.8 && worldSpan < 19.0;
 
     const isCorner = new Uint8Array(n);
     if (preserveSharpCorners) {
-        const stride = Math.max(3, Math.min(8, Math.floor(n / 14)));
-        const macroCos = new Float32Array(n);
+        const stride = isTinyTypography
+            ? 2
+            : (isMediumTypography ? 3 : Math.max(4, Math.min(9, Math.floor(n / 16))));
+        const cornerCosThresh = isTinyTypography ? 0.92 : (isMediumTypography ? 0.86 : 0.72);
+        const neighWin = isTinyTypography ? 1 : (isMediumTypography ? 2 : 3);
 
+        const macroCos = new Float32Array(n);
         for (let i = 0; i < n; i++) {
             const pPrev = pts[(i - stride + n) % n];
             const p = pts[i];
@@ -716,9 +728,9 @@ function smoothLoopWithMacroCorners(pts, smoothPasses = 5, preserveSharpCorners 
 
         for (let i = 0; i < n; i++) {
             const c = macroCos[i];
-            if (c < 0.66) {
+            if (c < cornerCosThresh) {
                 let isLocalMin = true;
-                for (let k = -3; k <= 3; k++) {
+                for (let k = -neighWin; k <= neighWin; k++) {
                     if (k !== 0 && macroCos[(i + k + n) % n] < c) {
                         isLocalMin = false;
                         break;
@@ -729,19 +741,32 @@ function smoothLoopWithMacroCorners(pts, smoothPasses = 5, preserveSharpCorners 
         }
     }
 
+    const effectivePasses = isTinyTypography
+        ? 1
+        : (isMediumTypography ? Math.min(2, userSmoothPasses) : userSmoothPasses);
+
     let curr = pts.map(p => ({ x: p.x, y: p.y }));
-    for (let pass = 0; pass < smoothPasses; pass++) {
+    for (let pass = 0; pass < effectivePasses; pass++) {
         const next = new Array(n);
         for (let i = 0; i < n; i++) {
             if (isCorner[i]) {
                 next[i] = { x: curr[i].x, y: curr[i].y };
+            } else if (isTinyTypography || isMediumTypography) {
+                // Mayda va o'rta yozuvlar uchun 3-nuqtali nozik filtr (harf shaklini va ichki teshiklarni kichraytirmaydi!)
+                const pM1 = curr[(i - 1 + n) % n];
+                const p0  = curr[i];
+                const pP1 = curr[(i + 1) % n];
+                next[i] = {
+                    x: 0.22 * pM1.x + 0.56 * p0.x + 0.22 * pP1.x,
+                    y: 0.22 * pM1.y + 0.56 * p0.y + 0.22 * pP1.y
+                };
             } else {
+                // Katta raqamlar va obyektlar uchun 5-nuqtali tekislash filtri
                 const pM2 = curr[(i - 2 + n) % n];
                 const pM1 = curr[(i - 1 + n) % n];
                 const p0  = curr[i];
                 const pP1 = curr[(i + 1) % n];
                 const pP2 = curr[(i + 2) % n];
-
                 next[i] = {
                     x: 0.12 * pM2.x + 0.24 * pM1.x + 0.28 * p0.x + 0.24 * pP1.x + 0.12 * pP2.x,
                     y: 0.12 * pM2.y + 0.24 * pM1.y + 0.28 * p0.y + 0.24 * pP1.y + 0.12 * pP2.y
@@ -753,7 +778,7 @@ function smoothLoopWithMacroCorners(pts, smoothPasses = 5, preserveSharpCorners 
     return curr;
 }
 
-function simplifyClosedPolygonCyclic(pts, epsilon = 0.42, pruneCollinear = true) {
+function simplifyClosedPolygonCyclic(pts, epsilon = 0.28, pruneCollinear = true) {
     const n = pts.length;
     if (n < 6) return pts;
 
@@ -838,7 +863,7 @@ function simplifyClosedPolygonCyclic(pts, epsilon = 0.42, pruneCollinear = true)
         const l1 = Math.hypot(v1x, v1y) || 1;
         const l2 = Math.hypot(v2x, v2y) || 1;
         const cosA = (v1x * v2x + v1y * v2y) / (l1 * l2);
-        if (cosA < 0.9975) {
+        if (cosA < 0.9985) {
             cleaned.push(pCurr);
         }
     }
@@ -868,7 +893,6 @@ function isPointInPolygon(pt, poly) {
     return inside;
 }
 
-// Ko'p nuqtali tekshiruv (Hole o'zining haqiqiy Outer poligoniga xatosiz birikishi uchun)
 function isHoleInsideOuter(holePts, outerPts) {
     const n = holePts.length;
     const idx0 = 0;
@@ -881,9 +905,10 @@ function isHoleInsideOuter(holePts, outerPts) {
     return hits >= 2;
 }
 
-function buildExactShapesFromField(rawField, W, H, worldW, worldH, minPixelArea = 4.0, rdpEps = 0.42, maxWorldArea = Infinity, smoothPasses = 5, sdfPasses = 2, preserveSharpCorners = true) {
+// Harf o'lchamiga (worldSpan) qarab avtomatik aniqlik tanlovchi Shape Builder
+function buildExactShapesFromField(rawField, W, H, worldW, worldH, minOuterPxArea = 5.0, baseRdpEps = 0.28, maxWorldArea = Infinity, smoothPasses = 4, sdfPasses = 0, preserveSharpCorners = true, contourThreshold = 0.54) {
     const sdfField = sdfPasses > 0 ? smoothScalarFieldSDF(rawField, W, H, sdfPasses) : rawField;
-    const rawLoops = traceSubPixelContours(sdfField, W, H, 0.50);
+    const rawLoops = traceSubPixelContours(sdfField, W, H, contourThreshold);
 
     const outers = [];
     const holes = [];
@@ -892,11 +917,31 @@ function buildExactShapesFromField(rawField, W, H, worldW, worldH, minPixelArea 
     const scaleY = worldH / (H - 2);
 
     rawLoops.forEach(loop => {
-        const pxArea = Math.abs(computeSignedArea(loop));
-        if (pxArea < minPixelArea) return;
+        const rawSigned = computeSignedArea(loop);
+        const pxArea = Math.abs(rawSigned);
+        const isHoleLoop = rawSigned > 0; // Ekran koordinatasida Y pastga bo'lgani uchun teskari ishora
 
-        const smoothed = smoothLoopWithMacroCorners(loop, smoothPasses, preserveSharpCorners);
-        const simplified = simplifyClosedPolygonCyclic(smoothed, rdpEps, preserveSharpCorners);
+        // MUHIM: Harflar ichidagi kichik teshiklar (A, R, D, 6, 8, 0, B, P) o'chib ketmasligi uchun minHoleArea = 1.2!
+        const minAllowedArea = isHoleLoop ? 1.2 : minOuterPxArea;
+        if (pxArea < minAllowedArea) return;
+
+        // Konturning dunyo koordinatasidagi gabarit o'lchamini (worldSpan) hisoblaymiz
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let i = 0; i < loop.length; i++) {
+            const p = loop[i];
+            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+        }
+        const worldSpan = Math.max((maxX - minX) * scaleX, (maxY - minY) * scaleY);
+
+        // Mayda yozuvlar ("TREASURED ISLANDS", "IT SHAKH MOTORS", "2026") uchun ultra-nozik RDP (0.07),
+        // o'rta yozuvlar ("SAMOA • APIA") uchun 0.14, katta raqamlar ("77777") uchun baseRdpEps!
+        const adaptiveRdp = worldSpan < 6.8
+            ? Math.min(baseRdpEps, 0.07)
+            : (worldSpan < 19.0 ? Math.min(baseRdpEps, 0.14) : baseRdpEps);
+
+        const smoothed = smoothLoopScaleAdaptive(loop, worldSpan, smoothPasses, preserveSharpCorners);
+        const simplified = simplifyClosedPolygonCyclic(smoothed, adaptiveRdp, preserveSharpCorners && worldSpan >= 6.8);
         if (simplified.length < 3) return;
 
         const worldPts = simplified.map(p => new THREE.Vector2(
@@ -999,7 +1044,7 @@ function detectIsLicensePlateImage(img) {
     if (userSelectedMode === 'object') return false;
 
     const aspect = img.width / img.height;
-    if (aspect < 1.80 || aspect > 5.80) return false;
+    if (aspect < 1.75 || aspect > 5.80) return false;
 
     const sampleW = 160;
     const sampleH = Math.max(32, Math.round(160 / aspect));
@@ -1019,7 +1064,7 @@ function detectIsLicensePlateImage(img) {
     return true;
 }
 
-// ==================== 1-ENGINE: AVTO NOMERLAR UCHUN MAXSUS ENGINE (100% XATOSIZ) ====================
+// ==================== 1-ENGINE: AVTO NOMERLAR UCHUN ULTRA-HD TYPOGRAPHY ENGINE ====================
 function detectPlateBackgroundColor(imgData, wRaw, hRaw) {
     const buckets = new Map();
 
@@ -1182,7 +1227,7 @@ function detectLicensePlateFlags(imgData, wRaw, hRaw) {
         }
     }
 
-    if (uzCols.length >= 8) {
+    if (uzCols.length >= 10) {
         return {
             type: 'UZ',
             minX: uzCols[0].x,
@@ -1238,7 +1283,7 @@ function detectLicensePlateFlags(imgData, wRaw, hRaw) {
         }
     }
 
-    if (rusCols.length >= 8) {
+    if (rusCols.length >= 10) {
         return {
             type: 'RUS',
             minX: rusCols[0].x,
@@ -1254,14 +1299,15 @@ function detectLicensePlateFlags(imgData, wRaw, hRaw) {
 }
 
 function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
-    const baseDepth = parseFloat(document.getElementById('depthSlider').value) || 2.5;
+    const baseDepth = parseFloat(document.getElementById('depthSlider').value) || 3.0;
     const reliefHeight = parseFloat(document.getElementById('reliefSlider').value) || 1.6;
-    const smoothPasses = parseInt(document.getElementById('sharpSlider').value, 10) || 5;
-    const targetLongSide = 1400;
+    const smoothPasses = parseInt(document.getElementById('sharpSlider').value, 10) || 4;
+    // ULTRA-HD 2000px aniqlik (TREASURED ISLANDS, 2026 va IT SHAKH MOTORS yozuvlari kristaldek tiniq chiqishi uchun!)
+    const targetLongSide = 2000;
 
     const aspect = img.width / img.height;
-    const wRaw = aspect >= 1 ? targetLongSide : Math.max(240, Math.round(targetLongSide * aspect));
-    const hRaw = aspect >= 1 ? Math.max(240, Math.round(targetLongSide / aspect)) : targetLongSide;
+    const wRaw = aspect >= 1 ? targetLongSide : Math.max(360, Math.round(targetLongSide * aspect));
+    const hRaw = aspect >= 1 ? Math.max(360, Math.round(targetLongSide / aspect)) : targetLongSide;
 
     const W = wRaw + 2;
     const H = hRaw + 2;
@@ -1292,6 +1338,19 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
             for (let x = Math.max(0, detectedFlag.minX - pad); x <= Math.min(wRaw - 1, detectedFlag.maxX + pad); x++) {
                 flagMask[(y + 1) * W + (x + 1)] = 1;
             }
+        }
+    }
+
+    // Pastki qora ramka chizig'ining (Bottom Frame Bar) boshlanish Y koordinatasini avtomatik aniqlash
+    // (Bu "IT SHAKH MOTORS • TASHKENT" yozuvini havorang klasterdan 100% himoya qiladi!)
+    let bottomBarStartY = Math.floor(hRaw * 0.86);
+    const midX = Math.floor(wRaw * 0.22);
+    for (let y = hRaw - 4; y >= Math.floor(hRaw * 0.78); y--) {
+        const idx = (y * wRaw + midX) * 4;
+        const lum = 0.299 * imgData[idx] + 0.587 * imgData[idx + 1] + 0.114 * imgData[idx + 2];
+        if (lum > 110) {
+            bottomBarStartY = y + 2;
+            break;
         }
     }
 
@@ -1345,11 +1404,11 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         return bestCluster;
     }
 
-    for (let y = 2; y < hRaw - 2; y += 2) {
-        const isBottomFrameZone = (y > hRaw * 0.815 && y < hRaw * 0.965);
-        const isOuterBorder = (y < hRaw * 0.082 || y > hRaw * 0.815);
+    for (let y = 3; y < hRaw - 3; y += 3) {
+        if (y >= bottomBarStartY) continue;
+        const isOuterBorder = (y < hRaw * 0.08);
 
-        for (let x = 2; x < wRaw - 2; x += 2) {
+        for (let x = 3; x < wRaw - 3; x += 3) {
             const fi = (y + 1) * W + (x + 1);
             if (flagMask[fi]) continue;
 
@@ -1358,7 +1417,6 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
             if (a < 80) continue;
 
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-            if (isBottomFrameZone && lum > 95 && x > wRaw * 0.16 && x < wRaw * 0.84) continue;
 
             const idxL = (y * wRaw + (x - 2)) * 4;
             const idxR = (y * wRaw + (x + 2)) * 4;
@@ -1421,11 +1479,13 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
     }
     colorClusters = pureClusters;
 
+    const darkFrameCluster = colorClusters.find(c => c.r < 45 && c.g < 45 && c.b < 45) || colorClusters[0];
+
     for (let y = 0; y < hRaw; y++) {
         const dstRow = (y + 1) * W;
         const srcRow = y * wRaw;
-        const isBottomFrameZone = (y > hRaw * 0.815 && y < hRaw * 0.965);
-        const isOuterBorder = (y < hRaw * 0.082 || y > hRaw * 0.815);
+        const isBottomBar = (y >= bottomBarStartY);
+        const isOuterBorder = (y < hRaw * 0.08);
 
         for (let x = 0; x < wRaw; x++) {
             const idx = (srcRow + x) * 4;
@@ -1439,21 +1499,29 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
 
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-            if (isBottomFrameZone && lum > 90 && x > wRaw * 0.16 && x < wRaw * 0.84) {
-                bottomTextField[fi] = Math.max(0.0, Math.min(1.0, (lum - 70) / 80));
-                bottomTextCnt++;
+            // PASTKI QORA RAMKA VA UNING USTIDAGI YOZUV ("IT SHAKH MOTORS • TASHKENT"):
+            // Pastki ramka piksellari hech qachon havorang/rangli klasterlarga o'tib ketmaydi!
+            // Qora ramka yozuvning tagida 100% yaxlit tekis turadi, yozuvning esa faqat tiniq markazi (lum >= 145) olinadi!
+            if (isBottomBar) {
+                if (lum < 210 || (x > wRaw * 0.12 && x < wRaw * 0.88 && y < hRaw * 0.975)) {
+                    darkFrameCluster.field[fi] = 1.0;
+                }
+                if (x > wRaw * 0.14 && x < wRaw * 0.86 && y < hRaw * 0.968 && lum > 115) {
+                    // Keskin chegara: t = 0.54 aynan lum = 152 ga to'g'ri keladi (harflar shishib ketmaydi va bir-biriga yopishmaydi!)
+                    bottomTextField[fi] = Math.max(0.0, Math.min(1.0, (lum - 115) / 68));
+                    if (bottomTextField[fi] > 0.5) bottomTextCnt++;
+                }
                 continue;
             }
 
             const isFrameEdge = isOuterBorder || x < wRaw * 0.025 || x > wRaw * 0.975;
             if (plateBgLum < 45 && isFrameEdge && lum < 65) {
-                const darkCluster = colorClusters.find(c => c.r < 40 && c.g < 40 && c.b < 40);
-                if (darkCluster) darkCluster.field[fi] = 1.0;
+                darkFrameCluster.field[fi] = 1.0;
                 continue;
             }
 
             const distToBg = Math.hypot(r - plateBg.r, g - plateBg.g, b - plateBg.b);
-            if (distToBg <= 14) continue;
+            if (distToBg <= 16) continue;
 
             let bestCluster = null;
             let bestScore = Infinity;
@@ -1496,11 +1564,14 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
     const UNIFORM_RELIEF_DEPTH = reliefHeight + 0.2;
     const UNIFORM_Z_OFFSET = -0.2;
 
-    const baseShapes = buildExactShapesFromField(silhouetteField, W, H, worldW, worldH, 25, 0.45, Infinity, smoothPasses, 2, true);
+    // 1-QATLAM: NOMERNING HAQIQIY FON RANGIDAGI ASOS PLITASI
+    const baseShapes = buildExactShapesFromField(silhouetteField, W, H, worldW, worldH, 40, 0.40, Infinity, smoothPasses, 1, true, 0.50);
     createExtrudeGeometriesFromShapes(baseShapes, baseDepth, -baseDepth, new THREE.Color(plateBg.r / 255, plateBg.g / 255, plateBg.b / 255), allLayerGeoms);
 
+    // 2-QATLAM: BARCHA HARFLAR, RAQAMLAR ("SAMOA • APIA", "77777", "TREASURED ISLANDS"), STIKER ("2026") VA RAMKA
+    // MUHIM: sdfPasses = 0 (Matn va harflar ichidagi teshiklar hech qachon blurlanmaydi!)
     colorClusters.forEach(cluster => {
-        const shapes = buildExactShapesFromField(cluster.field, W, H, worldW, worldH, 5.0, 0.40, Infinity, smoothPasses, 2, true);
+        const shapes = buildExactShapesFromField(cluster.field, W, H, worldW, worldH, 4.5, 0.28, Infinity, smoothPasses, 0, true, 0.55);
         if (shapes.length > 0) {
             createExtrudeGeometriesFromShapes(
                 shapes,
@@ -1512,6 +1583,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         }
     });
 
+    // 3-QATLAM: O'ZBEKISTON (UZ) YOKI ROSSIYA (RUS) BAYROG'I (100% bir tekisda!)
     if (detectedFlag) {
         const scaleX = worldW / (W - 2);
         const scaleY = worldH / (H - 2);
@@ -1546,10 +1618,12 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         }
     }
 
-    if (bottomTextCnt > 3) {
+    // 4-QATLAM: PASTKI QORA RAMKA USTIDAGI TINIQ OQ HARFLAR ("IT SHAKH MOTORS • TASHKENT")
+    // Qora ramka ustida z-fighting bo'lmasligi uchun +0.12 balandroq va sdfPasses = 0 bilan o'ta keskin chiqadi!
+    if (bottomTextCnt > 5) {
         const maxBottomArea = worldW * worldH * 0.008;
-        const bottomShapes = buildExactShapesFromField(bottomTextField, W, H, worldW, worldH, 1.2, 0.18, maxBottomArea, 2, 1, true);
-        createExtrudeGeometriesFromShapes(bottomShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.98, 0.99, 1.0), allLayerGeoms);
+        const bottomShapes = buildExactShapesFromField(bottomTextField, W, H, worldW, worldH, 2.0, 0.06, maxBottomArea, 1, 0, true, 0.54);
+        createExtrudeGeometriesFromShapes(bottomShapes, UNIFORM_RELIEF_DEPTH + 0.12, UNIFORM_Z_OFFSET, new THREE.Color(0.98, 0.99, 1.0), allLayerGeoms);
     }
 
     const unifiedGeom = combineGeometriesWithPhongCurves(allLayerGeoms);
@@ -1557,13 +1631,11 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
 
     setSingleUnifiedMeshToScene(unifiedGeom);
     document.getElementById('hudFile').textContent = fileName.toUpperCase();
-    document.getElementById('hudMode').textContent = 'AVTO NOMER';
-    setStatus(`✓ ${fileName.toUpperCase()} (Avto-Nomer rejimi) 100% tiniq CAD-vektor 3D modelga aylantirildi!`);
+    document.getElementById('hudMode').textContent = 'AVTO NOMER (2000px HD)';
+    setStatus(`✓ ${fileName.toUpperCase()} barcha mayda va katta yozuvlari 2000px Ultra-HD aniqlikda 3D modelga aylantirildi!`);
 }
 
 // ==================== 2-ENGINE: DISKA, LOGOTIP VA UMUMIY RASMLAR UCHUN WATERTIGHT BFS CAD ENGINE ====================
-// BFS Connected-Component Despeckler:
-// Yuzadagi barcha mayda yaltiroq shu'lalarni (specular blotches) va shovqinlarni atrofidagi asosiy rangga choksiz birlashtiradi!
 function despeckleLabelGridBFS(labelGrid, W, H, minComponentSize) {
     const total = W * H;
     const visited = new Uint8Array(total);
@@ -1601,8 +1673,6 @@ function despeckleLabelGridBFS(labelGrid, W, H, minComponentSize) {
             }
         }
 
-        // Agar bu rang bo'lakchasi mayda dog'/blin bo'lsa (< minComponentSize) va boshqa rang ichida yotsa,
-        // uni atrofidagi asosiy rangga qo'shib yuboramiz!
         if (compCount < minComponentSize && neighborCounts.size > 0) {
             let bestNeighbor = 0;
             let bestCnt = -1;
@@ -1621,7 +1691,6 @@ function despeckleLabelGridBFS(labelGrid, W, H, minComponentSize) {
     }
 }
 
-// Obyekt siluetidagi (solidMask) mayda changlarni va mikro-teshiklarni BFS bilan tozalash
 function cleanBinarySilhouetteBFS(solidMask, W, H, minFgSize = 40, minHoleSize = 30) {
     const total = W * H;
     const visited = new Uint8Array(total);
@@ -1629,7 +1698,6 @@ function cleanBinarySilhouetteBFS(solidMask, W, H, minFgSize = 40, minHoleSize =
     const compPixels = new Int32Array(total);
     const dirs = [-1, 1, -W, W];
 
-    // 1. Mayda yakka foreground changlarni o'chirish
     for (let i = 0; i < total; i++) {
         if (solidMask[i] === 1 && !visited[i]) {
             let qHead = 0, qTail = 0, compCount = 0;
@@ -1652,7 +1720,6 @@ function cleanBinarySilhouetteBFS(solidMask, W, H, minFgSize = 40, minHoleSize =
         }
     }
 
-    // 2. Obyekt ichidagi mikro-teshikchalarni (< minHoleSize) yopish
     visited.fill(0);
     for (let i = 0; i < total; i++) {
         if (solidMask[i] === 0 && !visited[i]) {
@@ -1682,10 +1749,10 @@ function cleanBinarySilhouetteBFS(solidMask, W, H, minFgSize = 40, minHoleSize =
 }
 
 function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
-    const baseDepth = parseFloat(document.getElementById('depthSlider').value) || 3.5;
+    const baseDepth = parseFloat(document.getElementById('depthSlider').value) || 3.0;
     const reliefHeight = parseFloat(document.getElementById('reliefSlider').value) || 1.6;
-    const smoothPasses = parseInt(document.getElementById('sharpSlider').value, 10) || 5;
-    const targetLongSide = 920;
+    const smoothPasses = parseInt(document.getElementById('sharpSlider').value, 10) || 4;
+    const targetLongSide = 1100;
 
     const aspect = img.width / img.height;
     const wRaw = aspect >= 1 ? targetLongSide : Math.max(240, Math.round(targetLongSide * aspect));
@@ -1707,7 +1774,6 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
     const worldW = aspect >= 1 ? VIEWPORT_DISPLAY_SPAN : VIEWPORT_DISPLAY_SPAN * aspect;
     const worldH = aspect >= 1 ? VIEWPORT_DISPLAY_SPAN / aspect : VIEWPORT_DISPLAY_SPAN;
 
-    // 1. Фон shaffof yoki yaxlit oq/bir xil rangda ekanligini aniqlash
     let transCorners = 0;
     const cornerSamples = [];
     const cPts = [[1, 1], [wRaw - 2, 1], [1, hRaw - 2], [wRaw - 2, hRaw - 2]];
@@ -1729,7 +1795,6 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
         if (maxDiff < 28) hasUniformCornerBg = true;
     }
 
-    // 2. Obyektning haqiqiy siluet maskasini (solidMask) qurish
     const solidMask = new Uint8Array(totalGrid);
     const rClean = new Uint8Array(totalGrid);
     const gClean = new Uint8Array(totalGrid);
@@ -1759,13 +1824,10 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
 
     cleanBinarySilhouetteBFS(solidMask, W, H, 45, 30);
 
-    // 3. ALPHA EDGE DE-FRINGING (3-Pass Inward Color Propagation):
-    // Shaffof chegara yaqinidagi (distToEdge <= 4) oqish anti-aliasing hoshiyalarni ichki haqiqiy rang bilan almashtiramiz!
     const distToEdge = new Uint8Array(totalGrid);
     for (let i = 0; i < totalGrid; i++) {
         distToEdge[i] = solidMask[i] ? 255 : 0;
     }
-    const dirs4 = [-1, 1, -W, W];
     const dirs8 = [-1, 1, -W, W, -W - 1, -W + 1, W - 1, W + 1];
 
     for (let pass = 1; pass <= 6; pass++) {
@@ -1783,7 +1845,6 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
         }
     }
 
-    // Ichkaridagi toza piksellardan (distToEdge >= 4) tashqi chegaraga qarab rangni tarqatamiz (White Fringe 100% yo'qoladi!)
     for (let targetDist = 3; targetDist >= 1; targetDist--) {
         for (let y = 1; y < H - 1; y++) {
             const row = y * W;
@@ -1795,7 +1856,6 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
                 const lum = 0.299 * r + 0.587 * g + 0.114 * b;
                 const chr = Math.max(r, g, b) - Math.min(r, g, b);
 
-                // Agar chegara pikseli oqish/kulrang halo bo'lsa, ichkaridagi qo'shnisining rangini oladi
                 if (lum > 110 && chr < 50) {
                     for (let d = 0; d < 8; d++) {
                         const ni = i + dirs8[d];
@@ -1811,9 +1871,7 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
         }
     }
 
-    // 4. ADAPTIVE COLOR PALETTE CLUSTERING (Obyektning barcha haqiqiy ranglarini topish):
-    // Qora metall va uning ustidagi kulrang yaltiroq shu'lalar (lum < 118, chr < 28) bitta silliq Qora Metall klasteriga birlashadi!
-    const palette = []; // [{ id, r, g, b, sumR, sumG, sumB, count, isDarkBase, zPriority }]
+    const palette = [];
 
     function getOrAssignPaletteCluster(r, g, b, isSamplePass = false) {
         const maxC = Math.max(r, g, b);
@@ -1821,14 +1879,11 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
         const chr = maxC - minC;
         const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-        // Qora metall + to'q kulrang yaltiroq shu'lalar (Diska spitsalari va korpusi silliq chiqishi uchun)
         if (lum < 118 && chr < 28) {
             r = 20; g = 23; b = 28;
         } else if (lum > 195 && chr < 28) {
-            // Yorqin Kumush / Xrom / Oq (masalan Diska markaziy halqasi yoki oq logo)
             r = 238; g = 242; b = 247;
         } else if (chr < 28) {
-            // O'rta kumush / titan kulrang (118..195)
             r = 165; g = 172; b = 182;
         }
 
@@ -1875,7 +1930,6 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
         return bestCluster;
     }
 
-    // Ichki barqaror piksellardan (distToEdge >= 3) rang palitrasini yig'amiz
     let totalSolidPixels = 0;
     for (let y = 2; y < H - 2; y += 2) {
         const row = y * W;
@@ -1892,13 +1946,10 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
         getOrAssignPaletteCluster(20, 23, 28, true);
     }
 
-    // Kam uchraydigan (< 0.3%) tasodifiy klasterlarni eng yaqin asosiy klasterga qo'shamiz
     const minClusterCount = Math.max(12, (totalSolidPixels / 4) * 0.003);
     let filteredPalette = palette.filter(c => c.count >= minClusterCount);
     if (filteredPalette.length === 0) filteredPalette = [palette[0]];
 
-    // Klasterlarni tartiblash: Eng ko'p maydonni egallagan (yoki eng to'q) rang 0-indeksda (Asosiy Korpus),
-    // qolgan yorqin/rangli detallar esa ustki relief qatlamlarda!
     filteredPalette.sort((a, b) => {
         const lumA = 0.299 * a.r + 0.587 * a.g + 0.114 * a.b;
         const lumB = 0.299 * b.r + 0.587 * b.g + 0.114 * b.b;
@@ -1911,7 +1962,6 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
         c.id = idx + 1;
     });
 
-    // 5. Har bir foreground pikselni eng yaqin klasterga biriktirish (labelGrid)
     const labelGrid = new Uint8Array(totalGrid);
     for (let i = 0; i < totalGrid; i++) {
         if (!solidMask[i]) continue;
@@ -1942,16 +1992,10 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
         labelGrid[i] = bestId;
     }
 
-    // 6. BFS CONNECTED-COMPONENT DESPECKLING:
-    // Yuzadagi barcha mayda kulrang/oq yaltiroq dog'larni (< 220 px) atrofidagi asosiy rangga choksiz qo'shib yuboramiz!
     const despeckleSize = Math.max(65, Math.round(totalSolidPixels * 0.00055));
     despeckleLabelGridBFS(labelGrid, W, H, Math.round(despeckleSize * 0.35));
     despeckleLabelGridBFS(labelGrid, W, H, despeckleSize);
 
-    // 7. WATERTIGHT NESTED-LAYER EXTRUSION:
-    // - 1-qatlam (id = 1, Asosiy Korpus, masalan Diskaning Qora korpusi):
-    //   Ichki yuzada barcha ustki ranglarning (Sariq, Xrom) tagidan to'liq o'tadi (tirqish qolmasligi uchun!),
-    //   tashqi chegarada (distToEdge <= 2) esa ustki rang (Sariq) bor joyda 2px ichkariga tortiladi (orqadan qora chiqib qolmasligi uchun!).
     const allLayerGeoms = [];
     const numLayers = filteredPalette.length;
 
@@ -1969,15 +2013,13 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
                 layerField[i] = 1.0;
                 activePixels++;
             } else if (lab > myId && distToEdge[i] > 2) {
-                // Quyi qatlam ichki zonada ustki qatlamning tagini ham to'ldiradi -> 0% tirqish!
                 layerField[i] = 1.0;
                 activePixels++;
             }
         }
 
-        if (activePixels < 30) continue;
+        if (activePixels < 25) continue;
 
-        // Har bir keyingi rang qatlami z-fighting bo'lmasligi uchun aniq pog'ona bilan qalinlashadi
         const layerDepth = k === 0
             ? baseDepth
             : (baseDepth + reliefHeight * (0.32 + 0.18 * k));
@@ -1985,7 +2027,7 @@ function buildGeneralObject3D(img, fileName = 'OBJECT.PNG') {
 
         const shapes = buildExactShapesFromField(
             layerField, W, H, worldW, worldH,
-            16.0, 0.32, Infinity, smoothPasses + 1, 2, false
+            12.0, 0.28, Infinity, smoothPasses + 1, 1, false, 0.50
         );
 
         if (shapes.length > 0) {
@@ -2081,7 +2123,7 @@ function combineGeometriesWithPhongCurves(geometriesList, preserveOriginalScale 
     const indices = [];
 
     const posColorBuckets = new Map();
-    const COS_CREASE = Math.cos(36 * Math.PI / 180);
+    const COS_CREASE = Math.cos(34 * Math.PI / 180);
 
     for (let i = 0; i < totalVerts; i += 3) {
         const tri = [0, 0, 0];
@@ -2246,7 +2288,7 @@ function build3DFromSVG(svgText, fileName = 'MODEL.SVG') {
     const loader = new THREE.SVGLoader();
     const svgData = loader.parse(svgText);
 
-    const depth = parseFloat(document.getElementById('depthSlider').value) || 3.5;
+    const depth = parseFloat(document.getElementById('depthSlider').value) || 3.0;
     const relief = parseFloat(document.getElementById('reliefSlider').value) || 1.6;
     const defaultCol = new THREE.Color(document.getElementById('modelColor').value);
 
@@ -3040,7 +3082,7 @@ document.getElementById('reliefSlider').addEventListener('input', e => {
     rebuildIfProcedural();
 });
 document.getElementById('sharpSlider').addEventListener('input', e => {
-    document.getElementById('sharpVal').textContent = `ULTRA SILLIQ (${e.target.value})`;
+    document.getElementById('sharpVal').textContent = `ULTRA TINIQ (${e.target.value})`;
     if (lastLoadedData.type === 'image') rebuildIfProcedural();
 });
 document.getElementById('dffSizeSlider').addEventListener('input', e => {
