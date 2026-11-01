@@ -465,8 +465,8 @@
             </div>
         </div>
         <div class="status-bar">
-            <span id="status-msg">✓ Fayl tanlang (.JPG, .PNG, .SVG, .OBJ yoki .DFF). Barcha harf, bayroq va chiziqlar 100% xatosiz 3D qilinadi.</span>
-            <span>FLAWLESS CAD TYPOGRAPHY DFF v14.0</span>
+            <span id="status-msg">✓ Fayl tanlang (.JPG, .PNG, .SVG, .OBJ yoki .DFF). Ortiqcha rang va bolt detallari avtomatik tozalanadi.</span>
+            <span>PURE-COLOR TYPOGRAPHY DFF v13.0</span>
         </div>
     </div>
 </div>
@@ -567,6 +567,7 @@ function createVertexColorMaterial() {
     });
 }
 
+// RGB dan Hue (0..360), Saturation (0..1) va Chroma (0..255) hisoblash
 function getRgbHsvMetrics(r, g, b) {
     const maxC = Math.max(r, g, b);
     const minC = Math.min(r, g, b);
@@ -798,9 +799,7 @@ function smoothLoopScaleAdaptive(pts, worldSpan, userSmoothPasses = 4, preserveS
     return curr;
 }
 
-// MUHIM TUZATISH: "U" harfi va egri chiziqlarning ichki nuqtalarini o'chirib yuborgan parallel cosA sikli olib tashlandi!
-// Faqat kafolatlangan Ramer-Douglas-Peucker (rdpOpen) ishlatiladi -> "U" harfining ichi 100% silliq va ochiq chiqadi!
-function simplifyClosedPolygonCyclic(pts, epsilon = 0.25) {
+function simplifyClosedPolygonCyclic(pts, epsilon = 0.25, pruneCollinear = true) {
     const n = pts.length;
     if (n < 6) return pts;
 
@@ -872,7 +871,24 @@ function simplifyClosedPolygonCyclic(pts, epsilon = 0.25) {
     const half1 = rdpOpen(rotated.slice(0, splitIdx + 1), epsilon);
     const half2 = rdpOpen(rotated.slice(splitIdx).concat([rotated[0]]), epsilon);
     const merged = half1.slice(0, half1.length - 1).concat(half2.slice(0, half2.length - 1));
-    return merged.length >= 3 ? merged : rotated;
+    if (!pruneCollinear || merged.length < 4) return merged.length >= 3 ? merged : rotated;
+
+    const cleaned = [];
+    const mLen = merged.length;
+    for (let i = 0; i < mLen; i++) {
+        const pPrev = merged[(i - 1 + mLen) % mLen];
+        const pCurr = merged[i];
+        const pNext = merged[(i + 1) % mLen];
+        const v1x = pCurr.x - pPrev.x, v1y = pCurr.y - pPrev.y;
+        const v2x = pNext.x - pCurr.x, v2y = pNext.y - pCurr.y;
+        const l1 = Math.hypot(v1x, v1y) || 1;
+        const l2 = Math.hypot(v2x, v2y) || 1;
+        const cosA = (v1x * v2x + v1y * v2y) / (l1 * l2);
+        if (cosA < 0.9985) {
+            cleaned.push(pCurr);
+        }
+    }
+    return cleaned.length >= 3 ? cleaned : merged;
 }
 
 function computeSignedArea(pts) {
@@ -910,7 +926,7 @@ function isHoleInsideOuter(holePts, outerPts) {
     return hits >= 2;
 }
 
-function buildExactShapesFromField(rawField, W, H, worldW, worldH, minOuterPxArea = 3.5, baseRdpEps = 0.25, maxWorldArea = Infinity, smoothPasses = 4, sdfPasses = 0, preserveSharpCorners = true, contourThreshold = 0.53) {
+function buildExactShapesFromField(rawField, W, H, worldW, worldH, minOuterPxArea = 3.5, baseRdpEps = 0.28, maxWorldArea = Infinity, smoothPasses = 4, sdfPasses = 0, preserveSharpCorners = true, contourThreshold = 0.53) {
     const sdfField = sdfPasses > 0 ? smoothScalarFieldSDF(rawField, W, H, sdfPasses) : rawField;
     const rawLoops = traceSubPixelContours(sdfField, W, H, contourThreshold);
 
@@ -937,10 +953,10 @@ function buildExactShapesFromField(rawField, W, H, worldW, worldH, minOuterPxAre
 
         const adaptiveRdp = worldSpan < 7.5
             ? Math.min(baseRdpEps, 0.06)
-            : (worldSpan < 20.0 ? Math.min(baseRdpEps, 0.11) : baseRdpEps);
+            : (worldSpan < 20.0 ? Math.min(baseRdpEps, 0.12) : baseRdpEps);
 
         const smoothed = smoothLoopScaleAdaptive(loop, worldSpan, smoothPasses, preserveSharpCorners);
-        const simplified = simplifyClosedPolygonCyclic(smoothed, adaptiveRdp);
+        const simplified = simplifyClosedPolygonCyclic(smoothed, adaptiveRdp, preserveSharpCorners && worldSpan >= 7.5);
         if (simplified.length < 3) return;
 
         const worldPts = simplified.map(p => new THREE.Vector2(
@@ -1071,7 +1087,7 @@ function detectIsLicensePlateImage(img) {
     return true;
 }
 
-// ==================== 1-ENGINE: AVTO NOMERLAR UCHUN FLAWLESS TYPOGRAPHY ENGINE ====================
+// ==================== 1-ENGINE: AVTO NOMERLAR UCHUN PURE-COLOR TYPOGRAPHY ENGINE ====================
 function detectPlateBackgroundColor(imgData, wRaw, hRaw) {
     const buckets = new Map();
 
@@ -1223,6 +1239,10 @@ function detectLicensePlateFlags(imgData, wRaw, hRaw) {
                 uzCols.push({
                     x,
                     bTop,
+                    r1Top: s1.top,
+                    r1Bot: s1.bot + 1,
+                    r2Top: s2.top,
+                    r2Bot: s2.bot + 1,
                     gBot: gBot + 1
                 });
                 break;
@@ -1231,21 +1251,16 @@ function detectLicensePlateFlags(imgData, wRaw, hRaw) {
     }
 
     if (uzCols.length >= 10) {
-        const bTop = medianValue(uzCols.map(c => c.bTop));
-        const gBot = medianValue(uzCols.map(c => c.gBot));
-        const totalH = Math.max(10, gBot - bTop);
-        // O'zbekiston bayrog'ining 5 ta chizig'ini 100% simmetrik va teng proporsiyada taqsimlash
-        // (Yuqori va pastki qizil chiziqlar bir xil qalinlikda tiniq chiqadi!)
         return {
             type: 'UZ',
             minX: uzCols[0].x,
             maxX: uzCols[uzCols.length - 1].x + 1,
-            bTop: bTop,
-            r1Top: bTop + totalH * 0.305,
-            r1Bot: bTop + totalH * 0.365,
-            r2Top: bTop + totalH * 0.635,
-            r2Bot: bTop + totalH * 0.695,
-            gBot: gBot
+            bTop: medianValue(uzCols.map(c => c.bTop)),
+            r1Top: medianValue(uzCols.map(c => c.r1Top)),
+            r1Bot: medianValue(uzCols.map(c => c.r1Bot)),
+            r2Top: medianValue(uzCols.map(c => c.r2Top)),
+            r2Bot: medianValue(uzCols.map(c => c.r2Bot)),
+            gBot: medianValue(uzCols.map(c => c.gBot))
         };
     }
 
@@ -1278,6 +1293,8 @@ function detectLicensePlateFlags(imgData, wRaw, hRaw) {
                             rusCols.push({
                                 x,
                                 wTop,
+                                bTop,
+                                rTop,
                                 rBot: rBot + 1
                             });
                             break;
@@ -1290,80 +1307,52 @@ function detectLicensePlateFlags(imgData, wRaw, hRaw) {
     }
 
     if (rusCols.length >= 10) {
-        const wTop = medianValue(rusCols.map(c => c.wTop));
-        const rBot = medianValue(rusCols.map(c => c.rBot));
-        const totalH = Math.max(9, rBot - wTop);
         return {
             type: 'RUS',
             minX: rusCols[0].x,
             maxX: rusCols[rusCols.length - 1].x + 1,
-            wTop: wTop,
-            bTop: wTop + totalH / 3,
-            rTop: wTop + (totalH * 2) / 3,
-            rBot: rBot
+            wTop: medianValue(rusCols.map(c => c.wTop)),
+            bTop: medianValue(rusCols.map(c => c.bTop)),
+            rTop: medianValue(rusCols.map(c => c.rTop)),
+            rBot: medianValue(rusCols.map(c => c.rBot))
         };
     }
 
     return null;
 }
 
-// 2D RASM PRE-PASS BOLT TOZALAGICH:
-// 3D qatlamlar va rang klasterlari ajratilishidan OLDIN nomer yuzasidagi (chapdagi `0` oldida va o'ngdagi `R`/`7` va `UZ` orasida)
-// barcha kichik dumaloq bolt/vint joylarini (ko'k/oq/kulrang soyalari bilan birgalikda) topib, `plateBg` fon rangiga bo'yaydi!
-function erasePlateBoltHolesPrepass(imgData, wRaw, hRaw, plateBg, flagMask, W, bottomBarStartY) {
-    // 1. Chap qora ramkaning ichki chegarasini (leftBorderInnerX) aniqlash (chap bolt ramkaga yopishib qolgan bo'lsa uni uzish uchun)
-    let leftBorderInnerX = Math.floor(wRaw * 0.035);
-    const probeY1 = Math.floor(hRaw * 0.25);
-    const probeY2 = Math.floor(hRaw * 0.70);
-    for (let x = 4; x < Math.floor(wRaw * 0.12); x++) {
-        const i1 = (probeY1 * wRaw + x) * 4;
-        const i2 = (probeY2 * wRaw + x) * 4;
-        const d1 = Math.hypot(imgData[i1] - plateBg.r, imgData[i1 + 1] - plateBg.g, imgData[i1 + 2] - plateBg.b);
-        const d2 = Math.hypot(imgData[i2] - plateBg.r, imgData[i2 + 1] - plateBg.g, imgData[i2 + 2] - plateBg.b);
-        if (d1 < 35 && d2 < 35) {
-            leftBorderInnerX = x;
-            break;
-        }
-    }
-
-    const total = wRaw * hRaw;
-    const fgMask = new Uint8Array(total);
-
-    const yMinScan = Math.floor(hRaw * 0.08);
-    const yMaxScan = Math.max(yMinScan + 20, bottomBarStartY - 4);
-    const xMinScan = leftBorderInnerX + 1;
-    const xMaxScan = Math.floor(wRaw * 0.965);
-
-    for (let y = yMinScan; y <= yMaxScan; y++) {
-        const row = y * wRaw;
-        for (let x = xMinScan; x <= xMaxScan; x++) {
-            if (flagMask[(y + 1) * W + (x + 1)]) continue;
-            const idx = (row + x) * 4;
-            const dBg = Math.hypot(imgData[idx] - plateBg.r, imgData[idx + 1] - plateBg.g, imgData[idx + 2] - plateBg.b);
-            if (dBg > 20) {
-                fgMask[row + x] = 1;
-            }
-        }
-    }
-
+// Chap (`0` raqami oldida) va O'ng (`7` va `UZ` orasida) hamda burchaklardagi keraksiz dumaloq bolt/vint joylarini
+// avtomatik aniqlab tozalovchi funksiya (Harflar va nuqtalarga mutlaqo tegmaydi!)
+function removeBoltHoleArtifacts(field, W, H, wRaw, hRaw) {
+    const total = W * H;
     const visited = new Uint8Array(total);
     const queue = new Int32Array(total);
     const comp = new Int32Array(total);
-    // 8-yo'nalishli BFS: Boltning ko'k halqasi va oq o'rtasini bitta komponent sifatida birga ushlaydi!
-    const dirs8 = [-1, 1, -wRaw, wRaw, -wRaw - 1, -wRaw + 1, wRaw - 1, wRaw + 1];
+    const dirs = [-1, 1, -W, W];
 
-    const maxBoltSpan = Math.round(hRaw * 0.125);
-    const maxBoltArea = maxBoltSpan * maxBoltSpan;
+    const maxBoltSpan = Math.round(hRaw * 0.115);
+    const maxBoltPixels = Math.round(wRaw * hRaw * 0.0022);
 
-    for (let y = yMinScan; y <= yMaxScan; y++) {
-        const row = y * wRaw;
-        for (let x = xMinScan; x <= xMaxScan; x++) {
-            const startIdx = row + x;
-            if (!fgMask[startIdx] || visited[startIdx]) continue;
+    for (let y = 2; y < hRaw - 2; y++) {
+        const row = (y + 1) * W;
+        for (let x = 2; x < wRaw - 2; x++) {
+            const startIdx = row + (x + 1);
+            if (field[startIdx] < 0.25 || visited[startIdx]) continue;
+
+            // Faqat bolt joylashadigan chekka zonalarni tekshiramiz:
+            // 1) Chap bolt zonasi: x < 0.10 * wRaw, y in [0.35 .. 0.65 * hRaw]
+            // 2) O'ng bolt zonasi (UZ/bayroq oldida): x in [0.76 .. 0.87 * wRaw], y in [0.35 .. 0.65 * hRaw]
+            // 3) 4 burchakdagi vint joylari (US/Samoa nomerlarida): y < 0.22 * hRaw yoki y > 0.72 * hRaw (x < 0.24 yoki x > 0.76)
+            const inLeftBoltZone  = (x > wRaw * 0.025 && x < wRaw * 0.105 && y > hRaw * 0.36 && y < hRaw * 0.64);
+            const inRightBoltZone = (x > wRaw * 0.760 && x < wRaw * 0.865 && y > hRaw * 0.36 && y < hRaw * 0.64);
+            const inCornerBoltZone = ((x > wRaw * 0.15 && x < wRaw * 0.24) || (x > wRaw * 0.76 && x < wRaw * 0.85)) &&
+                                     ((y > hRaw * 0.09 && y < hRaw * 0.22) || (y > hRaw * 0.71 && y < hRaw * 0.83));
+
+            if (!inLeftBoltZone && !inRightBoltZone && !inCornerBoltZone) continue;
 
             let qHead = 0, qTail = 0, compCount = 0;
             let minX = x, maxX = x, minY = y, maxY = y;
-            let tooLarge = false;
+            let Aborted = false;
 
             queue[qTail++] = startIdx;
             visited[startIdx] = 1;
@@ -1372,53 +1361,30 @@ function erasePlateBoltHolesPrepass(imgData, wRaw, hRaw, plateBg, flagMask, W, b
                 const curr = queue[qHead++];
                 comp[compCount++] = curr;
 
-                const cy = Math.floor(curr / wRaw);
-                const cx = curr % wRaw;
+                const cy = Math.floor(curr / W) - 1;
+                const cx = (curr % W) - 1;
                 if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
                 if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
 
-                if ((maxX - minX) > maxBoltSpan || (maxY - minY) > maxBoltSpan || compCount > maxBoltArea) {
-                    tooLarge = true;
+                if ((maxX - minX) > maxBoltSpan || (maxY - minY) > maxBoltSpan || compCount > maxBoltPixels) {
+                    Aborted = true;
                 }
 
-                for (let d = 0; d < 8; d++) {
-                    const ni = curr + dirs8[d];
-                    if (ni >= 0 && ni < total && fgMask[ni] && !visited[ni]) {
+                for (let d = 0; d < 4; d++) {
+                    const ni = curr + dirs[d];
+                    if (ni >= 0 && ni < total && field[ni] >= 0.20 && !visited[ni]) {
                         visited[ni] = 1;
                         queue[qTail++] = ni;
                     }
                 }
             }
 
-            if (tooLarge) continue;
-
             const spanX = maxX - minX + 1;
             const spanY = maxY - minY + 1;
-            const centerX = (minX + maxX) * 0.5;
-            const centerY = (minY + maxY) * 0.5;
-
-            // Bolt joylashadigan zonalar:
-            // 1) O'rta gorizontal qismdagi (`centerY in [0.34 .. 0.66 * hRaw]`) chap (`centerX < 0.14 * wRaw`) va o'ng (`centerX > 0.68 * wRaw`) boltlar
-            // 2) US/Samoa nomerlaridagi 4 burchak vint joylari
-            const isMiddleBolt = (centerY > hRaw * 0.34 && centerY < hRaw * 0.66) &&
-                                 (centerX < wRaw * 0.14 || centerX > wRaw * 0.68);
-            const isCornerScrew = ((centerX > wRaw * 0.14 && centerX < wRaw * 0.25) || (centerX > wRaw * 0.75 && centerX < wRaw * 0.86)) &&
-                                  ((centerY > hRaw * 0.08 && centerY < hRaw * 0.22) || (centerY > hRaw * 0.70 && centerY < hRaw * 0.84));
-
-            if ((isMiddleBolt || isCornerScrew) && spanX <= maxBoltSpan && spanY <= maxBoltSpan) {
-                // Bolt komponentini va uning ichidagi/atrofidagi 2px haloni to'liq `plateBg` rangiga bo'yaymiz!
-                const pad = 2;
-                const bx0 = Math.max(xMinScan, minX - pad);
-                const bx1 = Math.min(xMaxScan, maxX + pad);
-                const by0 = Math.max(yMinScan, minY - pad);
-                const by1 = Math.min(yMaxScan, maxY + pad);
-                for (let by = by0; by <= by1; by++) {
-                    for (let bx = bx0; bx <= bx1; bx++) {
-                        const pIdx = (by * wRaw + bx) * 4;
-                        imgData[pIdx]     = plateBg.r;
-                        imgData[pIdx + 1] = plateBg.g;
-                        imgData[pIdx + 2] = plateBg.b;
-                    }
+            // Agar bu kichik izolyatsiyalangan dumaloq bolt o'rni bo'lsa, uni 0.0 qilib tekislaymiz!
+            if (!Aborted && spanX <= maxBoltSpan && spanY <= maxBoltSpan && compCount <= maxBoltPixels) {
+                for (let k = 0; k < compCount; k++) {
+                    field[comp[k]] = 0.0;
                 }
             }
         }
@@ -1529,8 +1495,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, wRaw, hRaw);
-    const imgDataObj = ctx.getImageData(0, 0, wRaw, hRaw);
-    const imgData = imgDataObj.data;
+    const imgData = ctx.getImageData(0, 0, wRaw, hRaw).data;
 
     const worldW = aspect >= 1 ? VIEWPORT_DISPLAY_SPAN : VIEWPORT_DISPLAY_SPAN * aspect;
     const worldH = aspect >= 1 ? VIEWPORT_DISPLAY_SPAN / aspect : VIEWPORT_DISPLAY_SPAN;
@@ -1542,10 +1507,9 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
     const flagMask = new Uint8Array(totalGrid);
 
     if (detectedFlag) {
-        // MUHIM: pad = 6 -> Yashil chiziq tagidagi anti-aliasing soyasi qora qatlamga o'tib ketmaydi!
-        const pad = 6;
-        const fyMin = Math.round(detectedFlag.type === 'UZ' ? detectedFlag.bTop : detectedFlag.wTop);
-        const fyMax = Math.round(detectedFlag.type === 'UZ' ? detectedFlag.gBot : detectedFlag.rBot);
+        const pad = 2;
+        const fyMin = detectedFlag.type === 'UZ' ? detectedFlag.bTop : detectedFlag.wTop;
+        const fyMax = detectedFlag.type === 'UZ' ? detectedFlag.gBot : detectedFlag.rBot;
         for (let y = Math.max(0, fyMin - pad); y <= Math.min(hRaw - 1, fyMax + pad); y++) {
             for (let x = Math.max(0, detectedFlag.minX - pad); x <= Math.min(wRaw - 1, detectedFlag.maxX + pad); x++) {
                 flagMask[(y + 1) * W + (x + 1)] = 1;
@@ -1553,7 +1517,8 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         }
     }
 
-    // Pastki qora ramka boshlanishini aniqlash
+    // PASTKI QORA RAMKA BOSHLANISHINI (bottomBarStartY) TEPADAN PASTGA QARAB ANIQ TOPISH:
+    // (Bu "IT SHAKH MOTORS • TASHKENT" yozuvini 100% himoya qiladi va sariq teshik chiqishiga yo'l qo'ymaydi!)
     let bottomBarStartY = Math.floor(hRaw * 0.815);
     if (plateBgMetrics.lum > 70) {
         const probeXs = [
@@ -1580,9 +1545,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         }
     }
 
-    // PRE-PASS: Chap va O'ng tomondagi dumaloq bolt/vint joylarini (ko'k va oq soyalari bilan) rasmning o'zida `plateBg` ga tekislash!
-    erasePlateBoltHolesPrepass(imgData, wRaw, hRaw, plateBg, flagMask, W, bottomBarStartY);
-
+    // Obyekt silueti va tashqi chegara masofasi (distToEdge)
     const solidMask = new Uint8Array(totalGrid);
     const silhouetteField = new Float32Array(totalGrid);
     const innerBaseField = new Float32Array(totalGrid);
@@ -1605,7 +1568,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
     for (let i = 0; i < totalGrid; i++) {
         distToEdge[i] = solidMask[i] ? 255 : 0;
     }
-    for (let pass = 1; pass <= 14; pass++) {
+    for (let pass = 1; pass <= 8; pass++) {
         for (let y = 1; y < H - 1; y++) {
             const row = y * W;
             for (let x = 1; x < W - 1; x++) {
@@ -1620,18 +1583,15 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         }
     }
 
-    // MUHIM: Ichki sariq/oq fon plitasi (`innerBaseField`) qora ramka tashqarisiga chiqib qolmasligi uchun
-    // tashqi chetidan 10px ichkarida va pastki qora ramkadan tepada joylashadi!
-    for (let y = 1; y <= Math.min(hRaw, bottomBarStartY + 5); y++) {
-        const row = y * W;
-        for (let x = 1; x <= wRaw; x++) {
-            const i = row + x;
-            if (distToEdge[i] >= 10) {
-                innerBaseField[i] = 1.0;
-            }
-        }
+    // Ichki asos plitasi (Sariq/Oq/Ko'k fon) tashqi qora ramka devoridan chiqib qolmasligi uchun 4px ichkariga tortiladi
+    for (let i = 0; i < totalGrid; i++) {
+        if (distToEdge[i] >= 4) innerBaseField[i] = 1.0;
     }
 
+    // RANG KLASTERLARINI QURISH:
+    // 1) Qora Klaster (Ramka, qora raqamlar va chiziqlar) — har doim mavjud (#0C0E12)
+    // 2) Oq Klaster (Agar nomer foni to'q/ko'k/yashil/qora bo'lsa, oq raqamlar uchun) (#FFFFFF)
+    // 3) Haqiqiy Rangli (Chromatic) Klasterlar (masalan `UZ` havorang yozuvi, Qizil `2026` stiker va h.k.)
     const darkCluster = {
         r: 12, g: 14, b: 18,
         isChromatic: false,
@@ -1654,6 +1614,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         const m = getRgbHsvMetrics(r, g, b);
         if (m.chroma < 48 || m.sat < 0.34 || m.lum < 28 || m.lum > 225) return;
 
+        // Nomer foni (masalan Sariq) bilan bir xil rang (Hue farqi < 28°) bo'lsa, uni olmaslik!
         if (plateBgMetrics.chroma >= 40 && hueAngleDifference(m.hue, plateBgMetrics.hue) < 28) return;
 
         let bestC = null;
@@ -1691,6 +1652,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         }
     }
 
+    // Faqat nomerning ICHKI SOHASIDAN (ramkadan tashqarida!) haqiqiy rangli klasterlarni (`UZ`, stiker va h.k.) topish
     const innerMinX = Math.floor(wRaw * 0.035);
     const innerMaxX = Math.floor(wRaw * 0.965);
     const innerMinY = Math.floor(hRaw * 0.075);
@@ -1717,6 +1679,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
     const canHaveWhiteForeground = (plateBgMetrics.lum < 175 || plateBgMetrics.chroma > 60);
     const canHaveDarkForeground  = (plateBgMetrics.lum > 60);
 
+    // HAR BIR PIKSELNI QAT'IY RANG QOIDASI BILAN O'Z QATLAMIGA YOZISH (0% FALSE BLUE/CYAN!)
     for (let y = 0; y < hRaw; y++) {
         const dstRow = (y + 1) * W;
         const srcRow = y * wRaw;
@@ -1733,7 +1696,9 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
             const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
             const m = getRgbHsvMetrics(r, g, b);
 
+            // 1. PASTKI QORA RAMKA VA UNING USTIDAGI OQ YOZUV ("IT SHAKH MOTORS • TASHKENT"):
             if (isBottomBar) {
+                // Pastki qora ramka yozuv ostida 100% yaxlit qora bo'lib turadi (hech qanday sariq teshik bo'lmaydi!)
                 darkCluster.field[fi] = 1.0;
 
                 if (x > wRaw * 0.14 && x < wRaw * 0.86 && y > bottomBarStartY + 2 && y < hRaw * 0.968 && distToEdge[fi] >= 3) {
@@ -1745,17 +1710,22 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
                 continue;
             }
 
-            if (isOuterPerimeter || distToEdge[fi] <= 11) {
+            // 2. TASHQI QORA RAMKA CHEGARASI (Chap, O'ng, Tepa ramka):
+            // Tashqi ramkada hech qachon ko'k/sariq/qizil rang chiqmasligi uchun faqat Qora ramkaga yoziladi!
+            if (isOuterPerimeter || distToEdge[fi] <= 4) {
                 const distToBg = Math.hypot(r - plateBg.r, g - plateBg.g, b - plateBg.b);
-                if (m.lum < 145 || distToBg > 42 || distToEdge[fi] <= 11) {
+                if (m.lum < 145 || distToBg > 45 || distToEdge[fi] <= 3) {
                     darkCluster.field[fi] = 1.0;
                 }
                 continue;
             }
 
+            // 3. NOMERNING ICHKI MAYDONI (Raqamlar, Harflar, UZ kodi, Stikerlar):
             const distToBg = Math.hypot(r - plateBg.r, g - plateBg.g, b - plateBg.b);
             if (distToBg <= 22) continue;
 
+            // A) Piksel haqiqiy to'yingan rangli elementga (`UZ` havorang, Qizil `2026` stiker va h.k.) tegishlimi?
+            // SHART: Pikselning o'zi kuchli chroma (>= 42) va saturation (>= 0.28) ga ega bo'lishi VA Hue burchagi mos kelishi SHART!
             if (m.chroma >= 42 && m.sat >= 0.28 && m.lum >= 28 && m.lum <= 225) {
                 const bgHueDiff = plateBgMetrics.chroma >= 40 ? hueAngleDifference(m.hue, plateBgMetrics.hue) : 180;
                 if (bgHueDiff >= 28) {
@@ -1776,12 +1746,15 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
                 }
             }
 
+            // B) Qora raqamlar, harflar (`01 M 007777`) va ajratuvchi qora chiziq:
             if (canHaveDarkForeground && m.lum < plateBgMetrics.lum - 25) {
                 const darkStrength = (plateBgMetrics.lum - m.lum) / Math.max(40, plateBgMetrics.lum - 18);
                 darkCluster.field[fi] = Math.max(0.0, Math.min(1.0, darkStrength));
                 continue;
             }
 
+            // C) Oq raqamlar va harflar (Ko'k, Yashil, Qora yoki Qizil fonli nomerlarda):
+            // Sariq yoki Oq fonli nomerlarda (`plateBgMetrics.lum >= 185`) oq klaster o'chiriladi (bolt joylari chiqmasligi uchun!)
             if (canHaveWhiteForeground && plateBgMetrics.lum < 185 && m.lum > plateBgMetrics.lum + 30 && m.chroma < 55) {
                 const whiteStrength = (m.lum - plateBgMetrics.lum) / Math.max(40, 245 - plateBgMetrics.lum);
                 whiteCluster.field[fi] = Math.max(0.0, Math.min(1.0, whiteStrength));
@@ -1790,6 +1763,16 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         }
     }
 
+    // 4. CHAP VA O'NG TOMONDAGI KERAKSIZ BOLT / VINT JOYLARINI TOZALASH:
+    removeBoltHoleArtifacts(darkCluster.field, W, H, wRaw, hRaw);
+    if (whiteCluster.count > 0) {
+        removeBoltHoleArtifacts(whiteCluster.field, W, H, wRaw, hRaw);
+    }
+    activeChromaticClusters.forEach(cc => {
+        removeBoltHoleArtifacts(cc.field, W, H, wRaw, hRaw);
+    });
+
+    // 5. Rangli stikerlar ("2026") va bayroqlar ichidagi oq yozuv/yulduzlarni ajratib olish
     const badgeWhiteField = new Float32Array(totalGrid);
     const badgeWhiteCnt = extractEnclosedWhiteDetailsInColoredBadges(activeChromaticClusters, imgData, wRaw, hRaw, W, H, badgeWhiteField);
 
@@ -1797,25 +1780,25 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
     const UNIFORM_RELIEF_DEPTH = reliefHeight + 0.2;
     const UNIFORM_Z_OFFSET = -0.2;
 
-    // 1-QATLAM: TASHQI QORA RAMKA KORPUSI
+    // 1-QATLAM: TASHQI QORA RAMKA ASOSI (Yon devorlarda sariq/ko'k chiqib qolmasligi uchun -baseDepth dan 0 gacha!)
     const outerShellShapes = buildExactShapesFromField(silhouetteField, W, H, worldW, worldH, 40, 0.38, Infinity, smoothPasses, 1, true, 0.50);
     createExtrudeGeometriesFromShapes(outerShellShapes, baseDepth * 0.92, -baseDepth, new THREE.Color(12 / 255, 14 / 255, 18 / 255), allLayerGeoms);
 
-    // 2-QATLAM: NOMERNING ICHKI FON PLITASI (Sariq, Oq, Ko'k, Yashil — qora ramka ichida!)
+    // 2-QATLAM: NOMERNING ICHKI FON PLITASI (Sariq, Oq, Ko'k, Yashil va h.k. — ramka ichida toza joylashadi)
     const innerBaseShapes = buildExactShapesFromField(innerBaseField, W, H, worldW, worldH, 40, 0.38, Infinity, smoothPasses, 1, true, 0.50);
     createExtrudeGeometriesFromShapes(innerBaseShapes, baseDepth * 0.95, -baseDepth * 0.95, new THREE.Color(plateBg.r / 255, plateBg.g / 255, plateBg.b / 255), allLayerGeoms);
 
-    // 3-QATLAM: QORA RAQAMLAR, HARFLAR VA QORA RAMKA BO'RTMASI (#0C0E12)
+    // 3-QATLAM: QORA RAQAMLAR ("01 M 007777"), HARFLAR, AJRATUVCHI CHIZIQ VA QORA RAMKA BO'RTMASI (#0C0E12)
     const darkShapes = buildExactShapesFromField(darkCluster.field, W, H, worldW, worldH, 3.0, 0.25, Infinity, smoothPasses, 0, true, 0.52);
     createExtrudeGeometriesFromShapes(darkShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(12 / 255, 14 / 255, 18 / 255), allLayerGeoms);
 
-    // 4-QATLAM: OQ RAQAMLAR VA HARFLAR (To'q fonli nomerlar uchun)
+    // 4-QATLAM: OQ RAQAMLAR VA HARFLAR (Ko'k/Yashil/Qora fonli nomerlar uchun)
     if (whiteCluster.count > 20) {
         const whiteShapes = buildExactShapesFromField(whiteCluster.field, W, H, worldW, worldH, 3.0, 0.25, Infinity, smoothPasses, 0, true, 0.52);
         createExtrudeGeometriesFromShapes(whiteShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.99, 0.99, 1.0), allLayerGeoms);
     }
 
-    // 5-QATLAM: RANGLI ELEMENTLAR (`UZ` kodi, `2026` qizil stiker, Samoa bayrog'i va h.k.)
+    // 5-QATLAM: HAQIQIY RANGLI ELEMENTLAR (`UZ` kodi, `2026` qizil stiker, Samoa bayrog'i va h.k.)
     activeChromaticClusters.forEach(cc => {
         const shapes = buildExactShapesFromField(cc.field, W, H, worldW, worldH, 2.5, 0.22, Infinity, smoothPasses, 0, true, 0.52);
         if (shapes.length > 0) {
@@ -1841,7 +1824,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         );
     }
 
-    // 7-QATLAM: O'ZBEKISTON (UZ) YOKI ROSSIYA (RUS) BAYROG'I (5 ta chizig'i 100% simmetrik va bir tekisda!)
+    // 7-QATLAM: O'ZBEKISTON (UZ) YOKI ROSSIYA (RUS) BAYROG'I (100% bir tekisda!)
     if (detectedFlag) {
         const scaleX = worldW / (W - 2);
         const scaleY = worldH / (H - 2);
@@ -1877,6 +1860,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
     }
 
     // 8-QATLAM: PASTKI QORA RAMKA USTIDAGI TINIQ OQ HARFLAR ("IT SHAKH MOTORS • TASHKENT")
+    // Hech qanday sariq yoki ko'k dog' aralashmasdan, sof oq (#F8FAFC) rangda chiqadi!
     if (bottomTextCnt > 5) {
         const maxBottomArea = worldW * worldH * 0.012;
         const bottomShapes = buildExactShapesFromField(bottomTextField, W, H, worldW, worldH, 1.5, 0.06, maxBottomArea, 1, 0, true, 0.52);
@@ -1888,8 +1872,8 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
 
     setSingleUnifiedMeshToScene(unifiedGeom);
     document.getElementById('hudFile').textContent = fileName.toUpperCase();
-    document.getElementById('hudMode').textContent = 'AVTO NOMER (FLAWLESS HD)';
-    setStatus(`✓ ${fileName.toUpperCase()} barcha harf, bayroq va ramkalari 100% xatosiz 3D modelga aylantirildi!`);
+    document.getElementById('hudMode').textContent = 'AVTO NOMER (PURE-HD)';
+    setStatus(`✓ ${fileName.toUpperCase()} ortiqcha rang va bolt detallarisiz 100% toza 3D modelga aylantirildi!`);
 }
 
 // ==================== 2-ENGINE: DISKA, LOGOTIP VA UMUMIY RASMLAR UCHUN WATERTIGHT BFS CAD ENGINE ====================
