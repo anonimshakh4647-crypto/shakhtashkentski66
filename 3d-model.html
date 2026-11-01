@@ -229,6 +229,7 @@
             cursor: pointer;
             transition: 0.2s;
             text-align: center;
+            width: 100%;
         }
         .btn:hover {
             border-color: var(--accent);
@@ -347,7 +348,7 @@
             <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.svg,.obj,.dff">
             <span class="drop-icon">💎</span>
             <div class="drop-main">FAYLNI TANLANG YOKI TASHLANG</div>
-            <div class="drop-sub">JPG / PNG yozuv va ranglarini 100% tiniq saqlab DFF ga o‘tkazadi</div>
+            <div class="drop-sub">JPG / PNG yozuv va ranglarini 100% bir tekisda 3D DFF ga o‘tkazadi</div>
             <div class="format-badges">
                 <span class="badge">.JPG</span>
                 <span class="badge">.PNG</span>
@@ -357,10 +358,7 @@
             </div>
         </label>
 
-        <div class="toggle-grid">
-            <button class="btn" id="demoPlateBtn" type="button">★ DEMO NOMER 3D</button>
-            <button class="btn" id="resetCamBtn" type="button">⟲ KAMERANI TIKLASH</button>
-        </div>
+        <button class="btn" id="resetCamBtn" type="button">⟲ KAMERANI TIKLASH</button>
 
         <h2 class="panel-title">// ANIQ VEKTOR EXTRUDE VA DFF O‘LCHAMI</h2>
         <div class="control-group">
@@ -374,7 +372,7 @@
 
             <div class="control-row">
                 <div class="control-label">
-                    <span>HARF VA RAMKA 3D BO‘RTMASI (RELIEF)</span>
+                    <span>HARF, RAMKA VA BAYROQ BO‘RTMASI (RELIEF)</span>
                     <b id="reliefVal">1.6</b>
                 </div>
                 <input type="range" id="reliefSlider" min="0.4" max="8" step="0.2" value="1.6">
@@ -443,16 +441,16 @@
         <div id="viewport">
             <div class="viewport-hud">
                 <div class="hud-box">
-                    FAYL: <b id="hudFile">UZ_NOMER_01A777AA.PNG</b> | DFF XAJMI: <b id="hudDffSpan">1.978 m (ETALON DFF)</b>
+                    FAYL: <b id="hudFile">YUKLANMAGAN</b> | DFF XAJMI: <b id="hudDffSpan">1.978 m (ETALON DFF)</b>
                 </div>
                 <div class="hud-box">
-                    VERTICES: <b id="hudVerts">0</b> | TRIANGLES: <b id="hudTris">0</b> | MATERIALS: <b id="hudMats">1</b>
+                    VERTICES: <b id="hudVerts">0</b> | TRIANGLES: <b id="hudTris">0</b> | MATERIALS: <b id="hudMats">0</b>
                 </div>
             </div>
         </div>
         <div class="status-bar">
-            <span id="status-msg">✓ Tayyor. Barcha yozuv va ranglar buzilmasdan siz yuborgan DFF o‘lchamida (1.978 birlik) eksport qilinadi.</span>
-            <span>LOSSLESS EXACT DFF v6.1</span>
+            <span id="status-msg">✓ Fayl tanlang (.JPG, .PNG, .SVG, .OBJ yoki .DFF).</span>
+            <span>LOSSLESS EXACT DFF v6.2</span>
         </div>
     </div>
 </div>
@@ -513,8 +511,8 @@ let useOriginalColors = true;
 let isWireframe = false;
 
 let lastLoadedData = {
-    type: 'image',
-    name: 'UZ_NOMER_01A777AA',
+    type: null,
+    name: 'IT_SHAKH_MODEL',
     rawSvg: null,
     imageElement: null
 };
@@ -836,6 +834,19 @@ function buildExactShapesFromField(field, W, H, worldW, worldH, minPixelArea = 2
     });
 }
 
+// To'g'ri to'rtburchak (Bayroq chiziqlari bir tekis va tirqishsiz chiqishi uchun)
+function createExactRectShape(x0, y0, x1, y1) {
+    const minX = Math.min(x0, x1), maxX = Math.max(x0, x1);
+    const minY = Math.min(y0, y1), maxY = Math.max(y0, y1);
+    const shape = new THREE.Shape();
+    shape.moveTo(minX, minY);
+    shape.lineTo(maxX, minY);
+    shape.lineTo(maxX, maxY);
+    shape.lineTo(minX, maxY);
+    shape.closePath();
+    return shape;
+}
+
 // ==================== JPG / PNG -> LOSSLESS MULTI-COLOR 3D VECTOR EXTRUDE ====================
 function build3DFromImage(img, fileName = 'NOMER.PNG') {
     const baseDepth = parseFloat(document.getElementById('depthSlider').value) || 2.5;
@@ -871,7 +882,7 @@ function build3DFromImage(img, fileName = 'NOMER.PNG') {
 
     let blueCnt = 0, greenCnt = 0, redCnt = 0, yellowCnt = 0, detailLightCnt = 0;
 
-    // 1-BOSQICH: Asosiy rang maydonlarini (Qora, Ko'k, Yashil, Qizil, Sariq) va pastki qora ramka yozuvini ajratib olish
+    // 1-BOSQICH: Rang maydonlarini tahlil qilish
     for (let y = 0; y < hRaw; y++) {
         const dstRow = (y + 1) * W;
         const srcRow = y * wRaw;
@@ -914,7 +925,7 @@ function build3DFromImage(img, fileName = 'NOMER.PNG') {
                     if (isBottomFrameZone && lum > 110 && x > wRaw * 0.20 && x < wRaw * 0.80) {
                         detailLightField[fi] = 1.0;
                         detailLightCnt++;
-                        darkField[fi] = 1.0;
+                        darkField[fi] = 0.0;
                     } else {
                         blueField[fi] = strength;
                         blueCnt++;
@@ -931,44 +942,68 @@ function build3DFromImage(img, fileName = 'NOMER.PNG') {
                 if (isBottomFrameZone && lum > 95 && x > wRaw * 0.20 && x < wRaw * 0.80) {
                     detailLightField[fi] = Math.min(1.0, (lum - 80) / 80);
                     detailLightCnt++;
-                    darkField[fi] = 1.0;
+                    // Oq harflar o'rnida qora ramkani 0 qilamiz, shunda ikkalasi bir tekisda (Z = reliefHeight) z-fightingsiz turadi!
+                    darkField[fi] = 0.0;
                 } else {
-                    // Faqat haqiqiy qora harf, raqam va ramkalarni olish (och kulrang fon shovqinlarini olmaslik uchun 175 chegara)
-                    const darkness = Math.max(0.0, Math.min(1.0, (175 - lum) / 80));
+                    const darkness = Math.max(0.0, Math.min(1.0, (170 - lum) / 75));
                     darkField[fi] = darkness;
                 }
             }
         }
     }
 
-    // 2-BOSQICH: FAQAT BAYROQNING ANIQ CHEGARASI ICHIDAGI OQ CHIZIQ VA OY-YULDUZLARNI OLISH
-    // (Bayroq atrofidagi oq fon to'rtburchak bo'lib chiqib qolmasligi uchun!)
-    if (blueCnt > 10 && greenCnt > 10) {
+    // 2-BOSQICH: BAYROQ SOHASINI AVTOMATIK ANIQLASH VA 5 TA CHIZIG'INI 100% BIR TEKISDA QURISH
+    // Bayroq yuqori sohada (y < hRaw * 0.55) joylashgan ko'k (tepada) va yashil (pastda) chiziqlardan topiladi
+    let detectedFlagRect = null;
+    if (blueCnt > 15 && greenCnt > 15) {
+        const maxScanY = Math.floor(hRaw * 0.55);
+        const validCols = [];
+
         for (let x = 1; x <= wRaw; x++) {
-            let minBlueY = Infinity;
-            let maxGreenY = -1;
-
-            // Bayroq yuqori yarim sohada (y < hRaw * 0.55) joylashgan
-            const maxFlagScanY = Math.floor(hRaw * 0.55);
-            for (let y = 1; y <= maxFlagScanY; y++) {
+            let bMinY = Infinity, bMaxY = -1;
+            let gMinY = Infinity, gMaxY = -1;
+            for (let y = 1; y <= maxScanY; y++) {
                 const fi = y * W + x;
-                if (blueField[fi] >= 0.45 && y < minBlueY) minBlueY = y;
-                if (greenField[fi] >= 0.45 && y > maxGreenY) maxGreenY = y;
+                if (blueField[fi] >= 0.45) {
+                    if (y < bMinY) bMinY = y;
+                    if (y > bMaxY) bMaxY = y;
+                }
+                if (greenField[fi] >= 0.45) {
+                    if (y < gMinY) gMinY = y;
+                    if (y > gMaxY) gMaxY = y;
+                }
             }
+            if (bMinY <= bMaxY && gMinY <= gMaxY && gMinY > bMaxY && (gMaxY - bMinY) < hRaw * 0.40) {
+                validCols.push({ x, bMinY, bMaxY, gMinY, gMaxY });
+            }
+        }
 
-            // Agar shu ustunda (x) tepada ko'k chiziq va pastida yashil chiziq mavjud bo'lsa,
-            // faqat ularning orasidagi [minBlueY .. maxGreenY] oq piksellarnigina bayroq oq detali deb olamiz!
-            if (minBlueY < maxGreenY && (maxGreenY - minBlueY) < hRaw * 0.35) {
-                for (let y = minBlueY; y <= maxGreenY; y++) {
+        if (validCols.length >= 6) {
+            const flagMinX = validCols[0].x;
+            const flagMaxX = validCols[validCols.length - 1].x;
+            const midCol = validCols[Math.floor(validCols.length / 2)];
+            const fy0 = midCol.bMinY; // Ko'k chiziq tepasi
+            const fy1 = midCol.bMaxY; // Ko'k chiziq pasti
+            const fy4 = midCol.gMinY; // Yashil chiziq tepasi
+            const fy5 = midCol.gMaxY; // Yashil chiziq pasti
+
+            const midSpan = Math.max(3, fy4 - fy1);
+            const redThick = Math.max(1.2, midSpan * 0.16);
+            const fy2 = fy1 + redThick; // Yuqori qizil chiziq pasti
+            const fy3 = fy4 - redThick; // Pastki qizil chiziq tepasi
+
+            detectedFlagRect = { flagMinX, flagMaxX, fy0, fy1, fy2, fy3, fy4, fy5 };
+
+            // Bayroq sohasi ichidagi eski rastr maydonlarni tozalaymiz (ustma-ust tushmasligi uchun)
+            const pad = 3;
+            for (let y = Math.max(1, fy0 - pad); y <= Math.min(hRaw, fy5 + pad); y++) {
+                for (let x = Math.max(1, flagMinX - pad); x <= Math.min(wRaw, flagMaxX + pad); x++) {
                     const fi = y * W + x;
-                    if (blueField[fi] < 0.3 && greenField[fi] < 0.3 && redField[fi] < 0.3) {
-                        const idx = ((y - 1) * wRaw + (x - 1)) * 4;
-                        const lum = 0.299 * imgData[idx] + 0.587 * imgData[idx + 1] + 0.114 * imgData[idx + 2];
-                        if (lum > 185) {
-                            detailLightField[fi] = Math.min(1.0, (lum - 165) / 55);
-                            detailLightCnt++;
-                        }
-                    }
+                    blueField[fi] = 0;
+                    greenField[fi] = 0;
+                    redField[fi] = 0;
+                    detailLightField[fi] = 0;
+                    darkField[fi] = 0;
                 }
             }
         }
@@ -1023,44 +1058,76 @@ function build3DFromImage(img, fileName = 'NOMER.PNG') {
         });
     }
 
+    // BARCHA BO'RTMA QATAMLAR UCHUN YAGONA TEKIS BALANDLIK:
+    // zOffset = -0.2, depth = reliefHeight + 0.2 -> Barcha qatlamlarning ustki yuzasi aniq Z = reliefHeight da tekis yotadi!
+    const UNIFORM_RELIEF_DEPTH = reliefHeight + 0.2;
+    const UNIFORM_Z_OFFSET = -0.2;
+
     // 1-QATLAM: SOF OQ ASOS PLITASI (#FFFFFF)
     const baseShapes = buildExactShapesFromField(silhouetteField, W, H, worldW, worldH, 25, 0.35);
     createSharpExtrudeGeometry(baseShapes, baseDepth, -baseDepth, new THREE.Color(1.0, 1.0, 1.0));
 
-    // 2-QATLAM: KO'MIRDEK QORA HARFLAR, RAQAMLAR VA TASHQI RAMKA (#08090C)
-    const darkShapes = buildExactShapesFromField(darkField, W, H, worldW, worldH, 5.0, 0.24);
-    createSharpExtrudeGeometry(darkShapes, reliefHeight + 0.2, -0.2, new THREE.Color(0.031, 0.035, 0.047));
+    // 2-QATLAM: QORA HARFLAR, RAQAMLAR VA TASHQI RAMKA (#08090C)
+    const darkShapes = buildExactShapesFromField(darkField, W, H, worldW, worldH, 8.0, 0.24);
+    createSharpExtrudeGeometry(darkShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.031, 0.035, 0.047));
 
-    // 3-QATLAM: BAYROQ KO'K RANGLARI VA "UZ" YOZUVI (#0099B5)
+    // 3-QATLAM: AGAR BAYROQ ANIQLANGAN BO'LSA — 5 TA CHIZIG'INI 100% BIR TEKIS VA TIRQISHSIZ YASASH
+    if (detectedFlagRect) {
+        const scaleX = worldW / (W - 2);
+        const scaleY = worldH / (H - 2);
+        const toWX = px => (px - 1) * scaleX - worldW * 0.5;
+        const toWY = py => worldH * 0.5 - (py - 1) * scaleY;
+
+        const wx0 = toWX(detectedFlagRect.flagMinX);
+        const wx1 = toWX(detectedFlagRect.flagMaxX + 1);
+        const wy0 = toWY(detectedFlagRect.fy0);
+        const wy1 = toWY(detectedFlagRect.fy1);
+        const wy2 = toWY(detectedFlagRect.fy2);
+        const wy3 = toWY(detectedFlagRect.fy3);
+        const wy4 = toWY(detectedFlagRect.fy4);
+        const wy5 = toWY(detectedFlagRect.fy5);
+
+        // Ko'k chiziq
+        createSharpExtrudeGeometry([createExactRectShape(wx0, wy1, wx1, wy0)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.0, 0.60, 0.71));
+        // Yuqori qizil chiziq
+        createSharpExtrudeGeometry([createExactRectShape(wx0, wy2, wx1, wy1)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.843, 0.07, 0.15));
+        // O'rta oq chiziq
+        createSharpExtrudeGeometry([createExactRectShape(wx0, wy3, wx1, wy2)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.98, 0.99, 1.0));
+        // Pastki qizil chiziq
+        createSharpExtrudeGeometry([createExactRectShape(wx0, wy4, wx1, wy3)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.843, 0.07, 0.15));
+        // Yashil chiziq
+        createSharpExtrudeGeometry([createExactRectShape(wx0, wy5, wx1, wy4)], UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.118, 0.71, 0.227));
+    }
+
+    // 4-QATLAM: "UZ" YOZUVI VA BOSHQA KO'K ELEMENTLAR (#0099B5)
     if (blueCnt > 6) {
-        const blueShapes = buildExactShapesFromField(blueField, W, H, worldW, worldH, 2.5, 0.20);
-        createSharpExtrudeGeometry(blueShapes, reliefHeight + 0.2, -0.2, new THREE.Color(0.0, 0.60, 0.71));
+        const blueShapes = buildExactShapesFromField(blueField, W, H, worldW, worldH, 3.5, 0.20);
+        createSharpExtrudeGeometry(blueShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.0, 0.60, 0.71));
     }
 
-    // 4-QATLAM: BAYROQ YASHIL CHIZIG'I (#1EB53A)
+    // 5-QATLAM: YASHIL ELEMENTLAR (#1EB53A)
     if (greenCnt > 6) {
-        const greenShapes = buildExactShapesFromField(greenField, W, H, worldW, worldH, 2.5, 0.20);
-        createSharpExtrudeGeometry(greenShapes, reliefHeight + 0.2, -0.2, new THREE.Color(0.118, 0.71, 0.227));
+        const greenShapes = buildExactShapesFromField(greenField, W, H, worldW, worldH, 3.5, 0.20);
+        createSharpExtrudeGeometry(greenShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.118, 0.71, 0.227));
     }
 
-    // 5-QATLAM: BAYROQ QIZIL CHIZIQLARI (#D71226)
+    // 6-QATLAM: QIZIL ELEMENTLAR (#D71226)
     if (redCnt > 3) {
-        const redShapes = buildExactShapesFromField(redField, W, H, worldW, worldH, 1.2, 0.15);
-        createSharpExtrudeGeometry(redShapes, reliefHeight + 0.26, -0.2, new THREE.Color(0.843, 0.07, 0.15));
+        const redShapes = buildExactShapesFromField(redField, W, H, worldW, worldH, 2.0, 0.16);
+        createSharpExtrudeGeometry(redShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.843, 0.07, 0.15));
     }
 
-    // 6-QATLAM: SARIQ / OLTIN ELEMENTLAR (#F59E0B)
+    // 7-QATLAM: SARIQ / OLTIN ELEMENTLAR (#F59E0B)
     if (yellowCnt > 6) {
-        const yellowShapes = buildExactShapesFromField(yellowField, W, H, worldW, worldH, 2.5, 0.20);
-        createSharpExtrudeGeometry(yellowShapes, reliefHeight + 0.24, -0.2, new THREE.Color(0.96, 0.62, 0.04));
+        const yellowShapes = buildExactShapesFromField(yellowField, W, H, worldW, worldH, 3.5, 0.20);
+        createSharpExtrudeGeometry(yellowShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.96, 0.62, 0.04));
     }
 
-    // 7-QATLAM: QORA RAMKADAGI MAYDA OQ HARFLAR ("IT SHAKH MOTORS - TASHKENT") VA BAYROQ OQ CHIZIG'I
-    // (maxWorldArea = worldW * worldH * 0.008 -> Katta oq fon bo'laklari hech qachon bu qatlamga o'tmaydi!)
+    // 8-QATLAM: QORA RAMKADAGI MAYDA OQ HARFLAR ("IT SHAKH MOTORS - TASHKENT") — BULAR HAM AYNAN SHU BALANDLIKDA!
     if (detailLightCnt > 3) {
         const maxAllowedDetailArea = worldW * worldH * 0.008;
-        const detailShapes = buildExactShapesFromField(detailLightField, W, H, worldW, worldH, 1.2, 0.14, maxAllowedDetailArea);
-        createSharpExtrudeGeometry(detailShapes, reliefHeight + 0.38, -0.2, new THREE.Color(0.97, 0.98, 1.0));
+        const detailShapes = buildExactShapesFromField(detailLightField, W, H, worldW, worldH, 1.5, 0.14, maxAllowedDetailArea);
+        createSharpExtrudeGeometry(detailShapes, UNIFORM_RELIEF_DEPTH, UNIFORM_Z_OFFSET, new THREE.Color(0.97, 0.98, 1.0));
     }
 
     const unifiedGeom = combineGeometriesLossless(allLayerGeoms);
@@ -1068,7 +1135,7 @@ function build3DFromImage(img, fileName = 'NOMER.PNG') {
 
     setSingleUnifiedMeshToScene(unifiedGeom);
     document.getElementById('hudFile').textContent = fileName.toUpperCase();
-    setStatus(`✓ ${fileName.toUpperCase()} barcha yozuv va ranglari bilan 100% toza 3D modelga aylantirildi!`);
+    setStatus(`✓ ${fileName.toUpperCase()} barcha bayroq va yozuvlari bir tekisda 3D modelga aylantirildi!`);
 }
 
 // ==================== LOSSLESS EXACT GEOMETRY COMBINER ====================
@@ -1223,7 +1290,7 @@ function applyColorModeToMesh() {
 }
 
 function countUniqueMaterialColors(geom) {
-    if (!geom || !geom.attributes.color) return 1;
+    if (!geom || !geom.attributes.color) return 0;
     const col = geom.attributes.color;
     const set = new Set();
     for (let i = 0; i < col.count; i++) {
@@ -1239,7 +1306,7 @@ function countUniqueMaterialColors(geom) {
 function updateStats() {
     let verts = 0;
     let tris = 0;
-    let mats = 1;
+    let mats = 0;
     currentModelRoot.traverse(obj => {
         if (obj.isMesh && obj.geometry) {
             const pos = obj.geometry.attributes.position;
@@ -1293,7 +1360,7 @@ function build3DFromSVG(svgText, fileName = 'MODEL.SVG') {
     shapeItems.forEach((item) => {
         const lum = 0.299 * item.color.r + 0.587 * item.color.g + 0.114 * item.color.b;
         const isBase = lum > 0.85 && item.order === 0;
-        const itemDepth = isBase ? depth : (depth + relief + Math.min(0.8, item.order * 0.05));
+        const itemDepth = isBase ? depth : (depth + relief);
 
         const g = new THREE.ExtrudeGeometry(item.shape, {
             depth: itemDepth,
@@ -1594,7 +1661,7 @@ function getExportScaledGeometry() {
 function exportToOBJ() {
     const exportData = getExportScaledGeometry();
     if (!exportData) {
-        setStatus('⚠ Eksport qilish uchun 3D model mavjud emas!');
+        setStatus('⚠ Eksport qilish uchun avval 3D model yoki rasm yuklang!');
         return;
     }
 
@@ -1651,7 +1718,7 @@ function exportToOBJ() {
 function exportToDFF() {
     const exportData = getExportScaledGeometry();
     if (!exportData) {
-        setStatus('⚠ Eksport qilish uchun 3D model mavjud emas!');
+        setStatus('⚠ Eksport qilish uchun avval 3D model yoki rasm yuklang!');
         return;
     }
 
@@ -2103,66 +2170,6 @@ document.getElementById('resetCamBtn').addEventListener('click', () => {
 document.getElementById('exportObjBtn').addEventListener('click', exportToOBJ);
 document.getElementById('exportDffBtn').addEventListener('click', exportToDFF);
 
-// ==================== YUQORI ANIQLIKDAGI DEMO NOMER (RAMKA YOZUVI BILAN) ====================
-function loadDemoLicensePlate() {
-    const c = document.createElement('canvas');
-    c.width = 1200;
-    c.height = 290;
-    const ctx = c.getContext('2d');
-
-    ctx.fillStyle = '#0c0e12';
-    ctx.beginPath();
-    ctx.roundRect(4, 4, c.width - 8, c.height - 8, 22);
-    ctx.fill();
-
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.roundRect(24, 22, c.width - 48, 216, 12);
-    ctx.fill();
-
-    ctx.fillStyle = '#0c0e12';
-    ctx.fillRect(268, 22, 14, 216);
-
-    ctx.fillStyle = '#0c0e12';
-    ctx.font = '900 158px "Arial Black", Impact, sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('01', 54, 134);
-    ctx.fillText('A 777 AA', 308, 134);
-
-    const fx = 1045, fy = 44, fw = 105, fh = 66;
-    ctx.fillStyle = '#0099b5';
-    ctx.fillRect(fx, fy, fw, 20);
-    ctx.fillStyle = '#d71226';
-    ctx.fillRect(fx, fy + 20, fw, 4);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(fx, fy + 24, fw, 18);
-    ctx.fillStyle = '#d71226';
-    ctx.fillRect(fx, fy + 42, fw, 4);
-    ctx.fillStyle = '#1eb53a';
-    ctx.fillRect(fx, fy + 46, fw, 20);
-
-    ctx.fillStyle = '#0099b5';
-    ctx.font = '900 62px "Arial Black", Arial, sans-serif';
-    ctx.fillText('UZ', 1050, 182);
-
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = '800 22px Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('IT SHAKH MOTORS  •  TASHKENT', c.width / 2, 264);
-
-    const img = new Image();
-    img.onload = () => {
-        useOriginalColors = true;
-        document.getElementById('origColorBtn').classList.add('active');
-        document.getElementById('customColorBtn').classList.remove('active');
-        lastLoadedData = { type: 'image', name: 'UZ_NOMER_01A777AA', rawSvg: null, imageElement: img };
-        build3DFromImage(img, 'UZ_NOMER_01A777AA.PNG');
-    };
-    img.src = c.toDataURL('image/png');
-}
-
-document.getElementById('demoPlateBtn').addEventListener('click', loadDemoLicensePlate);
-
 window.addEventListener('resize', () => {
     camera.aspect = viewport.clientWidth / viewport.clientHeight;
     camera.updateProjectionMatrix();
@@ -2175,7 +2182,6 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-loadDemoLicensePlate();
 animate();
 </script>
 </body>
