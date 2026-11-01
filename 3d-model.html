@@ -466,7 +466,7 @@
         </div>
         <div class="status-bar">
             <span id="status-msg">✓ Fayl tanlang (.JPG, .PNG, .SVG, .OBJ yoki .DFF). Barcha mayda va katta yozuvlar xatosiz 3D qilinadi.</span>
-            <span>PRECISION TYPOGRAPHY &amp; CAD DFF v12.0</span>
+            <span>PRECISION TYPOGRAPHY &amp; CAD DFF v12.1</span>
         </div>
     </div>
 </div>
@@ -695,11 +695,6 @@ function traceSubPixelContours(field, W, H, threshold = 0.52) {
     return loops;
 }
 
-// SCALE-ADAPTIVE TYPOGRAPHY SMOOTHING:
-// Har bir konturning o'lchamiga (worldSpan) qarab moslashadi:
-// - Mayda harflar ("TREASURED ISLANDS", "2026", "IT SHAKH MOTORS") va ichki teshiklar (A, R, D, 0, 6)
-//   shishib yoki yopilib qolmasligi uchun barcha burchaklari (> 20°) mixlanadi va faqat 1 marta 3-nuqtali tekislanadi!
-// - Katta raqamlar ("77777", "01 A 777 AA") esa burchaklari saqlangan holda zinasiz silliqlanadi!
 function smoothLoopScaleAdaptive(pts, worldSpan, userSmoothPasses = 4, preserveSharpCorners = true) {
     const n = pts.length;
     if (n < 6) return pts;
@@ -777,7 +772,8 @@ function smoothLoopScaleAdaptive(pts, worldSpan, userSmoothPasses = 4, preserveS
     return curr;
 }
 
-function simplifyClosedPolygonCyclic(pts, epsilon = 0.25, pruneCollinear = true) {
+// TUZATILDI: "U" harfining ichki egri chizig'ini qirqib yuborgan cosA sikli olib tashlandi
+function simplifyClosedPolygonCyclic(pts, epsilon = 0.25) {
     const n = pts.length;
     if (n < 6) return pts;
 
@@ -849,24 +845,7 @@ function simplifyClosedPolygonCyclic(pts, epsilon = 0.25, pruneCollinear = true)
     const half1 = rdpOpen(rotated.slice(0, splitIdx + 1), epsilon);
     const half2 = rdpOpen(rotated.slice(splitIdx).concat([rotated[0]]), epsilon);
     const merged = half1.slice(0, half1.length - 1).concat(half2.slice(0, half2.length - 1));
-    if (!pruneCollinear || merged.length < 4) return merged.length >= 3 ? merged : rotated;
-
-    const cleaned = [];
-    const mLen = merged.length;
-    for (let i = 0; i < mLen; i++) {
-        const pPrev = merged[(i - 1 + mLen) % mLen];
-        const pCurr = merged[i];
-        const pNext = merged[(i + 1) % mLen];
-        const v1x = pCurr.x - pPrev.x, v1y = pCurr.y - pPrev.y;
-        const v2x = pNext.x - pCurr.x, v2y = pNext.y - pCurr.y;
-        const l1 = Math.hypot(v1x, v1y) || 1;
-        const l2 = Math.hypot(v2x, v2y) || 1;
-        const cosA = (v1x * v2x + v1y * v2y) / (l1 * l2);
-        if (cosA < 0.9985) {
-            cleaned.push(pCurr);
-        }
-    }
-    return cleaned.length >= 3 ? cleaned : merged;
+    return merged.length >= 3 ? merged : rotated;
 }
 
 function computeSignedArea(pts) {
@@ -917,7 +896,6 @@ function buildExactShapesFromField(rawField, W, H, worldW, worldH, minOuterPxAre
     rawLoops.forEach(loop => {
         const rawSigned = computeSignedArea(loop);
         const pxArea = Math.abs(rawSigned);
-        // Ekran koordinatasida (Y pastga): rawSigned < 0 -> Outer, rawSigned > 0 -> Hole (teshik)
         const isHoleLoop = rawSigned > 0;
         const minAllowedArea = isHoleLoop ? 1.0 : minOuterPxArea;
         if (pxArea < minAllowedArea) return;
@@ -935,7 +913,7 @@ function buildExactShapesFromField(rawField, W, H, worldW, worldH, minOuterPxAre
             : (worldSpan < 20.0 ? Math.min(baseRdpEps, 0.12) : baseRdpEps);
 
         const smoothed = smoothLoopScaleAdaptive(loop, worldSpan, smoothPasses, preserveSharpCorners);
-        const simplified = simplifyClosedPolygonCyclic(smoothed, adaptiveRdp, preserveSharpCorners && worldSpan >= 7.5);
+        const simplified = simplifyClosedPolygonCyclic(smoothed, adaptiveRdp);
         if (simplified.length < 3) return;
 
         const worldPts = simplified.map(p => new THREE.Vector2(
@@ -1033,8 +1011,6 @@ function createExtrudeGeometriesFromShapes(shapes, depthVal, zOffset, rgbColor, 
 }
 
 // ==================== AVTO-ANIQLASH: RASM AVTO-NOMERMI YOKI DISKA/OBYEKT? ====================
-// MUHIM: Amerika/Samoa/Kvadrat nomerlar ham (aspect >= 1.22) har doim NOMER rejimiga tushadi!
-// Faqat ichki qismida shaffof teshiklari (spitsalari) bor kvadrat rasmlar (masalan Diska PNG) Obyekt rejimiga tushadi!
 function detectIsLicensePlateImage(img) {
     if (userSelectedMode === 'plate') return true;
     if (userSelectedMode === 'object') return false;
@@ -1051,7 +1027,6 @@ function detectIsLicensePlateImage(img) {
     ctx.drawImage(img, 0, 0, sampleW, sampleH);
     const data = ctx.getImageData(0, 0, sampleW, sampleH).data;
 
-    // Rasmning ichki markaziy qismida (20%..80%) shaffof teshiklar bormi? (Nomerning ichi hech qachon shaffof bo'lmaydi!)
     let interiorTrans = 0;
     let interiorTotal = 0;
     const x0 = Math.floor(sampleW * 0.20), x1 = Math.floor(sampleW * 0.80);
@@ -1064,9 +1039,9 @@ function detectIsLicensePlateImage(img) {
     }
 
     if (interiorTotal > 0 && (interiorTrans / interiorTotal) > 0.04) {
-        return false; // Ichida shaffof teshiklari bor (Diska yoki shaffof logo)
+        return false;
     }
-    return true; // Barcha turdagi Avto-nomerlar (shu jumladan US/Samoa/Kvadrat/Uzun nomerlar)
+    return true;
 }
 
 // ==================== 1-ENGINE: AVTO NOMERLAR UCHUN ULTRA-HD TYPOGRAPHY ENGINE ====================
@@ -1303,8 +1278,6 @@ function detectLicensePlateFlags(imgData, wRaw, hRaw) {
     return null;
 }
 
-// Rangli stikerlar ("2026" qizil stiker) va bayroqlar (Samoa ko'k kantoni) ichidagi OQ YOZUV VA YULDUZLARNI
-// avtomatik ravishda topib, stikerni tagida tekis yaxlit qiluvchi va oq yozuvni ustki 3D qatlamga chiqaruvchi funksiya!
 function extractEnclosedWhiteDetailsInColoredBadges(colorClusters, imgData, wRaw, hRaw, W, H, badgeWhiteField) {
     const total = W * H;
     const dirs = [-1, 1, -W, W];
@@ -1313,7 +1286,6 @@ function extractEnclosedWhiteDetailsInColoredBadges(colorClusters, imgData, wRaw
     colorClusters.forEach(cluster => {
         const chr = Math.max(cluster.r, cluster.g, cluster.b) - Math.min(cluster.r, cluster.g, cluster.b);
         const lum = 0.299 * cluster.r + 0.587 * cluster.g + 0.114 * cluster.b;
-        // Faqat rangli stiker/bayroq klasterlarini tekshiramiz (qora matn ichidagi A, R, D, 0 teshiklariga tegmaymiz!)
         if (chr < 38 || lum < 35) return;
 
         const field = cluster.field;
@@ -1321,7 +1293,6 @@ function extractEnclosedWhiteDetailsInColoredBadges(colorClusters, imgData, wRaw
         const queue = new Int32Array(total);
         const comp = new Int32Array(total);
 
-        // Stikerning maksimal ichki oq elementi o'lchami (masalan "2026" raqami yoki yulduzcha)
         const maxHolePixels = Math.round(wRaw * hRaw * 0.008);
 
         for (let y = 2; y < hRaw - 2; y++) {
@@ -1359,13 +1330,12 @@ function extractEnclosedWhiteDetailsInColoredBadges(colorClusters, imgData, wRaw
                             if (compCount < maxHolePixels * 2) {
                                 queue[qTail++] = ni;
                             } else {
-                                touchesImageBorder = true; // Juda katta fon maydoni, stiker ichidagi yozuv emas
+                                touchesImageBorder = true;
                             }
                         }
                     }
                 }
 
-                // Agar bu kichik soha to'laligicha rangli stiker/bayroq ichida yotsa:
                 if (!touchesImageBorder && compCount >= 2 && compCount <= maxHolePixels &&
                     boundaryTotal > 0 && (boundaryClusterHits / boundaryTotal) >= 0.85) {
 
@@ -1379,11 +1349,8 @@ function extractEnclosedWhiteDetailsInColoredBadges(colorClusters, imgData, wRaw
                         const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
                         const pLum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-                        // Rangli stikerni tagida 100% tekis va teshiksiz qilamiz
                         field[fi] = 1.0;
 
-                        // Agar piksel oq/yorqin bo'lsa ("2026" raqami yoki Samoa bayrog'idagi oq yulduzlar),
-                        // uni ustki 3D oq qatlamga yozamiz!
                         if (pLum > 155) {
                             badgeWhiteField[fi] = Math.max(badgeWhiteField[fi], Math.min(1.0, (pLum - 140) / 75));
                             addedWhitePixels++;
@@ -1443,7 +1410,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
     let bottomBarStartY = Math.floor(hRaw * 0.865);
     const scanX1 = Math.floor(wRaw * 0.22);
     const scanX2 = Math.floor(wRaw * 0.78);
-    for (let y = hRaw - 5; y >= Math.floor(hRaw * 0.78); y--) {
+    for (let y = Math.floor(hRaw * 0.93); y >= Math.floor(hRaw * 0.78); y--) {
         const idx1 = (y * wRaw + scanX1) * 4;
         const idx2 = (y * wRaw + scanX2) * 4;
         const lum1 = 0.299 * imgData[idx1] + 0.587 * imgData[idx1 + 1] + 0.114 * imgData[idx1 + 2];
@@ -1518,6 +1485,10 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
             if (a < 80) continue;
 
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            const pChr = Math.max(r, g, b) - Math.min(r, g, b);
+
+            // Oq yoki Sariq nomerlarda (`plateBgLum > 160`) kulrang/oq bolt piksellarini (`lum > 80 && pChr < 32`) klaster sifatida olmaslik!
+            if (plateBgLum > 160 && lum > 80 && pChr < 32) continue;
 
             const idxL = (y * wRaw + (x - 2)) * 4;
             const idxR = (y * wRaw + (x + 2)) * 4;
@@ -1599,6 +1570,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
             if (flagMask[fi]) continue;
 
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            const pChr = Math.max(r, g, b) - Math.min(r, g, b);
 
             // PASTKI QORA RAMKA VA UNING USTIDAGI YOZUV ("IT SHAKH MOTORS • TASHKENT"):
             if (isBottomBar) {
@@ -1618,9 +1590,13 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
                 continue;
             }
 
-            const isFrameEdge = isOuterBorder || x < wRaw * 0.025 || x > wRaw * 0.975;
-            if (plateBgLum < 45 && isFrameEdge && lum < 65) {
-                darkFrameCluster.field[fi] = 1.0;
+            // TUZATILDI: Tashqi qora ramka chegarasida (`isFrameEdge`) hech qachon ko'k rang chiqmasligi uchun!
+            const isFrameEdge = isOuterBorder || x < wRaw * 0.028 || x > wRaw * 0.972;
+            if (isFrameEdge) {
+                const distToBgEdge = Math.hypot(r - plateBg.r, g - plateBg.g, b - plateBg.b);
+                if (lum < 150 && (plateBgLum < 45 || distToBgEdge > 35)) {
+                    darkFrameCluster.field[fi] = 1.0;
+                }
                 continue;
             }
 
@@ -1633,6 +1609,17 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
 
             for (let i = 0; i < colorClusters.length; i++) {
                 const c = colorClusters[i];
+                const cChr = Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b);
+
+                // TUZATILDI: Kulrang/oq bolt va qirra piksellari (`pChr < 32`) hech qachon Ko'k (`UZ`) klasteriga tushmaydi!
+                if (cChr > 35) {
+                    if (pChr < 32) continue;
+                    if (c.b > c.r + 25 && b <= r + 15) continue;
+                    if (c.r > c.b + 25 && r <= b + 15) continue;
+                } else if (c.r < 55 && c.g < 55 && c.b < 55) {
+                    if (plateBgLum > 160 && lum > 115) continue;
+                }
+
                 const vx = c.r - plateBg.r;
                 const vy = c.g - plateBg.g;
                 const vz = c.b - plateBg.b;
@@ -1664,7 +1651,6 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
         }
     }
 
-    // Rangli stikerlar ("2026" qizil stiker) va bayroqlar (Samoa ko'k kantoni) ichidagi OQ YOZUV VA YULDUZLARNI ajratib olish!
     const badgeWhiteField = new Float32Array(W * H);
     const badgeWhiteCnt = extractEnclosedWhiteDetailsInColoredBadges(colorClusters, imgData, wRaw, hRaw, W, H, badgeWhiteField);
 
@@ -1814,7 +1800,6 @@ function despeckleLabelGridBFS(labelGrid, palette, W, H, minComponentSize) {
                 const cA = palette[myLabel - 1];
                 const cB = palette[bestNeighbor - 1];
                 const colorDist = (cA && cB) ? Math.hypot(cA.r - cB.r, cA.g - cB.g, cA.b - cB.b) : 0;
-                // Yuqori kontrastli yozuv yoki detallarni (> 95 rang farqi) o'chirmaymiz, faqat mikro-shovqin (< 14px) yoki blinlarni tozalaymiz!
                 if (compCount < 14 || colorDist < 95) {
                     for (let k = 0; k < compCount; k++) {
                         labelGrid[compPixels[k]] = bestNeighbor;
