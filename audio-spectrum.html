@@ -2354,14 +2354,14 @@ async function startExport(){
   const dims=P.exRes==='720'?[1280,720]:[1920,1080],fps=P.exFps==='60'?60:30,frameMs=1000/fps,tag=dims[1]+'p'+(fps===60?'60':'');
   let rec=null,dest=null,recStream=null,progTimer=0,finTimer=0,finished=false,cancelled=false,chunks=[],mime='',ext='webm';
   const rcv=document.createElement('canvas');rcv.width=dims[0];rcv.height=dims[1];const rc=rcv.getContext('2d',{alpha:false});
-  let vTrack=null,canReq=false,nextAt=0;
+  let vTrack=null,canReq=false,nextAt=0,exPaused=false,visH=null,pauseN=0;
   const beforeUnload=e=>{e.preventDefault();e.returnValue='';return'';};
   const cleanup=()=>{
     window.__exportPaint=null;exporting=false;exportDims=null;clearInterval(progTimer);clearTimeout(finTimer);
     try{src&&dest&&src.disconnect(dest);}catch(e){}
     try{recStream&&recStream.getTracks().forEach(t=>t.stop());}catch(e){}
     A.onended=null;A.onpause=null;A.loop=$('loopBtn').classList.contains('on');setOutMute(muted);
-    removeEventListener('beforeunload',beforeUnload);try{exWake&&exWake.release();}catch(e){}exWake=null;
+    removeEventListener('beforeunload',beforeUnload);if(visH){document.removeEventListener('visibilitychange',visH);visH=null;}exPaused=false;try{exWake&&exWake.release();}catch(e){}exWake=null;
     tsp.textContent='EXPORT '+(P.exRes==='720'?'720P':'1080P');btn.classList.remove('rec');btn.disabled=false;
     if(btn2){btn2.textContent='⬇ VIDEONI EKSPORT QILISH';btn2.disabled=false;}
     const pg=$('exProg');if(pg)pg.style.display='none';expState=null;
@@ -2400,6 +2400,7 @@ async function startExport(){
       let extra='';if(fa&&fa<tgt*.9)extra=' Diqqat: o‘rtacha '+Math.round(fa)+' FPS yozildi (maqsad '+tgt+'). Qotmasligi uchun 30 FPS yoki 720p tanlang.';
       if(PERF.maxLvl>0)extra+=' Tezlikni saqlash uchun chizish sifati vaqti-vaqti bilan '+Math.round(PERF_SCALE[PERF.maxLvl]*100)+'% gacha tushdi.';
       if(PERF.note)extra+=' '+PERF.note;
+      if(pauseN)extra+=' Eksport '+pauseN+' marta pauza qilindi (boshqa oynaga o‘tilgani uchun) va davom ettirildi.';
       exStatus('Tayyor! '+tag+' video ('+(blob.size/1048576).toFixed(1)+' MB) yuklab olindi.'+extra);
     };
     nextAt=performance.now();
@@ -2410,17 +2411,22 @@ async function startExport(){
       rc.drawImage(C,0,0,rcv.width,rcv.height);if(canReq){try{vTrack.requestFrame();}catch(e){}}
     };
     const finish=()=>{if(finished)return;finished=true;finTimer=setTimeout(()=>{try{if(rec.state!=='inactive'){rec.requestData();rec.stop();}}catch(e){}},500);};
-    A.onended=finish;A.onpause=()=>{if(exporting&&!finished&&!A.ended)A.play().catch(()=>{});};
+    A.onended=finish;A.onpause=()=>{if(exporting&&!finished&&!A.ended&&!exPaused)A.play().catch(()=>{});};
+    /* boshqa tab/oyna ochilsa brauzer sahifani to'xtatadi — eksportni ham pauza qilamiz, qaytganda davom ettiramiz */
+    const doPause=()=>{if(exPaused||finished||!rec||rec.state!=='recording')return;exPaused=true;pauseN++;try{rec.pause();}catch(e){}try{A.pause();}catch(e){}exStatus('⏸ Eksport pauzada — boshqa oynaga o‘tdingiz. Sahifaga qayting, video qotmasdan davom etadi.');};
+    const doResume=async()=>{if(!exPaused||finished)return;try{if(rec.state==='paused')rec.resume();}catch(e){}nextAt=performance.now();try{await A.play();}catch(e){}exPaused=false;exStatus('Eksport davom etmoqda ('+tag+'). Sahifani yopmang — qo‘shiq tugagach video avtomatik saqlanadi.');};
+    visH=()=>{if(document.hidden)doPause();else doResume();};
+    document.addEventListener('visibilitychange',visH);
     addEventListener('beforeunload',beforeUnload);try{exWake=await navigator.wakeLock.request('screen');}catch(e){}
     btn.disabled=false;btn.classList.add('rec');
     const pg=$('exProg'),pgi=$('exProgI');if(pg)pg.style.display='block';
     progTimer=setInterval(()=>{
       const d=A.duration||0,c=A.currentTime||0,p=d?Math.min(100,Math.floor(c/d*100)):0;
-      tsp.textContent=(document.hidden?'⚠ SAHIFAGA QAYTING · ':'⏺ ')+p+'% · BEKOR';
-      if(btn2)btn2.textContent='⏺ '+p+'% · '+fmtTime(c)+' / '+fmtTime(d)+' — BEKOR QILISH';
+      tsp.textContent=(exPaused?'⏸ PAUZA · ':'⏺ ')+p+'% · BEKOR';
+      if(btn2)btn2.textContent=(exPaused?'⏸ ':'⏺ ')+p+'% · '+fmtTime(c)+' / '+fmtTime(d)+' — BEKOR QILISH';
       if(pgi)pgi.style.width=p+'%';
     },400);
-    exStatus('Eksport ketmoqda ('+tag+', kompyuter ovozi vaqtincha o‘chiq). Sahifani yopmang va boshqa tabga o‘tmang — qo‘shiq tugagach video avtomatik saqlanadi.');
+    exStatus('Eksport ketmoqda ('+tag+', kompyuter ovozi vaqtincha o‘chiq). Sahifani yopmang — boshqa oynaga o‘tsangiz eksport pauza bo‘ladi, qaytsangiz davom etadi.');
     rec.start(1000);
     try{await A.play();}catch(pe){cancelled=true;try{rec.stop();}catch(e){}throw new Error('Qo‘shiqni boshlab bo‘lmadi: '+pe.message);}
   }catch(e){cleanup();exStatus('Eksport xatosi: '+e.message);}
