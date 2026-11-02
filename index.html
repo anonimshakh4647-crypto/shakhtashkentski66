@@ -2656,6 +2656,18 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     };
 </script>
 
+<style>
+#site-lock-btn{margin-left:8px;border:1px solid rgba(248,113,113,.5);border-radius:9px;padding:8px 15px;background:rgba(248,113,113,.1);color:#f87171;font:700 10px monospace;letter-spacing:1px;cursor:pointer}
+#site-lock-btn:hover{box-shadow:0 0 18px rgba(248,113,113,.3)}
+#site-lock-btn.is-locked{border-color:rgba(74,222,128,.55);background:rgba(74,222,128,.1);color:#4ade80}
+#site-lock-btn:disabled{opacity:.6;cursor:wait}
+#site-lock-overlay{position:fixed;inset:0;z-index:100005;display:none;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:24px;background:radial-gradient(circle at 50% 40%,#0b1b2e,#01040a 70%);color:#cbd5e1;font-family:monospace}
+#site-lock-overlay.on{display:flex}
+#site-lock-overlay b{font-size:54px;display:block;margin-bottom:14px;filter:drop-shadow(0 0 18px rgba(248,113,113,.7))}
+#site-lock-overlay h2{margin:0 0 10px;color:#f87171;letter-spacing:4px;font-size:clamp(20px,5vw,32px);text-shadow:0 0 20px rgba(248,113,113,.6)}
+#site-lock-overlay p{margin:0;max-width:440px;line-height:1.7;font-size:13px;color:#94a3b8}
+</style>
+
 <!-- ===== IT SHAKH LIVE STATUS ===== -->
 <div id="live-status-wrap">
     <div id="live-status-time"></div>
@@ -2663,6 +2675,7 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
 
     <div id="live-status-admin">
         <button id="live-status-open-editor" type="button">✎ YANGI YOZUV</button>
+        <button id="site-lock-btn" type="button">🔒 SAYTNI BLOKLASH</button>
     </div>
 
     <div id="live-status-editor" aria-hidden="true">
@@ -2686,6 +2699,15 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     const CLIENT_ID = '506134860126-v75qmbti4m8b0l5ms7h96hhejlj2q1jm.apps.googleusercontent.com';
     const API = 'https://script.google.com/macros/s/AKfycbwwSCvjGZGeI0g8szN62g8NVVzVKI6atqu1lUoF_W4FfhenqS-cpn27liDJU52gFHvN0Q/exec';
     const STORE_KEY = 'it_shakh_live_status';
+    const LOCK_TAG = '[[LOCKED]]';          // status matnining boshidagi belgi = sayt bloklangan
+    const LOCK_KEY = 'it_shakh_site_locked';
+    let siteLocked = localStorage.getItem(LOCK_KEY) === '1';
+    let lastText = '';
+    const lockBtn = document.getElementById('site-lock-btn');
+    const overlay = document.createElement('div');
+    overlay.id = 'site-lock-overlay';
+    overlay.innerHTML = '<b>🔒</b><h2>SAYT VAQTINCHA YOPIQ</h2><p>Sayt administrator tomonidan vaqtincha bloklangan. Iltimos, keyinroq qayta urinib ko‘ring.</p>';
+    document.body.appendChild(overlay);
 
     const timeEl = document.getElementById('live-status-time');
     const textEl = document.getElementById('live-status-text');
@@ -2729,12 +2751,36 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
         }
     }
 
+    function applyLock(){
+        // Faqat tizimga kirgan ODDIY foydalanuvchiga ko'rsatiladi; admin hech qachon bloklanmaydi
+        const u = getUser();
+        const block = siteLocked && !!u && !isAdmin();
+        overlay.classList.toggle('on', block);
+        document.documentElement.style.overflow = block ? 'hidden' : '';
+        if(lockBtn){
+            lockBtn.textContent = siteLocked ? '🔓 SAYTNI OCHISH' : '🔒 SAYTNI BLOKLASH';
+            lockBtn.classList.toggle('is-locked', siteLocked);
+        }
+    }
+    function setLockState(v){
+        siteLocked = !!v;
+        try{ localStorage.setItem(LOCK_KEY, siteLocked ? '1' : '0'); }catch(e){}
+        applyLock();
+    }
+    function splitStatus(raw){
+        raw = String(raw || '');
+        return raw.indexOf(LOCK_TAG) === 0 ? { locked:true, text:raw.slice(LOCK_TAG.length) } : { locked:false, text:raw };
+    }
+
     function render(text){
         textEl.textContent = text || '';
         textEl.style.display = text ? 'block' : 'none';
     }
 
-    render(localStorage.getItem(STORE_KEY) || '');
+    lastText = localStorage.getItem(STORE_KEY) || '';
+    render(lastText);
+    applyLock();
+    setInterval(applyLock, 1000);
 
     async function loadRemote(){
         try{
@@ -2742,14 +2788,17 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
             if(!r.ok) return;
             const data=await r.json();
             if(data && typeof data.text==='string'){
-                render(data.text);
-                localStorage.setItem(STORE_KEY,data.text);
+                const st = splitStatus(data.text);
+                lastText = st.text;
+                render(st.text);
+                localStorage.setItem(STORE_KEY,st.text);
+                setLockState(st.locked);
                 showAdmin();
             }
         }catch(e){}
     }
 
-    function saveRemote(text){
+    function saveRemote(text, lockOverride){
         if(!isAdmin()){
             msgEl.textContent='RUXSAT YO‘Q';
             return false;
@@ -2767,7 +2816,7 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
                 action:'statusSave',
                 token:token,
                 clientId:CLIENT_ID,
-                text:clean,
+                text:((lockOverride===undefined ? siteLocked : lockOverride) ? LOCK_TAG : '') + clean,
                 _:String(Date.now())
             });
             const beacon=new Image();
@@ -2777,6 +2826,8 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
             setTimeout(()=>{try{beacon.remove()}catch(e){}},10000);
 
             localStorage.setItem(STORE_KEY,clean);
+            lastText = clean;
+            if(lockOverride !== undefined) setLockState(lockOverride);
             render(clean);
             msgEl.textContent='✓ SAQLANMOQDA';
             setTimeout(async()=>{
@@ -2822,6 +2873,16 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
         if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){
             saveRemote((inputEl.value||'').trim());
         }
+    });
+
+    lockBtn && lockBtn.addEventListener('click',()=>{
+        if(!isAdmin()) return;
+        const next = !siteLocked;
+        const q = next ? 'Saytni BLOKLAYSIZMI? Oddiy foydalanuvchilar kira olmaydi (siz — admin — ishlata olasiz).' : 'Saytni qayta OCHASIZMI?';
+        if(!confirm(q)) return;
+        lockBtn.disabled = true;
+        saveRemote(lastText, next);
+        setTimeout(async()=>{ await loadRemote(); lockBtn.disabled = false; }, 2200);
     });
 
     showAdmin();
