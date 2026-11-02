@@ -583,7 +583,7 @@ let isSpinning = true;
 let showEdgedFaces = false;
 let currentMaterialPreset = 'max_mint';
 let sourceImageElement = null;
-let invertMaskPolarity = null;
+let invertMaskPolarity = null; // null = auto-detect, true/false = manual override
 let rebuildTimer = null;
 
 function initThreeViewports() {
@@ -595,11 +595,13 @@ function initThreeViewports() {
         const scene = new THREE.Scene();
         scenes[vpId] = scene;
 
+        // 3ds Max uslubidagi qora-kulrang setka
         const grid = new THREE.GridHelper(340, 34, 0x4b5563, 0x262930);
         grid.position.y = -95;
         scene.add(grid);
 
-        const amb = new THREE.AmbientLight(0xffffff, 0.50);
+        // 3-Point Studio Lighting (silliq hajmli soyalar uchun)
+        const amb = new THREE.AmbientLight(0xffffff, 0.48);
         scene.add(amb);
 
         const keyLight = new THREE.DirectionalLight(0xffffff, 0.95);
@@ -607,7 +609,7 @@ function initThreeViewports() {
         keyLight.name = 'keyLight';
         scene.add(keyLight);
 
-        const fillLight = new THREE.DirectionalLight(0xdbeafe, 0.45);
+        const fillLight = new THREE.DirectionalLight(0xdbeafe, 0.42);
         fillLight.position.set(-160, 60, 120);
         scene.add(fillLight);
 
@@ -690,6 +692,7 @@ function animateLoop() {
         controls['perspectiveView'].update();
     }
 
+    // Perspective sahmani 3 ta ortografik oynaga sinxronlash
     ['topView', 'frontView', 'leftView'].forEach(vpId => {
         const vpEl = document.getElementById(vpId);
         if (!vpEl.classList.contains('hidden-vp') && cloneGroups[vpId]) {
@@ -701,20 +704,22 @@ function animateLoop() {
     renderers['perspectiveView'].render(scenes['perspectiveView'], cameras['perspectiveView']);
 }
 
-// ==================== 1. AQLLI SEGMENTATSIYA VA AVTO-MASKA (SPITSALAR UZILMASLIGI KAFOLATLANGAN) ====================
-function cleanMaskMorphologyAndIslands(binaryMask, w, h, minSolidSize = 45, minHoleSize = 55) {
+// ==================== 1. RASMNI TAHLIL QILISH VA AVTO-MASKA (SUB-PIXEL CONTOURS) ====================
+function healSpokeGapsAndNoise(field, w, h, threshold) {
     const total = w * h;
-    const temp = new Uint8Array(total);
+    const mask = new Uint8Array(total);
+    for (let i = 0; i < total; i++) {
+        mask[i] = field[i] >= threshold ? 1 : 0;
+    }
 
-    // 1. 1-pixel Morphological Closing (Dilate -> Erode) — spitsalardagi mayda yoriqlarni bitiradi
+    // 1. Spitsalar ustidagi ingichka yaltirash/shula yoki watermark chiziqlarini bitirish (Morphological Closing)
+    const dilated = new Uint8Array(total);
     for (let y = 1; y < h - 1; y++) {
         const r = y * w;
         for (let x = 1; x < w - 1; x++) {
             const i = r + x;
-            temp[i] = (
-                binaryMask[i] ||
-                binaryMask[i - 1] || binaryMask[i + 1] ||
-                binaryMask[i - w] || binaryMask[i + w]
+            dilated[i] = (
+                mask[i] || mask[i - 1] || mask[i + 1] || mask[i - w] || mask[i + w]
             ) ? 1 : 0;
         }
     }
@@ -722,22 +727,20 @@ function cleanMaskMorphologyAndIslands(binaryMask, w, h, minSolidSize = 45, minH
         const r = y * w;
         for (let x = 1; x < w - 1; x++) {
             const i = r + x;
-            binaryMask[i] = (
-                temp[i] &&
-                temp[i - 1] && temp[i + 1] &&
-                temp[i - w] && temp[i + w]
+            mask[i] = (
+                dilated[i] && dilated[i - 1] && dilated[i + 1] && dilated[i - w] && dilated[i + w]
             ) ? 1 : 0;
         }
     }
 
-    // 2. BFS orqali havoda qolgan mayda shovqin bo'laklarni (< minSolidSize) tozalash
+    // 2. Kichik uzilgan shovqin nuqtalarni (< 30 px) olib tashlash va spitsa ichidagi mayda yoriqlarni (< 45 px) to'ldirish
     const visited = new Uint8Array(total);
     const queue = new Int32Array(total);
     const comp = new Int32Array(total);
     const dirs = [-1, 1, -w, w];
 
     for (let i = 0; i < total; i++) {
-        if (binaryMask[i] === 1 && !visited[i]) {
+        if (mask[i] === 1 && !visited[i]) {
             let qH = 0, qT = 0, cLen = 0;
             queue[qT++] = i;
             visited[i] = 1;
@@ -746,45 +749,49 @@ function cleanMaskMorphologyAndIslands(binaryMask, w, h, minSolidSize = 45, minH
                 comp[cLen++] = cur;
                 for (let d = 0; d < 4; d++) {
                     const ni = cur + dirs[d];
-                    if (ni >= 0 && ni < total && binaryMask[ni] === 1 && !visited[ni]) {
+                    if (ni >= 0 && ni < total && mask[ni] === 1 && !visited[ni]) {
                         visited[ni] = 1;
                         queue[qT++] = ni;
                     }
                 }
             }
-            if (cLen < minSolidSize) {
-                for (let k = 0; k < cLen; k++) binaryMask[comp[k]] = 0;
+            if (cLen < 30) {
+                for (let k = 0; k < cLen; k++) mask[comp[k]] = 0;
             }
         }
     }
 
-    // 3. BFS orqali spitsalar ichidagi mayda soya/shu'la teshikchalarini (< minHoleSize) yopish!
     visited.fill(0);
     for (let i = 0; i < total; i++) {
-        if (binaryMask[i] === 0 && !visited[i]) {
+        if (mask[i] === 0 && !visited[i]) {
             let qH = 0, qT = 0, cLen = 0;
-            let touchesEdge = false;
+            let touchesBorder = false;
             queue[qT++] = i;
             visited[i] = 1;
             while (qH < qT) {
                 const cur = queue[qH++];
                 comp[cLen++] = cur;
-                const cy = Math.floor(cur / w);
-                const cx = cur % w;
-                if (cx <= 2 || cx >= w - 3 || cy <= 2 || cy >= h - 3) touchesEdge = true;
+                const cy = Math.floor(cur / w), cx = cur % w;
+                if (cx <= 2 || cx >= w - 3 || cy <= 2 || cy >= h - 3) touchesBorder = true;
                 for (let d = 0; d < 4; d++) {
                     const ni = cur + dirs[d];
-                    if (ni >= 0 && ni < total && binaryMask[ni] === 0 && !visited[ni]) {
+                    if (ni >= 0 && ni < total && mask[ni] === 0 && !visited[ni]) {
                         visited[ni] = 1;
                         queue[qT++] = ni;
                     }
                 }
             }
-            if (!touchesEdge && cLen < minHoleSize) {
-                for (let k = 0; k < cLen; k++) binaryMask[comp[k]] = 1;
+            if (!touchesBorder && cLen < 45) {
+                for (let k = 0; k < cLen; k++) mask[comp[k]] = 1;
             }
         }
     }
+
+    const outField = new Float32Array(total);
+    for (let i = 0; i < total; i++) {
+        outField[i] = mask[i] ? 255.0 : 0.0;
+    }
+    return smoothField2D(smoothField2D(outField, w, h), w, h);
 }
 
 function extractBinaryFieldFromImage(img, gridRes = 240) {
@@ -800,51 +807,39 @@ function extractBinaryFieldFromImage(img, gridRes = 240) {
     ctx.drawImage(img, pad, pad, drawW, drawH);
 
     const rgba = ctx.getImageData(0, 0, gridRes, gridRes).data;
-    const userSlider = parseInt(document.getElementById('threshRange').value, 10) || 128;
-    const mode = document.getElementById('objectModeSelect').value;
+    const threshold = parseInt(document.getElementById('threshRange').value, 10) || 128;
 
-    // 4 ta burchak va chekka piksellaridan haqiqiy fon rangini aniqlaymiz
-    const cornerCoords = [
-        [pad, pad],
-        [gridRes - pad - 1, pad],
-        [pad, gridRes - pad - 1],
-        [gridRes - pad - 1, gridRes - pad - 1],
-        [Math.floor(gridRes / 2), pad],
-        [pad, Math.floor(gridRes / 2)]
+    const cornerSamples = [
+        (pad * gridRes + pad) * 4,
+        (pad * gridRes + (gridRes - pad - 1)) * 4,
+        ((gridRes - pad - 1) * gridRes + pad) * 4,
+        ((gridRes - pad - 1) * gridRes + (gridRes - pad - 1)) * 4
     ];
 
-    let sumR = 0, sumG = 0, sumB = 0, sumA = 0, sumLum = 0;
-    cornerCoords.forEach(([cx, cy]) => {
-        const idx = (cy * gridRes + cx) * 4;
-        sumR += rgba[idx];
-        sumG += rgba[idx + 1];
-        sumB += rgba[idx + 2];
-        sumA += rgba[idx + 3];
-        sumLum += (0.299 * rgba[idx] + 0.587 * rgba[idx + 1] + 0.114 * rgba[idx + 2]);
+    let avgCornerAlpha = 0;
+    let avgCornerLum = 0;
+    let bgR = 0, bgG = 0, bgB = 0;
+    cornerSamples.forEach(idx => {
+        bgR += rgba[idx];
+        bgG += rgba[idx + 1];
+        bgB += rgba[idx + 2];
+        avgCornerAlpha += rgba[idx + 3];
+        avgCornerLum += (0.299 * rgba[idx] + 0.587 * rgba[idx + 1] + 0.114 * rgba[idx + 2]);
     });
-    const bgR = sumR / cornerCoords.length;
-    const bgG = sumG / cornerCoords.length;
-    const bgB = sumB / cornerCoords.length;
-    const avgCornerAlpha = sumA / cornerCoords.length;
-    const avgCornerLum = sumLum / cornerCoords.length;
+    bgR /= 4; bgG /= 4; bgB /= 4;
+    avgCornerAlpha /= 4;
+    avgCornerLum /= 4;
 
-    const isTransparentPng = avgCornerAlpha < 110;
-    let lightBackground = (!isTransparentPng && avgCornerLum > 135);
+    let darkIsForeground = (avgCornerAlpha > 180 && avgCornerLum > 140);
     if (invertMaskPolarity !== null) {
-        lightBackground = invertMaskPolarity ? !lightBackground : lightBackground;
+        darkIsForeground = invertMaskPolarity ? !darkIsForeground : darkIsForeground;
     }
 
-    document.getElementById('maskStatusTxt').textContent = isTransparentPng
-        ? 'AVTO: SHAFFOF PNG MASKA'
-        : (lightBackground ? 'AVTO: OQ FON KESILDI' : 'AVTO: QORA FON KESILDI');
+    document.getElementById('maskStatusTxt').textContent = darkIsForeground
+        ? 'AVTO: OQ FON KESILDI'
+        : 'AVTO: QORA/SHAFFOF FON KESILDI';
 
-    // TUZATILDI: userSlider (default 128) fondan farq qilish sezgirligini boshqaradi.
-    // Oq fonda (bgLum ~ 250) kumush/kulrang spitsalar ham, qora soyalar ham fondan farqli bo'lgani uchun
-    // ularning barchasi 100% yaxlit metall sifatida olinadi (spitsalar hech qachon uzilib qolmaydi!).
-    const sensitivity = (userSlider / 128.0); // 1.0 at default 128
-    const bgDistCutoff = Math.max(12, Math.min(120, 34 * sensitivity));
-
-    const binaryMask = new Uint8Array(gridRes * gridRes);
+    const field = new Float32Array(gridRes * gridRes);
 
     for (let y = pad; y < gridRes - pad; y++) {
         for (let x = pad; x < gridRes - pad; x++) {
@@ -852,114 +847,21 @@ function extractBinaryFieldFromImage(img, gridRes = 240) {
             const i4 = pIdx * 4;
             const r = rgba[i4], g = rgba[i4 + 1], b = rgba[i4 + 2], a = rgba[i4 + 3];
 
-            if (a < 45) {
-                binaryMask[pIdx] = 0;
+            if (a < 35) {
+                field[pIdx] = 0;
                 continue;
             }
-
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-            const distFromBg = Math.hypot(r - bgR, g - bgG, b - bgB);
-
-            if (isTransparentPng) {
-                // Shaffof PNG da alpha > 90 bo'lsa va ichki oq/qora teshik bo'lmasa
-                if (invertMaskPolarity) {
-                    binaryMask[pIdx] = lum < userSlider ? 1 : 0;
-                } else {
-                    binaryMask[pIdx] = a >= 90 ? 1 : 0;
-                }
-            } else if (lightBackground) {
-                // Oq/yorug' fon: fondan rangi yoki to'qligi farq qiluvchi BARCHA detallar (kumush spitsa + qora soya) = 1
-                const lumDiff = avgCornerLum - lum;
-                if (distFromBg >= bgDistCutoff || lumDiff >= (bgDistCutoff * 0.65)) {
-                    binaryMask[pIdx] = 1;
-                }
-            } else {
-                // Qora/to'q fon: fondan yorug'roq barcha metall detallar = 1
-                const lumDiff = lum - avgCornerLum;
-                if (distFromBg >= bgDistCutoff || lumDiff >= (bgDistCutoff * 0.65)) {
-                    binaryMask[pIdx] = 1;
-                }
-            }
+            const bgDist = Math.hypot(r - bgR, g - bgG, b - bgB) * 1.45;
+            const lumVal = darkIsForeground ? (255 - lum) : lum;
+            const val = avgCornerAlpha > 180 ? Math.max(lumVal, bgDist) : lumVal;
+            field[pIdx] = Math.min(255, val) * (a / 255);
         }
     }
 
-    // Spitsalar ichidagi mayda soya tirqishlarini yopish va shovqinni tozalash
-    cleanMaskMorphologyAndIslands(binaryMask, gridRes, gridRes, 45, 65);
-
-    // Agar "wheel_rim" rejimi bo'lsa, diskning markazi va radiusini topib,
-    // spitsalar uchini tashqi obodga va markaziy stupitsaga uzviy bog'laymiz!
-    let minX = gridRes, maxX = 0, minY = gridRes, maxY = 0;
-    let hasSolid = false;
-    for (let y = pad; y < gridRes - pad; y++) {
-        for (let x = pad; x < gridRes - pad; x++) {
-            if (binaryMask[y * gridRes + x]) {
-                if (x < minX) minX = x; if (x > maxX) maxX = x;
-                if (y < minY) minY = y; if (y > maxY) maxY = y;
-                hasSolid = true;
-            }
-        }
-    }
-
-    const cxPx = hasSolid ? (minX + maxX) * 0.5 : gridRes * 0.5;
-    const cyPx = hasSolid ? (minY + maxY) * 0.5 : gridRes * 0.5;
-    const wheelRadPx = hasSolid ? Math.max(maxX - minX, maxY - minY) * 0.5 : (gridRes * 0.44);
-
-    if (mode === 'wheel_rim' && hasSolid && wheelRadPx > 30) {
-        const addLugHoles = document.getElementById('lugHolesToggle').value === 'on';
-        const rimInnerR = wheelRadPx * 0.89;
-        const rimOuterR = wheelRadPx * 0.985;
-        const hubOuterR = wheelRadPx * 0.255;
-        const boreR     = wheelRadPx * 0.095;
-        const boltCircleR = wheelRadPx * 0.172;
-        const boltHoleR   = wheelRadPx * 0.032;
-
-        for (let y = pad; y < gridRes - pad; y++) {
-            for (let x = pad; x < gridRes - pad; x++) {
-                const dx = x - cxPx;
-                const dy = y - cyPx;
-                const r = Math.hypot(dx, dy);
-                const idx = y * gridRes + x;
-
-                // Disk doirasidan tashqaridagi barcha ortiqcha fon qoldiqlarini tozalash
-                if (r > rimOuterR) {
-                    binaryMask[idx] = 0;
-                    continue;
-                }
-                // Tashqi obod halqasini tutashtirish (spitsalar uchi obodga 100% ulanishi uchun)
-                if (r >= rimInnerR && r <= rimOuterR) {
-                    binaryMask[idx] = 1;
-                    continue;
-                }
-                // Markaziy stupitsa va 5x114.3 bolt teshiklarini toza geometriya bilan tekislash
-                if (addLugHoles && r <= hubOuterR) {
-                    if (r < boreR) {
-                        binaryMask[idx] = 0;
-                    } else {
-                        let inBolt = false;
-                        for (let b = 0; b < 5; b++) {
-                            const ang = (b * 72) * (Math.PI / 180);
-                            const bx = Math.cos(ang) * boltCircleR;
-                            const by = Math.sin(ang) * boltCircleR;
-                            if (Math.hypot(dx - bx, dy - by) < boltHoleR) {
-                                inBolt = true;
-                                break;
-                            }
-                        }
-                        binaryMask[idx] = inBolt ? 0 : 1;
-                    }
-                }
-            }
-        }
-    }
-
-    // Sub-pixel Marching Squares silliq chiqishi uchun [0..255] Float32 SDF maydoniga o'tkazish
-    const rawField = new Float32Array(gridRes * gridRes);
-    for (let i = 0; i < binaryMask.length; i++) {
-        rawField[i] = binaryMask[i] ? 255.0 : 0.0;
-    }
-    const smoothed = smoothField2D( smoothField2D(rawField, gridRes, gridRes), gridRes, gridRes );
-
+    const smoothed = healSpokeGapsAndNoise(field, gridRes, gridRes, threshold);
     drawMaskPreview(smoothed, gridRes, 127.5);
+
     return { field: smoothed, size: gridRes, threshold: 127.5 };
 }
 
@@ -996,197 +898,190 @@ function drawMaskPreview(field, size, threshold) {
     pCtx.putImageData(imgData, 0, 0);
 }
 
-// ==================== 2. XATOSIZ MARCHING SQUARES VA SIGNED-AREA TESHIKLAR IERARXIYASI ====================
-function traceContoursAndHoles(field, w, h, threshold = 127.5) {
-    const H_OFFSET = (h + 1) * (w + 1);
-    const nextMap = new Map();
+// ==================== 2. TOPOLOGIK MARCHING SQUARES VA TESHIKLAR IYERARXIYASI ====================
+function traceContoursAndHoles(field, w, h, threshold) {
+    const segments = [];
+    const vEdgeOffset = (h + 1) * (w + 1);
 
-    function hEdgeId(x, y) { return y * (w + 1) + x; }
-    function vEdgeId(x, y) { return H_OFFSET + y * (w + 1) + x; }
+    const hEdgeId = (x, y) => y * (w + 1) + x;
+    const vEdgeId = (x, y) => vEdgeOffset + y * (w + 1) + x;
 
-    function interp(vA, vB) {
-        const dv = vB - vA;
-        if (Math.abs(dv) < 1e-6) return 0.5;
-        return Math.max(0.01, Math.min(0.99, (threshold - vA) / dv));
+    function interp(x1, y1, v1, x2, y2, v2) {
+        const dv = v2 - v1;
+        let t = Math.abs(dv) < 1e-5 ? 0.5 : (threshold - v1) / dv;
+        t = Math.max(0.01, Math.min(0.99, t));
+        return { x: x1 + t * (x2 - x1), y: y1 + t * (y2 - y1) };
     }
 
-    function addSeg(idA, idB, endX, endY) {
-        nextMap.set(idA, { nextId: idB, x: endX, y: endY });
+    function addSeg(fromId, toId, p0, p1) {
+        segments.push({ fromId, toId, p0, p1 });
     }
 
     for (let y = 0; y < h - 1; y++) {
-        const row0 = y * w;
-        const row1 = (y + 1) * w;
+        const r0 = y * w;
+        const r1 = (y + 1) * w;
         for (let x = 0; x < w - 1; x++) {
-            const v0 = field[row0 + x];
-            const v1 = field[row0 + x + 1];
-            const v2 = field[row1 + x + 1];
-            const v3 = field[row1 + x];
+            const vTL = field[r0 + x];
+            const vTR = field[r0 + x + 1];
+            const vBR = field[r1 + x + 1];
+            const vBL = field[r1 + x];
 
-            const mask = (v0 >= threshold ? 1 : 0) |
-                         (v1 >= threshold ? 2 : 0) |
-                         (v2 >= threshold ? 4 : 0) |
-                         (v3 >= threshold ? 8 : 0);
-
+            let mask = 0;
+            if (vTL >= threshold) mask |= 8;
+            if (vTR >= threshold) mask |= 4;
+            if (vBR >= threshold) mask |= 2;
+            if (vBL >= threshold) mask |= 1;
             if (mask === 0 || mask === 15) continue;
 
-            const e0Id = hEdgeId(x, y);
-            const e1Id = vEdgeId(x + 1, y);
-            const e2Id = hEdgeId(x, y + 1);
-            const e3Id = vEdgeId(x, y);
+            const idT = hEdgeId(x, y), idB = hEdgeId(x, y + 1);
+            const idL = vEdgeId(x, y), idR = vEdgeId(x + 1, y);
 
-            const e0x = x + interp(v0, v1), e0y = y;
-            const e1x = x + 1,              e1y = y + interp(v1, v2);
-            const e2x = x + interp(v3, v2), e2y = y + 1;
-            const e3x = x,                  e3y = y + interp(v0, v3);
+            const pT = () => interp(x, y, vTL, x + 1, y, vTR);
+            const pR = () => interp(x + 1, y, vTR, x + 1, y + 1, vBR);
+            const pB = () => interp(x, y + 1, vBL, x + 1, y + 1, vBR);
+            const pL = () => interp(x, y, vTL, x, y + 1, vBL);
 
             switch (mask) {
-                case 1:  addSeg(e3Id, e0Id, e0x, e0y); break;
-                case 2:  addSeg(e0Id, e1Id, e1x, e1y); break;
-                case 3:  addSeg(e3Id, e1Id, e1x, e1y); break;
-                case 4:  addSeg(e1Id, e2Id, e2x, e2y); break;
-                case 5: {
-                    const vc = 0.25 * (v0 + v1 + v2 + v3);
-                    if (vc >= threshold) {
-                        addSeg(e3Id, e2Id, e2x, e2y);
-                        addSeg(e1Id, e0Id, e0x, e0y);
-                    } else {
-                        addSeg(e3Id, e0Id, e0x, e0y);
-                        addSeg(e1Id, e2Id, e2x, e2y);
-                    }
-                    break;
-                }
-                case 6:  addSeg(e0Id, e2Id, e2x, e2y); break;
-                case 7:  addSeg(e3Id, e2Id, e2x, e2y); break;
-                case 8:  addSeg(e2Id, e3Id, e3x, e3y); break;
-                case 9:  addSeg(e2Id, e0Id, e0x, e0y); break;
-                case 10: {
-                    const vc = 0.25 * (v0 + v1 + v2 + v3);
-                    if (vc >= threshold) {
-                        addSeg(e0Id, e3Id, e3x, e3y);
-                        addSeg(e2Id, e1Id, e1x, e1y);
-                    } else {
-                        addSeg(e0Id, e1Id, e1x, e1y);
-                        addSeg(e2Id, e3Id, e3x, e3y);
-                    }
-                    break;
-                }
-                case 11: addSeg(e2Id, e1Id, e1x, e1y); break;
-                case 12: addSeg(e1Id, e3Id, e3x, e3y); break;
-                case 13: addSeg(e1Id, e0Id, e0x, e0y); break;
-                case 14: addSeg(e0Id, e3Id, e3x, e3y); break;
+                case 1:  addSeg(idL, idB, pL(), pB()); break;
+                case 2:  addSeg(idB, idR, pB(), pR()); break;
+                case 3:  addSeg(idL, idR, pL(), pR()); break;
+                case 4:  addSeg(idR, idT, pR(), pT()); break;
+                case 5:  addSeg(idL, idT, pL(), pT()); addSeg(idR, idB, pR(), pB()); break;
+                case 6:  addSeg(idB, idT, pB(), pT()); break;
+                case 7:  addSeg(idL, idT, pL(), pT()); break;
+                case 8:  addSeg(idT, idL, pT(), pL()); break;
+                case 9:  addSeg(idT, idB, pT(), pB()); break;
+                case 10: addSeg(idT, idR, pT(), pR()); addSeg(idB, idL, pB(), pL()); break;
+                case 11: addSeg(idT, idR, pT(), pR()); break;
+                case 12: addSeg(idR, idL, pR(), pL()); break;
+                case 13: addSeg(idR, idB, pR(), pB()); break;
+                case 14: addSeg(idB, idL, pB(), pL()); break;
             }
         }
     }
 
-    const rawLoops = [];
-    const visited = new Set();
+    const startMap = new Map();
+    const used = new Uint8Array(segments.length);
+    for (let i = 0; i < segments.length; i++) {
+        const k = segments[i].fromId;
+        if (!startMap.has(k)) startMap.set(k, []);
+        startMap.get(k).push(i);
+    }
 
-    for (const [startId] of nextMap.entries()) {
-        if (visited.has(startId)) continue;
-        const pts = [];
-        let currId = startId;
-        let safety = 0;
-        while (currId !== undefined && !visited.has(currId) && safety++ < 100000) {
-            visited.add(currId);
-            const step = nextMap.get(currId);
-            if (!step) break;
-            pts.push({ x: step.x, y: step.y });
-            currId = step.nextId;
+    const rawLoops = [];
+    for (let i = 0; i < segments.length; i++) {
+        if (used[i]) continue;
+        used[i] = 1;
+        const pts = [segments[i].p0, segments[i].p1];
+        let currTo = segments[i].toId;
+
+        while (true) {
+            const list = startMap.get(currTo);
+            if (!list) break;
+            let nextIdx = -1;
+            for (let c = 0; c < list.length; c++) {
+                if (!used[list[c]]) { nextIdx = list[c]; break; }
+            }
+            if (nextIdx === -1) break;
+            used[nextIdx] = 1;
+            pts.push(segments[nextIdx].p1);
+            currTo = segments[nextIdx].toId;
         }
-        if (pts.length >= 6) {
-            rawLoops.push(pts);
-        }
+        if (pts.length > 4) pts.pop();
+        if (pts.length >= 6) rawLoops.push(pts);
     }
 
     const scale = 160 / w;
     const half = w / 2;
 
-    const outers = [];
-    const holes = [];
+    const loops = [];
+    rawLoops.forEach(loop => {
+        const simplified = simplifyAndSmoothLoop(loop, 1.15);
+        if (simplified.length < 4) return;
 
-    function computeSignedArea2D(pts) {
-        let a = 0;
-        for (let i = 0; i < pts.length; i++) {
-            const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
-            a += (p1.x * p2.y - p2.x * p1.y);
-        }
-        return a * 0.5;
-    }
+        const vec2Pts = simplified.map(p => new THREE.Vector2((p.x - half) * scale, -(p.y - half) * scale));
+        const signedArea = THREE.ShapeUtils.area(vec2Pts);
+        if (Math.abs(signedArea) < 2.5) return;
+
+        loops.push({
+            pts: vec2Pts,
+            area: signedArea,
+            absArea: Math.abs(signedArea)
+        });
+    });
+
+    loops.sort((a, b) => b.absArea - a.absArea);
 
     function pointInPoly(pt, vs) {
         let inside = false;
         for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
             const xi = vs[i].x, yi = vs[i].y;
             const xj = vs[j].x, yj = vs[j].y;
-            const intersect = ((yi > pt.y) !== (yj > pt.y)) &&
-                (pt.x < (xj - xi) * (pt.y - yi) / ((yj - yi) || 1e-7) + xi);
+            const intersect = ((yi > pt.y) !== (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / ((yj - yi) || 1e-7) + xi);
             if (intersect) inside = !inside;
         }
         return inside;
     }
 
-    rawLoops.forEach(loop => {
-        const simplified = simplifyAndSmoothLoop(loop, 0.28);
-        if (simplified.length < 4) return;
+    const shapes = [];
+    const solidRecords = [];
 
-        const worldPts = simplified.map(p => new THREE.Vector2((p.x - half) * scale, -(p.y - half) * scale));
-        const signedArea = computeSignedArea2D(worldPts);
-        if (Math.abs(signedArea) < 2.0) return;
-
-        // TUZATILDI: signedArea > 0 -> Tashqi Qattiq Kontur (Outer Solid), signedArea < 0 -> Ichki Teshik (Hole)
-        if (signedArea > 0) {
-            outers.push({ pts: worldPts, area: signedArea, holes: [] });
-        } else {
-            holes.push({ pts: worldPts, area: Math.abs(signedArea) });
-        }
-    });
-
-    // Kichikdan kattaga saralash: har bir teshik o'zini o'rab turgan ENG KICHIK tashqi konturga biriktiriladi!
-    outers.sort((a, b) => a.area - b.area);
-
-    holes.forEach(h => {
-        const n = h.pts.length;
-        const p0 = h.pts[0];
-        const p1 = h.pts[Math.floor(n / 3)];
-        const p2 = h.pts[Math.floor((2 * n) / 3)];
-
-        for (let i = 0; i < outers.length; i++) {
-            if (outers[i].area <= h.area) continue;
-            let hits = 0;
-            if (pointInPoly(p0, outers[i].pts)) hits++;
-            if (pointInPoly(p1, outers[i].pts)) hits++;
-            if (pointInPoly(p2, outers[i].pts)) hits++;
-            if (hits >= 2) {
-                outers[i].holes.push(h.pts);
+    loops.forEach(item => {
+        let parentSolid = null;
+        for (let i = solidRecords.length - 1; i >= 0; i--) {
+            if (pointInPoly(item.pts[0], solidRecords[i].pts)) {
+                parentSolid = solidRecords[i];
                 break;
             }
         }
+
+        let totalParents = 0;
+        for (let i = 0; i < loops.length; i++) {
+            if (loops[i] === item || loops[i].absArea <= item.absArea) continue;
+            if (pointInPoly(item.pts[0], loops[i].pts)) totalParents++;
+        }
+
+        if (totalParents % 2 === 0) {
+            if (THREE.ShapeUtils.isClockWise(item.pts)) item.pts.reverse();
+            const shape = new THREE.Shape(item.pts);
+            shapes.push(shape);
+            solidRecords.push({ shape, pts: item.pts, absArea: item.absArea });
+        } else if (parentSolid) {
+            if (!THREE.ShapeUtils.isClockWise(item.pts)) item.pts.reverse();
+            const holePath = new THREE.Path(item.pts);
+            parentSolid.shape.holes.push(holePath);
+        }
     });
 
-    const shapes = outers.map(o => {
-        const sh = new THREE.Shape(o.pts);
-        o.holes.forEach(hPts => sh.holes.push(new THREE.Path(hPts)));
-        return sh;
-    });
-
-    let maxR = 68;
-    outers.forEach(o => {
-        o.pts.forEach(p => {
-            const r = Math.hypot(p.x, p.y);
-            if (r > maxR) maxR = r;
-        });
-    });
-
-    return { shapes, maxRadius: maxR };
+    return { shapes, maxRadius: calcMaxRadius(loops) };
 }
 
-function simplifyAndSmoothLoop(pts, tol = 0.28) {
+function calcMaxRadius(loops) {
+    let maxR = 65;
+    if (loops.length > 0) {
+        let rSum = 0;
+        const outer = loops[0].pts;
+        outer.forEach(p => { rSum = Math.max(rSum, Math.hypot(p.x, p.y)); });
+        if (rSum > 20) maxR = rSum;
+    }
+    return maxR;
+}
+
+// Kontur nuqtalarini bir tekis masofada (`minSpacing`) qayta namunalash va silliqlash:
+// Bu funksiya Three.js ExtrudeGeometry ichidagi Bevel (3D Chamfer) o'tkir burchaklarda hech qachon tikan (spike) chiqarmasligini ta'minlaydi!
+function simplifyAndSmoothLoop(pts, minSpacing = 1.15) {
     const filtered = [pts[0]];
     for (let i = 1; i < pts.length; i++) {
         const prev = filtered[filtered.length - 1];
-        if (Math.hypot(pts[i].x - prev.x, pts[i].y - prev.y) >= tol) {
+        if (Math.hypot(pts[i].x - prev.x, pts[i].y - prev.y) >= minSpacing) {
             filtered.push(pts[i]);
+        }
+    }
+    if (filtered.length > 3) {
+        const first = filtered[0];
+        const last = filtered[filtered.length - 1];
+        if (Math.hypot(first.x - last.x, first.y - last.y) < minSpacing * 0.8) {
+            filtered.pop();
         }
     }
     if (filtered.length < 4) return filtered;
@@ -1200,72 +1095,17 @@ function simplifyAndSmoothLoop(pts, tol = 0.28) {
             const p1 = curr[i];
             const p2 = curr[(i + 1) % n];
 
-            const v1x = p1.x - p0.x, v1y = p1.y - p0.y;
-            const v2x = p2.x - p1.x, v2y = p2.y - p1.y;
-            const cosA = (v1x * v2x + v1y * v2y) / ((Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1);
-
-            if (cosA < 0.25) {
-                next.push({ x: p1.x, y: p1.y });
-            } else {
-                next.push({
-                    x: p1.x * 0.56 + (p0.x + p2.x) * 0.22,
-                    y: p1.y * 0.56 + (p0.y + p2.y) * 0.22
-                });
-            }
+            next.push({
+                x: p1.x * 0.55 + (p0.x + p2.x) * 0.225,
+                y: p1.y * 0.55 + (p0.y + p2.y) * 0.225
+            });
         }
         curr = next;
     }
     return curr;
 }
 
-// ==================== 3. 3DS MAX GEOMETRIYA GENERATORI (SPIKELARSIZ SILLIQ EXTRUDE + BARREL) ====================
-// Katta uchburchaklarni maydalab bo'lish (Concave Dish egilishi zinapoyasiz silliq chiqishi uchun)
-function tessellateLongTriangles(geom, maxEdgeLen = 9.0, passes = 2) {
-    let curr = geom.index ? geom.toNonIndexed() : geom.clone();
-
-    for (let pass = 0; pass < passes; pass++) {
-        const pos = curr.attributes.position;
-        const newPos = [];
-        let splitCount = 0;
-
-        for (let i = 0; i < pos.count; i += 3) {
-            const ax = pos.getX(i),     ay = pos.getY(i),     az = pos.getZ(i);
-            const bx = pos.getX(i + 1), by = pos.getY(i + 1), bz = pos.getZ(i + 1);
-            const cx = pos.getX(i + 2), cy = pos.getY(i + 2), cz = pos.getZ(i + 2);
-
-            const dab = Math.hypot(bx - ax, by - ay);
-            const dbc = Math.hypot(cx - bx, cy - by);
-            const dca = Math.hypot(ax - cx, ay - cy);
-            const maxD = Math.max(dab, dbc, dca);
-
-            if (maxD > maxEdgeLen) {
-                splitCount++;
-                if (dab >= dbc && dab >= dca) {
-                    const mx = (ax + bx) * 0.5, my = (ay + by) * 0.5, mz = (az + bz) * 0.5;
-                    newPos.push(ax, ay, az, mx, my, mz, cx, cy, cz);
-                    newPos.push(mx, my, mz, bx, by, bz, cx, cy, cz);
-                } else if (dbc >= dab && dbc >= dca) {
-                    const mx = (bx + cx) * 0.5, my = (by + cy) * 0.5, mz = (bz + cz) * 0.5;
-                    newPos.push(ax, ay, az, bx, by, bz, mx, my, mz);
-                    newPos.push(ax, ay, az, mx, my, mz, cx, cy, cz);
-                } else {
-                    const mx = (cx + ax) * 0.5, my = (cy + ay) * 0.5, mz = (cz + az) * 0.5;
-                    newPos.push(ax, ay, az, bx, by, bz, mx, my, mz);
-                    newPos.push(mx, my, mz, bx, by, bz, cx, cy, cz);
-                }
-            } else {
-                newPos.push(ax, ay, az, bx, by, bz, cx, cy, cz);
-            }
-        }
-
-        curr.dispose();
-        curr = new THREE.BufferGeometry();
-        curr.setAttribute('position', new THREE.Float32BufferAttribute(newPos, 3));
-        if (splitCount === 0) break;
-    }
-    return curr;
-}
-
+// ==================== 3. 3DS MAX GEOMETRIYA GENERATORI (CONCAVE SPOKES + DEEP RIM BARREL) ====================
 function build3dsMaxObjectFromImage() {
     if (!sourceImageElement) return;
     setLoader(true, "3DS MAX VOLUMETRIC MODEL QURILMOQDA...");
@@ -1287,57 +1127,60 @@ function build3dsMaxObjectFromImage() {
         const bevelSize = parseFloat(document.getElementById('bevelRange').value) || 3.0;
         const addLugHoles = document.getElementById('lugHolesToggle').value === 'on';
 
-        const totalSpokeDepth = spokeThick + bevelSize * 1.5;
-
-        // TUZATILDI: bevelEnabled: false -> ExtrudeGeometry o'tkir burchaklarda hech qachon gorizontal tikanlar (miter spikes) chiqarmaydi!
+        // 3ds Max Bevel sifatini saqlagan holda o'tkir burchaklarda kesishish (self-intersection) bo'lmasligi uchun optimal bevel nisbati
+        const safeBevelRadius = Math.min(bevelSize * 0.35, 1.05);
         const extrudeSettings = {
-            depth: totalSpokeDepth,
-            bevelEnabled: false,
+            depth: spokeThick,
+            bevelEnabled: bevelSize > 0,
+            bevelThickness: bevelSize * 0.85,
+            bevelSize: safeBevelRadius,
+            bevelSegments: 4,
             curveSegments: 12,
-            steps: 3
+            steps: 2
         };
 
         const geometryParts = [];
 
-        // 1-QISM: Spitsalar va Asosiy Obyekt
+        // 1-QISM: Rasmdan ajratib olingan Spitsalar / Asosiy Obyekt (Concave Dish 3D egilishi bilan!)
         shapes.forEach(shape => {
-            const rawExt = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-            rawExt.translate(0, 0, -totalSpokeDepth * 0.5);
-
-            // Old va orqa yuzadagi uzun uchburchaklarni maydalash (Concave Dish silliq egilishi uchun)
-            const extGeom = tessellateLongTriangles(rawExt, 8.5, 3);
-            rawExt.dispose();
+            const extGeom = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            extGeom.translate(0, 0, -spokeThick * 0.5);
 
             const pos = extGeom.attributes.position;
+            const maxAllowedR = mode === 'wheel_rim' ? (maxRadius * 1.015) : Infinity;
+
             for (let i = 0; i < pos.count; i++) {
-                const vx = pos.getX(i);
-                const vy = pos.getY(i);
+                let vx = pos.getX(i);
+                let vy = pos.getY(i);
                 let vz = pos.getZ(i);
 
-                const r = Math.hypot(vx, vy);
+                let r = Math.hypot(vx, vy);
+                // Agar bevel burchagi tashqariga uchli tikan (spike) chiqargan bo'lsa, uni obod doirasiga tekislash
+                if (r > maxAllowedR) {
+                    const clampScale = maxAllowedR / r;
+                    vx *= clampScale;
+                    vy *= clampScale;
+                    r = maxAllowedR;
+                }
+
                 const normR = Math.min(1.0, r / maxRadius);
+                const dishShift = -concaveDish * Math.cos(normR * Math.PI * 0.5);
 
-                // Markazga qarab botiq (Concave Dish) profil
-                const dishShift = mode === 'wheel_rim'
-                    ? (-concaveDish * Math.cos(normR * Math.PI * 0.5))
-                    : 0;
-
-                // Old yuzadagi spitsalarni silliq qabariq (sculpted crown) qilish
-                if (vz > 0 && bevelSize > 0) {
-                    const arch = Math.sin(normR * Math.PI) * (bevelSize * 0.65);
+                if (vz > 0) {
+                    const arch = Math.sin(normR * Math.PI) * (bevelSize * 0.8);
                     vz += arch;
                 }
-                pos.setZ(i, vz + dishShift);
+                pos.setXYZ(i, vx, vy, vz + dishShift);
             }
             extGeom.computeVertexNormals();
             geometryParts.push(extGeom);
         });
 
-        // 2-QISM: Silindrik Obod (Rim Barrel + Stepped Lip + Hub Collar)
+        // 2-QISM: Chuqur Silindrik Obod (Rim Barrel + Lip + Brake Hub)
         if (mode === 'wheel_rim' && barrelDepth > 2) {
             const outerR = maxRadius * 1.01;
-            const innerR = maxRadius * 0.915;
-            const frontZ = totalSpokeDepth * 0.5 + bevelSize * 0.4;
+            const innerR = maxRadius * 0.93;
+            const frontZ = spokeThick * 0.5 + bevelSize;
             const backZ = frontZ - barrelDepth;
 
             // A) Asosiy Chuqur Silindrik Obod (Outer Barrel)
@@ -1350,10 +1193,10 @@ function build3dsMaxObjectFromImage() {
             const barrelGeom = new THREE.ExtrudeGeometry(barrelShape, {
                 depth: barrelDepth,
                 bevelEnabled: true,
-                bevelThickness: 2.0,
-                bevelSize: 1.5,
+                bevelThickness: 2.2,
+                bevelSize: 1.8,
                 bevelSegments: 4,
-                curveSegments: 72
+                curveSegments: 64
             });
             barrelGeom.translate(0, 0, backZ);
             geometryParts.push(barrelGeom);
@@ -1362,142 +1205,103 @@ function build3dsMaxObjectFromImage() {
             const lipShape = new THREE.Shape();
             lipShape.absarc(0, 0, outerR * 1.015, 0, Math.PI * 2, false);
             const lipHole = new THREE.Path();
-            lipHole.absarc(0, 0, innerR * 0.965, 0, Math.PI * 2, true);
+            lipHole.absarc(0, 0, innerR * 0.96, 0, Math.PI * 2, true);
             lipShape.holes.push(lipHole);
 
             const lipGeom = new THREE.ExtrudeGeometry(lipShape, {
                 depth: 6,
                 bevelEnabled: true,
-                bevelThickness: 1.6,
-                bevelSize: 1.4,
+                bevelThickness: 1.8,
+                bevelSize: 1.5,
                 bevelSegments: 3,
-                curveSegments: 72
+                curveSegments: 64
             });
             lipGeom.translate(0, 0, frontZ - 4);
             geometryParts.push(lipGeom);
 
-            // C) Markaziy Stupitsa halqasi (Hub Bore Collar)
+            // C) Markaziy Stupitsa va 5x114.3 Bolt Teshiklari (Hub & Lug Holes)
             if (addLugHoles) {
-                const collarShape = new THREE.Shape();
-                collarShape.absarc(0, 0, maxRadius * 0.135, 0, Math.PI * 2, false);
-                const collarHole = new THREE.Path();
-                collarHole.absarc(0, 0, maxRadius * 0.095, 0, Math.PI * 2, true);
-                collarShape.holes.push(collarHole);
+                const hubR = maxRadius * 0.28;
+                const centerBoreR = maxRadius * 0.105;
+                const hubShape = new THREE.Shape();
+                hubShape.absarc(0, 0, hubR, 0, Math.PI * 2, false);
 
-                const collarDepth = totalSpokeDepth * 1.25;
-                const collarGeom = new THREE.ExtrudeGeometry(collarShape, {
-                    depth: collarDepth,
+                const boreHole = new THREE.Path();
+                boreHole.absarc(0, 0, centerBoreR, 0, Math.PI * 2, true);
+                hubShape.holes.push(boreHole);
+
+                const boltCircleR = maxRadius * 0.185;
+                const boltHoleR = maxRadius * 0.032;
+                const pinHoleR = maxRadius * 0.014;
+
+                for (let b = 0; b < 5; b++) {
+                    const ang = (b * 72) * (Math.PI / 180);
+                    const bx = Math.cos(ang) * boltCircleR;
+                    const by = Math.sin(ang) * boltCircleR;
+                    const bHole = new THREE.Path();
+                    bHole.absarc(bx, by, boltHoleR, 0, Math.PI * 2, true);
+                    hubShape.holes.push(bHole);
+
+                    const angPin = ((b * 72) + 36) * (Math.PI / 180);
+                    const px = Math.cos(angPin) * (boltCircleR * 0.95);
+                    const py = Math.sin(angPin) * (boltCircleR * 0.95);
+                    const pHole = new THREE.Path();
+                    pHole.absarc(px, py, pinHoleR, 0, Math.PI * 2, true);
+                    hubShape.holes.push(pHole);
+                }
+
+                const hubDepth = spokeThick * 1.15;
+                const hubGeom = new THREE.ExtrudeGeometry(hubShape, {
+                    depth: hubDepth,
                     bevelEnabled: true,
-                    bevelThickness: 1.2,
-                    bevelSize: 1.0,
+                    bevelThickness: 2.0,
+                    bevelSize: 1.5,
                     bevelSegments: 3,
                     curveSegments: 48
                 });
-                collarGeom.translate(0, 0, -collarDepth * 0.5 - concaveDish);
-                geometryParts.push(collarGeom);
+                hubGeom.translate(0, 0, -hubDepth * 0.65 - concaveDish);
+                geometryParts.push(hubGeom);
             }
         }
 
-        const singleUnifiedGeom = mergeGeometriesWithCreaseNormals(geometryParts, 36);
+        const singleUnifiedGeom = mergeGeometriesToSingleMesh(geometryParts);
         geometryParts.forEach(g => g.dispose());
 
         renderUnifiedMeshToViewports(singleUnifiedGeom, shapes.length);
         setLoader(false);
-        setStatus(`3ds Max 3D obyekt tayyor! (${shapes.length} ta kontur, spitsalar uzilmasdan 1 ta obyektga birlashtirildi).`);
+        setStatus(`3ds Max 3D obyekt tayyor! (${shapes.length} ta kontur, barcha teshiklar ochildi va 1 ta obyektga birlashtirildi).`);
     }, 30);
 }
 
-// Barcha qismlarni 1 ta Meshga birlashtirish va 3ds Max Crease-Angle Phong silliq normallarini hisoblash
-function mergeGeometriesWithCreaseNormals(geoms, creaseDeg = 36) {
-    const rawPos = [];
-    const rawNorm = [];
+function mergeGeometriesToSingleMesh(geoms) {
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+    const indices = [];
 
     geoms.forEach(g => {
         if (!g || !g.attributes.position) return;
         const nonIdx = g.index ? g.toNonIndexed() : g;
+        nonIdx.computeVertexNormals();
+
         const pos = nonIdx.attributes.position;
+        const norm = nonIdx.attributes.normal;
+        const uv = nonIdx.attributes.uv;
 
-        for (let i = 0; i < pos.count; i += 3) {
-            const ax = pos.getX(i),     ay = pos.getY(i),     az = pos.getZ(i);
-            const bx = pos.getX(i + 1), by = pos.getY(i + 1), bz = pos.getZ(i + 1);
-            const cx = pos.getX(i + 2), cy = pos.getY(i + 2), cz = pos.getZ(i + 2);
-
-            const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
-            const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
-            let nx = e1y * e2z - e1z * e2y;
-            let ny = e1z * e2x - e1x * e2z;
-            let nz = e1x * e2y - e1y * e2x;
-            const len = Math.hypot(nx, ny, nz) || 1;
-            nx /= len; ny /= len; nz /= len;
-
-            rawPos.push(ax, ay, az, bx, by, bz, cx, cy, cz);
-            rawNorm.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
+        for (let i = 0; i < pos.count; i++) {
+            const idx = positions.length / 3;
+            positions.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+            normals.push(norm.getX(i), norm.getY(i), norm.getZ(i));
+            uvs.push(uv ? uv.getX(i) : 0.5, uv ? uv.getY(i) : 0.5);
+            indices.push(idx);
         }
         if (nonIdx !== g) nonIdx.dispose();
     });
 
-    const totalVerts = rawPos.length / 3;
-    const uPos = [];
-    const uNorm = [];
-    const uUV = [];
-    const indices = [];
-
-    const buckets = new Map();
-    const cosCrease = Math.cos(creaseDeg * Math.PI / 180);
-
-    for (let i = 0; i < totalVerts; i += 3) {
-        const tri = [0, 0, 0];
-        for (let k = 0; k < 3; k++) {
-            const vi = i + k;
-            const px = rawPos[vi * 3], py = rawPos[vi * 3 + 1], pz = rawPos[vi * 3 + 2];
-            const nx = rawNorm[vi * 3], ny = rawNorm[vi * 3 + 1], nz = rawNorm[vi * 3 + 2];
-
-            const key = `${Math.round(px * 40)}_${Math.round(py * 40)}_${Math.round(pz * 40)}`;
-            let list = buckets.get(key);
-            let matched = -1;
-
-            if (list) {
-                for (let b = 0; b < list.length; b++) {
-                    const cand = list[b];
-                    const cnx = uNorm[cand * 3], cny = uNorm[cand * 3 + 1], cnz = uNorm[cand * 3 + 2];
-                    const clen = Math.hypot(cnx, cny, cnz) || 1;
-                    if ((nx * cnx + ny * cny + nz * cnz) / clen >= cosCrease) {
-                        matched = cand;
-                        break;
-                    }
-                }
-            } else {
-                list = [];
-                buckets.set(key, list);
-            }
-
-            if (matched === -1) {
-                matched = uPos.length / 3;
-                uPos.push(px, py, pz);
-                uNorm.push(nx, ny, nz);
-                uUV.push(px / 160 + 0.5, py / 160 + 0.5);
-                list.push(matched);
-            } else {
-                uNorm[matched * 3]     += nx;
-                uNorm[matched * 3 + 1] += ny;
-                uNorm[matched * 3 + 2] += nz;
-            }
-            tri[k] = matched;
-        }
-        if (tri[0] !== tri[1] && tri[1] !== tri[2] && tri[2] !== tri[0]) {
-            indices.push(tri[0], tri[1], tri[2]);
-        }
-    }
-
-    for (let i = 0; i < uNorm.length; i += 3) {
-        const len = Math.hypot(uNorm[i], uNorm[i + 1], uNorm[i + 2]) || 1;
-        uNorm[i] /= len; uNorm[i + 1] /= len; uNorm[i + 2] /= len;
-    }
-
     const merged = new THREE.BufferGeometry();
-    merged.setAttribute('position', new THREE.Float32BufferAttribute(uPos, 3));
-    merged.setAttribute('normal', new THREE.Float32BufferAttribute(uNorm, 3));
-    merged.setAttribute('uv', new THREE.Float32BufferAttribute(uUV, 2));
+    merged.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    merged.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    merged.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     merged.setIndex(indices);
     return merged;
 }
@@ -1699,7 +1503,7 @@ function exportAsDFF() {
     const mesh = masterModelGroup.children[0];
     if (!mesh || !mesh.geometry) return;
 
-    const geom = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+    const geom = mesh.geometry;
     const pos = geom.attributes.position;
     const norm = geom.attributes.normal;
     const uv = geom.attributes.uv;
@@ -1731,7 +1535,6 @@ function exportAsDFF() {
             tris.push(tri[0], tri[1], tri[2]);
         }
     }
-    if (geom !== mesh.geometry) geom.dispose();
 
     const numVerts = uPos.length / 3;
     const numTris = tris.length / 3;
