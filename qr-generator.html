@@ -1,1 +1,720 @@
-<!doctype html><html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QR Maker | IT SHAKH</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="tools.css"><style>textarea{width:100%;min-height:150px;resize:vertical;background:#050b14;color:var(--text);border:1px solid rgba(56,189,248,.42);border-radius:10px;padding:14px;font:14px monospace;outline:none}textarea:focus{border-color:var(--accent);box-shadow:var(--glow)}.qr-wrap{display:none;justify-content:center;margin:28px 0 4px}.qr-card{background:#fff;border-radius:14px;padding:14px;line-height:0;box-shadow:0 0 34px rgba(56,189,248,.55)}.qr-card canvas{max-width:100%;height:auto!important}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.secondary{display:inline-flex;align-items:center;color:var(--accent);background:transparent;text-decoration:none;border:1px solid rgba(56,189,248,.6);border-radius:10px;padding:13px 17px;font-size:13px;font-weight:800;cursor:pointer}</style></head><body><header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="javascript:history.back()">← ORQAGA</a></header><main><div class="eyebrow">// QUICK SHARE TOOL</div><h1>QR MAKER</h1><p class="intro">Matn, havola, telefon raqami yoki Wi‑Fi ma’lumotini yozing — darhol QR kod yaratiladi.</p><section class="panel"><textarea id="content" maxlength="1200" placeholder="Masalan: https://itshakh.uz yoki istalgan matn…"></textarea><div class="actions"><button id="generate">QR KOD YARATISH</button><button id="clear" class="secondary" type="button">TOZALASH</button></div><p id="status" class="notice">QR kod ichiga eng ko‘pi bilan 1200 ta belgi joylashtirish mumkin.</p><div id="qr-wrap" class="qr-wrap"><div class="qr-card"><canvas id="qr"></canvas></div></div><div id="download-area" class="actions" hidden><a id="download" class="secondary" download="it-shakh-qr.png">↓ PNG YUKLAB OLISH</a></div></section></main><script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script><script>const input=document.getElementById('content'),status=document.getElementById('status'),wrap=document.getElementById('qr-wrap'),downloadArea=document.getElementById('download-area'),download=document.getElementById('download');function generate(){const text=input.value.trim();if(!text){status.textContent='Avval QR kodga aylantiriladigan matn yoki havolani yozing.';wrap.style.display='none';downloadArea.hidden=true;return}if(typeof QRious==='undefined'){status.textContent='QR kutubxonasi yuklanmadi. Internetni tekshirib, sahifani yangilang.';return}try{const qr=new QRious({element:document.getElementById('qr'),value:text,size:360,level:'M',foreground:'#07101a',background:'#ffffff'});download.href=qr.toDataURL('image/png');wrap.style.display='flex';downloadArea.hidden=false;status.textContent='✓ QR kod tayyor — telefon kamerasi bilan skaner qiling yoki PNG sifatida yuklab oling.'}catch(_){status.textContent='Matn juda uzun. Qisqaroq matn yoki havola kiriting.'}}document.getElementById('generate').addEventListener('click',generate);document.getElementById('clear').addEventListener('click',()=>{input.value='';wrap.style.display='none';downloadArea.hidden=true;status.textContent='QR kod ichiga eng ko‘pi bilan 1200 ta belgi joylashtirish mumkin.';input.focus()});input.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter')generate()});</script></body></html>
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QR Maker | IT SHAKH</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* Zaxira uslublar (tools.css bo‘lmasa ham sahifa to‘g‘ri ko‘rinadi); tools.css bo‘lsa — u ustun turadi. */
+:root{--qa:var(--accent,#38bdf8);--qbg:#050b14;--qpanel:#0a1424;--qpanel2:#0d1b30;--qline:#17283f;--qtxt:#e8f1ff;--qmut:#8aa0bd;--qok:#27e39a;--qwarn:#ffb020;--qbad:#ff5470}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1100px 560px at 50% -8%,#0e2342 0,var(--qbg) 62%);color:var(--qtxt);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;min-height:100vh}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;border-bottom:1px solid var(--qline)}
+.brand{font-weight:900;letter-spacing:2px;color:var(--qa);text-decoration:none;font-size:19px}
+.back{color:var(--qa);text-decoration:none;font-weight:800;font-size:12px;letter-spacing:1px}
+main{max-width:1180px;margin:0 auto;padding:30px 18px 70px}
+.eyebrow{color:var(--qmut);font-size:12px;letter-spacing:3px;font-weight:700}
+h1{margin:6px 0 8px;font-size:clamp(34px,6vw,56px);font-weight:900;letter-spacing:2px;background:linear-gradient(90deg,#38bdf8,#818cf8);-webkit-background-clip:text;background-clip:text;color:transparent}
+.intro{color:var(--qmut);max-width:720px;line-height:1.6;margin:0 0 22px}
+/* ---- QR Maker ---- */
+.qm-grid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:18px;align-items:start}
+.qm-card{background:var(--qpanel);border:1px solid var(--qline);border-radius:16px;padding:18px}
+.qm-tabs{display:flex;gap:4px;margin:-6px 0 14px;border-bottom:1px solid var(--qline)}
+.qm-tabs button{padding:10px 14px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--qmut);font:800 12px Inter,Arial;letter-spacing:1.4px;cursor:pointer}
+.qm-tabs button.on{color:var(--qa);border-bottom-color:var(--qa)}
+.qm-pane{display:none}.qm-pane.on{display:block}
+.qm-h{font-size:11px;letter-spacing:2px;color:var(--qmut);font-weight:800;margin:4px 0 10px;display:flex;align-items:center;gap:8px}
+.qm-h::after{content:"";flex:1;height:1px;background:var(--qline)}
+.qm-types{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin-bottom:16px}
+.qm-type{display:flex;flex-direction:column;align-items:center;gap:4px;padding:11px 6px;border:1px solid var(--qline);border-radius:12px;background:var(--qpanel2);color:var(--qmut);font:700 11.5px Inter,Arial;cursor:pointer;transition:.15s}
+.qm-type span{font-size:21px;line-height:1}
+.qm-type:hover{border-color:#2d4a72;color:var(--qtxt)}
+.qm-type.on{border-color:var(--qa);color:var(--qa);background:rgba(56,189,248,.09);box-shadow:0 0 0 1px var(--qa) inset}
+.qm-form{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+.qm-f{display:flex;flex-direction:column;gap:5px;min-width:0}.qm-f.w{grid-column:1/-1}
+.qm-f>label,.qm-lab{font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--qmut);display:flex;justify-content:space-between;gap:8px}
+.qm-f>label output,.qm-lab output{color:var(--qa);font-variant-numeric:tabular-nums}
+.qm input[type=text],.qm input[type=url],.qm input[type=tel],.qm input[type=email],.qm input[type=number],.qm input[type=password],.qm input[type=datetime-local],.qm select,.qm textarea{width:100%;background:#050b14;color:var(--qtxt);border:1px solid #1d3452;border-radius:10px;padding:11px 12px;font:14px Inter,Arial,sans-serif;outline:none;transition:.15s}
+.qm textarea{min-height:120px;resize:vertical;font-family:ui-monospace,Consolas,monospace;font-size:13.5px}
+.qm input:focus,.qm select:focus,.qm textarea:focus{border-color:var(--qa);box-shadow:0 0 0 3px rgba(56,189,248,.18)}
+.qm input[type=color]{width:100%;height:40px;padding:3px;border:1px solid #1d3452;border-radius:10px;background:#050b14;cursor:pointer}
+.qm input[type=range]{width:100%;accent-color:var(--qa)}
+.qm-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px 15px;border-radius:10px;border:1px solid rgba(56,189,248,.55);background:transparent;color:var(--qa);font:800 12.5px Inter,Arial;letter-spacing:.8px;cursor:pointer;text-decoration:none;transition:.15s}
+.qm-btn:hover{background:rgba(56,189,248,.1)}
+.qm-btn.pri{background:linear-gradient(135deg,#38bdf8,#6366f1);border:0;color:#fff;box-shadow:0 8px 24px rgba(70,110,240,.35)}
+.qm-btn.pri:hover{filter:brightness(1.1)}
+.qm-btn.sm{padding:7px 11px;font-size:11.5px}
+.qm-btn:disabled{opacity:.45;cursor:not-allowed}
+.qm-note{font-size:12px;line-height:1.55;color:var(--qmut);margin:10px 0 0}
+.qm-note b{color:var(--qtxt)}
+.qm-hint{grid-column:1/-1;padding:10px 12px;border:1px dashed #27456c;border-radius:10px;background:rgba(56,189,248,.05);font-size:12px;line-height:1.55;color:var(--qmut)}
+.qm-links{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+details.qm-d{border:1px solid var(--qline);border-radius:12px;background:var(--qpanel2);margin-top:12px}
+details.qm-d>summary{list-style:none;cursor:pointer;padding:13px 14px;font:800 12px Inter,Arial;letter-spacing:1.4px;color:var(--qtxt);display:flex;align-items:center;gap:9px}
+details.qm-d>summary::-webkit-details-marker{display:none}
+details.qm-d>summary::after{content:"▾";margin-left:auto;color:var(--qmut);transition:.2s}
+details.qm-d[open]>summary::after{transform:rotate(180deg)}
+.qm-dbody{padding:2px 14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+.qm-dbody .w{grid-column:1/-1}
+.qm-chips{display:flex;flex-wrap:wrap;gap:6px}
+.qm-chip{padding:7px 10px;border:1px solid #1d3452;border-radius:9px;background:#050b14;color:var(--qmut);font:700 12px Inter,Arial;cursor:pointer}
+.qm-chip:hover{color:var(--qtxt);border-color:#2d4a72}
+.qm-chip.on{background:var(--qa);border-color:var(--qa);color:#04121c}
+.qm-sw{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.qm-sw button{height:40px;border-radius:10px;border:2px solid transparent;cursor:pointer;position:relative;padding:0}
+.qm-sw button.on{border-color:#fff;box-shadow:0 0 0 2px var(--qa)}
+.qm-tog{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid #1d3452;border-radius:10px;background:#050b14;font-size:12.5px;font-weight:700;color:var(--qtxt);cursor:pointer}
+.qm-tog input{accent-color:var(--qa);width:17px;height:17px}
+/* preview */
+.qm-side{position:sticky;top:14px}
+.qm-view{display:flex;align-items:center;justify-content:center;border-radius:14px;padding:18px;min-height:300px;background:#0b1626}
+.qm-view.chk{background-color:#fff;background-image:linear-gradient(45deg,#d9dee6 25%,transparent 25%,transparent 75%,#d9dee6 75%),linear-gradient(45deg,#d9dee6 25%,transparent 25%,transparent 75%,#d9dee6 75%);background-size:16px 16px;background-position:0 0,8px 8px}
+.qm-view svg{width:100%;max-width:330px;height:auto;display:block;border-radius:6px;filter:drop-shadow(0 8px 30px rgba(56,189,248,.28))}
+.qm-empty{color:var(--qmut);text-align:center;font-size:13px;line-height:1.6;padding:20px}
+.qm-empty svg{width:130px;opacity:.35;margin-bottom:10px;filter:none}
+.qm-meta{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0}
+.qm-tag{padding:4px 9px;border-radius:99px;border:1px solid var(--qline);background:var(--qpanel2);font-size:11px;font-weight:700;color:var(--qmut);font-variant-numeric:tabular-nums}
+.qm-bar{height:6px;border-radius:9px;background:#13233a;overflow:hidden;margin-top:10px}
+.qm-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#38bdf8,#818cf8);transition:width .25s}
+.qm-notes{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.qm-n{font-size:12px;line-height:1.45;padding:8px 10px;border-radius:9px;border:1px solid;display:flex;gap:7px}
+.qm-n.ok{color:var(--qok);border-color:rgba(39,227,154,.35);background:rgba(39,227,154,.06)}
+.qm-n.warn{color:var(--qwarn);border-color:rgba(255,176,32,.4);background:rgba(255,176,32,.07)}
+.qm-n.bad{color:var(--qbad);border-color:rgba(255,84,112,.4);background:rgba(255,84,112,.07)}
+.qm-dl{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.qm-dl .pri{grid-column:1/-1;padding:13px}
+.qm-row{display:flex;gap:10px;align-items:center;margin-top:12px}
+.qm-row select{flex:1}
+.qm-hist{display:flex;flex-direction:column;gap:6px}
+.qm-hi{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--qline);border-radius:10px;background:var(--qpanel2);cursor:pointer;text-align:left;color:var(--qtxt);font:600 13px Inter,Arial}
+.qm-hi:hover{border-color:var(--qa)}.qm-hi small{color:var(--qmut);margin-left:auto;white-space:nowrap}
+.qm-hi span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.qm-prog{height:8px;border-radius:9px;background:#13233a;overflow:hidden;margin-top:12px;display:none}.qm-prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,#38bdf8,#818cf8)}
+@media(max-width:940px){.qm-grid{grid-template-columns:1fr}.qm-side{position:static;order:-1}}
+@media(max-width:560px){.qm-form,.qm-dbody{grid-template-columns:1fr}.qm-sw{grid-template-columns:repeat(4,1fr)}.qm-card{padding:14px}}
+</style>
+<link rel="stylesheet" href="tools.css">
+</head>
+<body>
+<header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="javascript:history.back()">← ORQAGA</a></header>
+<main class="qm">
+<div class="eyebrow">// QUICK SHARE TOOL</div>
+<h1>QR MAKER</h1>
+<p class="intro">Havola, matn, Wi‑Fi, kontakt, to‘lov, joylashuv, video va rasm havolalari — hammasi uchun professional QR kod. Rang, logo, ramka va shakllarni sozlang; PNG, SVG yoki JPG qilib yuklab oling. Hech narsa serverga yuborilmaydi.</p>
+<div class="qm-grid">
+  <section class="qm-card" id="left">
+    <div class="qm-tabs" id="tabs"><button data-p="create" class="on">YARATISH</button><button data-p="bulk">OMMAVIY</button><button data-p="hist">TARIX</button></div>
+    <div class="qm-pane on" id="pane-create">
+      <div class="qm-h">1 · QR NIMA UCHUN?</div>
+      <div class="qm-types" id="types"></div>
+      <div class="qm-h">2 · MA’LUMOT</div>
+      <div class="qm-form" id="form"></div>
+      <div class="qm-h" style="margin-top:20px">3 · DIZAYN</div>
+      <div id="design"></div>
+    </div>
+    <div class="qm-pane" id="pane-bulk">
+      <div class="qm-h">OMMAVIY YARATISH</div>
+      <p class="qm-note" style="margin-top:0">Har bir qatorga bitta ma’lumot yozing (havola, matn, raqam…). Ixtiyoriy nom berish: <b>nom | ma’lumot</b>. Barcha QR joriy dizaynda yaratiladi va bitta <b>ZIP</b> fayl bo‘lib yuklanadi (eng ko‘pi 300 ta).</p>
+      <div class="qm-f w" style="margin-top:12px"><textarea id="bulkText" placeholder="Stol 1 | https://menu.uz/1&#10;Stol 2 | https://menu.uz/2&#10;https://itshakh.uz"></textarea></div>
+      <div class="qm-row"><select id="bulkFmt"><option value="png">PNG</option><option value="svg">SVG</option></select><button class="qm-btn pri" id="bulkGo">⬇ ZIP YARATISH</button></div>
+      <div class="qm-prog" id="bulkProg"><i></i></div>
+      <p class="qm-note" id="bulkNote"></p>
+    </div>
+    <div class="qm-pane" id="pane-hist">
+      <div class="qm-h">OXIRGI QR KODLAR</div>
+      <div class="qm-hist" id="histList"></div>
+      <div class="qm-row"><button class="qm-btn sm" id="histClear">Tarixni tozalash</button></div>
+    </div>
+  </section>
+  <aside class="qm-side">
+    <div class="qm-card">
+      <div class="qm-view" id="view"></div>
+      <div class="qm-meta" id="meta"></div>
+      <div class="qm-bar"><i id="capBar"></i></div>
+      <div class="qm-notes" id="notes"></div>
+      <div class="qm-row"><select id="dlSize" title="Yuklab olish o‘lchami"><option value="512">512 px</option><option value="1024" selected>1024 px</option><option value="2048">2048 px</option><option value="4096">4096 px (chop uchun)</option></select></div>
+      <div class="qm-dl">
+        <button class="qm-btn pri" id="dlPng">⬇ PNG YUKLAB OLISH</button>
+        <button class="qm-btn" id="dlSvg">SVG</button><button class="qm-btn" id="dlJpg">JPG</button><button class="qm-btn" id="dlCopy">⧉ NUSXA</button>
+        <button class="qm-btn" id="dlPrint" style="grid-column:1/-1">🖨 CHOP ETISH</button>
+      </div>
+    </div>
+  </aside>
+</div>
+</main>
+<script>
+/* ===================== QR CODE ENCODER (ISO/IEC 18004, Model 2) — o‘zimizniki, kutubxonasiz ===================== */
+const QRCore = (() => {
+  const ECL = { L: 0, M: 1, Q: 2, H: 3 };
+  const FMT_BITS = [1, 0, 3, 2];                       // L, M, Q, H
+  const ECC_PER_BLOCK = [
+    [-1, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+    [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28],
+    [-1, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24, 28, 26, 24, 20, 30, 24, 28, 28, 26, 30, 28, 30, 30, 30, 30, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+    [-1, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]];
+  const NUM_BLOCKS = [
+    [-1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25],
+    [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49],
+    [-1, 1, 1, 2, 2, 4, 4, 6, 6, 8, 8, 8, 10, 12, 16, 12, 17, 16, 18, 21, 20, 23, 23, 25, 27, 29, 34, 34, 35, 38, 40, 43, 45, 48, 51, 53, 56, 59, 62, 65, 68],
+    [-1, 1, 1, 2, 4, 4, 4, 5, 6, 8, 8, 11, 11, 16, 16, 18, 16, 19, 21, 25, 25, 25, 34, 30, 32, 35, 37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81]];
+  const ALNUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
+
+  function rawModules(v) {
+    let r = (16 * v + 128) * v + 64;
+    if (v >= 2) { const na = Math.floor(v / 7) + 2; r -= (25 * na - 10) * na - 55; if (v >= 7) r -= 36; }
+    return r;
+  }
+  const dataCodewords = (v, e) => Math.floor(rawModules(v) / 8) - ECC_PER_BLOCK[e][v] * NUM_BLOCKS[e][v];
+  const ccBits = (mode, v) => { const i = v < 10 ? 0 : v < 27 ? 1 : 2; return mode === 'num' ? [10, 12, 14][i] : mode === 'alnum' ? [9, 11, 13][i] : [8, 16, 16][i]; };
+
+  function utf8(str) { return Array.from(new TextEncoder().encode(str)); }
+  function pickMode(str) {
+    if (/^[0-9]*$/.test(str)) return 'num';
+    if (/^[0-9A-Z $%*+\-./:]*$/.test(str)) return 'alnum';
+    return 'byte';
+  }
+  function segBits(mode, str) {
+    const bits = [];
+    const put = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+    let count;
+    if (mode === 'num') {
+      count = str.length;
+      for (let i = 0; i < str.length; i += 3) { const ch = str.substr(i, 3); put(parseInt(ch, 10), ch.length * 3 + 1); }
+    } else if (mode === 'alnum') {
+      count = str.length;
+      for (let i = 0; i < str.length; i += 2) {
+        if (i + 1 < str.length) put(ALNUM.indexOf(str[i]) * 45 + ALNUM.indexOf(str[i + 1]), 11); else put(ALNUM.indexOf(str[i]), 6);
+      }
+    } else { const b = utf8(str); count = b.length; b.forEach((x) => put(x, 8)); }
+    return { bits, count };
+  }
+  const MODE_IND = { num: 1, alnum: 2, byte: 4 };
+
+  /* ---- Reed–Solomon ---- */
+  const gmul = (x, y) => { let z = 0; for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; } return z; };
+  function rsDivisor(deg) {
+    const r = new Array(deg).fill(0); r[deg - 1] = 1; let root = 1;
+    for (let i = 0; i < deg; i++) { for (let j = 0; j < deg; j++) { r[j] = gmul(r[j], root); if (j + 1 < deg) r[j] ^= r[j + 1]; } root = gmul(root, 2); }
+    return r;
+  }
+  function rsRemainder(data, div) {
+    const r = new Array(div.length).fill(0);
+    for (const b of data) { const f = b ^ r.shift(); r.push(0); div.forEach((c, i) => (r[i] ^= gmul(c, f))); }
+    return r;
+  }
+
+  function encode(text, eclName, opts) {
+    opts = opts || {};
+    const ecl = ECL[eclName] == null ? 1 : ECL[eclName];
+    const mode = pickMode(text), minV = opts.minVersion || 1, maxV = 40;
+    let ver = 0, seg = null, usedBits = 0;
+    for (let v = minV; v <= maxV; v++) {
+      seg = segBits(mode, text);
+      const cb = ccBits(mode, v);
+      if (seg.count >= (1 << cb)) continue;
+      usedBits = 4 + cb + seg.bits.length;
+      if (usedBits <= dataCodewords(v, ecl) * 8) { ver = v; break; }
+    }
+    if (!ver) return null;
+    // boost ECL if it costs nothing
+    let level = ecl;
+    if (opts.boost !== false) for (let e = ecl + 1; e <= 3; e++) if (usedBits <= dataCodewords(ver, e) * 8) level = e;
+    const bits = [];
+    const put = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+    put(MODE_IND[mode], 4); put(seg.count, ccBits(mode, ver)); seg.bits.forEach((b) => bits.push(b));
+    const capBits = dataCodewords(ver, level) * 8;
+    put(0, Math.min(4, capBits - bits.length)); put(0, (8 - (bits.length % 8)) % 8);
+    for (let pad = 0xEC; bits.length < capBits; pad ^= 0xEC ^ 0x11) put(pad, 8);
+    const data = []; for (let i = 0; i < bits.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j]; data.push(b); }
+
+    /* ---- ECC + interleave ---- */
+    const nb = NUM_BLOCKS[level][ver], eccLen = ECC_PER_BLOCK[level][ver], raw = Math.floor(rawModules(ver) / 8);
+    const nShort = nb - (raw % nb), shortLen = Math.floor(raw / nb);
+    const div = rsDivisor(eccLen), blocks = []; let k = 0;
+    for (let i = 0; i < nb; i++) {
+      const d = data.slice(k, k + shortLen - eccLen + (i < nShort ? 0 : 1)); k += d.length;
+      const e = rsRemainder(d, div); if (i < nShort) d.push(0); blocks.push(d.concat(e));
+    }
+    const all = [];
+    for (let i = 0; i < blocks[0].length; i++) blocks.forEach((b, j) => { if (i !== shortLen - eccLen || j >= nShort) all.push(b[i]); });
+
+    /* ---- matrix ---- */
+    const size = ver * 4 + 17;
+    const mod = Array.from({ length: size }, () => new Array(size).fill(false));
+    const fn = Array.from({ length: size }, () => new Array(size).fill(false));
+    const setF = (x, y, d) => { mod[y][x] = d; fn[y][x] = true; };
+    for (let i = 0; i < size; i++) { setF(6, i, i % 2 === 0); setF(i, 6, i % 2 === 0); }
+    const finder = (cx, cy) => { for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const dist = Math.max(Math.abs(dx), Math.abs(dy)), x = cx + dx, y = cy + dy; if (x >= 0 && x < size && y >= 0 && y < size) setF(x, y, dist !== 2 && dist !== 4); } };
+    finder(3, 3); finder(size - 4, 3); finder(3, size - 4);
+    const ap = []; if (ver > 1) { const na = Math.floor(ver / 7) + 2, step = ver === 32 ? 26 : Math.ceil((ver * 4 + 4) / (na * 2 - 2)) * 2; ap.push(6); for (let p = size - 7; ap.length < na; p -= step) ap.splice(1, 0, p); }
+    ap.forEach((px, i) => ap.forEach((py, j) => {
+      if ((i === 0 && j === 0) || (i === 0 && j === ap.length - 1) || (i === ap.length - 1 && j === 0)) return;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) setF(px + dx, py + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+    }));
+    const drawFormat = (mask) => {
+      const d = (FMT_BITS[level] << 3) | mask; let rem = d;
+      for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+      const bits2 = ((d << 10) | rem) ^ 0x5412, bt = (i) => ((bits2 >>> i) & 1) !== 0;
+      for (let i = 0; i <= 5; i++) setF(8, i, bt(i)); setF(8, 7, bt(6)); setF(8, 8, bt(7)); setF(7, 8, bt(8));
+      for (let i = 9; i < 15; i++) setF(14 - i, 8, bt(i));
+      for (let i = 0; i < 8; i++) setF(size - 1 - i, 8, bt(i));
+      for (let i = 8; i < 15; i++) setF(8, size - 15 + i, bt(i));
+      setF(8, size - 8, true);
+    };
+    drawFormat(0);
+    if (ver >= 7) {
+      let rem = ver; for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+      const bits3 = (ver << 12) | rem;
+      for (let i = 0; i < 18; i++) { const bit = ((bits3 >>> i) & 1) !== 0, a = size - 11 + (i % 3), b = Math.floor(i / 3); setF(a, b, bit); setF(b, a, bit); }
+    }
+    /* codewords zig-zag */
+    let bi = 0;
+    for (let right = size - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;
+      for (let vert = 0; vert < size; vert++) for (let j = 0; j < 2; j++) {
+        const x = right - j, up = ((right + 1) & 2) === 0, y = up ? size - 1 - vert : vert;
+        if (!fn[y][x] && bi < all.length * 8) { mod[y][x] = ((all[bi >>> 3] >>> (7 - (bi & 7))) & 1) !== 0; bi++; }
+      }
+    }
+    const applyMask = (m) => {
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        let inv;
+        switch (m) {
+          case 0: inv = (x + y) % 2 === 0; break; case 1: inv = y % 2 === 0; break; case 2: inv = x % 3 === 0; break; case 3: inv = (x + y) % 3 === 0; break;
+          case 4: inv = (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0; break; case 5: inv = ((x * y) % 2) + ((x * y) % 3) === 0; break;
+          case 6: inv = (((x * y) % 2) + ((x * y) % 3)) % 2 === 0; break; default: inv = (((x + y) % 2) + ((x * y) % 3)) % 2 === 0;
+        }
+        if (!fn[y][x] && inv) mod[y][x] = !mod[y][x];
+      }
+    };
+    const penalty = () => {
+      let p = 0;
+      const lines = [];
+      for (let y = 0; y < size; y++) lines.push(mod[y]);
+      for (let x = 0; x < size; x++) { const c = []; for (let y = 0; y < size; y++) c.push(mod[y][x]); lines.push(c); }
+      for (const ln of lines) {
+        let run = 1;
+        for (let i = 1; i < size; i++) { if (ln[i] === ln[i - 1]) { run++; if (run === 5) p += 3; else if (run > 5) p++; } else run = 1; }
+        const s = ln.map((b) => (b ? '1' : '0')).join('');
+        for (const pat of ['10111010000', '00001011101']) { let i = -1; while ((i = s.indexOf(pat, i + 1)) >= 0) p += 40; }
+      }
+      for (let y = 0; y < size - 1; y++) for (let x = 0; x < size - 1; x++) { const c = mod[y][x]; if (c === mod[y][x + 1] && c === mod[y + 1][x] && c === mod[y + 1][x + 1]) p += 3; }
+      let dark = 0; for (const r of mod) for (const c of r) if (c) dark++;
+      p += Math.floor(Math.abs(dark * 20 - size * size * 10) / (size * size)) * 10;
+      return p;
+    };
+    let best = 0, bestP = Infinity;
+    if (opts.mask != null && opts.mask >= 0) best = opts.mask;
+    else for (let m = 0; m < 8; m++) { applyMask(m); drawFormat(m); const p = penalty(); if (p < bestP) { bestP = p; best = m; } applyMask(m); }
+    applyMask(best); drawFormat(best);
+    return { size, version: ver, level: 'LMQH'[level], mask: best, modules: mod, mode, dataBytes: Math.ceil(usedBits / 8), capacity: dataCodewords(ver, level) };
+  }
+  /* kiritilgan matn uchun eng katta sig‘im (versiya 40) */
+  function maxBytes(eclName) { return dataCodewords(40, ECL[eclName]) - 3; }
+  return { encode, maxBytes, pickMode, dataCodewords, ECL };
+})();
+if (typeof module !== 'undefined') module.exports = QRCore;
+
+/* ===================== QR MAKER — interfeys ===================== */
+'use strict';
+const $ = (s, r) => (r || document).querySelector(s);
+const h = (tag, attrs, kids) => {
+  const e = document.createElement(tag);
+  for (const k in attrs || {}) { const v = attrs[k];
+    if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v; else if (k === 'html') e.innerHTML = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v); }
+  (kids || []).forEach((c) => c != null && e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c));
+  return e;
+};
+const trim = (s) => (s == null ? '' : String(s)).trim();
+const enc = encodeURIComponent;
+const normUrl = (s) => { s = trim(s); if (!s) return ''; if (/^[a-z][a-z0-9+.-]*:/i.test(s) && !/^[a-z0-9.-]+:\d+/i.test(s)) return s; return 'https://' + s.replace(/^\/\//, ''); };
+const vc = (s) => trim(s).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, '\\$&');
+const wf = (s) => String(s).replace(/([\\;,:"])/g, '\\$1');
+const ics = (s) => { const m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)/.exec(s || ''); return m ? m[1] + m[2] + m[3] + 'T' + m[4] + m[5] + '00' : ''; };
+const icsEsc = (s) => trim(s).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, '\\$&');
+
+/* ---------------- QR turlari ---------------- */
+const SOCIAL = {
+  instagram: ['Instagram', 'https://instagram.com/', 'foydalanuvchi_nomi'], tiktok: ['TikTok', 'https://tiktok.com/@', 'foydalanuvchi_nomi'],
+  youtube: ['YouTube kanal', 'https://youtube.com/@', 'kanal_nomi'], facebook: ['Facebook', 'https://facebook.com/', 'sahifa_nomi'],
+  x: ['X (Twitter)', 'https://x.com/', 'foydalanuvchi_nomi'], linkedin: ['LinkedIn', 'https://linkedin.com/in/', 'profil_nomi'],
+  github: ['GitHub', 'https://github.com/', 'foydalanuvchi_nomi'], snapchat: ['Snapchat', 'https://snapchat.com/add/', 'foydalanuvchi_nomi']
+};
+const MEDIA = {
+  youtube: ['YouTube video', 'https://youtu.be/…  yoki video ID'], drive: ['Google Drive', 'https://drive.google.com/file/d/…'], dropbox: ['Dropbox', 'https://www.dropbox.com/s/…'],
+  telegram: ['Telegram', 'https://t.me/kanal/123'], vimeo: ['Vimeo', 'https://vimeo.com/…'], other: ['Boshqa havola', 'https://…']
+};
+const COINS = { bitcoin: ['Bitcoin (BTC)', 'bitcoin:'], ethereum: ['Ethereum (ETH)', 'ethereum:'], litecoin: ['Litecoin (LTC)', 'litecoin:'], dogecoin: ['Dogecoin (DOGE)', 'dogecoin:'], ton: ['TON', 'ton'], text: ['Boshqa (faqat manzil)', ''] };
+
+const TYPES = [
+  { id: 'url', ic: '🔗', n: 'Havola', f: [{ k: 'url', l: 'Veb-sayt manzili', ph: 'itshakh.uz', w: 1, ty: 'url' }], b: (v) => normUrl(v.url), ex: { url: 'https://itshakh.uz' } },
+  { id: 'text', ic: '📝', n: 'Matn', f: [{ k: 'text', l: 'Matn', ph: 'Istalgan matn, raqam yoki kod…', w: 1, area: 1 }], b: (v) => trim(v.text), ex: { text: 'Salom! Bu IT SHAKH QR kodi.' } },
+  { id: 'wifi', ic: '📶', n: 'Wi‑Fi', f: [
+    { k: 'ssid', l: 'Tarmoq nomi (SSID)', ph: 'Mening_WiFi' }, { k: 'pass', l: 'Parol', ph: '••••••••', ty: 'password' },
+    { k: 'enc', l: 'Himoya turi', sel: [['WPA', 'WPA / WPA2 / WPA3'], ['WEP', 'WEP'], ['nopass', 'Parolsiz (ochiq)']] },
+    { k: 'hid', l: 'Yashirin tarmoq', sel: [['0', 'Yo‘q'], ['1', 'Ha']] }],
+    b: (v) => { if (!trim(v.ssid)) return ''; const e = v.enc || 'WPA'; return 'WIFI:T:' + e + ';S:' + wf(v.ssid) + ';' + (e === 'nopass' ? '' : 'P:' + wf(v.pass || '') + ';') + (v.hid === '1' ? 'H:true;' : '') + ';'; },
+    hint: 'Telefon kamerasi bilan skaner qilsa — Wi‑Fi tarmog‘iga bir bosishda ulanadi. Parol faqat QR ichida bo‘ladi.', ex: { ssid: 'ITSHAKH_WiFi', pass: 'parol12345', enc: 'WPA', hid: '0' } },
+  { id: 'vcard', ic: '👤', n: 'Kontakt', f: [
+    { k: 'fn', l: 'Ism', ph: 'Alisher' }, { k: 'ln', l: 'Familiya', ph: 'Karimov' }, { k: 'org', l: 'Kompaniya', ph: 'IT SHAKH' }, { k: 'title', l: 'Lavozim', ph: 'Dasturchi' },
+    { k: 'tel', l: 'Telefon', ph: '+998 90 123 45 67', ty: 'tel' }, { k: 'email', l: 'Email', ph: 'info@itshakh.uz', ty: 'email' },
+    { k: 'url', l: 'Veb-sayt', ph: 'itshakh.uz', w: 1 }, { k: 'adr', l: 'Manzil', ph: 'Toshkent, O‘zbekiston', w: 1 }, { k: 'note', l: 'Izoh', w: 1 }],
+    b: (v) => { if (!trim(v.fn) && !trim(v.ln) && !trim(v.org)) return ''; const L = ['BEGIN:VCARD', 'VERSION:3.0', 'N:' + vc(v.ln) + ';' + vc(v.fn) + ';;;', 'FN:' + (vc((trim(v.fn) + ' ' + trim(v.ln)).trim()) || vc(v.org))];
+      if (trim(v.org)) L.push('ORG:' + vc(v.org)); if (trim(v.title)) L.push('TITLE:' + vc(v.title)); if (trim(v.tel)) L.push('TEL;TYPE=CELL:' + trim(v.tel).replace(/\s+/g, ''));
+      if (trim(v.email)) L.push('EMAIL:' + trim(v.email)); if (trim(v.url)) L.push('URL:' + normUrl(v.url)); if (trim(v.adr)) L.push('ADR;TYPE=WORK:;;' + vc(v.adr) + ';;;;'); if (trim(v.note)) L.push('NOTE:' + vc(v.note));
+      L.push('END:VCARD'); return L.join('\n'); },
+    hint: 'Skaner qilgan odam kontaktni telefon kitobiga bir bosishda saqlaydi. Maydonlar qancha ko‘p bo‘lsa, QR shuncha zich bo‘ladi.', ex: { fn: 'Alisher', ln: 'Karimov', org: 'IT SHAKH', title: 'Dasturchi', tel: '+998901234567', email: 'info@itshakh.uz', url: 'itshakh.uz' } },
+  { id: 'email', ic: '✉️', n: 'Email', f: [{ k: 'to', l: 'Kimga', ph: 'info@itshakh.uz', ty: 'email', w: 1 }, { k: 'subj', l: 'Mavzu', w: 1 }, { k: 'body', l: 'Xat matni', area: 1, w: 1 }],
+    b: (v) => { if (!trim(v.to)) return ''; const q = []; if (trim(v.subj)) q.push('subject=' + enc(trim(v.subj))); if (trim(v.body)) q.push('body=' + enc(trim(v.body))); return 'mailto:' + trim(v.to) + (q.length ? '?' + q.join('&') : ''); }, ex: { to: 'info@itshakh.uz', subj: 'Savol', body: 'Salom!' } },
+  { id: 'sms', ic: '💬', n: 'SMS', f: [{ k: 'num', l: 'Telefon raqam', ph: '+998901234567', ty: 'tel', w: 1 }, { k: 'msg', l: 'Xabar matni', area: 1, w: 1 }], b: (v) => (trim(v.num) ? 'SMSTO:' + trim(v.num).replace(/\s+/g, '') + ':' + trim(v.msg) : ''), ex: { num: '+998901234567', msg: 'Salom!' } },
+  { id: 'tel', ic: '📞', n: 'Telefon', f: [{ k: 'num', l: 'Telefon raqam', ph: '+998 90 123 45 67', ty: 'tel', w: 1 }], b: (v) => (trim(v.num) ? 'tel:' + trim(v.num).replace(/[\s()-]+/g, '') : ''), ex: { num: '+998901234567' } },
+  { id: 'wa', ic: '🟢', n: 'WhatsApp', f: [{ k: 'num', l: 'Telefon (davlat kodi bilan)', ph: '998901234567', ty: 'tel', w: 1 }, { k: 'msg', l: 'Tayyor xabar (ixtiyoriy)', area: 1, w: 1 }],
+    b: (v) => { const d = trim(v.num).replace(/\D/g, ''); return d ? 'https://wa.me/' + d + (trim(v.msg) ? '?text=' + enc(trim(v.msg)) : '') : ''; }, ex: { num: '998901234567', msg: 'Salom!' } },
+  { id: 'tg', ic: '✈️', n: 'Telegram', f: [{ k: 'user', l: 'Foydalanuvchi / kanal nomi', ph: '@itshakh', w: 1 }],
+    b: (v) => { let u = trim(v.user).replace(/^https?:\/\/(www\.)?t\.me\//i, '').replace(/^@/, '').replace(/\/+$/, ''); return u ? 'https://t.me/' + u : ''; }, ex: { user: '@telegram' } },
+  { id: 'social', ic: '🌐', n: 'Ijtimoiy tarmoq', f: [{ k: 'pf', l: 'Tarmoq', sel: Object.entries(SOCIAL).map(([k, a]) => [k, a[0]]), rr: 1 }, { k: 'u', l: 'Nom yoki to‘liq havola', ph: (v) => SOCIAL[v.pf || 'instagram'][2] }],
+    b: (v) => { const s = trim(v.u); if (!s) return ''; if (/^https?:\/\//i.test(s)) return s; const p = SOCIAL[v.pf || 'instagram']; return p[1] + s.replace(/^@/, ''); }, ex: { pf: 'instagram', u: 'instagram' } },
+  { id: 'media', ic: '🎬', n: 'Video / Rasm', f: [{ k: 'kind', l: 'Qayerda joylashgan', sel: Object.entries(MEDIA).map(([k, a]) => [k, a[0]]), rr: 1 }, { k: 'url', l: 'Video / rasm / fayl havolasi', ph: (v) => MEDIA[v.kind || 'youtube'][1] }],
+    b: (v) => { let s = trim(v.url); if (!s) return ''; if ((v.kind || 'youtube') === 'youtube' && /^[\w-]{11}$/.test(s)) return 'https://youtu.be/' + s; return normUrl(s); },
+    hint: '<b>Katta video yoki rasm QR ichiga sig‘maydi</b> — QR faqat matn/havola saqlaydi (taxminan 2–3 KB). To‘g‘ri yo‘l: faylni biror joyga yuklab, <b>ulashish havolasini</b> shu yerga qo‘ying. Skaner qilganda video/rasm to‘g‘ridan-to‘g‘ri ochiladi. Fayl hajmi cheklanmaydi.',
+    links: [['Google Drive', 'https://drive.google.com/drive/my-drive'], ['YouTube Studio', 'https://studio.youtube.com'], ['Dropbox', 'https://www.dropbox.com/home'], ['MEGA', 'https://mega.nz'], ['WeTransfer', 'https://wetransfer.com']], ex: { kind: 'youtube', url: 'dQw4w9WgXcQ' } },
+  { id: 'file', ic: '📎', n: 'Kichik fayl', custom: 'file', b: (v) => v.data || '', hint: 'Juda kichik fayl (<b>~2 KB</b> gacha: matn, vCard, kichik ikonka) to‘g‘ridan-to‘g‘ri QR ichiga joylanadi. Matn fayllari oddiy matn sifatida, boshqalari <code>data:</code> havolasi sifatida saqlanadi. Rasm/video uchun «Video / Rasm» turini tanlang.' },
+  { id: 'geo', ic: '📍', n: 'Joylashuv', f: [{ k: 'lat', l: 'Kenglik (lat)', ph: '41.2995', ty: 'text' }, { k: 'lng', l: 'Uzunlik (lng)', ph: '69.2401', ty: 'text' }, { k: 'link', l: 'Yoki Google Maps / Yandex havolasi', ph: 'https://maps.app.goo.gl/…', w: 1 }],
+    custom: 'geo', b: (v) => { if (trim(v.link)) return normUrl(v.link); const a = parseFloat(trim(v.lat).replace(',', '.')), o = parseFloat(trim(v.lng).replace(',', '.')); return isFinite(a) && isFinite(o) && Math.abs(a) <= 90 && Math.abs(o) <= 180 ? 'geo:' + a + ',' + o : ''; }, ex: { lat: '41.2995', lng: '69.2401' } },
+  { id: 'event', ic: '📅', n: 'Tadbir', f: [{ k: 'title', l: 'Tadbir nomi', w: 1 }, { k: 'start', l: 'Boshlanishi', ty: 'datetime-local' }, { k: 'end', l: 'Tugashi', ty: 'datetime-local' }, { k: 'loc', l: 'Joy', w: 1 }, { k: 'desc', l: 'Tavsif', area: 1, w: 1 }],
+    b: (v) => { if (!trim(v.title) || !ics(v.start)) return ''; const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'SUMMARY:' + icsEsc(v.title), 'DTSTART:' + ics(v.start)]; if (ics(v.end)) L.push('DTEND:' + ics(v.end)); if (trim(v.loc)) L.push('LOCATION:' + icsEsc(v.loc)); if (trim(v.desc)) L.push('DESCRIPTION:' + icsEsc(v.desc)); L.push('END:VEVENT', 'END:VCALENDAR'); return L.join('\n'); },
+    hint: 'Skaner qilgan odam tadbirni kalendariga qo‘shadi.', ex: { title: 'IT SHAKH uchrashuvi', start: '2026-12-01T18:00', end: '2026-12-01T20:00', loc: 'Toshkent' } },
+  { id: 'crypto', ic: '🪙', n: 'Kripto', f: [{ k: 'coin', l: 'Valyuta', sel: Object.entries(COINS).map(([k, a]) => [k, a[0]]), w: 1 }, { k: 'addr', l: 'Hamyon manzili', w: 1 }, { k: 'amt', l: 'Miqdor (ixtiyoriy)', ty: 'text', ph: '0.01' }],
+    b: (v) => { const a = trim(v.addr); if (!a) return ''; const c = v.coin || 'bitcoin', amt = trim(v.amt).replace(',', '.');
+      if (c === 'text') return a; if (c === 'ton') return 'ton://transfer/' + a + (parseFloat(amt) > 0 ? '?amount=' + Math.round(parseFloat(amt) * 1e9) : '');
+      return COINS[c][1] + a + (parseFloat(amt) > 0 && c !== 'ethereum' ? '?amount=' + amt : ''); }, hint: 'Manzilni qayta tekshiring — noto‘g‘ri manzilga yuborilgan mablag‘ni qaytarib bo‘lmaydi.', ex: { coin: 'bitcoin', addr: 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq' } }
+];
+const typeById = (id) => TYPES.find((t) => t.id === id) || TYPES[0];
+
+/* ---------------- holat ---------------- */
+const SKEY = 'itshakh_qr_v2', HKEY = 'itshakh_qr_hist';
+const DEFOPT = { ecl: 'auto', margin: 3, style: 'square', eo: 'square', ei: 'square', fg: '#07101a', fg2: '#2563eb', grad: 'none', ang: 45, bg: '#ffffff', tr: 0, ec: 0, ec1: '#07101a', ec2: '#07101a',
+  logo: '', logoSize: 22, logoBg: 1, logoShape: 'rounded', frame: 'none', ftext: 'SKANERLANG', fcol: '#07101a', ftcol: '#ffffff', size: 1024 };
+const S = { type: 'url', fields: {}, opt: Object.assign({}, DEFOPT), payload: '', r: null };
+try { const s = JSON.parse(localStorage.getItem(SKEY) || 'null'); if (s) { if (s.type && TYPES.some((t) => t.id === s.type)) S.type = s.type; if (s.fields) S.fields = s.fields; if (s.opt) Object.keys(DEFOPT).forEach((k) => { if (k in s.opt && typeof s.opt[k] === typeof DEFOPT[k]) S.opt[k] = s.opt[k]; }); } } catch (_) {}
+let saveT = 0;
+function persist() { clearTimeout(saveT); saveT = setTimeout(() => { try { const f = JSON.parse(JSON.stringify(S.fields)); if (f.file) delete f.file.data; localStorage.setItem(SKEY, JSON.stringify({ type: S.type, fields: f, opt: S.opt })); } catch (_) {} }, 400); }
+const fieldsOf = (id) => (S.fields[id] = S.fields[id] || {});
+
+/* ---------------- SVG yasash ---------------- */
+const fm = (v) => +v.toFixed(3);
+function rrPath(x, y, w, hh, r) {
+  const R = Array.isArray(r) ? r : [r, r, r, r], [tl, tr, br, bl] = R;
+  return 'M' + fm(x + tl) + ' ' + fm(y) + 'H' + fm(x + w - tr) + 'A' + fm(tr) + ' ' + fm(tr) + ' 0 0 1 ' + fm(x + w) + ' ' + fm(y + tr) + 'V' + fm(y + hh - br) + 'A' + fm(br) + ' ' + fm(br) + ' 0 0 1 ' + fm(x + w - br) + ' ' + fm(y + hh) +
+    'H' + fm(x + bl) + 'A' + fm(bl) + ' ' + fm(bl) + ' 0 0 1 ' + fm(x) + ' ' + fm(y + hh - bl) + 'V' + fm(y + tl) + 'A' + fm(tl) + ' ' + fm(tl) + ' 0 0 1 ' + fm(x + tl) + ' ' + fm(y) + 'Z';
+}
+const circPath = (cx, cy, r) => 'M' + fm(cx - r) + ' ' + fm(cy) + 'a' + fm(r) + ' ' + fm(r) + ' 0 1 0 ' + fm(2 * r) + ' 0a' + fm(r) + ' ' + fm(r) + ' 0 1 0 ' + fm(-2 * r) + ' 0Z';
+function shapePath(style, x, y, s, corner) {  // corner: 0 tl, 1 tr, 3 bl — o‘tkir burchak (barg shakli uchun)
+  switch (style) {
+    case 'rounded': return rrPath(x, y, s, s, s * 0.18);
+    case 'circle': return circPath(x + s / 2, y + s / 2, s / 2);
+    case 'leaf': { const a = [s * 0.16, s * 0.16, s * 0.16, s * 0.16]; if (corner != null) { a[corner] = 0; a[(corner + 2) % 4] = s * 0.2; } return rrPath(x, y, s, s, a); }
+    case 'diamond': return 'M' + fm(x + s / 2) + ' ' + fm(y) + 'L' + fm(x + s) + ' ' + fm(y + s / 2) + 'L' + fm(x + s / 2) + ' ' + fm(y + s) + 'L' + fm(x) + ' ' + fm(y + s / 2) + 'Z';
+    default: return 'M' + fm(x) + ' ' + fm(y) + 'h' + s + 'v' + s + 'h' + (-s) + 'Z';
+  }
+}
+function geom(r, o) {
+  const n = r.size, m = o.margin, qa = n + 2 * m, fp = o.frame === 'none' ? 0 : 1.6, lab = o.frame === 'bottom' || o.frame === 'top' ? 5 : 0;
+  const W = qa + 2 * fp, Hh = qa + 2 * fp + lab, qx = fp, qy = fp + (o.frame === 'top' ? lab : 0);
+  return { n, m, qa, fp, lab, W, H: Hh, qx, qy, ox: qx + m, oy: qy + m };
+}
+function buildSVG(r, o, uid, pxW) {
+  const g = geom(r, o), n = g.n, mod = r.modules, ox = g.ox, oy = g.oy, id = 'g' + (uid || 'x');
+  const eyeR = (x, y) => (x < 8 && y < 8) || (x >= n - 8 && y < 8) || (x < 8 && y >= n - 8);
+  // logo maydoni (modullar tozalanadi)
+  let hide = () => false, logoBox = null;
+  if (o.logo) {
+    const s = o.logoSize / 100 * n, pad = o.logoBg ? 1 : 0.4, cx = n / 2, cy = n / 2;
+    logoBox = { x: cx - s / 2, y: cy - s / 2, s };
+    const x0 = cx - s / 2 - pad, x1 = cx + s / 2 + pad, y0 = cy - s / 2 - pad, y1 = cy + s / 2 + pad;
+    hide = (x, y) => x + 1 > x0 && x < x1 && y + 1 > y0 && y < y1;
+  }
+  const ok = (x, y) => x >= 0 && y >= 0 && x < n && y < n && mod[y][x] && !eyeR(x, y) && !hide(x, y);
+  let d = '';
+  const st = o.style;
+  if (st === 'square') {
+    for (let y = 0; y < n; y++) { let x = 0; while (x < n) { if (ok(x, y)) { let e = x; while (ok(e + 1, y)) e++; d += 'M' + (ox + x) + ' ' + (oy + y) + 'h' + (e - x + 1) + 'v1h' + (-(e - x + 1)) + 'Z'; x = e + 1; } else x++; } }
+  } else if (st === 'vbars' || st === 'hbars') {
+    const V = st === 'vbars';
+    for (let a = 0; a < n; a++) { let b = 0; while (b < n) { const on = V ? ok(a, b) : ok(b, a); if (on) { let e = b; while (V ? ok(a, e + 1) : ok(e + 1, a)) e++; const len = e - b + 1;
+      d += V ? rrPath(ox + a + 0.1, oy + b, 0.8, len, 0.4) : rrPath(ox + b, oy + a + 0.1, len, 0.8, 0.4); b = e + 1; } else b++; } }
+  } else {
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      if (!ok(x, y)) continue; const X = ox + x, Y = oy + y;
+      if (st === 'rounded') d += rrPath(X, Y, 1, 1, 0.32); else if (st === 'dots') d += circPath(X + 0.5, Y + 0.5, 0.45);
+      else if (st === 'diamond') d += shapePath('diamond', X - 0.04, Y - 0.04, 1.08); else if (st === 'pixel') d += 'M' + fm(X + 0.07) + ' ' + fm(Y + 0.07) + 'h0.86v0.86h-0.86Z';
+    }
+  }
+  // gradient / rang
+  let defs = '', fill = o.fg;
+  const cx = ox + n / 2, cy = oy + n / 2;
+  if (o.grad === 'linear') { const a = o.ang * Math.PI / 180, dd = n / 2, c = Math.cos(a), s = Math.sin(a);
+    defs += '<linearGradient id="' + id + '" gradientUnits="userSpaceOnUse" x1="' + fm(cx - c * dd) + '" y1="' + fm(cy - s * dd) + '" x2="' + fm(cx + c * dd) + '" y2="' + fm(cy + s * dd) + '"><stop offset="0" stop-color="' + o.fg + '"/><stop offset="1" stop-color="' + o.fg2 + '"/></linearGradient>'; fill = 'url(#' + id + ')'; }
+  else if (o.grad === 'radial') { defs += '<radialGradient id="' + id + '" gradientUnits="userSpaceOnUse" cx="' + fm(cx) + '" cy="' + fm(cy) + '" r="' + fm(n * 0.72) + '"><stop offset="0" stop-color="' + o.fg + '"/><stop offset="1" stop-color="' + o.fg2 + '"/></radialGradient>'; fill = 'url(#' + id + ')'; }
+  const eo = o.ec ? o.ec1 : fill, ei = o.ec ? o.ec2 : fill;
+  let outer = '', inner = '';
+  [[0, 0, 0], [n - 7, 0, 1], [0, n - 7, 3]].forEach(([ex, ey, corner]) => {
+    outer += shapePath(o.eo, ox + ex, oy + ey, 7, corner) + shapePath(o.eo, ox + ex + 1, oy + ey + 1, 5, corner);
+    inner += shapePath(o.ei, ox + ex + 2, oy + ey + 2, 3, corner);
+  });
+  let body = '';
+  const framed = o.frame !== 'none';
+  if (framed) {
+    body += '<rect width="' + fm(g.W) + '" height="' + fm(g.H) + '" rx="2" fill="' + o.fcol + '"/>';
+    body += '<rect x="' + g.qx + '" y="' + fm(g.qy) + '" width="' + g.qa + '" height="' + g.qa + '" rx="1" fill="' + (o.tr ? '#ffffff' : o.bg) + '"/>';
+    const lines = o.ftext || '', size = Math.min(2.5, (g.W - 3) / Math.max(1, lines.length) / 0.68), cyT = o.frame === 'top' ? (g.fp + g.lab) / 2 : g.fp + g.qa + (g.fp + g.lab) / 2;
+    if (lines) body += '<text x="' + fm(g.W / 2) + '" y="' + fm(cyT) + '" fill="' + o.ftcol + '" font-family="Inter,Segoe UI,Arial,sans-serif" font-weight="800" font-size="' + fm(size) + '" text-anchor="middle" dominant-baseline="central" letter-spacing="0.08">' + esc(lines) + '</text>';
+  } else if (!o.tr) body += '<rect width="' + fm(g.W) + '" height="' + fm(g.H) + '" fill="' + o.bg + '"/>';
+  if (d) body += '<path d="' + d + '" fill="' + fill + '" fill-rule="nonzero"' + (st === 'square' ? ' shape-rendering="crispEdges"' : '') + '/>';
+  body += '<path d="' + outer + '" fill="' + eo + '" fill-rule="evenodd"/><path d="' + inner + '" fill="' + ei + '"/>';
+  if (logoBox) {
+    const lx = ox + logoBox.x, ly = oy + logoBox.y, s = logoBox.s, pad = o.logoBg ? 0.7 : 0, bgc = o.tr && !framed ? '#ffffff' : o.bg;
+    if (o.logoBg) body += o.logoShape === 'circle' ? '<circle cx="' + fm(lx + s / 2) + '" cy="' + fm(ly + s / 2) + '" r="' + fm(s / 2 + pad) + '" fill="' + bgc + '"/>' : '<rect x="' + fm(lx - pad) + '" y="' + fm(ly - pad) + '" width="' + fm(s + 2 * pad) + '" height="' + fm(s + 2 * pad) + '" rx="' + (o.logoShape === 'rounded' ? fm((s + 2 * pad) * 0.2) : 0) + '" fill="' + bgc + '"/>';
+    const cid = id + 'c';
+    if (o.logoShape !== 'square') defs += '<clipPath id="' + cid + '">' + (o.logoShape === 'circle' ? '<circle cx="' + fm(lx + s / 2) + '" cy="' + fm(ly + s / 2) + '" r="' + fm(s / 2) + '"/>' : '<rect x="' + fm(lx) + '" y="' + fm(ly) + '" width="' + fm(s) + '" height="' + fm(s) + '" rx="' + fm(s * 0.2) + '"/>') + '</clipPath>';
+    body += '<image href="' + o.logo + '" x="' + fm(lx) + '" y="' + fm(ly) + '" width="' + fm(s) + '" height="' + fm(s) + '" preserveAspectRatio="xMidYMid ' + (o.logoShape === 'square' ? 'meet' : 'slice') + '"' + (o.logoShape !== 'square' ? ' clip-path="url(#' + cid + ')"' : '') + '/>';
+  }
+  const dim = pxW ? ' width="' + pxW + '" height="' + Math.round(pxW * g.H / g.W) + '"' : '';
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + fm(g.W) + ' ' + fm(g.H) + '"' + dim + '>' + (defs ? '<defs>' + defs + '</defs>' : '') + body + '</svg>';
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+/* ---------------- rang yordamchilari ---------------- */
+function lum(hex) { const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex); if (!m) return 0; const c = [1, 2, 3].map((i) => { const v = parseInt(m[i], 16) / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+const contrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+
+/* ---------------- yangilash ---------------- */
+let raf = 0;
+const view = $('#view'), metaEl = $('#meta'), notesEl = $('#notes'), capBar = $('#capBar');
+function update() { cancelAnimationFrame(raf); raf = requestAnimationFrame(doUpdate); persist(); }
+function note(kind, text) { notesEl.appendChild(h('div', { class: 'qm-n ' + kind, html: (kind === 'ok' ? '✓' : kind === 'warn' ? '⚠' : '✕') + ' <span>' + text + '</span>' })); }
+function emptyView(msg) {
+  const demo = QRCore.encode('IT SHAKH', 'M'); S.r = null;
+  view.className = 'qm-view'; view.innerHTML = '<div class="qm-empty">' + buildSVG(demo, Object.assign({}, S.opt, { logo: '', frame: 'none', fg: '#8aa0bd', fg2: '#8aa0bd', grad: 'none', ec: 0, tr: 1 }), 'e') + '<br>' + msg + '</div>';
+  metaEl.innerHTML = ''; capBar.style.width = '0'; ['dlPng', 'dlSvg', 'dlJpg', 'dlCopy', 'dlPrint'].forEach((i) => ($('#' + i).disabled = true));
+}
+function doUpdate() {
+  const T = typeById(S.type), payload = T.b(fieldsOf(T.id)) || '';
+  S.payload = payload; notesEl.innerHTML = '';
+  if (!payload) return emptyView('Ma’lumot kiriting — QR kod shu yerda<br>jonli ko‘rinadi.');
+  const o = S.opt, eclReq = o.ecl === 'auto' ? (o.logo ? 'H' : 'M') : o.ecl;
+  const r = QRCore.encode(payload, eclReq, { boost: o.ecl === 'auto' });
+  if (!r) { emptyView('Ma’lumot juda uzun.'); const bytes = new TextEncoder().encode(payload).length; note('bad', 'Ma’lumot <b>' + bytes + ' bayt</b>, QR ga eng ko‘pi bilan <b>~' + QRCore.maxBytes(eclReq) + ' bayt</b> (' + eclReq + ' daraja) sig‘adi. Matnni qisqartiring yoki «Texnik» bo‘limida xatolikni tuzatish darajasini pasaytiring.'); return; }
+  S.r = r; ['dlPng', 'dlSvg', 'dlJpg', 'dlCopy', 'dlPrint'].forEach((i) => ($('#' + i).disabled = false));
+  view.className = 'qm-view' + (o.tr && o.frame === 'none' ? ' chk' : '');
+  view.innerHTML = buildSVG(r, o, 'p');
+  metaEl.innerHTML = '';
+  [['Versiya ' + r.version], [r.size + '×' + r.size + ' modul'], ['Daraja ' + r.level], [r.dataBytes + ' / ' + r.capacity + ' bayt']].forEach((t) => metaEl.appendChild(h('span', { class: 'qm-tag', text: t[0] })));
+  capBar.style.width = Math.min(100, Math.round(r.dataBytes / r.capacity * 100)) + '%';
+  // skaner sifati bo‘yicha tavsiyalar
+  const cols = [o.fg].concat(o.grad !== 'none' ? [o.fg2] : []), cMin = Math.min(...cols.map((c) => contrast(c, o.tr && o.frame === 'none' ? '#ffffff' : o.bg)));
+  let bad = 0;
+  if (cMin < 2.2) { note('bad', 'Rang kontrasti juda past (' + cMin.toFixed(1) + ':1) — QR o‘qilmaydi. Qoraroq old rang yoki och fon tanlang.'); bad++; }
+  else if (cMin < 3.5) { note('warn', 'Kontrast o‘rtacha (' + cMin.toFixed(1) + ':1). Yaxshiroq natija uchun rangni to‘qroq qiling.'); bad++; }
+  if (lum(o.fg) > lum(o.bg) && !o.tr) { note('warn', 'Old rang fondan ochroq (teskari QR). Ba’zi skanerlar o‘qiy olmaydi — oq/och fon tavsiya etiladi.'); bad++; }
+  if (o.logo && (o.ecl === 'L' || o.ecl === 'M')) { note('warn', 'Logo bilan xatolikni tuzatish darajasini <b>Q</b> yoki <b>H</b> qiling.'); bad++; }
+  if (o.logo && o.logoSize > 26) { note('warn', 'Logo katta (' + o.logoSize + '%). 25% dan oshirmaslik tavsiya etiladi.'); bad++; }
+  if (o.eo === 'circle') { note('warn', '<b>Doira</b> shaklidagi tashqi ko‘z chiroyli, lekin ba’zi skanerlar o‘qiy olmasligi mumkin. Chop etishdan oldin telefon bilan sinab ko‘ring yoki «Yumaloq» tanlang.'); bad++; }
+  if (o.margin < 2) { note('warn', 'Atrofdagi bo‘sh joy (margin) kam — kamida 2–4 modul qoldiring.'); bad++; }
+  if (r.version >= 14) { note('warn', 'QR juda zich (versiya ' + r.version + '). Kichik o‘lchamda chop etilsa o‘qish qiyin — matnni qisqartiring yoki katta o‘lchamda chop eting.'); bad++; }
+  if (!bad) note('ok', 'Skaner uchun hammasi joyida — o‘qish ishonchli bo‘lishi kutiladi. Baribir chop etishdan oldin telefon bilan sinab ko‘ring.');
+}
+
+/* ---------------- shakllarni chizish ---------------- */
+const formEl = $('#form'), typesEl = $('#types');
+function buildTypes() {
+  typesEl.innerHTML = '';
+  TYPES.forEach((t) => typesEl.appendChild(h('button', { class: 'qm-type' + (t.id === S.type ? ' on' : ''), type: 'button', onclick: () => { S.type = t.id; buildTypes(); buildForm(); update(); } }, [h('span', { text: t.ic }), t.n])));
+}
+function buildForm() {
+  const T = typeById(S.type), v = fieldsOf(T.id); formEl.innerHTML = '';
+  if (T.hint) formEl.appendChild(h('div', { class: 'qm-hint', html: T.hint }));
+  if (T.links) formEl.appendChild(h('div', { class: 'qm-links', style: 'grid-column:1/-1' }, [h('span', { class: 'qm-lab', text: 'Faylni yuklash uchun:' })].concat(T.links.map(([n, u]) => h('a', { class: 'qm-btn sm', href: u, target: '_blank', rel: 'noopener', text: n + ' ↗' })))));
+  if (T.custom === 'file') buildFileField(v);
+  (T.f || []).forEach((f) => {
+    const id = 'f_' + T.id + '_' + f.k; let inp;
+    if (f.sel) { inp = h('select', { id }); f.sel.forEach(([val, txt]) => inp.appendChild(h('option', { value: val, text: txt }))); inp.value = v[f.k] != null ? v[f.k] : f.sel[0][0]; if (v[f.k] == null) v[f.k] = inp.value; }
+    else if (f.area) inp = h('textarea', { id, placeholder: typeof f.ph === 'function' ? f.ph(v) : f.ph || '', maxlength: 1500 });
+    else inp = h('input', { id, type: f.ty === 'datetime-local' ? 'datetime-local' : f.ty === 'password' ? 'text' : f.ty === 'url' ? 'text' : f.ty === 'email' ? 'text' : f.ty === 'tel' ? 'text' : 'text', placeholder: typeof f.ph === 'function' ? f.ph(v) : f.ph || '', autocomplete: 'off', spellcheck: 'false' });
+    if (!f.sel) inp.value = v[f.k] || '';
+    inp.addEventListener(f.sel ? 'change' : 'input', () => { v[f.k] = inp.value; if (f.rr) buildForm(); update(); });
+    formEl.appendChild(h('div', { class: 'qm-f' + (f.w ? ' w' : '') }, [h('label', { for: id, text: f.l }), inp]));
+  });
+  if (T.custom === 'geo') formEl.appendChild(h('div', { class: 'qm-f w' }, [h('button', { class: 'qm-btn sm', type: 'button', text: '📍 Mening joylashuvim', onclick: () => {
+    if (!navigator.geolocation) return alert('Brauzer joylashuvni qo‘llab-quvvatlamaydi.');
+    navigator.geolocation.getCurrentPosition((p) => { v.lat = p.coords.latitude.toFixed(6); v.lng = p.coords.longitude.toFixed(6); v.link = ''; buildForm(); update(); }, () => alert('Joylashuvga ruxsat berilmadi.'));
+  } })]));
+  formEl.appendChild(h('div', { class: 'qm-f w', style: 'flex-direction:row;gap:8px;flex-wrap:wrap' }, [
+    T.ex ? h('button', { class: 'qm-btn sm', type: 'button', text: 'Namuna', onclick: () => { S.fields[T.id] = Object.assign({}, T.ex); buildForm(); update(); } }) : null,
+    h('button', { class: 'qm-btn sm', type: 'button', text: 'Tozalash', onclick: () => { S.fields[T.id] = {}; buildForm(); update(); } })]));
+}
+function buildFileField(v) {
+  const info = h('div', { class: 'qm-hint', text: v.name ? v.name + ' · ' + v.size + ' bayt' + (v.err ? ' — ' + v.err : ' ✓ QR ichiga joylandi') : 'Fayl tanlanmagan.' });
+  const inp = h('input', { type: 'file', hidden: true });
+  inp.addEventListener('change', () => {
+    const f = inp.files[0]; if (!f) return; v.name = f.name; v.size = f.size; v.err = ''; v.data = '';
+    if (f.size > 2300) { v.err = 'juda katta (QR ga ~2 KB gacha sig‘adi). «Video / Rasm» turida havola QR qiling'; buildForm(); update(); return; }
+    const r = new FileReader();
+    if (/^text\/|json|xml|vcard|calendar/.test(f.type) || /\.(txt|vcf|ics|json|csv|md)$/i.test(f.name)) { r.onload = () => { v.data = String(r.result); buildForm(); update(); }; r.readAsText(f); }
+    else { r.onload = () => { v.data = String(r.result); buildForm(); update(); }; r.readAsDataURL(f); }
+  });
+  formEl.appendChild(h('div', { class: 'qm-f w' }, [h('button', { class: 'qm-btn', type: 'button', text: '📂 FAYL TANLASH', onclick: () => inp.click() }), inp]));
+  formEl.appendChild(info);
+}
+
+/* ---------------- dizayn paneli ---------------- */
+const designEl = $('#design'), O = S.opt;
+function bind(el, key, parse) { el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', () => { O[key] = parse ? parse(el) : el.value; update(); }); return el; }
+function fld(label, input, w, outId) { return h('div', { class: 'qm-f' + (w ? ' w' : '') }, [h('label', null, [label, outId ? h('output', { id: outId }) : null]), input]); }
+function chipSet(key, items, w) {
+  const box = h('div', { class: 'qm-chips' });
+  items.forEach(([val, txt]) => box.appendChild(h('button', { class: 'qm-chip' + (O[key] === val ? ' on' : ''), type: 'button', text: txt, onclick: () => { O[key] = val; [...box.children].forEach((c, i) => c.classList.toggle('on', items[i][0] === val)); update(); } })));
+  return box;
+}
+function range(key, min, max, step, fmt) {
+  const i = h('input', { type: 'range', min, max, step: step || 1 }); i.value = O[key]; const out = h('output', { text: fmt ? fmt(O[key]) : O[key] });
+  i.addEventListener('input', () => { O[key] = +i.value; out.textContent = fmt ? fmt(O[key]) : O[key]; update(); });
+  return { i, out };
+}
+function section(title, open, kids) { return h('details', Object.assign({ class: 'qm-d' }, open ? { open: true } : {}), [h('summary', { text: title }), h('div', { class: 'qm-dbody' }, kids)]); }
+const PRESETS = [['Klassik', '#07101a', '#07101a', 'none', '#ffffff'], ['Navy', '#0b2a5b', '#0b2a5b', 'none', '#ffffff'], ['Osmon', '#0ea5e9', '#6366f1', 'linear', '#ffffff'], ['Zumrad', '#047857', '#0ea5a4', 'linear', '#ffffff'],
+  ['Quyosh', '#ea580c', '#db2777', 'linear', '#ffffff'], ['Binafsha', '#7c3aed', '#2563eb', 'linear', '#ffffff'], ['Qizil', '#b91c1c', '#b91c1c', 'none', '#ffffff'], ['Qorong‘i', '#0f172a', '#334155', 'radial', '#f8fafc']];
+function buildDesign() {
+  designEl.innerHTML = '';
+  const sw = h('div', { class: 'qm-sw' });
+  PRESETS.forEach(([n, a, b, gr, bg]) => sw.appendChild(h('button', { type: 'button', title: n, style: 'background:' + (gr === 'none' ? a : 'linear-gradient(135deg,' + a + ',' + b + ')') + ';outline:1px solid #ffffff22', onclick: () => { Object.assign(O, { fg: a, fg2: b, grad: gr, bg, tr: 0 }); buildDesign(); update(); } })));
+  const mk = (label, key, ty) => fld(label, bind(Object.assign(h('input', { type: ty || 'color' }), { value: O[key] }), key));
+  const grad = h('select', {}, [['none', 'Yo‘q (bitta rang)'], ['linear', 'Chiziqli'], ['radial', 'Radial']].map(([v, t]) => h('option', { value: v, text: t }))); grad.value = O.grad; bind(grad, 'grad');
+  grad.addEventListener('change', buildDesign);
+  const ang = range('ang', 0, 360, 5, (v) => v + '°');
+  const tog = (label, key, rebuild) => { const c = h('input', { type: 'checkbox' }); c.checked = !!O[key]; c.addEventListener('change', () => { O[key] = c.checked ? 1 : 0; if (rebuild) buildDesign(); update(); }); return h('label', { class: 'qm-tog' }, [h('span', { text: label }), c]); };
+  const body1 = [fld('Modul shakli', chipSet('style', [['square', '■ Kvadrat'], ['rounded', '▢ Yumaloq'], ['dots', '● Nuqta'], ['diamond', '◆ Romb'], ['pixel', '▪ Piksel'], ['vbars', '▮ Tik chiziq'], ['hbars', '▬ Yotiq chiziq']]), 1),
+    fld('Ko‘z — tashqi ramka', chipSet('eo', [['square', '■ Kvadrat'], ['rounded', '▢ Yumaloq'], ['circle', '○ Doira ⚠'], ['leaf', '❦ Barg']]), 1),
+    fld('Ko‘z — ichki nuqta', chipSet('ei', [['square', '■ Kvadrat'], ['rounded', '▢ Yumaloq'], ['circle', '● Doira'], ['leaf', '❦ Barg'], ['diamond', '◆ Romb']]), 1)];
+  const body2 = [fld('Tayyor ranglar', sw, 1), mk('Old rang', 'fg'), fld('Gradient', grad)];
+  if (O.grad !== 'none') { body2.push(mk('Ikkinchi rang', 'fg2')); if (O.grad === 'linear') body2.push(fld('Burchak', ang.i, 0, null)); }
+  body2.push(mk('Fon rangi', 'bg'), h('div', { class: 'qm-f' }, [h('label', { text: ' ' }), tog('Shaffof fon', 'tr')]), h('div', { class: 'qm-f w' }, [tog('Ko‘zlar uchun alohida rang', 'ec', true)]));
+  if (O.ec) body2.push(mk('Ko‘z — ramka', 'ec1'), mk('Ko‘z — nuqta', 'ec2'));
+  // logo
+  const lf = h('input', { type: 'file', accept: 'image/*', hidden: true });
+  lf.addEventListener('change', () => { const f = lf.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { O.logo = String(r.result); if (O.ecl === 'L' || O.ecl === 'M') O.ecl = 'auto'; buildDesign(); update(); }; r.readAsDataURL(f); });
+  const ls = range('logoSize', 10, 32, 1, (v) => v + '%');
+  const body3 = [h('div', { class: 'qm-f w' }, [h('div', { class: 'qm-row', style: 'margin:0' }, [h('button', { class: 'qm-btn sm', type: 'button', text: O.logo ? '↻ LOGONI ALMASHTIRISH' : '📂 LOGO YUKLASH (PNG, SVG, JPG)', onclick: () => lf.click() }), O.logo ? h('button', { class: 'qm-btn sm', type: 'button', text: '✕ Olib tashlash', onclick: () => { O.logo = ''; buildDesign(); update(); } }) : null, lf])])];
+  if (O.logo) body3.push(fld('Logo o‘lchami', ls.i, 0, null), fld('Logo shakli', chipSet('logoShape', [['square', 'Asl'], ['rounded', 'Yumaloq'], ['circle', 'Doira']]), 0), h('div', { class: 'qm-f w' }, [tog('Logo orqasida fon (tavsiya)', 'logoBg')]));
+  else body3.push(h('p', { class: 'qm-note w', html: 'Logo QR markaziga qo‘yiladi. Ishonchli o‘qilishi uchun xatolikni tuzatish darajasi avtomatik <b>H</b> ga o‘rnatiladi.' }));
+  // ramka
+  const ft = h('input', { type: 'text', maxlength: 24 }); ft.value = O.ftext; bind(ft, 'ftext');
+  const body4 = [fld('Ramka turi', chipSet('frame', [['none', 'Yo‘q'], ['bottom', 'Pastda yozuv'], ['top', 'Tepada yozuv']]), 1)];
+  if (O.frame !== 'none') { body4.push(fld('Yozuv', ft, 1), mk('Ramka rangi', 'fcol'), mk('Yozuv rangi', 'ftcol'), h('div', { class: 'qm-f w' }, [h('div', { class: 'qm-chips' }, ['SKANERLANG', 'SCAN ME', 'MENI SKANERLANG', 'MENYU', 'WI‑FI', 'KOʻRISH'].map((t) => h('button', { class: 'qm-chip', type: 'button', text: t, onclick: () => { O.ftext = t; ft.value = t; update(); } })))])); }
+  designEl.appendChild(section('SHAKL VA KO‘Z', true, body1));
+  designEl.appendChild(section('RANG', false, body2));
+  designEl.appendChild(section('LOGO', !!O.logo, body3));
+  designEl.appendChild(section('RAMKA VA YOZUV', O.frame !== 'none', (body4.push(h('p', { class: 'qm-note w', text: 'Ramka SVG/PNG chiqishiga ham qo‘shiladi.' })), body4)));
+  // texnik
+  const mg = range('margin', 0, 8, 1, (v) => v + ' modul');
+  const ecl = h('select', {}, [['auto', 'Avtomatik (tavsiya)'], ['L', 'L — 7% (eng kichik QR)'], ['M', 'M — 15%'], ['Q', 'Q — 25%'], ['H', 'H — 30% (logo uchun)']].map(([v, t]) => h('option', { value: v, text: t }))); ecl.value = O.ecl; bind(ecl, 'ecl');
+  designEl.appendChild(section('TEXNIK', false, [fld('Xatolikni tuzatish', ecl, 1), fld('Atrofdagi bo‘sh joy', mg.i, 1, null), h('p', { class: 'qm-note w', html: 'Daraja qanchalik yuqori bo‘lsa, QR shuncha zararlanishga chidamli, lekin zichroq bo‘ladi. <b>Avtomatik</b> — sig‘adigan eng yuqori darajani tanlaydi.' })]));
+  designEl.appendChild(h('div', { class: 'qm-row' }, [h('button', { class: 'qm-btn sm', type: 'button', text: '↺ Dizaynni tiklash', onclick: () => { Object.assign(O, DEFOPT); buildDesign(); update(); } })]));
+}
+
+/* ---------------- eksport ---------------- */
+function svgFor(r, o, pxW) { return buildSVG(r, o, 'o' + Math.random().toString(36).slice(2, 7), pxW); }
+function outSize(r, o, want) { const g = geom(r, o); if (o.frame === 'none' && Number.isInteger(g.W)) return Math.max(1, Math.round(want / g.W)) * g.W; return want; }
+function svgToCanvas(svg, w, hh, bg) {
+  return new Promise((res, rej) => {
+    const img = new Image(), url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+    img.onload = () => { const c = document.createElement('canvas'); c.width = w; c.height = hh; const x = c.getContext('2d'); if (bg) { x.fillStyle = bg; x.fillRect(0, 0, w, hh); } x.imageSmoothingQuality = 'high'; x.drawImage(img, 0, 0, w, hh); URL.revokeObjectURL(url); res(c); };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Rasm yaratilmadi')); }; img.src = url;
+  });
+}
+const toBlob = (c, type, q) => new Promise((res) => c.toBlob(res, type, q));
+async function renderBlob(r, o, fmt, want) {
+  const px = outSize(r, o, want), g = geom(r, o), hpx = Math.round(px * g.H / g.W);
+  const svg = svgFor(r, o, px);
+  if (fmt === 'svg') return new Blob([svg], { type: 'image/svg+xml' });
+  const c = await svgToCanvas(svg, px, hpx, fmt === 'jpg' ? '#ffffff' : null);
+  return toBlob(c, fmt === 'jpg' ? 'image/jpeg' : 'image/png', 0.95);
+}
+function saveAs(blob, name) { const a = h('a', { href: URL.createObjectURL(blob), download: name, style: 'display:none' }); document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 20000); }
+function baseName() { const T = typeById(S.type); let s = T.id; if (S.type === 'url' || S.type === 'media') { try { s += '-' + new URL(S.payload).hostname.replace(/^www\./, ''); } catch (_) {} } return 'qr-' + s.replace(/[^\w.-]+/g, '_') + '-' + Date.now().toString(36); }
+const btnBusy = async (btn, fn) => { const t = btn.textContent; btn.disabled = true; try { await fn(); } catch (e) { alert('Xato: ' + e.message); } finally { btn.textContent = t; btn.disabled = !S.r; } };
+$('#dlSize').value = String(S.opt.size); $('#dlSize').addEventListener('change', () => { S.opt.size = +$('#dlSize').value; persist(); });
+const want = () => +$('#dlSize').value;
+$('#dlPng').addEventListener('click', (e) => btnBusy(e.currentTarget, async () => { saveAs(await renderBlob(S.r, S.opt, 'png', want()), baseName() + '.png'); remember(); }));
+$('#dlJpg').addEventListener('click', (e) => btnBusy(e.currentTarget, async () => { saveAs(await renderBlob(S.r, S.opt, 'jpg', want()), baseName() + '.jpg'); remember(); }));
+$('#dlSvg').addEventListener('click', (e) => btnBusy(e.currentTarget, async () => { saveAs(await renderBlob(S.r, S.opt, 'svg', want()), baseName() + '.svg'); remember(); }));
+$('#dlCopy').addEventListener('click', (e) => btnBusy(e.currentTarget, async () => {
+  if (!navigator.clipboard || !window.ClipboardItem) throw new Error('Brauzer rasmni nusxalashni qo‘llab-quvvatlamaydi. PNG yuklab oling.');
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': renderBlob(S.r, S.opt, 'png', 1024) })]); e.currentTarget.textContent = '✓ NUSXALANDI'; await new Promise((r) => setTimeout(r, 1200)); remember();
+}));
+$('#dlPrint').addEventListener('click', (e) => btnBusy(e.currentTarget, async () => {
+  const b = await renderBlob(S.r, S.opt, 'png', 2048), url = URL.createObjectURL(b), f = h('iframe', { style: 'position:fixed;right:0;bottom:0;width:0;height:0;border:0' });
+  document.body.appendChild(f); const d = f.contentWindow.document; d.open(); d.write('<!doctype html><title>QR</title><style>@page{margin:14mm}body{margin:0;display:flex;align-items:center;justify-content:center;height:100vh}img{width:min(100%,160mm)}</style><img src="' + url + '">'); d.close();
+  await new Promise((r) => { f.contentWindow.document.querySelector('img').onload = r; setTimeout(r, 1500); }); f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => { f.remove(); URL.revokeObjectURL(url); }, 60000); remember();
+}));
+
+/* ---------------- tarix ---------------- */
+const loadHist = () => { try { return JSON.parse(localStorage.getItem(HKEY) || '[]'); } catch (_) { return []; } };
+function remember() {
+  if (!S.payload) return; const f = JSON.parse(JSON.stringify(fieldsOf(S.type))); if (S.type === 'file') return;
+  const hh = loadHist().filter((x) => !(x.type === S.type && x.p === S.payload)); hh.unshift({ t: Date.now(), type: S.type, f, p: S.payload.slice(0, 120) });
+  try { localStorage.setItem(HKEY, JSON.stringify(hh.slice(0, 15))); } catch (_) {} renderHist();
+}
+function renderHist() {
+  const box = $('#histList'), hh = loadHist(); box.innerHTML = '';
+  if (!hh.length) { box.appendChild(h('p', { class: 'qm-note', text: 'Hozircha bo‘sh. Yuklab olgan yoki nusxalagan QR kodlaringiz shu yerda saqlanadi (faqat shu brauzerda).' })); return; }
+  hh.forEach((x) => { const T = typeById(x.type), d = new Date(x.t);
+    box.appendChild(h('button', { class: 'qm-hi', type: 'button', onclick: () => { S.type = x.type; S.fields[x.type] = x.f; buildTypes(); buildForm(); update(); showTab('create'); window.scrollTo({ top: 0, behavior: 'smooth' }); } }, [h('span', { text: T.ic }), h('span', { class: 't', text: x.p.replace(/\s+/g, ' ') }), h('small', { text: d.toLocaleDateString([], { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })]));
+  });
+}
+$('#histClear').addEventListener('click', () => { try { localStorage.removeItem(HKEY); } catch (_) {} renderHist(); });
+
+/* ---------------- ommaviy (ZIP) ---------------- */
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = (u) => { let c = 0xFFFFFFFF; for (let i = 0; i < u.length; i++) c = CRC[(c ^ u[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function makeZip(files) {
+  const te = new TextEncoder(), parts = [], cen = []; let off = 0; const now = new Date(), dt = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate(), tm = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  files.forEach((f) => {
+    const nm = te.encode(f.name), crc = crc32(f.data), lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true); lh.setUint16(10, tm, true); lh.setUint16(12, dt, true); lh.setUint32(14, crc, true); lh.setUint32(18, f.data.length, true); lh.setUint32(22, f.data.length, true); lh.setUint16(26, nm.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), nm, f.data);
+    const ch = new DataView(new ArrayBuffer(46)); ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, tm, true); ch.setUint16(14, dt, true); ch.setUint32(16, crc, true); ch.setUint32(20, f.data.length, true); ch.setUint32(24, f.data.length, true); ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+    cen.push(new Uint8Array(ch.buffer), nm); off += 30 + nm.length + f.data.length;
+  });
+  const cl = cen.reduce((a, b) => a + b.length, 0), end = new DataView(new ArrayBuffer(22)); end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cl, true); end.setUint32(16, off, true);
+  return new Blob([...parts, ...cen, new Uint8Array(end.buffer)], { type: 'application/zip' });
+}
+$('#bulkGo').addEventListener('click', async () => {
+  const lines = $('#bulkText').value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 300), note_ = $('#bulkNote'), prog = $('#bulkProg'), bar = prog.firstChild, btn = $('#bulkGo'), fmt = $('#bulkFmt').value;
+  if (!lines.length) { note_.textContent = 'Kamida bitta qator yozing.'; return; }
+  btn.disabled = true; prog.style.display = 'block'; const files = [], used = new Set(); let skipped = 0;
+  for (let i = 0; i < lines.length; i++) {
+    let name = '', val = lines[i]; const m = /^(.+?)\s*\|\s*(.+)$/.exec(val); if (m) { name = m[1]; val = m[2]; }
+    const r = QRCore.encode(val, S.opt.ecl === 'auto' ? (S.opt.logo ? 'H' : 'M') : S.opt.ecl, { boost: S.opt.ecl === 'auto' });
+    if (!r) { skipped++; continue; }
+    let fn = (name || String(i + 1).padStart(3, '0')).replace(/[^\w\u0400-\u04FF.-]+/g, '_').slice(0, 60) || String(i + 1); let u = fn, c = 2; while (used.has(u)) u = fn + '_' + c++; used.add(u);
+    const blob = await renderBlob(r, S.opt, fmt, 1024); files.push({ name: u + '.' + fmt, data: new Uint8Array(await blob.arrayBuffer()) });
+    bar.style.width = Math.round((i + 1) / lines.length * 100) + '%'; if (i % 5 === 0) await new Promise((rr) => setTimeout(rr, 0));
+  }
+  if (files.length) saveAs(makeZip(files), 'qr-kodlar-' + files.length + '.zip');
+  note_.textContent = '✓ ' + files.length + ' ta QR yaratildi' + (skipped ? ', ' + skipped + ' tasi juda uzun bo‘lgani uchun o‘tkazib yuborildi' : '') + '.'; btn.disabled = false; setTimeout(() => (prog.style.display = 'none'), 1200);
+});
+
+/* ---------------- tablar ---------------- */
+function showTab(id) { document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.p === id)); document.querySelectorAll('.qm-pane').forEach((p) => p.classList.toggle('on', p.id === 'pane-' + id)); if (id === 'hist') renderHist(); }
+$('#tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-p]'); if (b) showTab(b.dataset.p); });
+
+/* ---------------- boshlash ---------------- */
+buildTypes(); buildForm(); buildDesign(); renderHist(); doUpdate();
+window.__QR = { S, TYPES, buildSVG, update, doUpdate, renderBlob };
+
+</script>
+</body>
+</html>
