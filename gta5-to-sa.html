@@ -4,19 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GTA V → GTA SA CONVERTER PRO | IT SHAKH</title>
-    <script>
-    // Admin Lock tekshiruvi (index.html da bloklangan bo'lsa, oddiy foydalanuvchini qaytaradi)
-    (function () {
-        try {
-            const isLocked = localStorage.getItem("it_shakh_tools_locked") === "1";
-            const isAdmin = sessionStorage.getItem("it_shakh_is_admin") === "1";
-            if (isLocked && !isAdmin) {
-                alert("⛔ TOOLS bo‘limi Admin tomonidan bloklangan!");
-                window.location.replace("index.html");
-            }
-        } catch (e) {}
-    })();
-    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
     <!-- Three.js, Loaderlar va RSC7 Zlib dekompressori (Pako) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -784,7 +771,6 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
 viewport.appendChild(renderer.domElement);
 
-// Mashina bo'yog'i va xrom detallar yaltirashi uchun protsedurali Studio Environment Map
 function createStudioEnvMap() {
     const c = document.createElement('canvas');
     c.width = 512;
@@ -798,7 +784,6 @@ function createStudioEnvMap() {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 512, 256);
 
-    // Studio softbox chiroqlari
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(60, 25, 140, 28);
     ctx.fillRect(310, 35, 140, 24);
@@ -837,7 +822,7 @@ scene.add(carRootGroup);
 let isWireframe = false;
 let currentCarParts = [];
 let selectedPartIndex = -1;
-let loadedTextures = []; // { name, dataUrl, width, height, rgbaBytes, threeTex }
+let loadedTextures = [];
 
 function clearCarScene() {
     while (carRootGroup.children.length > 0) {
@@ -862,7 +847,7 @@ document.getElementById('btnClearScene').addEventListener('click', () => {
     setStatus('✓ Sahna tozalandi. Yangi fayl yuklashingiz mumkin.');
 });
 
-// ==================== CREASE-ANGLE NORMAL SMOOTHER & VERTEX WELDER (YUQoRI SIFAT SIRI) ====================
+// ==================== CREASE-ANGLE NORMAL SMOOTHER & VERTEX WELDER ====================
 function weldAndSmoothGeometry(geom, creaseDeg = 42) {
     if (!geom || !geom.attributes.position) return geom;
     const nonIdx = geom.index ? geom.toNonIndexed() : geom.clone();
@@ -872,7 +857,6 @@ function weldAndSmoothGeometry(geom, creaseDeg = 42) {
     const vCount = pos.count;
     if (vCount === 0) return nonIdx;
 
-    // 1. Har bir uchburchakning haqiqiy yuza normalini hisoblash
     const faceNormals = new Float32Array(vCount * 3);
     for (let i = 0; i < vCount; i += 3) {
         const ax = pos.getX(i),     ay = pos.getY(i),     az = pos.getZ(i);
@@ -895,7 +879,6 @@ function weldAndSmoothGeometry(geom, creaseDeg = 42) {
         }
     }
 
-    // 2. Crease-Angle bo'yicha nuqtalarni weld qilish (GTA SA 65,535 limitidan oshmasligi va silliq chiqishi uchun)
     const uPos = [];
     const uNorm = [];
     const uCol = [];
@@ -1025,7 +1008,6 @@ function createMaterialForRole(role, existingTex = null) {
         });
     }
 
-    // Asosiy kuzov, kapot, bagaj va eshiklar
     return new THREE.MeshStandardMaterial({
         color: activeTex ? 0xffffff : bodyCol,
         map: activeTex || null,
@@ -1137,7 +1119,6 @@ function parseCodeWalkerYftXml(xmlText, fileName) {
         vLines.forEach(line => {
             const nums = line.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
             if (nums.length >= 3) {
-                // GTA V Z-up -> Three.js Y-up: (x, z, -y)
                 positions.push(nums[0], nums[2], -nums[1]);
                 if (nums.length >= 6) {
                     normals.push(nums[3], nums[5], -nums[4]);
@@ -1179,7 +1160,6 @@ function decompressRsc7Buffer(arrayBuffer) {
     const dv = new DataView(arrayBuffer);
     const magic = dv.getUint32(0, true);
 
-    // RSC7 magic = 0x37435352 ("RSC7")
     if (magic === 0x37435352 && window.pako) {
         const tryOffsets = [16, 12, 24, 32];
         for (const off of tryOffsets) {
@@ -1196,7 +1176,6 @@ function decompressRsc7Buffer(arrayBuffer) {
         }
     }
 
-    // Zlib header (0x78 0x9C yoki 0x78 0xDA) qidirish
     if (window.pako) {
         for (let i = 0; i < Math.min(u8.byteLength - 4, 256); i++) {
             if (u8[i] === 0x78 && (u8[i + 1] === 0x9C || u8[i + 1] === 0xDA || u8[i + 1] === 0x01)) {
@@ -1211,7 +1190,6 @@ function decompressRsc7Buffer(arrayBuffer) {
 }
 
 function parseBinaryYFT(arrayBuffer, fileName) {
-    // 1. Agar matnli XML bo'lsa
     const headStr = new TextDecoder().decode(new Uint8Array(arrayBuffer, 0, Math.min(200, arrayBuffer.byteLength)));
     if (headStr.includes('<?xml') || headStr.includes('<Fragment') || headStr.includes('<Drawable')) {
         const fullTxt = new TextDecoder().decode(arrayBuffer);
@@ -1219,14 +1197,11 @@ function parseBinaryYFT(arrayBuffer, fileName) {
         return;
     }
 
-    // 2. Binar RSC7 .YFT faylni dekompress qilish
     const data = decompressRsc7Buffer(arrayBuffer);
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-    // Ichki DDS teksturalar bo'lsa (.yft ichiga joylangan embedded textures), ularni ham ajratib olamiz
     extractEmbeddedDDSFromBuffer(data, fileName);
 
-    // 3. Binar oqimdan mashina suyak/detal nomlarini qidirish
     const textAscii = new TextDecoder('ascii', { fatal: false }).decode(data);
     const detectedPartNames = [];
     const knownGta5Bones = [
@@ -1238,12 +1213,10 @@ function parseBinaryYFT(arrayBuffer, fileName) {
         if (textAscii.toLowerCase().includes(bName)) detectedPartNames.push(bName);
     });
 
-    // 4. Dekompress qilingan RSC7 xotirasidan Float32 Vertex + Uint16 Index bloklarini qidirish
     const extractedMeshes = [];
     const strideCandidates = [36, 32, 40, 44, 48, 28];
 
     for (let offset = 0; offset < data.byteLength - 512; offset += 4) {
-        // GTA V IndexBuffer va VertexBuffer bloklarini tekshirish
         const possibleCount = dv.getUint32(offset, true);
         if (possibleCount >= 24 && possibleCount <= 35000) {
             for (const stride of strideCandidates) {
@@ -1251,7 +1224,6 @@ function parseBinaryYFT(arrayBuffer, fileName) {
                 const vStart = offset + 16;
                 if (vStart + byteLen > data.byteLength) continue;
 
-                // Birinchi 8 ta vertex koordinatasi mashina o'lchamida (-4.5m .. +4.5m) ekanini tekshiramiz
                 let validVerts = true;
                 let nonZero = 0;
                 for (let v = 0; v < Math.min(12, possibleCount); v++) {
@@ -1280,7 +1252,6 @@ function parseBinaryYFT(arrayBuffer, fileName) {
                             allValid = false;
                             break;
                         }
-                        // GTA V Z-up -> Three.js Y-up
                         posArr[v * 3]     = vx;
                         posArr[v * 3 + 1] = vz;
                         posArr[v * 3 + 2] = -vy;
@@ -1309,7 +1280,7 @@ function parseBinaryYFT(arrayBuffer, fileName) {
     }
 }
 
-// ==================== 2. GTA V .YTD VA .DDS TEKSTURA PARSERI (DXT1 / DXT5 / RGBA8 DECODER) ====================
+// ==================== 2. GTA V .YTD VA .DDS TEKSTURA PARSERI ====================
 function decodeDXT1Block(src, off, outRgba, outStride, bx, by, width, height) {
     const c0 = src[off] | (src[off + 1] << 8);
     const c1 = src[off + 2] | (src[off + 3] << 8);
@@ -1350,7 +1321,7 @@ function decodeDXT1Block(src, off, outRgba, outStride, bx, by, width, height) {
 function parseDDSImage(u8, texName = 'texture') {
     if (u8.byteLength < 128) return null;
     const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-    if (dv.getUint32(0, true) !== 0x20534444) return null; // "DDS "
+    if (dv.getUint32(0, true) !== 0x20534444) return null;
 
     const height = dv.getUint32(12, true);
     const width = dv.getUint32(16, true);
@@ -1360,7 +1331,6 @@ function parseDDSImage(u8, texName = 'texture') {
     const rgba = new Uint8ClampedArray(width * height * 4);
     let ptr = 128;
 
-    // DXT1 = 0x31545844, DXT5 = 0x35545844
     if (fourCC === 0x31545844) {
         for (let by = 0; by < height; by += 4) {
             for (let bx = 0; bx < width; bx += 4) {
@@ -1380,7 +1350,6 @@ function parseDDSImage(u8, texName = 'texture') {
             }
         }
     } else {
-        // Uncompressed RGBA / BGRA
         for (let i = 0; i < width * height && (ptr + 4 <= u8.byteLength); i++) {
             rgba[i * 4]     = u8[ptr + 2];
             rgba[i * 4 + 1] = u8[ptr + 1];
@@ -1413,7 +1382,6 @@ function parseDDSImage(u8, texName = 'texture') {
 function extractEmbeddedDDSFromBuffer(u8, sourceFileName) {
     let found = 0;
     for (let i = 0; i < u8.byteLength - 128; i++) {
-        // "DDS " magic: 0x44, 0x44, 0x53, 0x20
         if (u8[i] === 0x44 && u8[i + 1] === 0x44 && u8[i + 2] === 0x53 && u8[i + 3] === 0x20 && u8[i + 4] === 0x7C) {
             const parsed = parseDDSImage(u8.subarray(i), `${sourceFileName.replace(/\.[^/.]+$/, '')}_tex_${found + 1}`);
             if (parsed) {
@@ -1447,7 +1415,7 @@ function renderTextureGallery() {
     if (loadedTextures.length === 0) return;
 
     gal.innerHTML = '';
-    loadedTextures.forEach((t, idx) => {
+    loadedTextures.forEach((t) => {
         const card = document.createElement('div');
         card.className = 'tex-card';
         card.title = `${t.name} (${t.width}x${t.height}) — Bosib kuzovga qo'llang`;
@@ -1475,7 +1443,7 @@ function applyPrimaryTextureToBody(tex = null) {
     });
 }
 
-// ==================== 3. RENDERWARE .DFF PARSER (GTA SA / ZMODELER DFF FAYLLARINI HAM O'QIYDI) ====================
+// ==================== 3. RENDERWARE .DFF PARSER ====================
 function parseDFFFile(arrayBuffer, fileName) {
     const dv = new DataView(arrayBuffer);
     let offset = 0;
@@ -1553,7 +1521,6 @@ function parseDFFFile(arrayBuffer, fileName) {
                 const y = view.getFloat32(pos + 4, true);
                 const z = view.getFloat32(pos + 8, true);
                 pos += 12;
-                // GTA SA (x, y-forward, z-up) -> Three.js (x, z-up, -y)
                 verts[i * 3]     = x;
                 verts[i * 3 + 1] = z;
                 verts[i * 3 + 2] = y;
@@ -1720,7 +1687,6 @@ function selectCarPart(idx) {
     document.getElementById('selectedPartOrigName').textContent = part.gta5Name;
 
     const sel = document.getElementById('partSaRoleSelect');
-    const combinedVal = `${part.saName}|${part.role}`;
     for (let i = 0; i < sel.options.length; i++) {
         if (sel.options[i].value.startsWith(part.saName + '|')) {
             sel.selectedIndex = i;
@@ -1784,7 +1750,6 @@ function exportGtaSaDFF() {
         return;
     }
 
-    // Eshik va kapot ochilgan bo'lsa, eksport oldidan 0° joyiga qaytaramiz
     document.getElementById('openDoorsSlider').value = 0;
     document.getElementById('openDoorsVal').textContent = '0%';
     visibleParts.forEach(p => p.mesh.rotation.set(0, 0, 0));
@@ -1811,12 +1776,10 @@ function exportGtaSaDFF() {
     const numAtomics = visibleParts.length;
     const paintMode = document.getElementById('paintModeSelect').value;
 
-    // 1. Clump Struct (0x0001)
     const clumpStructBuf = new ArrayBuffer(12);
     new DataView(clumpStructBuf).setUint32(0, numAtomics, true);
     const clumpStruct = makeSection(0x0001, new Uint8Array(clumpStructBuf));
 
-    // 2. Frame List (0x000E)
     const numFrames = numAtomics + 1;
     const frameStructBuf = new ArrayBuffer(4 + numFrames * 56);
     const frameDV = new DataView(frameStructBuf);
@@ -1845,7 +1808,6 @@ function exportGtaSaDFF() {
         ...frameNameExts
     ]));
 
-    // 3. Geometry List (0x001A) va Atomics (0x0014)
     const geometrySections = [];
     const atomicSections = [];
     let totalSavedVerts = 0;
@@ -1877,11 +1839,10 @@ function exportGtaSaDFF() {
         const numTris = Math.floor(validTris.length / 3);
         totalSavedVerts += numVerts;
 
-        // Material rangini aniqlash (Pay 'n' Spray [60, 255, 0] yoki Custom RGB)
         const isBodyPart = ['body', 'bonnet', 'boot', 'door_lf', 'door_rf', 'door_lr', 'door_rr'].includes(part.role);
         let mr = 14, mg = 165, mb = 233;
         if (paintMode === 'sa_carcols' && isBodyPart) {
-            mr = 60; mg = 255; mb = 0; // GTA SA Primary Carcol Magic Green
+            mr = 60; mg = 255; mb = 0;
         } else if (part.mesh.material && part.mesh.material.color) {
             mr = Math.round(part.mesh.material.color.r * 255);
             mg = Math.round(part.mesh.material.color.g * 255);
@@ -1953,7 +1914,6 @@ function exportGtaSaDFF() {
         gDV.setUint32(ptr + 20, 1, true);
         ptr += 24;
 
-        // MUHIM TUZATISH: Three.js (X-Right, Y-Up, Z-Forward) -> GTA SA (X-Right, Y-Forward, Z-Up)
         for (let i = 0; i < numVerts; i++) {
             gDV.setFloat32(ptr,     pos.getX(i), true);
             gDV.setFloat32(ptr + 4, pos.getZ(i), true);
@@ -2023,7 +1983,7 @@ function exportGtaSaDFF() {
     setStatus(`✓ "${dffFileName}" (${numAtomics} ta qism, ${totalSavedVerts.toLocaleString()} vertex, Z-Up GTA SA formatida) muvaffaqiyatli saqlandi!`);
 }
 
-// ==================== 5. GTA SA RENDERWARE .TXD EXPORTER (0x0016 TEXTURE DICTIONARY) ====================
+// ==================== 5. GTA SA RENDERWARE .TXD EXPORTER ====================
 function exportGtaSaTXD() {
     if (loadedTextures.length === 0) {
         setStatus('⚠ .TXD yaratish uchun avval .YTD, .DDS yoki .PNG tekstura faylini yuklang!');
@@ -2063,28 +2023,28 @@ function exportGtaSaTXD() {
         const structBuf = new ArrayBuffer(88 + 4 + dataLen);
         const dv = new DataView(structBuf);
 
-        dv.setUint32(0, 9, true);          // Platform ID = 9 (D3D9 GTA SA)
-        dv.setUint32(4, 0x1102, true);     // Filter flags
+        dv.setUint32(0, 9, true);
+        dv.setUint32(4, 0x1102, true);
 
         const nameBytes = new TextEncoder().encode(tex.name.slice(0, 31));
         new Uint8Array(structBuf, 8, nameBytes.length).set(nameBytes);
 
-        dv.setUint32(72, 0x0500, true);    // RasterFormat: 8888 RGBA
-        dv.setUint32(76, 21, true);        // D3DFMT_A8R8G8B8
+        dv.setUint32(72, 0x0500, true);
+        dv.setUint32(76, 21, true);
         dv.setUint16(80, w, true);
         dv.setUint16(82, h, true);
-        dv.setUint8(84, 32);               // Depth = 32-bit
-        dv.setUint8(85, 1);                // MipLevels = 1
-        dv.setUint8(86, 4);                // RasterType
-        dv.setUint8(87, 1);                // Alpha flag
+        dv.setUint8(84, 32);
+        dv.setUint8(85, 1);
+        dv.setUint8(86, 4);
+        dv.setUint8(87, 1);
         dv.setUint32(88, dataLen, true);
 
         const outPixels = new Uint8Array(structBuf, 92, dataLen);
         for (let i = 0; i < w * h; i++) {
-            outPixels[i * 4]     = tex.rgbaBytes[i * 4 + 2]; // B
-            outPixels[i * 4 + 1] = tex.rgbaBytes[i * 4 + 1]; // G
-            outPixels[i * 4 + 2] = tex.rgbaBytes[i * 4];     // R
-            outPixels[i * 4 + 3] = tex.rgbaBytes[i * 4 + 3]; // A
+            outPixels[i * 4]     = tex.rgbaBytes[i * 4 + 2];
+            outPixels[i * 4 + 1] = tex.rgbaBytes[i * 4 + 1];
+            outPixels[i * 4 + 2] = tex.rgbaBytes[i * 4];
+            outPixels[i * 4 + 3] = tex.rgbaBytes[i * 4 + 3];
         }
 
         texNativeSections.push(makeSection(0x0015, concatArrays([
@@ -2157,14 +2117,12 @@ document.getElementById('openDoorsSlider').addEventListener('input', e => {
     });
 });
 
-// Model o'qi Z-up bo'lib tik turib qolgan bo'lsa 90 gradusga tekislash va yerga qo'yish
 document.getElementById('btnRotateZUp').addEventListener('click', () => {
     if (currentCarParts.length === 0) return;
     currentCarParts.forEach(p => {
         p.origGeom.rotateX(-Math.PI / 2);
         p.mesh.geometry.rotateX(-Math.PI / 2);
     });
-    // Yerga (Y = 0) tekislash
     const box = new THREE.Box3().setFromObject(carRootGroup);
     const minY = box.min.y;
     currentCarParts.forEach(p => {
@@ -2184,7 +2142,6 @@ document.getElementById('btnOneClickConvert').addEventListener('click', () => {
     document.getElementById('openDoorsVal').textContent = '0%';
     currentCarParts.forEach(p => p.mesh.rotation.set(0, 0, 0));
 
-    // Balonlar yerga tekis tegib turishini avtomatik kalibrlash
     const box = new THREE.Box3().setFromObject(carRootGroup);
     if (!box.isEmpty() && Math.abs(box.min.y) > 0.005) {
         const dy = -box.min.y;
@@ -2349,7 +2306,6 @@ dropZone.addEventListener('drop', e => {
     if (e.dataTransfer.files.length) handleUploadedFiles(e.dataTransfer.files);
 });
 
-// 3D Sahnada sichqoncha bilan bosib qismni tanlash (Raycaster)
 const raycaster = new THREE.Raycaster();
 const mouseVec = new THREE.Vector2();
 renderer.domElement.addEventListener('pointerdown', e => {
