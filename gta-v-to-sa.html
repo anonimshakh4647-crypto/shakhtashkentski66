@@ -276,7 +276,13 @@ function readTextureDict(rr,a){
 }
 /* -------- shaders -------- */
 const SHADER_NAMES=['vehicle_paint1','vehicle_paint2','vehicle_paint3','vehicle_paint4','vehicle_paint5','vehicle_paint6','vehicle_paint7','vehicle_paint8','vehicle_paint9','vehicle_paint3_lvr','vehicle_paint4_emissive','vehicle_paint4_enveff','vehicle_paint2_emissive','vehicle_paint1_emissive','vehicle_paint3_emissive','vehicle_vehglass','vehicle_vehglass_inner','vehicle_mesh','vehicle_mesh2_enveff','vehicle_mesh_enveff','vehicle_generic','vehicle_basic','vehicle_badges','vehicle_decal','vehicle_decal2','vehicle_licenseplate','vehicle_tire','vehicle_tire_emissive','vehicle_lights','vehicle_lightsemissive','vehicle_lightsemissive_siren','vehicle_cutout','vehicle_shuts','vehicle_dash_emissive','vehicle_dash_emissive_opaque','vehicle_interior','vehicle_interior2','vehicle_nosplash','vehicle_blurredrotor','vehicle_blurredrotor_emissive','vehicle_cloth','vehicle_cloth2','vehicle_track','vehicle_track2','vehicle_track_emissive','vehicle_track2_emissive','vehicle_detail','vehicle_detail2','vehicle_emissive_opaque','vehicle_emissive_alpha','vehicle_paint_ped','vehicle_noenvmap','vehicle_shuts','vehicle_mesh2_enveff','vehicle_mesh_enveff','default','default_spec','normal','normal_spec','spec','alpha','cutout','decal','glass','glass_spec','emissive','emissive_alpha','normal_reflect','normal_spec_reflect','normal_cutout','normal_cutout_spec','normal_decal','normal_spec_decal','ped','ped_alpha','trees_normal','weapon_normal_spec_tnt'];
-const SHADER_MAP=new Map();SHADER_NAMES.forEach(n=>SHADER_MAP.set(joaat(n),n));
+const SHADER_MAP=new Map();
+(function(){const add=n=>{SHADER_MAP.set(joaat(n),n);SHADER_MAP.set(joaat(n+'.sps'),n);};
+ SHADER_NAMES.forEach(add);
+ const suf=['','_enveff','_emissive','_emissive_opaque','_enveff_emissive','_lvr','_nosplash','_ped','_decal','_noenvmap','_cutout','_alpha','_spec','_normal','_wire','_tnt','_2','_3'];
+ for(let i=0;i<=9;i++)for(const s of suf)add('vehicle_paint'+i+s);
+ ['vehicle_mesh','vehicle_mesh2','vehicle_generic','vehicle_basic','vehicle_decal','vehicle_decal2','vehicle_badges','vehicle_lights','vehicle_lightsemissive','vehicle_lightsemissive_siren','vehicle_cutout','vehicle_shuts','vehicle_vehglass','vehicle_vehglass_inner','vehicle_interior','vehicle_interior2','vehicle_tire','vehicle_dash_emissive','vehicle_dash_emissive_opaque','vehicle_track','vehicle_track2','vehicle_cloth','vehicle_cloth2','vehicle_detail','vehicle_detail2','vehicle_licenseplate','vehicle_blurredrotor','vehicle_noenvmap','vehicle_nosplash','vehicle_emissive_opaque','vehicle_emissive_alpha','vehicle_paint_ped','vehicle_lightsemissive_opaque','vehicle_mesh_alpha','vehicle_mesh_spec','vehicle_glass','vehicle_chrome','vehicle_metal','vehicle_rubber','vehicle_carbon','vehicle_leather','vehicle_plastic'].forEach(b=>{for(const s of suf)add(b+s);});
+})();
 const HASH_DIFF=joaat('diffusesampler'),HASH_DIFF2=joaat('diffusesampler2'),HASH_SPEC=joaat('specsampler'),HASH_BUMP=joaat('bumpsampler');
 function readShader(rr,s){
   const sh={nameHash:rr.u32(s+8),fileHash:rr.u32(s+0x18),bucket:rr.u8(s+0x11),textures:[]};
@@ -1050,11 +1056,17 @@ function classify(raw){
 }
 function autoRole(shaderName,texName,partName){
   const s=(shaderName||'').toLowerCase(),t=(texName||'').toLowerCase(),p=(partName||'').toLowerCase();
-  if(/^vehicle_paint/.test(s))return'paint1';
-  if(/vehglass/.test(s))return'glass';
+  if(/paint/.test(s)&&!/ped/.test(s))return'paint1';
+  if(/glass/.test(s))return'glass';
   if(/light/.test(s)||/(head|tail|brake|indicator|reversing)light/.test(p))return'light';
+  const unknown=/^0x/.test(s)||!s;
+  if(unknown){ // shader hash not recognised: guess from texture / part names
+    if(/glass|window|windscreen|windshield/.test(t+' '+p))return'glass';
+    if(/(head|tail|brake|indicator|reverse|rear|front)_?(light|lamp)|lens/.test(t+' '+p))return'light';
+  }
   return'texture';
 }
+const isUnknownShader=n=>/^0x/.test(n||'')||!n;
 function defaultRoles(model){
   const roles={};
   (model.shaders||[]).forEach((sh,i)=>{roles[i]='auto';});
@@ -1122,7 +1134,7 @@ class GeoAcc{
 function bboxOf(xms){let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];for(const xm of xms)for(let i=0;i<xm.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}return{mn,mx};}
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({name:'',lod:'high',mergeOther:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -1138,6 +1150,7 @@ function convertToSA(model,texLookup,opts){
   const cls=parts.map(p=>({p,c:objectMode?{t:'body',sa:'object'}:classify(p.name)}));
   const roleFor=(mesh,partName)=>{const r=opts.roles[mesh.mat.shaderIndex]||'auto';return r==='auto'?(objectMode?'texture':autoRole(mesh.mat.shaderName,mesh.mat.tex,partName)):r;};
   const lightByPos=(xm,a,b,c)=>{const x=(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3,y=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3;return'light_'+(y>=0?'f':'r')+(x<0?'l':'r');};
+  const texFound=new Map(),fallbackPaint=new Set();
   const matResolver=(it,a,b,c,xm)=>{
     const role=roleFor(it.mesh,it.partName);
     if(role==='skip')return null;
@@ -1152,7 +1165,18 @@ function convertToSA(model,texLookup,opts){
       return{key:k,color:SA_COL[k]};
     }
     const t=it.mesh.mat.tex;
-    if(t)return{key:'tex:'+t,color:[255,255,255,255],tex:t};
+    if(t){
+      let ok=texFound.get(t);
+      if(ok===undefined){const r=texLookup?texLookup(t):null;ok=!!(r&&r.rgba);texFound.set(t,ok);if(!ok)report.missingTex.push(t);}
+      if(ok)return{key:'tex:'+t,color:[255,255,255,255],tex:t};
+    }
+    // no texture available -> choose a sensible colour instead of flat grey
+    const sn=it.mesh.mat.shaderName,pc=objectMode?'body':classify(it.partName).t;
+    const dark=/tyre|tire|rubber|brake|disc/.test(((t||'')+' '+it.partName).toLowerCase());
+    const bodyish=pc!=='wheel'&&pc!=='dummy'&&pc!=='steer';
+    if(dark)return{key:'black',color:SA_COL.black};
+    if(opts.missTex==='paint'&&bodyish)return{key:'paint1',color:SA_COL.paint1};
+    if(opts.missTex==='auto'&&bodyish&&!objectMode&&isUnknownShader(sn)){fallbackPaint.add(sn||'?');return{key:'paint1',color:SA_COL.paint1};}
     return{key:'plain',color:SA_COL.plain};
   };
   const frames=[{name:objectMode?name:'chassis_dummy',pos:[0,0,0],parent:-1}];
@@ -1247,13 +1271,18 @@ function convertToSA(model,texLookup,opts){
   // 6. textures
   const used=new Set();
   for(const g of geoms)for(const m of g.materials)if(m.tex)used.add(m.tex);
+  report.requiredTex=[...used].length+report.missingTex.length;
   const txdTexs=[];
   for(const tn of used){
     const t=texLookup?texLookup(tn):null;
     if(t&&t.rgba){txdTexs.push(G.makeTxdTexture(tn,t.rgba,t.w,t.h,{maxSize:opts.maxTex,compress:opts.compress,mips:opts.mips}));report.usedTex.push(tn);}
     else{report.missingTex.push(tn);for(const g of geoms)for(const m of g.materials)if(m.tex===tn){m.tex='';m.color=SA_COL.plain.slice();}}
   }
-  if(report.missingTex.length)report.warnings.push('Topilmagan teksturalar ('+report.missingTex.length+'): '+report.missingTex.join(', ')+'. YTD faylni ham qo‘shing (masalan '+name+'.ytd va '+name+'_hi.ytd).');
+  report.shaders=(model.shaders||[]).map((sh,i)=>{const r=opts.roles[i]||'auto';return{i,name:sh.name,hash:sh.nameHash,fileHash:sh.fileHash,role:r==='auto'?autoRole(sh.name,sh.diffuse,''):r,textures:(sh.textures||[]).map(t=>({kind:t.kind,hash:t.hash,name:t.name,found:!!(t.name&&texLookup&&texLookup(t.name)&&texLookup(t.name).rgba)}))};});
+  const unk=report.shaders.filter(s=>isUnknownShader(s.name)).length;
+  if(unk)report.warnings.push(unk+' ta shader nomi tanilmadi (hash). Materiallar bo‘limida rolni qo‘lda tanlang (Asosiy rang / Oyna / Chiroq / Tekstura).');
+  if(fallbackPaint.size)report.warnings.push('Tekstura yo‘q va shader noma’lum bo‘lgan qismlar avtomatik "asosiy rang" (60,255,0) qilindi — o‘yinda kerakli rangda chiqadi.');
+  if(report.missingTex.length)report.warnings.push('Topilmagan teksturalar ('+report.missingTex.length+'): '+report.missingTex.slice(0,12).join(', ')+(report.missingTex.length>12?'…':'')+'. Mashinaning .ytd faylini ham qo‘shing (masalan '+name.replace(/_hi$/,'')+'.ytd) yoki PNG/DDS nomi shu tekstura nomi bilan bir xil bo‘lsin.');
   // compact geoms (unused materials fine)
   const tris=geoms.reduce((s,g)=>s+g.tris.length/4,0),verts=geoms.reduce((s,g)=>s+g.pos.length/3,0);
   report.stats={frames:frames.length,geoms:geoms.length,tris,verts,textures:txdTexs.length};
@@ -1264,7 +1293,7 @@ function convertToSA(model,texLookup,opts){
   const ide=objectMode?'ID, '+name+', '+name+', 299, 0':'ID, '+name+', '+name+', car, '+name.toUpperCase()+', '+name.toUpperCase()+', null, richfolk, 10, 0, 0, -1, '+ws.toFixed(2)+', '+ws.toFixed(2)+', 0';
   return{dff,txd,ide,report,name,texNames:txdTexs.map(t=>t.name)};
 }
-Object.assign(G,{convertToSA,classify,autoRole,ROLES,SA_COL,defaultRoles});
+Object.assign(G,{isUnknownShader,convertToSA,classify,autoRole,ROLES,SA_COL,defaultRoles});
 })(GV);
 
 /* ===== minimal WebGL1 model viewer (Z-up) ===== */
@@ -1426,13 +1455,14 @@ G.Viewer=Viewer;
 (function(G){
 'use strict';
 const POOL=new Map(); // lower name -> {name,w,h,rgba|null,src:{fmt,data},fmtName,levels,origin}
+const normKey=n=>String(n||'').toLowerCase().replace(/^.*[\\/]/,'').replace(/\.(dds|png|jpe?g|webp|bmp|gif|tga)$/,'').trim();
 function poolAdd(t){
-  const key=(t.name||'').toLowerCase();if(!key)return;
+  const key=normKey(t.name);if(!key)return;
   const old=POOL.get(key);if(old&&old.rgba&&!t.rgba&&!t.src)return;
   POOL.set(key,Object.assign({lname:key},t));
 }
 function poolGet(name){
-  const t=POOL.get((name||'').toLowerCase());if(!t)return null;
+  const t=POOL.get(normKey(name));if(!t)return null;
   if(!t.rgba&&t.src){try{t.rgba=G.decodeToRGBA(t.src.fmt,t.w,t.h,t.src.data,0);}catch(e){t.rgba=null;}if(!t.rgba)t.unsupported=true;t.src=t.rgba?null:t.src;}
   return t.rgba?t:null;
 }
@@ -1500,9 +1530,10 @@ async function loadFile(file){
   return rec;
 }
 function poolList(){return[...POOL.values()];}
+function poolSuggest(name){const k=normKey(name);if(!k)return'';for(const key of POOL.keys()){if(key.includes(k)||k.includes(key))return key;}const pre=k.slice(0,Math.max(5,Math.floor(k.length*0.6)));for(const key of POOL.keys())if(key.startsWith(pre))return key;return'';}
 function poolClear(){POOL.clear();}
 function poolRemoveByOrigin(prefix){for(const [k,v] of [...POOL])if((v.origin||'').indexOf(prefix)===0)POOL.delete(k);}
-Object.assign(G,{loadFile,poolGet,poolList,poolClear,poolAdd,poolRemoveByOrigin,POOL});
+Object.assign(G,{poolSuggest,loadFile,poolGet,poolList,poolClear,poolAdd,poolRemoveByOrigin,POOL});
 })(GV);
 
 /* ===== application UI ===== */
@@ -1513,7 +1544,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,maxTex:1024,compress:'auto',mips:true,wheelScale:1,rot180:false}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,maxTex:1024,compress:'auto',mips:true,wheelScale:1,rot180:false}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -1680,6 +1711,28 @@ async function exportPoolTXD(){
   save('teksturalar.txd',G.buildTXD(texs));toast(texs.length+' ta tekstura TXD ga yozildi');
 }
 /* ---------- convert ---------- */
+function diagText(m,rp){
+  const pool=G.poolList();const L=[];
+  L.push('Model: '+m.name+' · '+m.parts.length+' qism · '+(m.shaders||[]).length+' shader');
+  L.push('Yuklangan fayllar: '+S.items.map(i=>i.file).join(', '));
+  L.push('Tekstura ombori: '+pool.length+' ta ('+pool.filter(t=>!t.rgba&&!t.src).length+' ta nomaʼlum) · '+pool.slice(0,30).map(t=>t.name+'['+t.fmtName+(G.poolGet(t.name)?'':' OCHILMADI')+']').join(', '));
+  (rp?rp.shaders:(m.shaders||[]).map((sh,i)=>({i,name:sh.name,hash:sh.nameHash,role:G.autoRole(sh.name,sh.diffuse,''),textures:(sh.textures||[]).map(t=>({kind:t.kind,hash:t.hash,name:t.name,found:!!(t.name&&G.poolGet(t.name))}))}))).forEach(s=>{
+    L.push('#'+s.i+' '+s.name+(G.isUnknownShader(s.name)?' (hash 0x'+(s.hash>>>0).toString(16)+')':'')+' → '+s.role+' | '+(s.textures.length?s.textures.map(t=>t.kind+':'+(t.name||'(nom yo‘q)')+(t.name?(t.found?' ✓':' ✗'+(G.poolSuggest(t.name)?' (o‘xshash: '+G.poolSuggest(t.name)+')':'')):'')).join(', '):'tekstura parametri yo‘q'));});
+  return L.join('\n');
+}
+function preCheck(p,m){
+  const shs=m.shaders||[],unk=shs.filter(s=>G.isUnknownShader(s.name)).length;
+  const need=new Set();shs.forEach(s=>{if(s.diffuse&&!/paint|glass/.test(s.name))need.add(s.diffuse.toLowerCase())});
+  const miss=[...need].filter(n=>!G.poolGet(n));
+  const ytd=S.items.some(i=>/\.ytd$/i.test(i.file));
+  const c=el('div',{class:'card'});
+  c.appendChild(el('div',{html:'<b>Tekshiruv:</b> '+shs.length+' shader · '+(unk?'<span class="tag bad">'+unk+' tanilmagan</span>':'<span class="tag ok">hammasi tanildi</span>')+' · '+need.size+' tekstura kerak, '+(need.size-miss.length)+' topildi'}));
+  if(need.size&&miss.length===need.size&&!ytd)c.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'⚠ YTD fayl yuklanmagan! Mashina teksturalari odatda alohida .ytd faylda (masalan '+m.name.replace(/_hi$/,'')+'.ytd). Uni ham “Fayl qo‘shish” orqali qo‘shing — aks holda TXD bo‘sh chiqadi.'}));
+  else if(miss.length)c.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'Topilmadi: '+miss.slice(0,8).join(', ')+(miss.length>8?'…':'')}));
+  const d=el('details',{},[el('summary',{text:'Diagnostika (shader va tekstura holati)'})]);const pre=el('pre',{class:'log'});pre.textContent=diagText(m,null);d.appendChild(pre);
+  d.appendChild(el('button',{class:'btn sm',type:'button',onclick:async()=>{try{await navigator.clipboard.writeText(pre.textContent);toast('Nusxalandi');}catch(e){toast('Nusxalab bo‘lmadi')}}},['Nusxalash']));
+  c.appendChild(d);p.appendChild(c);
+}
 function paneConv(p){
   const it=curItem();if(!it||!it.model||it.model.kind==='dff'){p.appendChild(el('div',{class:'note',text:it&&it.model&&it.model.kind==='dff'?'DFF allaqachon SA formatida — ko‘rish va OBJ eksport mumkin.':'Konvertlash uchun avval YFT (mashina) yoki YDR/YDD faylini qo‘shing.'}));if(it&&it.model)paneExport(p,it);return;}
   const m=it.model,car=m.kind==='yft',O=S.opts;
@@ -1695,6 +1748,8 @@ function paneConv(p){
   p.appendChild(sel('Maks. tekstura','maxTex',[[256,'256'],[512,'512'],[1024,'1024 (tavsiya)'],[2048,'2048']]));
   p.appendChild(sel('Siqish','compress',[['auto','Avto (DXT1/DXT3)'],['dxt1','Faqat DXT1'],['dxt3','Faqat DXT3'],['none','Siqilmagan 32-bit']]));
   p.appendChild(chk('Mipmap yaratish','mips'));
+  if(car)p.appendChild(sel('Tekstura topilmasa','missTex',[['auto','Avto (noma’lum shader → asosiy rang)'],['paint','Hammasi → asosiy rang'],['plain','Kulrang']]));
+  if(car)preCheck(p,m);
   p.appendChild(el('div',{class:'row'},[el('button',{class:'btn pri',type:'button',id:'btnConv',onclick:runConvert},['⚙ SA GA KONVERTLASH'])]));
   if(S.result)renderResult(p);
   paneExport(p,it);
@@ -1716,6 +1771,7 @@ function renderResult(p){
   p.appendChild(el('h3',{text:'Natija'}));
   const c=el('div',{class:'card res'});
   c.appendChild(el('div',{html:'<b>'+esc(r.name)+'.dff</b> · '+G.fmtSize(r.dff.length)+' &nbsp; <b>'+esc(r.name)+'.txd</b> · '+G.fmtSize(r.txd.length)}));
+  if(!st.textures)c.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'⚠ TXD ga tekstura tushmadi'+(rp.missingTex.length?' ('+rp.missingTex.length+' ta tekstura topilmadi — YTD yuklanganini tekshiring).':'. Model faqat rang materiallaridan iborat bo‘lishi mumkin (asosiy rang/oyna/chiroq).')}));
   c.appendChild(el('div',{class:'note',text:st.frames+' frame · '+st.geoms+' geometriya · '+st.tris.toLocaleString()+' poligon · '+st.verts.toLocaleString()+' vertex · '+st.textures+' tekstura'}));
   if(rp.info.length)c.appendChild(el('ul',{class:'i'},rp.info.map(t=>el('li',{text:t}))));
   if(rp.warnings.length)c.appendChild(el('ul',{},rp.warnings.map(t=>el('li',{text:t}))));
