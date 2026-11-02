@@ -1101,7 +1101,6 @@ function fitCameraToCar() {
 }
 
 // ==================== 1. HAQIQIY RAGE RSC7 (.YFT / .YDR) GEOMETRIYA VA SKELET PARSERI ====================
-// CodeWalker RpfResourceFileEntry.GetSizeFromFlags algoritmi bo'yicha System (0x50000000) va Graphics (0x60000000) xotira hajmini hisoblash
 function getRsc7SizeFromFlags(flags) {
     const s0 = ((flags >>> 27) & 0x1) << 0;
     const s1 = ((flags >>> 26) & 0x1) << 1;
@@ -1116,7 +1115,6 @@ function getRsc7SizeFromFlags(flags) {
     return baseSize * (s0 + s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8);
 }
 
-// IEEE-754 16-bit Half-Float -> 32-bit Float konverteri (UV va Half4 vertexlar uchun)
 function decodeFloat16(uint16) {
     const s = (uint16 & 0x8000) >> 15;
     const e = (uint16 & 0x7C00) >> 10;
@@ -1126,29 +1124,32 @@ function decodeFloat16(uint16) {
     return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
 }
 
-// GTA V VertexDeclaration (FVF) dagi har bir komponentning bayt uzunligi
+// CodeWalker VertexType enum bo'yicha har bir komponentning haqiqiy bayt uzunligi
 function getRageVertexComponentSize(typeNibble) {
     switch (typeNibble & 0xF) {
-        case 0: return 4;  // Float / Half2
-        case 1: return 8;  // Float2 / Half4
-        case 2: return 12; // Float3
+        case 0: return 4;  // Float
+        case 1: return 8;  // Float2
+        case 2: return 12; // Float3 (Position / Normal)
         case 3: return 16; // Float4
         case 4: return 4;  // UByte4 (BlendIndices / BlendWeights)
         case 5: return 4;  // Color (RGBA8)
-        case 6: return 12; // Float3 (Position)
-        case 7: return 4;  // Dec3N (Packed Normal/Tangent)
-        case 8: return 4;  // UByte4N
+        case 6: return 4;  // Dec3N (Packed Normal / Tangent)
+        case 7: return 4;  // UShort2
+        case 8: return 8;  // UShort4
         case 9: return 4;  // Half2 (UV)
         case 10: return 8; // Half4
+        case 11: return 4;
+        case 12: return 8;
+        case 13: return 12;
         case 14: return 4; // Short2N
         case 15: return 8; // Short4N
         default: return 4;
     }
 }
 
-function parseVertexDeclarationLayout(dv, vdeclOff) {
+function parseVertexDeclarationLayout(dv, vdeclOff, fallbackStride) {
     const fvfFlags = dv.getUint32(vdeclOff, true);
-    const totalStride = dv.getUint8(vdeclOff + 4);
+    const totalStride = dv.getUint8(vdeclOff + 4) || fallbackStride;
     const typesLow = dv.getUint32(vdeclOff + 8, true);
     const typesHigh = dv.getUint32(vdeclOff + 12, true);
 
@@ -1157,7 +1158,7 @@ function parseVertexDeclarationLayout(dv, vdeclOff) {
         stride: totalStride,
         fvfFlags,
         posOffset: 0,
-        posType: 6,
+        posType: 2,
         weightsOffset: -1,
         indicesOffset: -1,
         normalOffset: -1,
@@ -1172,11 +1173,23 @@ function parseVertexDeclarationLayout(dv, vdeclOff) {
             ? ((typesLow >>> (bit * 4)) & 0xF)
             : ((typesHigh >>> ((bit - 8) * 4)) & 0xF);
 
-        if (bit === 0) { layout.posOffset = runningOffset; layout.posType = typeNib; }
-        else if (bit === 1) { layout.weightsOffset = runningOffset; }
-        else if (bit === 2) { layout.indicesOffset = runningOffset; }
-        else if (bit === 3) { layout.normalOffset = runningOffset; layout.normalType = typeNib; }
-        else if (bit === 6) { layout.uvOffset = runningOffset; layout.uvType = typeNib; }
+        if (bit === 0) {
+            layout.posOffset = runningOffset;
+            layout.posType = typeNib;
+            // GTA V da Position (Bit 0) har doim 12 bayt (Float3)
+            runningOffset += (typeNib === 3 ? 16 : (typeNib === 10 ? 8 : 12));
+            continue;
+        } else if (bit === 1) {
+            layout.weightsOffset = runningOffset;
+        } else if (bit === 2) {
+            layout.indicesOffset = runningOffset;
+        } else if (bit === 3) {
+            layout.normalOffset = runningOffset;
+            layout.normalType = typeNib;
+        } else if (bit === 6) {
+            layout.uvOffset = runningOffset;
+            layout.uvType = typeNib;
+        }
 
         runningOffset += getRageVertexComponentSize(typeNib);
     }
@@ -1281,22 +1294,18 @@ function decompressRsc7(arrayBuffer) {
 }
 
 function parseBinaryYFT(arrayBuffer, fileName) {
-    // 1. Agar CodeWalker XML bo'lsa
     const headStr = new TextDecoder().decode(new Uint8Array(arrayBuffer, 0, Math.min(200, arrayBuffer.byteLength)));
     if (headStr.includes('<?xml') || headStr.includes('<Fragment') || headStr.includes('<Drawable')) {
         parseCodeWalkerYftXml(new TextDecoder().decode(arrayBuffer), fileName);
         return;
     }
 
-    // 2. RSC7 Zlib oqimini ochish va System (0x50000000) / Graphics (0x60000000) segmentlarini ajratish
     const { data, systemSize } = decompressRsc7(arrayBuffer);
     const totalLen = data.byteLength;
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-    // Ichki DDS teksturalar bo'lsa ajratib olish
     extractEmbeddedDDSFromBuffer(data, fileName);
 
-    // 64-bit RAGE ko'rsatkichini (0x5....... yoki 0x6.......) bufer indeksiga o'girish
     function resolvePtr(posOffset) {
         if (posOffset < 0 || posOffset + 8 > totalLen) return -1;
         const low = dv.getUint32(posOffset, true);
@@ -1326,13 +1335,11 @@ function parseBinaryYFT(arrayBuffer, fileName) {
         return s.trim();
     }
 
-    // 3. SKELETON BONES (`crBoneData`, 80 bytes = 0x50 each) qidirish:
-    // Har bir suyakning aniq nomi ("chassis", "bonnet", "door_dside_f", "wheel_lf" va h.k.) hamda koordinatasini topamiz!
+    // 1. SKELETON BONES (`crBoneData`, 80 bytes = 0x50 each) qidirish
     let skeletonBones = [];
     const scanLimit = Math.min(systemSize + 65536, totalLen - 160);
 
     for (let off = 0; off < scanLimit - 80; off += 4) {
-        // Bone[0] da Scale (off + 0x20) = (1, 1, 1), ParentIndex (off + 0x32) = 0xFFFF yoki 0, Index (off + 0x44) = 0
         const sx = dv.getFloat32(off + 0x20, true);
         const sy = dv.getFloat32(off + 0x24, true);
         const sz = dv.getFloat32(off + 0x28, true);
@@ -1345,7 +1352,6 @@ function parseBinaryYFT(arrayBuffer, fileName) {
         const name0 = readAsciiString(nameOff0);
         if (!name0 || name0.length < 2) continue;
 
-        // Ketma-ket suyaklar massivini o'qiymiz
         const candidateBones = [];
         for (let b = 0; b < 256; b++) {
             const bOff = off + b * 0x50;
@@ -1375,7 +1381,6 @@ function parseBinaryYFT(arrayBuffer, fileName) {
         }
 
         if (candidateBones.length > skeletonBones.length && candidateBones.length >= 4) {
-            // World pozitsiyalarni ota-ona suyaklar orqali hisoblash
             candidateBones.forEach(bone => {
                 if (bone.parentIndex >= 0 && bone.parentIndex < bone.index) {
                     const pBone = candidateBones[bone.parentIndex];
@@ -1387,18 +1392,21 @@ function parseBinaryYFT(arrayBuffer, fileName) {
         }
     }
 
-    // 4. PAST SIFATLI LOD (`Med`, `Low`, `VLow`) VA SHIKASTLANGAN (`_dam`) DRAWABLE GEOMETRIYALARINI ANIQLAB CHETLAB O'TISH
+    // 2. PAST SIFATLI LOD (`Med`, `Low`, `VLow`) VA SHIKASTLANGAN (`_dam`) DRAWABLE GEOMETRIYALARINI CHETLAB O'TISH
     const excludedGeomOffsets = new Set();
 
-    function collectGeomsFromModelsBlock(blockOff) {
-        const listOff = resolvePtr(blockOff);
-        const count = dv.getUint16(blockOff + 8, true);
-        const cap = dv.getUint16(blockOff + 10, true);
-        if (listOff < 0 || count === 0 || count > 64 || count !== cap) return [];
+    function collectGeomsFromModelsPtr(modelsPtrOff) {
+        const listOff = resolvePtr(modelsPtrOff);
+        if (listOff < 0 || listOff + 16 > totalLen) return [];
+        const entriesOff = resolvePtr(listOff);
+        const count = dv.getUint16(listOff + 8, true);
+        const cap = dv.getUint16(listOff + 10, true);
+        if (entriesOff < 0 || count === 0 || count > 64 || count > cap) return [];
+
         const geomOffs = [];
         for (let m = 0; m < count; m++) {
-            const modelOff = resolvePtr(listOff + m * 8);
-            if (modelOff < 0 || modelOff + 0x30 > totalLen) continue;
+            const modelOff = resolvePtr(entriesOff + m * 8);
+            if (modelOff < 0 || modelOff + 0x20 > totalLen) continue;
             const gListOff = resolvePtr(modelOff + 0x08);
             const gCount = dv.getUint16(modelOff + 0x10, true);
             if (gListOff < 0 || gCount > 128) continue;
@@ -1410,37 +1418,30 @@ function parseBinaryYFT(arrayBuffer, fileName) {
         return geomOffs;
     }
 
-    // Drawable strukturalarini topib, Med (+0x58), Low (+0x60), VLow (+0x68) LODlarni exclude ro'yxatiga qo'shish
-    for (let off = 0; off < scanLimit - 0x90; off += 8) {
+    for (let off = 0; off < scanLimit - 0x90; off += 4) {
         const dHigh = dv.getFloat32(off + 0x70, true);
         const dMed  = dv.getFloat32(off + 0x74, true);
         const dLow  = dv.getFloat32(off + 0x78, true);
         if (dHigh > 0.5 && dHigh < 15000 && dMed >= dHigh && dLow >= dMed && dLow < 25000) {
-            const medBlock = resolvePtr(off + 0x58);
-            const lowBlock = resolvePtr(off + 0x60);
-            const vlowBlock = resolvePtr(off + 0x68);
-            if (medBlock >= 0) collectGeomsFromModelsBlock(medBlock).forEach(g => excludedGeomOffsets.add(g));
-            if (lowBlock >= 0) collectGeomsFromModelsBlock(lowBlock).forEach(g => excludedGeomOffsets.add(g));
-            if (vlowBlock >= 0) collectGeomsFromModelsBlock(vlowBlock).forEach(g => excludedGeomOffsets.add(g));
+            collectGeomsFromModelsPtr(off + 0x58).forEach(g => excludedGeomOffsets.add(g));
+            collectGeomsFromModelsPtr(off + 0x60).forEach(g => excludedGeomOffsets.add(g));
+            collectGeomsFromModelsPtr(off + 0x68).forEach(g => excludedGeomOffsets.add(g));
         }
     }
 
-    // FragTypeChild ichidagi DamagedEntity (Drawable2Pointer at +0xA8) larni ham exclude qilish
-    for (let off = 0; off < scanLimit - 0xB8; off += 8) {
+    // FragTypeChild ichidagi DamagedEntity (Drawable2Pointer at +0xA8) larni exclude qilish
+    for (let off = 0; off < scanLimit - 0xB8; off += 4) {
         const drw1 = resolvePtr(off + 0xA0);
         const drw2 = resolvePtr(off + 0xA8);
         if (drw1 > 0 && drw2 > 0 && drw1 !== drw2 && drw2 + 0x70 < totalLen) {
-            const highBlock2 = resolvePtr(drw2 + 0x50);
-            if (highBlock2 >= 0) {
-                collectGeomsFromModelsBlock(highBlock2).forEach(g => excludedGeomOffsets.add(g));
-            }
+            collectGeomsFromModelsPtr(drw2 + 0x50).forEach(g => excludedGeomOffsets.add(g));
         }
     }
 
-    // 5. BARCHA HAQIQIY `DrawableGeometry` (`grmGeometryQB`) STRUKTURALARINI TOPISH VA O'QISH:
-    // Har bir `DrawableGeometry` da VertexBuffer (+0x18) va IndexBuffer (+0x38) mavjud!
+    // 3. BARCHA HAQIQIY `DrawableGeometry` (`grmGeometryQB`) STRUKTURALARINI TOPISH VA O'QISH:
+    // TUZATILDI: vbStride = dv.getUint16(vbOff + 0x08, true) va vbVerts = dv.getUint32(vbOff + 0x18, true)
     const validGeometries = [];
-    for (let off = 0; off < scanLimit - 0x80; off += 8) {
+    for (let off = 0; off < scanLimit - 0x88; off += 4) {
         if (excludedGeomOffsets.has(off)) continue;
 
         const indicesCount = dv.getUint32(off + 0x58, true);
@@ -1458,15 +1459,19 @@ function parseBinaryYFT(arrayBuffer, fileName) {
         const ibOff = resolvePtr(off + 0x38);
         if (vbOff < 0 || ibOff < 0 || vbOff + 0x38 > totalLen || ibOff + 0x18 > totalLen) continue;
 
-        const vbVerts = dv.getUint16(vbOff + 0x08, true);
-        const vbStride = dv.getUint32(vbOff + 0x18, true);
+        const vbStride = dv.getUint16(vbOff + 0x08, true);
+        const vbVerts = dv.getUint16(vbOff + 0x18, true);
         const ibIndices = dv.getUint32(ibOff + 0x08, true);
 
-        if (vbVerts !== verticesCount || vbStride !== stride || ibIndices !== indicesCount) continue;
+        if (vbStride !== stride || vbVerts !== verticesCount || ibIndices !== indicesCount) continue;
 
         let vDataOff = resolvePtr(vbOff + 0x10);
         if (vDataOff < 0) vDataOff = resolvePtr(vbOff + 0x20);
-        const iDataOff = resolvePtr(ibOff + 0x10);
+        if (vDataOff < 0) vDataOff = resolvePtr(off + 0x78);
+
+        let iDataOff = resolvePtr(ibOff + 0x10);
+        if (iDataOff < 0) iDataOff = resolvePtr(off + 0x80);
+
         const vdeclOff = resolvePtr(vbOff + 0x30);
 
         if (vDataOff < 0 || iDataOff < 0) continue;
@@ -1481,9 +1486,9 @@ function parseBinaryYFT(arrayBuffer, fileName) {
             }
         }
 
-        const declLayout = vdeclOff >= 0 ? parseVertexDeclarationLayout(dv, vdeclOff) : {
-            stride, posOffset: 0, weightsOffset: -1, indicesOffset: -1, normalOffset: -1, uvOffset: -1
-        };
+        const declLayout = vdeclOff >= 0
+            ? parseVertexDeclarationLayout(dv, vdeclOff, stride)
+            : { stride, posOffset: 0, weightsOffset: -1, indicesOffset: -1, normalOffset: -1, uvOffset: -1 };
 
         validGeometries.push({
             geomOff: off,
@@ -1498,23 +1503,22 @@ function parseBinaryYFT(arrayBuffer, fileName) {
     }
 
     if (validGeometries.length === 0) {
-        setStatus(`⚠ "${fileName}" shifrlangan (Rockstar NG) binar fayl ekan. Uni CodeWalker da ochib, ".YFT.XML" yoki ".OBJ" formatida eksport qilib tashlang!`);
+        setStatus(`⚠ "${fileName}" ichida ochiq RSC7 geometriya topilmadi. Uni CodeWalker da ochib ".YFT.XML" yoki ".OBJ" qilib tashlang!`);
         return;
     }
 
-    // 6. HAR BIR GEOMETRIYADAN ANIQ VERTEX, UV VA INDEXLARNI O'QIB, SUYAK NOMLARI BO'YICHA QISMLARGA AJRATISH
-    const partBuckets = new Map(); // partName -> { pos: [], uv: [] }
-    let standaloneWheelGeoms = [];
+    // 4. HAR BIR GEOMETRIYADAN ANIQ VERTEX, UV VA INDEXLARNI O'QIB, SUYAK NOMLARI BO'YICHA QISMLARGA AJRATISH
+    const partBuckets = new Map();
+    const standaloneWheelGeoms = [];
 
     function getMajorPartBucketName(rawBoneName) {
         const b = (rawBoneName || '').toLowerCase();
         if (!b) return 'bodyshell';
-        // _dam (damaged) yoki _hi bo'laklarni filtrlash
         if (b.includes('_dam')) return 'skip_damaged';
 
         const majorPrefixes = [
             'bonnet', 'boot', 'door_dside_f', 'door_pside_f', 'door_dside_r', 'door_pside_r',
-            'bumper_f', 'bumper_r', 'windscreen', 'spoiler', 'exhaust',
+            'bumper_f', 'bumper_r', 'windscreen', 'window', 'spoiler', 'exhaust',
             'wheel_lf', 'wheel_rf', 'wheel_lr', 'wheel_rr',
             'headlight', 'taillight', 'indicator', 'siren', 'engine', 'seat', 'dash', 'steering'
         ];
@@ -1552,18 +1556,16 @@ function parseBinaryYFT(arrayBuffer, fileName) {
             if (ty < minY) minY = ty; if (ty > maxY) maxY = ty;
             if (tz < minZ) minZ = tz; if (tz > maxZ) maxZ = tz;
 
-            // UV koordinatalarini o'qish (Float2 yoki Half2)
             if (declLayout.uvOffset >= 0 && declLayout.uvOffset + 4 <= stride) {
                 if (declLayout.uvType === 1) {
                     vU[v] = dv.getFloat32(base + declLayout.uvOffset, true);
                     vV[v] = 1.0 - dv.getFloat32(base + declLayout.uvOffset + 4, true);
-                } else if (declLayout.uvType === 9 || declLayout.uvType === 0) {
+                } else if (declLayout.uvType === 9 || declLayout.uvType === 0 || declLayout.uvType === 7) {
                     vU[v] = decodeFloat16(dv.getUint16(base + declLayout.uvOffset, true));
                     vV[v] = 1.0 - decodeFloat16(dv.getUint16(base + declLayout.uvOffset + 2, true));
                 }
             }
 
-            // Vertexning qaysi suyakka (bonnet, door_dside_f, bumper_f va h.k.) tegishli ekanini aniqlash
             let assignedBone = 'bodyshell';
             if (declLayout.indicesOffset >= 0 && declLayout.indicesOffset + 4 <= stride) {
                 let bestSlot = 0;
@@ -1587,7 +1589,6 @@ function parseBinaryYFT(arrayBuffer, fileName) {
             vBoneName[v] = getMajorPartBucketName(assignedBone);
         }
 
-        // Agar bu geometriya (0,0,0) markazda turgan alohida G'ildirak (Wheel/Tire/Rim) bo'lsa:
         const spanX = maxX - minX, spanY = maxY - minY, spanZ = maxZ - minZ;
         const centerDist = Math.hypot((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
         const isLocalWheelMesh = (
@@ -1615,25 +1616,25 @@ function parseBinaryYFT(arrayBuffer, fileName) {
             return;
         }
 
-        // IndexBuffer dagi haqiqiy uchburchaklarni o'qib, tegishli mashina qismiga yozish
         for (let i = 0; i < indicesCount; i += 3) {
             const i0 = dv.getUint16(iDataOff + i * 2, true);
             const i1 = dv.getUint16(iDataOff + (i + 1) * 2, true);
             const i2 = dv.getUint16(iDataOff + (i + 2) * 2, true);
             if (i0 >= verticesCount || i1 >= verticesCount || i2 >= verticesCount) continue;
 
+            // Noto'g'ri cho'zilgan / degenerat uchburchaklarni (> 3.8m) o'tkazib yuborish
+            const d01 = Math.hypot(vX[i1] - vX[i0], vY[i1] - vY[i0], vZ[i1] - vZ[i0]);
+            const d12 = Math.hypot(vX[i2] - vX[i1], vY[i2] - vY[i1], vZ[i2] - vZ[i1]);
+            const d20 = Math.hypot(vX[i0] - vX[i2], vY[i0] - vY[i2], vZ[i0] - vZ[i2]);
+            if (d01 > 3.8 || d12 > 3.8 || d20 > 3.8) continue;
+
             const bName = vBoneName[i0] || 'bodyshell';
             if (bName === 'skip_damaged') continue;
 
-            // Shisha / Oyna ekanini aniqlash (agar suyak nomi bodyshell bo'lsa ham lekin alohida oyna geometriyasi bo'lsa)
-            const bucketKey = (bName === 'bodyshell' && validGeometries.length > 4 && gIdx > 0)
-                ? `${bName}_${gIdx}`
-                : bName;
-
-            let bucket = partBuckets.get(bucketKey);
+            let bucket = partBuckets.get(bName);
             if (!bucket) {
                 bucket = { baseName: bName, pos: [], uv: [] };
-                partBuckets.set(bucketKey, bucket);
+                partBuckets.set(bName, bucket);
             }
 
             bucket.pos.push(
@@ -1650,7 +1651,7 @@ function parseBinaryYFT(arrayBuffer, fileName) {
     });
 
     const finalMeshes = [];
-    for (const [key, bucket] of partBuckets.entries()) {
+    for (const [, bucket] of partBuckets.entries()) {
         if (bucket.pos.length < 9) continue;
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.Float32BufferAttribute(bucket.pos, 3));
@@ -1660,7 +1661,6 @@ function parseBinaryYFT(arrayBuffer, fileName) {
         finalMeshes.push(m);
     }
 
-    // 7. Agar .yft ichida (0,0,0) da turgan g'ildirak (wheel_lf) topilgan bo'lsa, uni skeletning 4 ta g'ildirak o'rniga qo'yamiz!
     if (standaloneWheelGeoms.length > 0) {
         const wheelBones = [
             { name: 'wheel_lf', mirrorX: false },
@@ -1671,7 +1671,6 @@ function parseBinaryYFT(arrayBuffer, fileName) {
 
         wheelBones.forEach(wb => {
             const skelBone = skeletonBones.find(b => b.name.toLowerCase() === wb.name);
-            // GTA V (x, y, z) -> Three.js (x, z, y)
             const wx = skelBone ? skelBone.worldPos.x : (wb.mirrorX ? 0.82 : -0.82);
             const wy = skelBone ? skelBone.worldPos.z : 0.34;
             const wz = skelBone ? skelBone.worldPos.y : (wb.name.endsWith('f') ? 1.38 : -1.38);
