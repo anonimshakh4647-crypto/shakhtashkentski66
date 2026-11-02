@@ -1,38 +1,365 @@
-<!doctype html><html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Speed Test | IT SHAKH</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="tools.css"></head><body><header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="javascript:history.back()">← ORQAGA</a></header><main><div class="eyebrow">// CONNECTION ANALYSIS</div><h1>SPEED TEST</h1><p class="intro">Ulanishingizning kechikishi va yuklab olish tezligini tekshiring. Natija server yuklamasi va Wi‑Fi holatiga qarab o‘zgaradi.</p><section class="panel"><button id="start">TESTNI BOSHLASH</button><div class="progress"><i id="bar"></i></div><div class="meters"><div class="meter"><div class="label">PING</div><div class="metric" id="ping">—</div><div class="unit">ms</div></div><div class="meter"><div class="label">DOWNLOAD</div><div class="metric" id="download">—</div><div class="unit">Mbps</div></div><div class="meter"><div class="label">STATUS</div><div class="metric" id="state">READY</div><div class="unit">internet connection</div></div></div><p id="note" class="notice">Test internet orqali kichik nazorat faylini yuklaydi.</p></section></main><script>
-const $ = (id) => document.querySelector(id);
-function measureDownload(bytes) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    const started = performance.now();
-    const done = () => resolve((performance.now() - started) / 1000);
-    // The endpoint returns random bytes rather than an image, so loading ends in
-    // onerror after the bytes have arrived. This avoids CORS restrictions.
-    image.onload = done;
-    image.onerror = done;
-    image.src = 'https://speed.cloudflare.com/__down?bytes=' + bytes + '&x=' + Date.now();
-    setTimeout(() => reject(new Error('Vaqt tugadi')), 20000);
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Speed Test | IT SHAKH</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* Zaxira uslublar (tools.css bo‘lmasa ham sahifa chiroyli ko‘rinadi). tools.css bo‘lsa — u ustun turadi. */
+:root{--st-bg:#05090f;--st-panel:#0b1422;--st-line:#18283f;--st-txt:#e8f1ff;--st-mut:#8aa0bd;--st-cy:#00e5ff;--st-pu:#7c4dff;--st-gr:#27e39a;--st-or:#ffb020;--st-rd:#ff4d6d}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0f2440 0,var(--st-bg) 60%);color:var(--st-txt);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;min-height:100vh}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;border-bottom:1px solid var(--st-line)}
+.brand{font-weight:900;letter-spacing:2px;color:var(--st-cy);text-decoration:none;font-size:19px}
+.back{color:var(--st-cy);text-decoration:none;font-weight:800;font-size:12px;letter-spacing:1px}
+main{max-width:1040px;margin:0 auto;padding:34px 20px 60px}
+.eyebrow{color:var(--st-mut);font-size:12px;letter-spacing:3px;font-weight:700}
+h1{margin:6px 0 8px;font-size:clamp(34px,6vw,58px);font-weight:900;letter-spacing:2px;background:linear-gradient(90deg,var(--st-cy),var(--st-pu));-webkit-background-clip:text;background-clip:text;color:transparent}
+.intro{color:var(--st-mut);max-width:680px;line-height:1.6;margin:0 0 22px}
+.panel{background:var(--st-panel);border:1px solid var(--st-line);border-radius:18px;padding:22px}
+button{font:inherit;cursor:pointer}
+#start{padding:14px 26px;border:0;border-radius:12px;background:linear-gradient(135deg,var(--st-cy),var(--st-pu));color:#fff;font-weight:900;letter-spacing:1.5px;box-shadow:0 8px 28px rgba(80,90,240,.35)}
+#start:disabled{opacity:.5}
+.progress{height:6px;border-radius:9px;background:#14233a;overflow:hidden;margin:18px 0}
+.progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--st-cy),var(--st-pu));transition:width .25s}
+.meters{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.meter{background:#08111d;border:1px solid var(--st-line);border-radius:14px;padding:14px;position:relative;overflow:hidden}
+.meter.on{border-color:var(--st-cy);box-shadow:0 0 0 1px var(--st-cy) inset}
+.label{font-size:11px;letter-spacing:2px;color:var(--st-mut);font-weight:800}
+.metric{font-size:clamp(24px,3.4vw,34px);font-weight:900;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.unit{font-size:11px;color:var(--st-mut)}
+.notice{color:var(--st-mut);font-size:13px;line-height:1.55;margin:14px 0 0}
+/* yangi elementlar */
+.st-top{display:grid;grid-template-columns:minmax(260px,340px) 1fr;gap:22px;align-items:center}
+.st-gauge{position:relative;width:100%;max-width:340px;aspect-ratio:1;margin:0 auto}
+.st-gauge svg{width:100%;height:100%;transform:rotate(135deg)}
+.st-gauge .trk{fill:none;stroke:#13233a;stroke-width:14;stroke-linecap:round}
+.st-gauge .val{fill:none;stroke:url(#stg);stroke-width:14;stroke-linecap:round;filter:drop-shadow(0 0 8px rgba(0,229,255,.55))}
+.st-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;pointer-events:none}
+.st-phase{font-size:11px;letter-spacing:3px;color:var(--st-mut);font-weight:800}
+.st-big{font-size:clamp(46px,9vw,72px);font-weight:900;line-height:1;font-variant-numeric:tabular-nums;margin:6px 0 2px}
+.st-u{font-size:14px;color:var(--st-cy);font-weight:800;letter-spacing:1px}
+.st-chart{width:100%;height:230px;display:block;background:#08111d;border:1px solid var(--st-line);border-radius:14px}
+.st-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}
+.st-row .sp{flex:1}
+.st-seg{display:inline-flex;border:1px solid var(--st-line);border-radius:10px;overflow:hidden}
+.st-seg button{padding:8px 12px;border:0;background:transparent;color:var(--st-mut);font-weight:800;font-size:12px}
+.st-seg button.on{background:#12304d;color:var(--st-cy)}
+.st-ghost{padding:8px 12px;border:1px solid var(--st-line);border-radius:10px;background:transparent;color:var(--st-mut);font-weight:700;font-size:12px}
+.st-info{margin-top:12px;font-size:12px;color:var(--st-mut);display:flex;gap:6px 18px;flex-wrap:wrap}
+.st-info b{color:var(--st-txt);font-weight:700}
+.st-hist{margin-top:20px}
+.st-hist h3{font-size:11px;letter-spacing:2px;color:var(--st-mut);margin:0 0 8px}
+.st-hist table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.st-hist td,.st-hist th{padding:7px 8px;border-bottom:1px solid var(--st-line);text-align:left}
+.st-hist th{color:var(--st-mut);font-size:11px;letter-spacing:1px;font-weight:700}
+.dl{color:var(--st-cy)}.ul{color:var(--st-gr)}
+@media(max-width:860px){.st-top{grid-template-columns:1fr}.meters{grid-template-columns:repeat(2,1fr)}.meter:last-child{grid-column:1/-1}}
+</style>
+<link rel="stylesheet" href="tools.css">
+</head>
+<body>
+<header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="javascript:history.back()">← ORQAGA</a></header>
+<main>
+<div class="eyebrow">// CONNECTION ANALYSIS</div>
+<h1>SPEED TEST</h1>
+<p class="intro">Ulanishingizning kechikishi (ping), jitter, yuklab olish va yuklash tezligini real vaqtda o‘lchaydi. Tezlik jonli ko‘rsatkich va grafikda yangilanib turadi, yakuniy natija barqaror qismdan hisoblanadi.</p>
+
+<section class="panel">
+  <div class="st-top">
+    <div class="st-gauge">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <defs><linearGradient id="stg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e5ff"/><stop offset="1" stop-color="#7c4dff"/></linearGradient></defs>
+        <circle class="trk" cx="100" cy="100" r="80" pathLength="100" stroke-dasharray="75 100"/>
+        <circle class="val" id="arc" cx="100" cy="100" r="80" pathLength="100" stroke-dasharray="0 100"/>
+      </svg>
+      <div class="st-center"><div class="st-phase" id="phase">TAYYOR</div><div class="st-big" id="big">0.0</div><div class="st-u" id="bigUnit">Mbps</div></div>
+    </div>
+    <canvas class="st-chart" id="chart"></canvas>
+  </div>
+
+  <div class="st-row">
+    <button id="start">TESTNI BOSHLASH</button>
+    <div class="sp"></div>
+    <div class="st-seg" id="unitSeg"><button data-u="mbps" class="on">Mbps</button><button data-u="mbs">MB/s</button></div>
+  </div>
+  <div class="progress"><i id="bar"></i></div>
+
+  <div class="meters">
+    <div class="meter" id="mPing"><div class="label">PING</div><div class="metric" id="ping">—</div><div class="unit">ms</div></div>
+    <div class="meter" id="mJit"><div class="label">JITTER</div><div class="metric" id="jitter">—</div><div class="unit">ms</div></div>
+    <div class="meter" id="mDl"><div class="label">DOWNLOAD</div><div class="metric dl" id="download">—</div><div class="unit u-speed">Mbps</div></div>
+    <div class="meter" id="mUl"><div class="label">UPLOAD</div><div class="metric ul" id="upload">—</div><div class="unit u-speed">Mbps</div></div>
+    <div class="meter"><div class="label">STATUS</div><div class="metric" id="state" style="font-size:22px;margin-top:11px">READY</div><div class="unit" id="used">internet connection</div></div>
+  </div>
+  <p id="note" class="notice">Test Cloudflare serveridan haqiqiy ma’lumot oqimini yuklab, bir necha parallel ulanish bilan tezlikni o‘lchaydi.</p>
+  <div class="st-info" id="info"></div>
+
+  <div class="st-hist" id="hist" hidden>
+    <h3>OXIRGI NATIJALAR</h3>
+    <table><thead><tr><th>VAQT</th><th>PING</th><th>JITTER</th><th>DOWNLOAD</th><th>UPLOAD</th></tr></thead><tbody id="histBody"></tbody></table>
+    <div class="st-row"><button class="st-ghost" id="histClear">Tarixni tozalash</button></div>
+  </div>
+</section>
+</main>
+
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const BASE = (new URLSearchParams(location.search).get('server') || 'https://speed.cloudflare.com').replace(/\/$/, '');
+const CFG = { pingCount: 12, dlSecs: 10, ulSecs: 8, dlWarm: 2, ulWarm: 2, dlStreams: 6, ulStreams: 4, dlChunk: 20e6, ulChunk: 6e6 };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let unit = 'mbps';           // 'mbps' | 'mbs'
+let running = false, abortAll = null;
+const R = { ping: null, jitter: null, dl: null, ul: null };
+const chart = { pts: [], color: '#00e5ff', max: 10 };
+let dispV = 0, targetV = 0, phaseName = 'TAYYOR';
+
+/* ---------- formatting ---------- */
+const conv = (mbps) => unit === 'mbps' ? mbps : mbps / 8;
+function fmtSpeed(mbps) {
+  const v = conv(mbps);
+  if (v >= 1000) return v.toFixed(0);
+  if (v >= 100) return v.toFixed(1);
+  return v.toFixed(2);
+}
+function fmtBig(mbps) { const v = conv(mbps); return v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2); }
+function setUnitLabels() {
+  document.querySelectorAll('.u-speed').forEach((e) => (e.textContent = unit === 'mbps' ? 'Mbps' : 'MB/s'));
+  $('#bigUnit').textContent = unit === 'mbps' ? 'Mbps' : 'MB/s';
+}
+function refreshResults() {
+  $('#download').textContent = R.dl == null ? '—' : fmtSpeed(R.dl);
+  $('#upload').textContent = R.ul == null ? '—' : fmtSpeed(R.ul);
+  renderHistory();
+}
+
+/* ---------- live gauge + chart ---------- */
+const arc = $('#arc'), big = $('#big');
+function gaugeFraction(v) { return Math.min(1, Math.log10(1 + v) / Math.log10(1 + 1000)); } // 0..1000 Mbps log scale
+function animate() {
+  dispV += (targetV - dispV) * 0.18;
+  if (Math.abs(targetV - dispV) < 0.005) dispV = targetV;
+  big.textContent = fmtBig(dispV);
+  arc.setAttribute('stroke-dasharray', (gaugeFraction(dispV) * 75).toFixed(2) + ' 100');
+  drawChart();
+  requestAnimationFrame(animate);
+}
+const cv = $('#chart'), cx = cv.getContext('2d');
+function drawChart() {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, w, h);
+  const pts = chart.pts, padL = 44, padB = 22, padT = 12, padR = 10, iw = w - padL - padR, ih = h - padT - padB;
+  let mx = 1; for (const p of pts) if (p.v > mx) mx = p.v;
+  chart.max += (mx * 1.2 - chart.max) * 0.12; const top = Math.max(1, chart.max);
+  cx.font = '10px Inter,Arial'; cx.fillStyle = '#6f86a6'; cx.strokeStyle = '#162840'; cx.lineWidth = 1; cx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + ih - ih * i / 4; cx.beginPath(); cx.moveTo(padL, y); cx.lineTo(w - padR, y); cx.stroke();
+    cx.fillText(fmtBig(top * i / 4), padL - 6, y + 3);
+  }
+  if (pts.length < 2) return;
+  const t0 = pts[0].t, t1 = Math.max(pts[pts.length - 1].t, t0 + 1);
+  const X = (t) => padL + (t - t0) / (t1 - t0) * iw, Y = (v) => padT + ih - Math.min(1, v / top) * ih;
+  const g = cx.createLinearGradient(0, padT, 0, padT + ih); g.addColorStop(0, chart.color + '88'); g.addColorStop(1, chart.color + '00');
+  cx.beginPath(); cx.moveTo(X(pts[0].t), Y(0));
+  pts.forEach((p) => cx.lineTo(X(p.t), Y(p.v)));
+  cx.lineTo(X(pts[pts.length - 1].t), Y(0)); cx.closePath(); cx.fillStyle = g; cx.fill();
+  cx.beginPath(); pts.forEach((p, i) => (i ? cx.lineTo(X(p.t), Y(p.v)) : cx.moveTo(X(p.t), Y(p.v))));
+  cx.strokeStyle = chart.color; cx.lineWidth = 2.2; cx.lineJoin = 'round'; cx.stroke();
+  cx.textAlign = 'center'; cx.fillStyle = '#6f86a6'; cx.fillText(((t1 - t0)).toFixed(0) + ' s', w - padR - 12, h - 6);
+}
+function setPhase(name, state, color) {
+  phaseName = name; $('#phase').textContent = name; $('#state').textContent = state;
+  chart.color = color || chart.color;
+  ['mPing', 'mJit', 'mDl', 'mUl'].forEach((id) => $('#' + id).classList.remove('on'));
+}
+function setBar(p) { $('#bar').style.width = p + '%'; }
+
+/* ---------- ping ---------- */
+async function measurePing(signal) {
+  const times = [];
+  $('#mPing').classList.add('on'); $('#mJit').classList.add('on');
+  for (let i = 0; i < CFG.pingCount + 1; i++) {
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    const t = performance.now();
+    const r = await fetch(BASE + '/__down?bytes=0&r=' + Math.random(), { cache: 'no-store', signal });
+    const dt = performance.now() - t; await r.arrayBuffer();
+    if (i === 0) continue;                       // birinchi so‘rov — TLS/DNS ulanishi, hisobga olinmaydi
+    times.push(dt);
+    const s = [...times].sort((a, b) => a - b);
+    R.ping = s[s.length >> 1];
+    let j = 0; for (let k = 1; k < times.length; k++) j += Math.abs(times[k] - times[k - 1]);
+    R.jitter = times.length > 1 ? j / (times.length - 1) : 0;
+    $('#ping').textContent = Math.max(1, Math.round(R.ping)); $('#jitter').textContent = R.jitter.toFixed(1);
+    targetV = 0; setBar(2 + 8 * i / CFG.pingCount);
+    await sleep(60);
+  }
+}
+
+/* ---------- transfer phase (download / upload) ---------- */
+async function runTransfer({ secs, warm, startWorkers, signal, barFrom, barTo, metricId, outId, hideWarm }) {
+  let total = 0; const t0 = performance.now(); let mark = null, peak = 0, hist = [];
+  const add = (n) => { total += n; };
+  const ctrl = new AbortController(); const onAbort = () => ctrl.abort(); signal.addEventListener('abort', onAbort, { once: true });
+  const fails = { n: 0, err: null };
+  const workers = startWorkers(ctrl.signal, add, fails);
+  chart.pts = []; chart.max = 10; targetV = 0;
+  $(metricId).classList.add('on');
+  let result = null;
+  await new Promise((resolve, reject) => {
+    const iv = setInterval(() => {
+      const now = performance.now(), el = (now - t0) / 1000;
+      hist.push([now, total]); while (hist.length > 12 && now - hist[0][0] > 1000) hist.shift();
+      const a = hist[0]; const inst = now > a[0] ? (total - a[1]) * 8 / ((now - a[0]) / 1000) / 1e6 : 0;
+      if (el > warm && inst > peak) peak = inst;
+      if (el >= warm && !mark) mark = { t: now, b: total };
+      if (el > 3.5 && total === 0) { clearInterval(iv); reject(fails.err || new Error('Server javob bermadi')); return; }
+      if (fails.n > 8 && total < 100000) { clearInterval(iv); reject(fails.err || new Error('Ulanish xatosi')); return; }
+      if (hideWarm && el < warm) { targetV = 0; } else { targetV = inst; chart.pts.push({ t: el - (hideWarm ? warm : 0), v: inst }); }
+      $('#used').textContent = (total / 1e6).toFixed(1) + ' MB ishlatildi';
+      // jonli natija (barqaror qismdan, shu paytgacha)
+      const live = mark && now - mark.t > 400 ? (total - mark.b) * 8 / ((now - mark.t) / 1000) / 1e6 : inst;
+      if (!(hideWarm && el < warm)) $(outId).textContent = fmtSpeed(live);
+      setBar(barFrom + (barTo - barFrom) * Math.min(1, el / secs));
+      if (signal.aborted) { clearInterval(iv); reject(new DOMException('Aborted', 'AbortError')); return; }
+      if (el >= secs) {
+        clearInterval(iv);
+        const tEnd = performance.now();
+        result = mark && tEnd - mark.t > 500 ? (total - mark.b) * 8 / ((tEnd - mark.t) / 1000) / 1e6 : total * 8 / ((tEnd - t0) / 1000) / 1e6;
+        resolve();
+      }
+    }, 100);
+  }).finally(() => { ctrl.abort(); signal.removeEventListener('abort', onAbort); });
+  await Promise.allSettled(workers);
+  return { mbps: result, peak, bytes: total };
+}
+function dlWorkers(signal, add, fails) {
+  return Array.from({ length: CFG.dlStreams }, async (_, i) => {
+    await sleep(i * 40);
+    while (!signal.aborted) {
+      try {
+        const r = await fetch(BASE + '/__down?bytes=' + CFG.dlChunk + '&r=' + Math.random(), { cache: 'no-store', signal });
+        if (!r.ok) throw new Error('Server xatosi: ' + r.status);
+        if (r.body && r.body.getReader) {
+          const rd = r.body.getReader();
+          for (;;) { const { done, value } = await rd.read(); if (done) break; add(value.byteLength); }
+        } else { const b = await r.arrayBuffer(); add(b.byteLength); }
+      } catch (e) { if (signal.aborted) return; fails.n++; fails.err = e; await sleep(250); }
+    }
   });
 }
-async function run() {
-  const button = $('#start');
-  button.disabled = true;
-  $('#ping').textContent = '…'; $('#download').textContent = '…';
-  $('#bar').style.width = '8%'; $('#state').textContent = 'PING';
-  $('#note').textContent = 'Kechikish o‘lchanmoqda…';
-  try {
-    const pingSeconds = await measureDownload(1);
-    $('#ping').textContent = Math.max(1, Math.round(pingSeconds * 1000));
-    $('#bar').style.width = '36%'; $('#state').textContent = 'DOWNLOAD';
-    $('#note').textContent = 'Yuklab olish tezligi o‘lchanmoqda…';
-    const bytes = 5000000;
-    const seconds = await measureDownload(bytes);
-    $('#download').textContent = ((bytes * 8) / seconds / 1000000).toFixed(1);
-    $('#bar').style.width = '100%'; $('#state').textContent = 'DONE';
-    $('#note').textContent = '✓ Test tugadi. Bu taxminiy natija.';
-  } catch (_) {
-    $('#state').textContent = 'ERROR';
-    $('#note').textContent = '✕ Test bajarilmadi. Internet ulanishingizni tekshiring va yana urinib ko‘ring.';
-  } finally { button.disabled = false; }
+let ulBlob = null;
+function makeBlob() {
+  if (ulBlob) return ulBlob;
+  const buf = new Uint8Array(CFG.ulChunk), c = window.crypto;
+  for (let o = 0; o < buf.length; o += 65536) c.getRandomValues(buf.subarray(o, Math.min(o + 65536, buf.length)));
+  return (ulBlob = new Blob([buf], { type: 'text/plain' }));   // text/plain — preflight so‘rovsiz (CORS)
 }
+function ulWorkers(signal, add, fails) {
+  const blob = makeBlob();
+  return Array.from({ length: CFG.ulStreams }, (_, i) => new Promise(async (resolve) => {
+    await sleep(i * 60);
+    while (!signal.aborted) {
+      await new Promise((done) => {
+        const x = new XMLHttpRequest(); let last = 0;
+        x.open('POST', BASE + '/__up?r=' + Math.random());
+        x.upload.onprogress = (e) => { add(e.loaded - last); last = e.loaded; };
+        x.onload = () => { if (x.status >= 400) { fails.n++; fails.err = new Error('Server xatosi: ' + x.status); } else if (last < blob.size) add(blob.size - last); done(); };
+        x.onerror = () => { fails.n++; fails.err = new Error('Yuklash xatosi'); done(); };
+        x.onabort = () => done();
+        signal.addEventListener('abort', () => { try { x.abort(); } catch (_) {} }, { once: true });
+        x.send(blob);
+      });
+      if (fails.n > 0) await sleep(250);
+    }
+    resolve();
+  }));
+}
+
+/* ---------- main run ---------- */
+async function run() {
+  if (running) { abortAll && abortAll.abort(); return; }
+  running = true; const ac = new AbortController(); abortAll = ac;
+  const btn = $('#start'); btn.textContent = 'TO‘XTATISH';
+  R.ping = R.jitter = R.dl = R.ul = null; ['ping', 'jitter', 'download', 'upload'].forEach((id) => ($('#' + id).textContent = '—'));
+  chart.pts = []; targetV = 0; dispV = 0; setBar(0); $('#used').textContent = 'internet connection';
+  try {
+    setPhase('PING', 'PING', '#ffb020'); $('#note').textContent = 'Kechikish va jitter o‘lchanmoqda…';
+    await measurePing(ac.signal);
+
+    setPhase('DOWNLOAD', 'DOWNLOAD', '#00e5ff'); $('#note').textContent = 'Yuklab olish tezligi o‘lchanmoqda (' + CFG.dlStreams + ' parallel oqim)…';
+    const d = await runTransfer({ secs: CFG.dlSecs, warm: CFG.dlWarm, startWorkers: dlWorkers, signal: ac.signal, barFrom: 10, barTo: 55, metricId: '#mDl', outId: '#download' });
+    R.dl = d.mbps; $('#download').textContent = fmtSpeed(R.dl); R.dlPeak = d.peak;
+
+    setPhase('UPLOAD', 'UPLOAD', '#27e39a'); $('#note').textContent = 'Yuklash (upload) tezligi o‘lchanmoqda…';
+    let u;
+    try { u = await runTransfer({ secs: CFG.ulSecs, warm: CFG.ulWarm, startWorkers: ulWorkers, signal: ac.signal, barFrom: 55, barTo: 100, metricId: '#mUl', outId: '#upload', hideWarm: true }); R.ul = u.mbps; $('#upload').textContent = fmtSpeed(R.ul); }
+    catch (e) { if (e.name === 'AbortError') throw e; R.ul = null; $('#upload').textContent = 'n/a'; $('#note').textContent = 'Upload o‘lchanmadi: ' + e.message; }
+
+    setBar(100); setPhase('TAYYOR', 'DONE'); targetV = R.dl;
+    document.querySelector('#mDl').classList.add('on');
+    if (R.ul != null) $('#note').textContent = '✓ Test tugadi. Natija — barqaror qismdan hisoblangan o‘rtacha tezlik (cho‘qqi: ' + fmtSpeed(R.dlPeak) + ' ' + (unit === 'mbps' ? 'Mbps' : 'MB/s') + ').';
+    saveHistory(); renderHistory();
+  } catch (e) {
+    if (e && e.name === 'AbortError') { setPhase('TO‘XTATILDI', 'STOPPED'); $('#note').textContent = 'Test to‘xtatildi.'; }
+    else { setPhase('XATO', 'ERROR'); $('#note').textContent = '✕ Test bajarilmadi: ' + (e && e.message && !/fetch|network/i.test(e.message) ? e.message : 'serverga ulanib bo‘lmadi') + '. Internet ulanishini tekshirib, qayta urinib ko‘ring.'; }
+    targetV = 0;
+  } finally {
+    running = false; abortAll = null; btn.textContent = 'QAYTA TEST';
+  }
+}
+
+/* ---------- history ---------- */
+const HK = 'itshakh_speedtest_hist';
+function loadHist() { try { return JSON.parse(localStorage.getItem(HK) || '[]'); } catch (_) { return []; } }
+function saveHistory() {
+  const h = loadHist(); h.unshift({ t: Date.now(), ping: R.ping, jit: R.jitter, dl: R.dl, ul: R.ul });
+  try { localStorage.setItem(HK, JSON.stringify(h.slice(0, 8))); } catch (_) {}
+}
+function renderHistory() {
+  const h = loadHist(), box = $('#hist'), body = $('#histBody'); box.hidden = !h.length; body.innerHTML = '';
+  const u = unit === 'mbps' ? 'Mbps' : 'MB/s';
+  h.forEach((r) => {
+    const tr = document.createElement('tr'), d = new Date(r.t);
+    const cells = [d.toLocaleDateString([], { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), r.ping == null ? '—' : Math.round(r.ping) + ' ms', r.jit == null ? '—' : r.jit.toFixed(1) + ' ms', r.dl == null ? '—' : fmtSpeed(r.dl) + ' ' + u, r.ul == null ? '—' : fmtSpeed(r.ul) + ' ' + u];
+    cells.forEach((c, i) => { const td = document.createElement('td'); td.textContent = c; if (i === 3) td.className = 'dl'; if (i === 4) td.className = 'ul'; tr.appendChild(td); });
+    body.appendChild(tr);
+  });
+}
+$('#histClear').addEventListener('click', () => { try { localStorage.removeItem(HK); } catch (_) {} renderHistory(); });
+
+/* ---------- network info ---------- */
+async function loadInfo() {
+  const parts = [];
+  try {
+    const c = navigator.connection || navigator.mozConnection;
+    if (c && c.effectiveType) parts.push(['Tarmoq', c.effectiveType.toUpperCase() + (c.downlink ? ' · brauzer bahosi ' + c.downlink + ' Mbps' : '')]);
+  } catch (_) {}
+  try {
+    const ctl = new AbortController(); setTimeout(() => ctl.abort(), 4000);
+    const r = await fetch(BASE + '/meta', { cache: 'no-store', signal: ctl.signal }), j = await r.json();
+    if (j.clientIp) parts.unshift(['IP', j.clientIp]);
+    if (j.asOrganization) parts.push(['Provayder', j.asOrganization]);
+    const loc = [j.city, j.country].filter(Boolean).join(', '); if (loc) parts.push(['Joylashuv', loc]);
+    if (j.colo && (j.colo.city || j.colo.iata)) parts.push(['Server', j.colo.city || j.colo.iata]);
+  } catch (_) {}
+  const box = $('#info'); box.innerHTML = '';
+  parts.forEach(([k, v]) => { const s = document.createElement('span'); s.append(k + ': '); const b = document.createElement('b'); b.textContent = v; s.appendChild(b); box.appendChild(s); });
+}
+
+/* ---------- wiring ---------- */
 $('#start').addEventListener('click', run);
-</script></body></html>
+$('#unitSeg').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-u]'); if (!b) return; unit = b.dataset.u;
+  document.querySelectorAll('#unitSeg button').forEach((x) => x.classList.toggle('on', x === b));
+  setUnitLabels(); refreshResults(); if (!running && R.dl != null) targetV = R.dl;
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && running) $('#note').textContent = '⚠ Sahifa orqa fonda — natija noaniq bo‘lishi mumkin. Shu tabda qoling.'; });
+setUnitLabels(); renderHistory(); loadInfo(); requestAnimationFrame(animate);
+window.__ST = { R, CFG };
+</script>
+</body>
+</html>
