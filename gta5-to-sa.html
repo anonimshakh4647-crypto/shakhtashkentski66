@@ -3,28 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GTA V → GTA SA CAR CONVERTER | IT SHAKH</title>
+    <title>GTA V → GTA SA CONVERTER PRO | IT SHAKH</title>
+    <script>
+    // Admin Lock tekshiruvi (index.html da bloklangan bo'lsa, oddiy foydalanuvchini qaytaradi)
+    (function () {
+        try {
+            const isLocked = localStorage.getItem("it_shakh_tools_locked") === "1";
+            const isAdmin = sessionStorage.getItem("it_shakh_is_admin") === "1";
+            if (isLocked && !isAdmin) {
+                alert("⛔ TOOLS bo‘limi Admin tomonidan bloklangan!");
+                window.location.replace("index.html");
+            }
+        } catch (e) {}
+    })();
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-    <!-- Three.js va Loaderlar -->
+    <!-- Three.js, Loaderlar va RSC7 Zlib dekompressori (Pako) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <style>
         :root {
             --bg: #04060b;
-            --card-bg: rgba(11, 18, 32, 0.84);
-            --panel-header: rgba(20, 31, 53, 0.9);
+            --card-bg: rgba(11, 18, 32, 0.88);
+            --panel-header: rgba(20, 31, 53, 0.92);
             --accent: #38bdf8;
             --accent-green: #22c55e;
             --glow: 0 0 30px rgba(56, 189, 248, 0.55);
             --text-color: #e5e7eb;
             --text-muted: #94a3b8;
             --border: rgba(56, 189, 248, 0.25);
+            --danger: #ef4444;
         }
         body.night-mode {
             --bg: #000000;
-            --card-bg: rgba(0, 18, 0, 0.85);
+            --card-bg: rgba(0, 18, 0, 0.88);
             --panel-header: rgba(0, 32, 0, 0.92);
             --accent: #00ff41;
             --glow: 0 0 30px rgba(0, 255, 65, 0.55);
@@ -44,14 +59,13 @@
             transition: background 0.35s, color 0.35s;
         }
 
-        /* HEADER */
         header {
-            padding: 13px 22px;
+            padding: 12px 22px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             backdrop-filter: blur(12px);
-            background: rgba(4, 6, 11, 0.9);
+            background: rgba(4, 6, 11, 0.92);
             border-bottom: 1px solid var(--border);
             position: sticky;
             top: 0;
@@ -97,31 +111,31 @@
             letter-spacing: 1px;
         }
 
-        /* MAIN LAYOUT */
+        /* WORKSPACE LAYOUT */
         .converter-layout {
-            max-width: 1460px;
+            max-width: 1500px;
             margin: 0 auto;
-            padding: 18px;
+            padding: 16px;
             display: grid;
-            grid-template-columns: 350px 1fr 320px;
-            gap: 18px;
-            min-height: calc(100vh - 60px);
+            grid-template-columns: 350px 1fr 340px;
+            gap: 16px;
+            min-height: calc(100vh - 58px);
         }
         .panel {
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 16px;
-            padding: 16px;
+            padding: 15px;
             backdrop-filter: blur(10px);
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            box-shadow: 0 0 30px rgba(0, 0, 0, 0.55);
+            gap: 11px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.6);
         }
         .step-title {
             font: 800 11px 'JetBrains Mono', monospace;
             color: var(--accent);
-            letter-spacing: 1.5px;
+            letter-spacing: 1.4px;
             border-left: 3px solid var(--accent);
             padding-left: 9px;
             margin: 0;
@@ -134,7 +148,7 @@
         .drop-zone {
             border: 1.5px dashed var(--accent);
             border-radius: 13px;
-            padding: 16px 12px;
+            padding: 16px 10px;
             text-align: center;
             background: rgba(56, 189, 248, 0.04);
             cursor: pointer;
@@ -148,7 +162,7 @@
         .drop-zone input { display: none; }
         .drop-icon { font-size: 26px; display: block; margin-bottom: 4px; }
         .drop-main { font-weight: 800; font-size: 12px; color: #fff; }
-        .drop-sub { font: 10px 'JetBrains Mono', monospace; color: var(--text-muted); margin-top: 4px; }
+        .drop-sub { font: 10px 'JetBrains Mono', monospace; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
         .format-badges {
             display: flex;
             justify-content: center;
@@ -164,16 +178,21 @@
             color: var(--accent);
             border: 1px solid var(--border);
         }
+        .badge.hot {
+            background: rgba(34, 197, 94, 0.18);
+            color: #4ade80;
+            border-color: rgba(34, 197, 94, 0.4);
+        }
 
         /* CONTROLS */
         .box-group {
-            background: rgba(0, 0, 0, 0.3);
+            background: rgba(0, 0, 0, 0.34);
             border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 12px;
-            padding: 12px;
+            padding: 11px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 9px;
         }
         .ctrl-row {
             display: flex;
@@ -183,16 +202,16 @@
         .ctrl-label {
             display: flex;
             justify-content: space-between;
-            font: 600 11px 'JetBrains Mono', monospace;
+            font: 600 10.5px 'JetBrains Mono', monospace;
             color: #cbd5e1;
         }
         .ctrl-label b { color: var(--accent); }
         select, .zm-input {
             width: 100%;
-            background: rgba(7, 13, 25, 0.9);
+            background: rgba(7, 13, 25, 0.92);
             color: #fff;
             border: 1px solid var(--border);
-            padding: 8px 10px;
+            padding: 7px 9px;
             border-radius: 8px;
             font: 600 11px 'Inter', sans-serif;
             outline: none;
@@ -213,13 +232,13 @@
             align-items: center;
             justify-content: space-between;
             background: rgba(255,255,255,0.03);
-            padding: 6px 9px;
+            padding: 5px 8px;
             border-radius: 8px;
             border: 1px solid rgba(255,255,255,0.06);
             font: 600 10px 'JetBrains Mono', monospace;
         }
         input[type="color"] {
-            width: 34px;
+            width: 32px;
             height: 24px;
             border: 1px solid var(--border);
             border-radius: 5px;
@@ -232,10 +251,10 @@
             background: rgba(7, 16, 28, 0.92);
             color: var(--text-color);
             border: 1px solid var(--border);
-            padding: 9px 10px;
+            padding: 8px 10px;
             border-radius: 9px;
             font: 700 10px 'JetBrains Mono', monospace;
-            letter-spacing: 0.6px;
+            letter-spacing: 0.5px;
             cursor: pointer;
             transition: 0.2s;
             text-align: center;
@@ -251,14 +270,18 @@
             color: #000;
             border-color: var(--accent);
         }
+        .btn.danger:hover {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
         .btn-convert-main {
             background: linear-gradient(135deg, #22c55e, #16a34a);
             color: #001206;
             border: none;
-            padding: 13px;
-            font-size: 12px;
+            padding: 12px;
+            font-size: 11.5px;
             font-weight: 800;
-            box-shadow: 0 0 25px rgba(34, 197, 94, 0.4);
+            box-shadow: 0 0 22px rgba(34, 197, 94, 0.38);
         }
         .btn-convert-main:hover {
             transform: translateY(-1px);
@@ -269,8 +292,8 @@
             background: var(--accent);
             color: #001018;
             border: none;
-            padding: 13px;
-            font-size: 12px;
+            padding: 12px;
+            font-size: 11.5px;
             font-weight: 800;
             box-shadow: var(--glow);
         }
@@ -299,8 +322,32 @@
         #viewport {
             width: 100%;
             flex: 1;
-            min-height: 490px;
+            min-height: 480px;
             position: relative;
+        }
+        .empty-state-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            text-align: center;
+            padding: 20px;
+            z-index: 5;
+            transition: opacity 0.3s;
+        }
+        .empty-state-overlay.hidden {
+            opacity: 0;
+        }
+        .empty-box {
+            background: rgba(4, 10, 22, 0.78);
+            border: 1px dashed var(--border);
+            border-radius: 16px;
+            padding: 26px 32px;
+            max-width: 440px;
+            backdrop-filter: blur(8px);
         }
         .vp-hud-top {
             position: absolute;
@@ -312,9 +359,10 @@
             pointer-events: none;
             gap: 8px;
             flex-wrap: wrap;
+            z-index: 10;
         }
         .hud-pill {
-            background: rgba(4, 10, 20, 0.82);
+            background: rgba(4, 10, 20, 0.84);
             border: 1px solid var(--border);
             border-radius: 9px;
             padding: 7px 11px;
@@ -332,58 +380,95 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 14px;
+            gap: 12px;
             flex-wrap: wrap;
         }
         .door-test-wrap {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             flex: 1;
-            min-width: 220px;
+            min-width: 210px;
             font: 700 10px 'JetBrains Mono', monospace;
             color: var(--accent);
         }
 
-        /* RIGHT PANEL: HIERARCHY & HANDLING.CFG */
+        /* RIGHT PANEL: HIERARCHY, PART INSPECTOR & YTD TEXTURES */
         .parts-list {
-            max-height: 250px;
+            max-height: 195px;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 5px;
+            gap: 4px;
             padding-right: 3px;
         }
         .part-item {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background: rgba(0, 0, 0, 0.35);
+            background: rgba(0, 0, 0, 0.38);
             border: 1px solid rgba(255, 255, 255, 0.07);
-            padding: 6px 9px;
-            border-radius: 8px;
+            padding: 6px 8px;
+            border-radius: 7px;
             font: 600 10px 'JetBrains Mono', monospace;
+            cursor: pointer;
+            transition: 0.15s;
         }
-        .part-item.mapped {
-            border-color: rgba(34, 197, 94, 0.35);
+        .part-item:hover {
+            border-color: var(--accent);
+        }
+        .part-item.selected {
+            background: rgba(56, 189, 248, 0.16);
+            border-color: var(--accent);
         }
         .part-arrow { color: var(--accent); margin: 0 4px; }
         .sa-tag {
             background: rgba(34, 197, 94, 0.16);
             color: #4ade80;
-            padding: 2px 6px;
+            padding: 2px 5px;
             border-radius: 4px;
             font-size: 9px;
         }
+
+        /* TEXTURE GALLERY (.YTD / .DDS) */
+        .tex-gallery {
+            max-height: 110px;
+            overflow-y: auto;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+        }
+        .tex-card {
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 4px;
+            text-align: center;
+            cursor: pointer;
+            font: 600 8.5px 'JetBrains Mono', monospace;
+            color: #cbd5e1;
+            overflow: hidden;
+        }
+        .tex-card:hover { border-color: var(--accent); color: #fff; }
+        .tex-card img {
+            width: 100%;
+            height: 44px;
+            object-fit: cover;
+            border-radius: 4px;
+            display: block;
+            margin-bottom: 3px;
+            background: #0f172a;
+        }
+
         .code-textarea {
             width: 100%;
-            height: 88px;
+            height: 74px;
             background: rgba(2, 6, 13, 0.9);
             border: 1px solid var(--border);
             border-radius: 8px;
             color: #38bdf8;
             font: 10px 'JetBrains Mono', monospace;
-            padding: 8px;
+            padding: 7px;
             resize: none;
             outline: none;
         }
@@ -395,9 +480,11 @@
             color: var(--accent);
             display: flex;
             justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
-        @media (max-width: 1100px) {
+        @media (max-width: 1120px) {
             .converter-layout { grid-template-columns: 1fr; }
             .viewport-panel { order: -1; min-height: 460px; }
         }
@@ -408,7 +495,7 @@
 <header>
     <div class="brand-wrap">
         <a href="index.html" class="back-btn" id="backHomeBtn">← ASOSIY SAHIFA</a>
-        <div class="logo-text">IT SHAKH // GTA V → GTA SA VEHICLE CONVERTER</div>
+        <div class="logo-text">IT SHAKH // GTA V (.YFT/.YTD) → GTA SA (.DFF/.TXD) CONVERTER</div>
     </div>
     <div>
         <button class="mode-toggle" id="modeToggle" type="button">NIGHT MODE</button>
@@ -416,47 +503,47 @@
 </header>
 
 <div class="converter-layout">
-    <!-- CHAP PANEL: 1-QADAM VA 2-QADAM -->
+    <!-- CHAP PANEL: FAYL YUKLASH VA KONVERT SOZLAMALARI -->
     <div class="panel">
         <h2 class="step-title">
-            <span>1-QADAM: GTA V MASHINANI YUKLASH</span>
+            <span>1-QADAM: GTA V MODEL VA TEKSTURA YUKLASH</span>
             <span>📥</span>
         </h2>
 
         <label class="drop-zone" id="dropZone" for="carFileInput">
-            <input type="file" id="carFileInput" accept=".obj,.glb,.gltf,.dff">
+            <input type="file" id="carFileInput" accept=".yft,.ytd,.xml,.dff,.obj,.glb,.gltf,.dds,.png,.jpg,.jpeg" multiple>
             <span class="drop-icon">🚘</span>
-            <div class="drop-main">GTA 5 MASHINA FAYLINI TASHLANG</div>
-            <div class="drop-sub">CodeWalker / OpenIV / Blender dan chiqqan modelni tanlang</div>
+            <div class="drop-main">GTA 5 FAYLLARINI SHU YERGA TASHLANG</div>
+            <div class="drop-sub">Bir vaqtda .YFT + .YTD yoki .OBJ / .GLB / .DFF fayllarni tanlashingiz mumkin</div>
             <div class="format-badges">
-                <span class="badge">.OBJ</span>
-                <span class="badge">.GLB / .GLTF</span>
+                <span class="badge hot">.YFT</span>
+                <span class="badge hot">.YTD</span>
+                <span class="badge hot">.YFT.XML</span>
                 <span class="badge">.DFF</span>
+                <span class="badge">.OBJ</span>
+                <span class="badge">.GLB/.GLTF</span>
+                <span class="badge">.DDS/.PNG</span>
             </div>
         </label>
 
-        <div class="grid-2">
-            <button class="btn active" id="loadGta5SportBtn" type="button">🏎 GTA 5 ZENTORNO (DEMO)</button>
-            <button class="btn" id="loadGta5SuvBtn" type="button">🚙 GTA 5 DUBSTA 6x6 (DEMO)</button>
-        </div>
-
-        <h2 class="step-title" style="margin-top:4px;">
-            <span>2-QADAM: GTA SA MOSLASHTIRISH</span>
+        <h2 class="step-title" style="margin-top:2px;">
+            <span>2-QADAM: GTA SA STANDARTIGA MOSLASH</span>
             <span>⚙</span>
         </h2>
 
         <div class="box-group">
             <div class="ctrl-row">
-                <div class="ctrl-label"><span>QAYSI GTA SA MASHINASIGA ALMASHTIRILADI?</span></div>
+                <div class="ctrl-label"><span>GTA SA O‘RNIGA QO‘YILADIGAN MASHINA:</span></div>
                 <select id="saTargetCar">
-                    <option value="infernus" data-id="411" selected>infernus.dff (ID: 411 — Sport)</option>
-                    <option value="sultan" data-id="560">sultan.dff (ID: 560 — Sedan Tuner)</option>
-                    <option value="elegy" data-id="562">elegy.dff (ID: 562 — Drift / Coupe)</option>
-                    <option value="turismo" data-id="451">turismo.dff (ID: 451 — Supercar)</option>
-                    <option value="bullet" data-id="541">bullet.dff (ID: 541 — GT Sport)</option>
+                    <option value="infernus" data-id="411" selected>infernus.dff (ID: 411 — Supercar)</option>
+                    <option value="sultan" data-id="560">sultan.dff (ID: 560 — 4-Door Sedan)</option>
+                    <option value="elegy" data-id="562">elegy.dff (ID: 562 — Drift Coupe)</option>
+                    <option value="turismo" data-id="451">turismo.dff (ID: 451 — Sport GT)</option>
+                    <option value="bullet" data-id="541">bullet.dff (ID: 541 — Muscle/GT)</option>
                     <option value="cheetah" data-id="415">cheetah.dff (ID: 415 — Classic Sport)</option>
-                    <option value="huntley" data-id="579">huntley.dff (ID: 579 — SUV / Jeep)</option>
-                    <option value="zr350" data-id="477">zr350.dff (ID: 477 — Street Racer)</option>
+                    <option value="huntley" data-id="579">huntley.dff (ID: 579 — SUV / Offroad)</option>
+                    <option value="zr350" data-id="477">zr350.dff (ID: 477 — Street Coupe)</option>
+                    <option value="banshee" data-id="429">banshee.dff (ID: 429 — Roadster)</option>
                 </select>
             </div>
 
@@ -465,95 +552,160 @@
                     <span>POLIGON OPTIMALLASHTIRISH (LOD)</span>
                     <b id="polyRatioVal">100% (ORIGINAL HD)</b>
                 </div>
-                <input type="range" id="polyRatioSlider" min="30" max="100" step="5" value="100">
+                <input type="range" id="polyRatioSlider" min="25" max="100" step="5" value="100">
             </div>
 
             <div class="ctrl-row">
                 <div class="ctrl-label">
-                    <span>GTA SA O‘LCHAMI (WHEELBASE SCALE)</span>
-                    <b id="carScaleVal">4.45 m (STANDART)</b>
+                    <span>GTA SA UZUNLIK O‘LCHAMI (WHEELBASE)</span>
+                    <b id="carScaleVal">4.50 m</b>
                 </div>
-                <input type="range" id="carScaleSlider" min="3.20" max="6.20" step="0.05" value="4.45">
+                <input type="range" id="carScaleSlider" min="3.20" max="6.50" step="0.05" value="4.50">
             </div>
 
             <div class="ctrl-row">
                 <div class="ctrl-label">
-                    <span>BALON O‘LCHAMI (WHEEL SCALE)</span>
-                    <b id="wheelScaleVal">1.00x</b>
+                    <span>SILLIQLASH BURCHAGI (SMOOTH NORMALS)</span>
+                    <b id="smoothAngleVal">42° (3DS MAX PHONG)</b>
                 </div>
-                <input type="range" id="wheelScaleSlider" min="0.70" max="1.35" step="0.05" value="1.00">
+                <input type="range" id="smoothAngleSlider" min="15" max="80" step="1" value="42">
+            </div>
+
+            <div class="ctrl-row">
+                <div class="ctrl-label"><span>BO‘YALISH REJIMI (PAY 'N' SPRAY):</span></div>
+                <select id="paintModeSelect">
+                    <option value="custom_rgb" selected>🖌 Tanlangan Kuzov Rangida Saqlash (RGB)</option>
+                    <option value="sa_carcols">🎨 GTA SA Carcols.dat (O‘yinda bo‘yaladigan [60,255,0])</option>
+                </select>
             </div>
 
             <div class="color-grid">
                 <div class="color-box">
-                    <span>KUZOV (CARCOL 1)</span>
+                    <span>KUZOV (COL 1)</span>
                     <input type="color" id="bodyColorPicker" value="#0ea5e9">
                 </div>
                 <div class="color-box">
-                    <span>DISKA / DETAL</span>
+                    <span>DISKA (COL 2)</span>
                     <input type="color" id="rimColorPicker" value="#e2e8f0">
                 </div>
             </div>
         </div>
 
         <button class="btn btn-convert-main" id="btnOneClickConvert" type="button">
-            ⚡ 1-CLICK: GTA V → GTA SA AVTO-KONVERT
+            ⚡ 1-CLICK: GTA V → GTA SA AVTO-MOSLASH
         </button>
     </div>
 
-    <!-- O'RTA PANEL: 3D SHOWROOM VA ESHIK/KAPOT TEKSHIRUVI -->
+    <!-- O'RTA PANEL: 3D SHOWROOM -->
     <div class="viewport-panel">
         <div id="viewport">
             <div class="vp-hud-top">
                 <div class="hud-pill">
-                    MODEL: <b id="hudCarName">GTA5_ZENTORNO</b> | TARGET: <b id="hudTargetDff">infernus.dff</b>
+                    FAYL: <b id="hudCarName">YUKLANMAGAN</b> | TARGET: <b id="hudTargetDff">infernus.dff</b>
                 </div>
                 <div class="hud-pill">
-                    QISMLAR: <b id="hudParts">0</b> | VERTEX: <b id="hudVerts">0</b> | POLIGON: <b id="hudPolys">0</b> | HOLAT: <b class="ready-ok" id="hudStatus">✓ GTA SA READY</b>
+                    QISMLAR: <b id="hudParts">0</b> | VERTEX: <b id="hudVerts">0</b> | POLIGON: <b id="hudPolys">0</b> | HOLAT: <b id="hudStatus">FAYL KUTILMOQDA</b>
+                </div>
+            </div>
+
+            <!-- Bo'sh holat oynasi (Fayl yuklanganda avtomatik yo'qoladi) -->
+            <div class="empty-state-overlay" id="emptyOverlay">
+                <div class="empty-box">
+                    <div style="font-size:38px;margin-bottom:8px;">🚘</div>
+                    <div style="font:800 14px 'Inter',sans-serif;color:var(--accent);letter-spacing:1px;margin-bottom:6px;">
+                        GTA 5 MASHINA FAYLINI YUKLANG
+                    </div>
+                    <div style="font:11px 'JetBrains Mono',monospace;color:#94a3b8;line-height:1.6;">
+                        Chap paneldagi maydonga <b>.YFT</b>, <b>.YTD</b>, <b>.YFT.XML</b>, <b>.DFF</b>, <b>.OBJ</b> yoki <b>.GLB</b> faylni tashlang.<br>
+                        Dastur avtomatik ravishda GTA San Andreas ierarxiyasiga o‘giradi.
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Kapot, Bagaj va Eshiklarni ochib tekshirish paneli -->
+        <!-- Eshik/Kapot va Kamera Boshqaruvi -->
         <div class="vp-bottom-bar">
             <div class="door-test-wrap">
-                <span>🚪 KAPOT / ESHIKLARNI OCHIB TEKSHIRISH:</span>
-                <input type="range" id="openDoorsSlider" min="0" max="100" value="0" style="max-width:160px;">
+                <span>🚪 KAPOT / ESHIK TEKSHIRUVI:</span>
+                <input type="range" id="openDoorsSlider" min="0" max="100" value="0" style="max-width:140px;">
                 <b id="openDoorsVal">0%</b>
             </div>
-            <div style="display:flex; gap:8px;">
-                <button class="btn active" id="btnSpinWheels" type="button" style="width:auto;padding:7px 12px;">🛞 Balon Aylanishi</button>
-                <button class="btn" id="btnWireframe" type="button" style="width:auto;padding:7px 12px;">🕸 Setka (Wire)</button>
-                <button class="btn" id="btnResetCam" type="button" style="width:auto;padding:7px 12px;">⟲ Kamera</button>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="btn" id="btnRotateZUp" type="button" style="width:auto;padding:7px 10px;" title="Model o'qi tik bo'lib qolgan bo'lsa tekislash">↻ O‘qni Tekislash (X-90°)</button>
+                <button class="btn" id="btnWireframe" type="button" style="width:auto;padding:7px 10px;">🕸 Wireframe</button>
+                <button class="btn" id="btnResetCam" type="button" style="width:auto;padding:7px 10px;">🎯 Fit Camera</button>
+                <button class="btn danger" id="btnClearScene" type="button" style="width:auto;padding:7px 10px;">🗑 Tozalash</button>
             </div>
         </div>
 
         <div class="status-footer">
-            <span id="statusMsg">✓ GTA 5 mashinasi GTA San Andreas ierarxiyasiga (`chassis_dummy`, `bonnet_ok`, `wheel_rf_dummy`) to‘liq moslashtirildi.</span>
-            <span>RENDERWARE 3.6.0.3 (0x1803FFFF)</span>
+            <span id="statusMsg">✓ Tayyor. Konvertatsiya qilish uchun GTA 5 mashina faylini (.YFT, .YTD, .OBJ, .GLB yoki .DFF) tanlang.</span>
+            <span>GTA SA DFF (v3.6.0.3) + TXD ENGINE</span>
         </div>
     </div>
 
-    <!-- O'NG PANEL: AVTO-IERARXIYA VA EKSPORT -->
+    <!-- O'NG PANEL: DETALLAR TAHRIRI, YTD TEKSTURALAR VA EKSPORT -->
     <div class="panel">
         <h2 class="step-title">
-            <span>🌳 GTA V → GTA SA IERARXIYA</span>
-            <span id="mappedCountBadge">12 QISM</span>
+            <span>🌳 QISMLAR IERARXIYASI (GTA V → SA)</span>
+            <span id="mappedCountBadge">0 QISM</span>
         </h2>
 
-        <div class="parts-list" id="hierarchyList"></div>
-
-        <h2 class="step-title" style="margin-top:4px;">
-            <span>📄 GTA SA HANDLING.CFG &amp; IDE</span>
-            <span>AUTO</span>
-        </h2>
-        <div class="box-group" style="padding:10px;">
-            <textarea class="code-textarea" id="handlingOutput" readonly></textarea>
-            <button class="btn" id="btnCopyHandling" type="button">📋 HANDLING.CFG QATORINI NUSXALASH</button>
+        <div class="parts-list" id="hierarchyList">
+            <div style="text-align:center;padding:18px;font:10px monospace;color:#64748b;">
+                Model yuklangandan so‘ng barcha qismlar ro‘yxati shu yerda chiqadi.
+            </div>
         </div>
 
-        <h2 class="step-title" style="margin-top:4px;">
-            <span>3-QADAM: TAYYOR FAYLNI YUKLAB OLISH</span>
+        <!-- Tanlangan qismni sozlash -->
+        <div class="box-group" id="partInspectorBox" style="padding:9px; display:none;">
+            <div class="ctrl-label">
+                <span>TANLANGAN QISM:</span>
+                <b id="selectedPartOrigName">-</b>
+            </div>
+            <div class="grid-2">
+                <select id="partSaRoleSelect" title="GTA SA Ierarxiya Nomi">
+                    <option value="chassis|body">chassis (Kuzov)</option>
+                    <option value="bonnet_ok|bonnet">bonnet_ok (Kapot)</option>
+                    <option value="boot_ok|boot">boot_ok (Bagaj)</option>
+                    <option value="door_lf_ok|door_lf">door_lf_ok (Chap Old Eshik)</option>
+                    <option value="door_rf_ok|door_rf">door_rf_ok (O‘ng Old Eshik)</option>
+                    <option value="door_lr_ok|door_lr">door_lr_ok (Chap Orqa Eshik)</option>
+                    <option value="door_rr_ok|door_rr">door_rr_ok (O‘ng Orqa Eshik)</option>
+                    <option value="bump_front_ok|bumper_f">bump_front_ok (Old Bamper)</option>
+                    <option value="bump_rear_ok|bumper_r">bump_rear_ok (Orqa Bamper)</option>
+                    <option value="windscreen_ok|glass">windscreen_ok (Oyna / Shisha)</option>
+                    <option value="wheel_rf_dummy|wheel">wheel_rf_dummy (O‘ng Old Balon)</option>
+                    <option value="wheel_lf_dummy|wheel">wheel_lf_dummy (Chap Old Balon)</option>
+                    <option value="wheel_rb_dummy|wheel">wheel_rb_dummy (O‘ng Orqa Balon)</option>
+                    <option value="wheel_lb_dummy|wheel">wheel_lb_dummy (Chap Orqa Balon)</option>
+                    <option value="ug_spoiler|spoiler">ug_spoiler (Spoyler)</option>
+                    <option value="exhaust_ok|chrome">exhaust_ok (Glushitel / Xrom)</option>
+                    <option value="headlights|lights">headlights (Faralar)</option>
+                    <option value="extra1|interior">extra1 (Salon / Motor)</option>
+                </select>
+                <button class="btn danger" id="btnDeleteSelectedPart" type="button">🗑 Qismni O‘chirish</button>
+            </div>
+        </div>
+
+        <h2 class="step-title">
+            <span>🖼 .YTD / .DDS TEKSTURALAR</span>
+            <span id="texCountBadge">0 TEX</span>
+        </h2>
+        <div class="tex-gallery" id="texGallery">
+            <div style="grid-column:1/-1;text-align:center;padding:10px;font:10px monospace;color:#64748b;">
+                .YTD, .DDS yoki .PNG yuklanganda teksturalar shu yerda ko‘rinadi.
+            </div>
+        </div>
+
+        <h2 class="step-title">
+            <span>📄 GTA SA HANDLING.CFG &amp; IDE</span>
+            <button class="btn" id="btnCopyHandling" type="button" style="width:auto;padding:3px 8px;font-size:9px;">📋 NUSXALASH</button>
+        </h2>
+        <textarea class="code-textarea" id="handlingOutput" readonly></textarea>
+
+        <h2 class="step-title">
+            <span>3-QADAM: TAYYOR FAYLLARNI YUKLAB OLISH</span>
             <span>🚀</span>
         </h2>
 
@@ -561,8 +713,8 @@
             ⬇ DOWNLOAD GTA SA (.DFF)
         </button>
         <div class="grid-2">
-            <button class="btn" id="btnDownloadObj" type="button">⬇ EXPORT .OBJ</button>
-            <button class="btn" id="btnDownloadTxdInfo" type="button">📄 .TXD QO‘LLANMA</button>
+            <button class="btn" id="btnDownloadTxd" type="button">⬇ DOWNLOAD (.TXD)</button>
+            <button class="btn" id="btnDownloadObj" type="button">⬇ EXPORT (.OBJ)</button>
         </div>
     </div>
 </div>
@@ -584,7 +736,7 @@ function setStatus(text) {
 
 // ==================== GTA V -> GTA SAN ANDREAS AVTO-NOMLASH LUG'ATI ====================
 const GTA5_TO_SA_DICTIONARY = [
-    { keys: ['bodyshell', 'chassis', 'body', 'car_body', 'main', 'hull', 'frame'], saName: 'chassis', role: 'body' },
+    { keys: ['windscreen', 'windshield', 'window', 'glass', 'oyna', 'steklo'], saName: 'windscreen_ok', role: 'glass' },
     { keys: ['bonnet', 'hood', 'kapot', 'engine_cover'], saName: 'bonnet_ok', role: 'bonnet' },
     { keys: ['boot', 'trunk', 'bagaj', 'tailgate'], saName: 'boot_ok', role: 'boot' },
     { keys: ['door_dside_f', 'door_lf', 'door_fl', 'left_door', 'door_l'], saName: 'door_lf_ok', role: 'door_lf' },
@@ -593,15 +745,15 @@ const GTA5_TO_SA_DICTIONARY = [
     { keys: ['door_pside_r', 'door_rr'], saName: 'door_rr_ok', role: 'door_rr' },
     { keys: ['bumper_f', 'bump_front', 'front_bumper', 'f_bumper'], saName: 'bump_front_ok', role: 'bumper_f' },
     { keys: ['bumper_r', 'bump_rear', 'rear_bumper', 'r_bumper', 'diffuser'], saName: 'bump_rear_ok', role: 'bumper_r' },
-    { keys: ['windscreen', 'windshield', 'window', 'glass', 'oyna'], saName: 'windscreen_ok', role: 'glass' },
     { keys: ['spoiler', 'wing', 'spoyler'], saName: 'ug_spoiler', role: 'spoiler' },
     { keys: ['wheel_lf', 'wheel_fl', 'tyre_lf'], saName: 'wheel_lf_dummy', role: 'wheel' },
-    { keys: ['wheel_rf', 'wheel_fr', 'tyre_rf', 'wheel', 'rim', 'tire'], saName: 'wheel_rf_dummy', role: 'wheel' },
+    { keys: ['wheel_rf', 'wheel_fr', 'tyre_rf', 'wheel', 'rim', 'tire', 'balon', 'diska'], saName: 'wheel_rf_dummy', role: 'wheel' },
     { keys: ['wheel_lr', 'wheel_lb', 'wheel_rl'], saName: 'wheel_lb_dummy', role: 'wheel' },
     { keys: ['wheel_rr', 'wheel_rb'], saName: 'wheel_rb_dummy', role: 'wheel' },
-    { keys: ['exhaust', 'glushitel', 'muffler'], saName: 'exhaust_ok', role: 'chrome' },
-    { keys: ['engine', 'motor', 'interior', 'salon', 'seat', 'dash'], saName: 'extra1', role: 'interior' },
-    { keys: ['headlight', 'taillight', 'light', 'fara', 'lamp'], saName: 'headlights', role: 'lights' }
+    { keys: ['exhaust', 'glushitel', 'muffler', 'chrome'], saName: 'exhaust_ok', role: 'chrome' },
+    { keys: ['headlight', 'taillight', 'indicator', 'siren', 'light', 'fara', 'lamp'], saName: 'headlights', role: 'lights' },
+    { keys: ['engine', 'motor', 'interior', 'salon', 'seat', 'dash', 'steering', 'dials'], saName: 'extra1', role: 'interior' },
+    { keys: ['bodyshell', 'chassis', 'body', 'car_body', 'main', 'hull', 'frame', 'skirt', 'fender', 'roof'], saName: 'chassis', role: 'body' }
 ];
 
 function mapGta5PartNameToSA(rawName, index) {
@@ -614,36 +766,66 @@ function mapGta5PartNameToSA(rawName, index) {
         }
     }
     if (index === 0) return { gta5Name: rawName || 'bodyshell', saName: 'chassis', role: 'body' };
-    return { gta5Name: rawName || ('mesh_' + index), saName: 'extra' + index, role: 'body' };
+    return { gta5Name: rawName || ('part_' + index), saName: 'extra' + index, role: 'body' };
 }
 
-// ==================== THREE.JS 3D SHOWROOM ====================
+// ==================== THREE.JS 3D SHOWROOM VA PROCEDURAL STUDIO ENVIRONMENT ====================
 const viewport = document.getElementById('viewport');
 const scene = new THREE.Scene();
 
-const camera = new THREE.PerspectiveCamera(40, viewport.clientWidth / viewport.clientHeight, 0.1, 1000);
-camera.position.set(4.2, 2.1, 5.2);
+const camera = new THREE.PerspectiveCamera(40, viewport.clientWidth / viewport.clientHeight, 0.05, 1000);
+camera.position.set(4.3, 2.0, 5.0);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
 renderer.setSize(viewport.clientWidth, viewport.clientHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 viewport.appendChild(renderer.domElement);
+
+// Mashina bo'yog'i va xrom detallar yaltirashi uchun protsedurali Studio Environment Map
+function createStudioEnvMap() {
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = 256;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0.0, '#1e293b');
+    grad.addColorStop(0.45, '#475569');
+    grad.addColorStop(0.5, '#0f172a');
+    grad.addColorStop(1.0, '#020617');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 512, 256);
+
+    // Studio softbox chiroqlari
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(60, 25, 140, 28);
+    ctx.fillRect(310, 35, 140, 24);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(190, 75, 120, 14);
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    return tex;
+}
+scene.environment = createStudioEnvMap();
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.target.set(0, 0.55, 0);
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.78);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
 scene.add(ambientLight);
 
-const sunLight = new THREE.DirectionalLight(0xffffff, 1.05);
-sunLight.position.set(10, 18, 12);
+const sunLight = new THREE.DirectionalLight(0xffffff, 1.15);
+sunLight.position.set(12, 20, 14);
 scene.add(sunLight);
 
-const backLight = new THREE.DirectionalLight(0x38bdf8, 0.45);
-backLight.position.set(-10, 6, -12);
-scene.add(backLight);
+const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.55);
+fillLight.position.set(-12, 8, -10);
+scene.add(fillLight);
 
 const gridHelper = new THREE.GridHelper(18, 36, 0x38bdf8, 0x1e293b);
 scene.add(gridHelper);
@@ -652,217 +834,248 @@ const carRootGroup = new THREE.Group();
 carRootGroup.name = 'chassis_dummy';
 scene.add(carRootGroup);
 
-let spinWheelsActive = true;
 let isWireframe = false;
-let currentCarParts = []; // { mesh, gta5Name, saName, role, origGeom, basePos, baseRot }
-
-// ==================== GTA V DEMO MASHINA GENERATORI (ZENTORNO SPORT & DUBSTA SUV) ====================
-function buildProceduralGta5Car(presetType = 'sport') {
-    clearCarScene();
-
-    const bodyHex = document.getElementById('bodyColorPicker').value;
-    const rimHex = document.getElementById('rimColorPicker').value;
-
-    const bodyMat = new THREE.MeshStandardMaterial({ color: bodyHex, metalness: 0.45, roughness: 0.22, side: THREE.DoubleSide });
-    const darkMat = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.25, roughness: 0.55, side: THREE.DoubleSide });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.9, roughness: 0.1, transparent: true, opacity: 0.72, side: THREE.DoubleSide });
-    const rimMat = new THREE.MeshStandardMaterial({ color: rimHex, metalness: 0.8, roughness: 0.2, side: THREE.DoubleSide });
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x171717, metalness: 0.08, roughness: 0.85, side: THREE.DoubleSide });
-    const lightMat = new THREE.MeshStandardMaterial({ color: 0xfffbeb, emissive: 0x38bdf8, emissiveIntensity: 0.5, side: THREE.DoubleSide });
-    const tailMat = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xdc2626, emissiveIntensity: 0.6, side: THREE.DoubleSide });
-
-    const isSuv = presetType === 'suv';
-    const H = isSuv ? 0.82 : 0.52;
-    const W = isSuv ? 1.96 : 1.92;
-    const L = isSuv ? 4.65 : 4.45;
-
-    function addPart(geom, mat, gta5Name, saName, role, pos = [0, 0, 0], pivotOffset = [0, 0, 0]) {
-        geom.translate(pivotOffset[0], pivotOffset[1], pivotOffset[2]);
-        geom.computeVertexNormals();
-
-        // Har bir vertexga rang yozamiz (GTA SA Prelit DFF uchun)
-        const count = geom.attributes.position.count;
-        const cArr = new Float32Array(count * 3);
-        const c = mat.color || new THREE.Color(0x38bdf8);
-        for (let i = 0; i < count; i++) {
-            cArr[i * 3] = c.r;
-            cArr[i * 3 + 1] = c.g;
-            cArr[i * 3 + 2] = c.b;
-        }
-        geom.setAttribute('color', new THREE.Float32BufferAttribute(cArr, 3));
-
-        const mesh = new THREE.Mesh(geom, mat.clone());
-        mesh.name = saName;
-        mesh.position.set(pos[0], pos[1], pos[2]);
-        carRootGroup.add(mesh);
-
-        currentCarParts.push({
-            mesh,
-            gta5Name,
-            saName,
-            role,
-            origGeom: geom.clone(),
-            basePos: mesh.position.clone(),
-            baseRot: mesh.rotation.clone()
-        });
-    }
-
-    // 1. Asosiy Kuzov (bodyshell -> chassis)
-    const bodyShape = new THREE.Shape();
-    if (isSuv) {
-        bodyShape.moveTo(-L * 0.48, 0.28);
-        bodyShape.lineTo(L * 0.48, 0.28);
-        bodyShape.lineTo(L * 0.46, 0.92);
-        bodyShape.lineTo(L * 0.18, 0.96);
-        bodyShape.lineTo(L * 0.08, 1.52);
-        bodyShape.lineTo(-L * 0.42, 1.52);
-        bodyShape.lineTo(-L * 0.48, 0.90);
-        bodyShape.closePath();
-    } else {
-        bodyShape.moveTo(-L * 0.48, 0.20);
-        bodyShape.lineTo(L * 0.49, 0.18);
-        bodyShape.lineTo(L * 0.44, 0.62);
-        bodyShape.lineTo(L * 0.15, 0.72);
-        bodyShape.lineTo(-L * 0.05, 1.12);
-        bodyShape.lineTo(-L * 0.36, 1.04);
-        bodyShape.lineTo(-L * 0.48, 0.72);
-        bodyShape.closePath();
-    }
-    const bodyGeom = new THREE.ExtrudeGeometry(bodyShape, { depth: W, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.06, bevelSegments: 3 });
-    bodyGeom.rotateY(Math.PI / 2);
-    bodyGeom.translate(-W * 0.5, 0, 0);
-    addPart(bodyGeom, bodyMat, 'bodyshell', 'chassis', 'body', [0, 0, 0]);
-
-    // 2. Old Kapot (bonnet -> bonnet_ok)
-    const bonnetGeom = new THREE.BoxGeometry(W * 0.84, 0.06, L * 0.26, 6, 1, 6);
-    addPart(bonnetGeom, bodyMat, 'bonnet', 'bonnet_ok', 'bonnet', [0, isSuv ? 0.95 : 0.68, L * 0.16], [0, 0, L * 0.13]);
-
-    // 3. Orqa Bagaj (boot -> boot_ok)
-    const bootGeom = new THREE.BoxGeometry(W * 0.84, 0.06, L * 0.20, 4, 1, 4);
-    addPart(bootGeom, bodyMat, 'boot', 'boot_ok', 'boot', [0, isSuv ? 1.50 : 0.92, -L * 0.26], [0, 0, -L * 0.10]);
-
-    // 4. Chap va O'ng Eshiklar (door_dside_f -> door_lf_ok, door_pside_f -> door_rf_ok)
-    const doorGeomL = new THREE.BoxGeometry(0.07, H * 0.78, L * 0.28, 1, 4, 6);
-    addPart(doorGeomL, bodyMat, 'door_dside_f', 'door_lf_ok', 'door_lf', [W * 0.51, isSuv ? 0.66 : 0.50, L * 0.12], [0, 0, -L * 0.14]);
-
-    const doorGeomR = new THREE.BoxGeometry(0.07, H * 0.78, L * 0.28, 1, 4, 6);
-    addPart(doorGeomR, bodyMat, 'door_pside_f', 'door_rf_ok', 'door_rf', [-W * 0.51, isSuv ? 0.66 : 0.50, L * 0.12], [0, 0, -L * 0.14]);
-
-    // 5. Old va Orqa Bamperlar (bumper_f -> bump_front_ok, bumper_r -> bump_rear_ok)
-    const bumpF = new THREE.BoxGeometry(W * 0.98, 0.26, 0.22, 8, 2, 2);
-    addPart(bumpF, darkMat, 'bumper_f', 'bump_front_ok', 'bumper_f', [0, 0.32, L * 0.48]);
-
-    const bumpR = new THREE.BoxGeometry(W * 0.98, 0.28, 0.22, 8, 2, 2);
-    addPart(bumpR, darkMat, 'bumper_r', 'bump_rear_ok', 'bumper_r', [0, 0.34, -L * 0.47]);
-
-    // 6. Old Oyna (windscreen -> windscreen_ok)
-    const glassGeom = new THREE.PlaneGeometry(W * 0.82, 0.68, 4, 2);
-    glassGeom.rotateX(isSuv ? -0.55 : -0.95);
-    addPart(glassGeom, glassMat, 'windscreen', 'windscreen_ok', 'glass', [0, isSuv ? 1.24 : 0.92, L * 0.08]);
-
-    // 7. Sport Spoyler (spoiler -> ug_spoiler)
-    const spoilerWing = new THREE.BoxGeometry(W * 0.96, 0.04, 0.22, 6, 1, 2);
-    addPart(spoilerWing, darkMat, 'spoiler', 'ug_spoiler', 'spoiler', [0, isSuv ? 1.62 : 1.08, -L * 0.44]);
-
-    // 8. Old va Orqa Faralar (headlights / taillights)
-    const headGeom = new THREE.BoxGeometry(W * 0.88, 0.09, 0.08);
-    addPart(headGeom, lightMat, 'headlight_l', 'headlights', 'lights', [0, isSuv ? 0.78 : 0.52, L * 0.485]);
-
-    const tailGeom = new THREE.BoxGeometry(W * 0.88, 0.09, 0.08);
-    addPart(tailGeom, tailMat, 'taillight_l', 'taillights', 'lights', [0, isSuv ? 0.85 : 0.68, -L * 0.475]);
-
-    // 9. 4 ta 3D Balon va Diska (wheel_lf, wheel_rf, wheel_lb, wheel_rb)
-    const wheelRadius = isSuv ? 0.44 : 0.36;
-    const wheelPositions = [
-        { g5: 'wheel_lf', sa: 'wheel_lf_dummy', pos: [ W * 0.48, wheelRadius,  L * 0.30] },
-        { g5: 'wheel_rf', sa: 'wheel_rf_dummy', pos: [-W * 0.48, wheelRadius,  L * 0.30] },
-        { g5: 'wheel_lr', sa: 'wheel_lb_dummy', pos: [ W * 0.48, wheelRadius, -L * 0.29] },
-        { g5: 'wheel_rr', sa: 'wheel_rb_dummy', pos: [-W * 0.48, wheelRadius, -L * 0.29] }
-    ];
-
-    wheelPositions.forEach(wp => {
-        const tireG = new THREE.CylinderGeometry(wheelRadius, wheelRadius, 0.26, 28);
-        tireG.rotateZ(Math.PI / 2);
-        addPart(tireG, tireMat, wp.g5, wp.sa, 'wheel', wp.pos);
-
-        const rimG = new THREE.CylinderGeometry(wheelRadius * 0.68, wheelRadius * 0.68, 0.27, 18);
-        rimG.rotateZ(Math.PI / 2);
-        addPart(rimG, rimMat, wp.g5 + '_rim', wp.sa + '_rim', 'rim', wp.pos);
-    });
-
-    document.getElementById('hudCarName').textContent = isSuv ? 'GTA5_DUBSTA_SUV' : 'GTA5_ZENTORNO';
-    updateHierarchyUI();
-    updateHandlingGenerator();
-    applyScaleAndOptimization();
-}
+let currentCarParts = [];
+let selectedPartIndex = -1;
+let loadedTextures = []; // { name, dataUrl, width, height, rgbaBytes, threeTex }
 
 function clearCarScene() {
     while (carRootGroup.children.length > 0) {
         const ch = carRootGroup.children[0];
         carRootGroup.remove(ch);
         if (ch.geometry) ch.geometry.dispose();
+        if (ch.material) {
+            if (Array.isArray(ch.material)) ch.material.forEach(m => m.dispose());
+            else ch.material.dispose();
+        }
     }
     currentCarParts = [];
+    selectedPartIndex = -1;
+    document.getElementById('partInspectorBox').style.display = 'none';
+    document.getElementById('emptyOverlay').classList.remove('hidden');
+    updateHierarchyUI();
+    updateHudCounters();
 }
 
-// ==================== FOYDALANUVCHI YUKLAGAN GTA 5 FAYLLARINI (.OBJ, .GLB, .DFF) O'QISH ====================
+document.getElementById('btnClearScene').addEventListener('click', () => {
+    clearCarScene();
+    setStatus('✓ Sahna tozalandi. Yangi fayl yuklashingiz mumkin.');
+});
+
+// ==================== CREASE-ANGLE NORMAL SMOOTHER & VERTEX WELDER (YUQoRI SIFAT SIRI) ====================
+function weldAndSmoothGeometry(geom, creaseDeg = 42) {
+    if (!geom || !geom.attributes.position) return geom;
+    const nonIdx = geom.index ? geom.toNonIndexed() : geom.clone();
+    const pos = nonIdx.attributes.position;
+    const col = nonIdx.attributes.color;
+    const uv = nonIdx.attributes.uv;
+    const vCount = pos.count;
+    if (vCount === 0) return nonIdx;
+
+    // 1. Har bir uchburchakning haqiqiy yuza normalini hisoblash
+    const faceNormals = new Float32Array(vCount * 3);
+    for (let i = 0; i < vCount; i += 3) {
+        const ax = pos.getX(i),     ay = pos.getY(i),     az = pos.getZ(i);
+        const bx = pos.getX(i + 1), by = pos.getY(i + 1), bz = pos.getZ(i + 1);
+        const cx = pos.getX(i + 2), cy = pos.getY(i + 2), cz = pos.getZ(i + 2);
+
+        const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+        const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+        let nx = e1y * e2z - e1z * e2y;
+        let ny = e1z * e2x - e1x * e2z;
+        let nz = e1x * e2y - e1y * e2x;
+        const len = Math.hypot(nx, ny, nz) || 1;
+        nx /= len; ny /= len; nz /= len;
+
+        for (let k = 0; k < 3; k++) {
+            const vi = (i + k) * 3;
+            faceNormals[vi]     = nx;
+            faceNormals[vi + 1] = ny;
+            faceNormals[vi + 2] = nz;
+        }
+    }
+
+    // 2. Crease-Angle bo'yicha nuqtalarni weld qilish (GTA SA 65,535 limitidan oshmasligi va silliq chiqishi uchun)
+    const uPos = [];
+    const uNorm = [];
+    const uCol = [];
+    const uUV = [];
+    const indices = [];
+
+    const buckets = new Map();
+    const cosCrease = Math.cos(creaseDeg * Math.PI / 180);
+
+    for (let i = 0; i < vCount; i += 3) {
+        const tri = [0, 0, 0];
+        for (let k = 0; k < 3; k++) {
+            const vi = i + k;
+            const px = pos.getX(vi), py = pos.getY(vi), pz = pos.getZ(vi);
+            const nx = faceNormals[vi * 3], ny = faceNormals[vi * 3 + 1], nz = faceNormals[vi * 3 + 2];
+            const cr = col ? col.getX(vi) : 1, cg = col ? col.getY(vi) : 1, cb = col ? col.getZ(vi) : 1;
+            const u = uv ? uv.getX(vi) : 0.5, v = uv ? uv.getY(vi) : 0.5;
+
+            const key = `${Math.round(px * 1200)}_${Math.round(py * 1200)}_${Math.round(pz * 1200)}`;
+            let list = buckets.get(key);
+            let matched = -1;
+
+            if (list) {
+                for (let b = 0; b < list.length; b++) {
+                    const cand = list[b];
+                    const cnx = uNorm[cand * 3], cny = uNorm[cand * 3 + 1], cnz = uNorm[cand * 3 + 2];
+                    const clen = Math.hypot(cnx, cny, cnz) || 1;
+                    if ((nx * cnx + ny * cny + nz * cnz) / clen >= cosCrease) {
+                        matched = cand;
+                        break;
+                    }
+                }
+            } else {
+                list = [];
+                buckets.set(key, list);
+            }
+
+            if (matched === -1 && (uPos.length / 3) < 65530) {
+                matched = uPos.length / 3;
+                uPos.push(px, py, pz);
+                uNorm.push(nx, ny, nz);
+                uCol.push(cr, cg, cb);
+                uUV.push(u, v);
+                list.push(matched);
+            } else if (matched !== -1) {
+                uNorm[matched * 3]     += nx;
+                uNorm[matched * 3 + 1] += ny;
+                uNorm[matched * 3 + 2] += nz;
+            } else {
+                matched = 0;
+            }
+            tri[k] = matched;
+        }
+        if (tri[0] !== tri[1] && tri[1] !== tri[2] && tri[2] !== tri[0]) {
+            indices.push(tri[0], tri[1], tri[2]);
+        }
+    }
+
+    for (let i = 0; i < uNorm.length; i += 3) {
+        const l = Math.hypot(uNorm[i], uNorm[i + 1], uNorm[i + 2]) || 1;
+        uNorm[i] /= l; uNorm[i + 1] /= l; uNorm[i + 2] /= l;
+    }
+
+    if (nonIdx !== geom) nonIdx.dispose();
+    const welded = new THREE.BufferGeometry();
+    welded.setAttribute('position', new THREE.Float32BufferAttribute(uPos, 3));
+    welded.setAttribute('normal', new THREE.Float32BufferAttribute(uNorm, 3));
+    welded.setAttribute('color', new THREE.Float32BufferAttribute(uCol, 3));
+    welded.setAttribute('uv', new THREE.Float32BufferAttribute(uUV, 2));
+    welded.setIndex(indices);
+    return welded;
+}
+
+// ==================== MATERIAL YARATISH (ROLE BO'YICHA PBR SHADER) ====================
+function createMaterialForRole(role, existingTex = null) {
+    const bodyCol = new THREE.Color(document.getElementById('bodyColorPicker').value);
+    const rimCol = new THREE.Color(document.getElementById('rimColorPicker').value);
+    const activeTex = existingTex || (loadedTextures.length > 0 ? loadedTextures[0].threeTex : null);
+
+    if (role === 'glass') {
+        return new THREE.MeshStandardMaterial({
+            color: 0x0f172a,
+            metalness: 0.9,
+            roughness: 0.08,
+            transparent: true,
+            opacity: 0.68,
+            wireframe: isWireframe,
+            side: THREE.DoubleSide
+        });
+    }
+    if (role === 'chrome') {
+        return new THREE.MeshStandardMaterial({
+            color: 0xf8fafc,
+            metalness: 0.92,
+            roughness: 0.12,
+            wireframe: isWireframe,
+            side: THREE.DoubleSide
+        });
+    }
+    if (role === 'wheel' || role === 'rim') {
+        return new THREE.MeshStandardMaterial({
+            color: rimCol,
+            metalness: 0.72,
+            roughness: 0.25,
+            wireframe: isWireframe,
+            side: THREE.DoubleSide
+        });
+    }
+    if (role === 'lights') {
+        return new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            emissive: 0x38bdf8,
+            emissiveIntensity: 0.45,
+            metalness: 0.5,
+            roughness: 0.15,
+            wireframe: isWireframe,
+            side: THREE.DoubleSide
+        });
+    }
+    if (role === 'interior' || role === 'bumper_f' || role === 'bumper_r') {
+        return new THREE.MeshStandardMaterial({
+            color: 0x1e293b,
+            metalness: 0.25,
+            roughness: 0.55,
+            wireframe: isWireframe,
+            side: THREE.DoubleSide
+        });
+    }
+
+    // Asosiy kuzov, kapot, bagaj va eshiklar
+    return new THREE.MeshStandardMaterial({
+        color: activeTex ? 0xffffff : bodyCol,
+        map: activeTex || null,
+        metalness: 0.55,
+        roughness: 0.18,
+        wireframe: isWireframe,
+        side: THREE.DoubleSide
+    });
+}
+
+// ==================== MESH QISMLARINI SAHNAGA QO'SHISH VA NORMALLASHTIRISH ====================
 function loadExternalCarMeshes(meshesList, fileName) {
     clearCarScene();
 
-    // Avval modelning umumiy o'lchamini aniqlab, GTA SA standartiga (4.45 m) normallashtiramiz
     const tempBox = new THREE.Box3();
     meshesList.forEach(m => {
         m.updateMatrixWorld(true);
-        if (m.geometry) {
+        if (m.geometry && m.geometry.attributes.position && m.geometry.attributes.position.count > 0) {
             m.geometry.computeBoundingBox();
             const b = m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld);
             tempBox.union(b);
         }
     });
 
+    if (tempBox.isEmpty()) {
+        setStatus(`⚠ "${fileName}" ichida yaroqli 3D poligonlar topilmadi.`);
+        return;
+    }
+
     const center = tempBox.getCenter(new THREE.Vector3());
     const size = tempBox.getSize(new THREE.Vector3());
     const maxSpan = Math.max(size.x, size.y, size.z, 0.001);
-    const targetSpan = parseFloat(document.getElementById('carScaleSlider').value) || 4.45;
+    const targetSpan = parseFloat(document.getElementById('carScaleSlider').value) || 4.50;
     const normScale = targetSpan / maxSpan;
     const minY = tempBox.min.y;
-
-    const bodyHex = document.getElementById('bodyColorPicker').value;
+    const creaseAngle = parseInt(document.getElementById('smoothAngleSlider').value, 10) || 42;
 
     meshesList.forEach((m, idx) => {
-        if (!m.geometry) return;
-        const g = m.geometry.clone();
-        g.applyMatrix4(m.matrixWorld);
-        g.translate(-center.x, -minY, -center.z);
-        g.scale(normScale, normScale, normScale);
-        g.computeVertexNormals();
+        if (!m.geometry || !m.geometry.attributes.position || m.geometry.attributes.position.count < 3) return;
+        const rawG = m.geometry.clone();
+        rawG.applyMatrix4(m.matrixWorld);
+        rawG.translate(-center.x, -minY, -center.z);
+        rawG.scale(normScale, normScale, normScale);
 
         const mapped = mapGta5PartNameToSA(m.name, idx);
+        const weldedG = weldAndSmoothGeometry(rawG, creaseAngle);
+        rawG.dispose();
 
-        if (!g.attributes.color) {
-            const count = g.attributes.position.count;
-            const cArr = new Float32Array(count * 3);
-            const baseCol = (m.material && m.material.color) ? m.material.color : new THREE.Color(bodyHex);
-            for (let i = 0; i < count; i++) {
-                cArr[i * 3] = baseCol.r;
-                cArr[i * 3 + 1] = baseCol.g;
-                cArr[i * 3 + 2] = baseCol.b;
-            }
-            g.setAttribute('color', new THREE.Float32BufferAttribute(cArr, 3));
-        }
-
-        const mat = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            vertexColors: true,
-            metalness: mapped.role === 'glass' ? 0.85 : 0.35,
-            roughness: 0.28,
-            transparent: mapped.role === 'glass',
-            opacity: mapped.role === 'glass' ? 0.72 : 1.0,
-            wireframe: isWireframe,
-            side: THREE.DoubleSide
-        });
-
-        const newMesh = new THREE.Mesh(g, mat);
+        const mat = createMaterialForRole(mapped.role, m.material && m.material.map ? m.material.map : null);
+        const newMesh = new THREE.Mesh(weldedG, mat);
         newMesh.name = mapped.saName;
         carRootGroup.add(newMesh);
 
@@ -871,79 +1084,555 @@ function loadExternalCarMeshes(meshesList, fileName) {
             gta5Name: mapped.gta5Name,
             saName: mapped.saName,
             role: mapped.role,
-            origGeom: g.clone(),
-            basePos: newMesh.position.clone(),
-            baseRot: newMesh.rotation.clone()
+            origGeom: weldedG.clone()
         });
     });
 
+    document.getElementById('emptyOverlay').classList.add('hidden');
     document.getElementById('hudCarName').textContent = fileName.replace(/\.[^/.]+$/, '').toUpperCase();
+
+    fitCameraToCar();
     updateHierarchyUI();
     updateHandlingGenerator();
     updateHudCounters();
-    setStatus(`✓ "${fileName}" yuklandi va ${currentCarParts.length} ta qism GTA San Andreas ierarxiyasiga o‘tkazildi!`);
+    setStatus(`✓ "${fileName}" yuklandi (${currentCarParts.length} ta qism GTA San Andreas standartiga moslashtirildi).`);
 }
 
-// ==================== POLIGON OPTIMALLASHTIRGICH (DECIMATOR) VA SCALE ====================
-function decimateGeometryByRatio(origGeom, ratio) {
-    if (ratio >= 0.98) return origGeom.clone();
+function fitCameraToCar() {
+    const box = new THREE.Box3().setFromObject(carRootGroup);
+    if (box.isEmpty()) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 1.5);
+
+    camera.position.set(center.x + maxDim * 0.95, center.y + maxDim * 0.55, center.z + maxDim * 1.15);
+    controls.target.copy(center);
+    controls.update();
+}
+
+// ==================== 1. GTA V .YFT & .YFT.XML PARSER (RSC7 + ZLIB + CODEWALKER XML) ====================
+function parseCodeWalkerYftXml(xmlText, fileName) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, 'text/xml');
+    const meshes = [];
+
+    const geomNodes = doc.querySelectorAll('Geometry, Item[type="Geometry"]');
+    geomNodes.forEach((gNode, idx) => {
+        const parentDrawable = gNode.closest('DrawableModel, Drawable, Fragment, Item');
+        let boneName = 'bodyshell_' + idx;
+        if (parentDrawable) {
+            const nameEl = parentDrawable.querySelector('Name, BoneName, Tag');
+            if (nameEl && nameEl.textContent) boneName = nameEl.textContent.trim();
+        }
+
+        const vbNode = gNode.querySelector('VertexBuffer Data, VertexBuffer Data2, Vertices');
+        const ibNode = gNode.querySelector('IndexBuffer Data, Indices');
+        if (!vbNode || !ibNode) return;
+
+        const vLines = vbNode.textContent.trim().split(/\r?\n/);
+        const positions = [];
+        const normals = [];
+        const uvs = [];
+
+        vLines.forEach(line => {
+            const nums = line.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+            if (nums.length >= 3) {
+                // GTA V Z-up -> Three.js Y-up: (x, z, -y)
+                positions.push(nums[0], nums[2], -nums[1]);
+                if (nums.length >= 6) {
+                    normals.push(nums[3], nums[5], -nums[4]);
+                } else {
+                    normals.push(0, 1, 0);
+                }
+                if (nums.length >= 8) {
+                    uvs.push(nums[nums.length - 2], 1.0 - nums[nums.length - 1]);
+                } else {
+                    uvs.push(0.5, 0.5);
+                }
+            }
+        });
+
+        const indices = ibNode.textContent.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+        if (positions.length >= 9 && indices.length >= 3) {
+            const geom = new THREE.BufferGeometry();
+            geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+            geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+            geom.setIndex(indices);
+            const m = new THREE.Mesh(geom);
+            m.name = boneName;
+            meshes.push(m);
+        }
+    });
+
+    if (meshes.length > 0) {
+        loadExternalCarMeshes(meshes, fileName);
+    } else {
+        setStatus(`⚠ "${fileName}" XML ichida VertexBuffer topilmadi.`);
+    }
+}
+
+function decompressRsc7Buffer(arrayBuffer) {
+    const u8 = new Uint8Array(arrayBuffer);
+    if (u8.byteLength < 16) return u8;
+
+    const dv = new DataView(arrayBuffer);
+    const magic = dv.getUint32(0, true);
+
+    // RSC7 magic = 0x37435352 ("RSC7")
+    if (magic === 0x37435352 && window.pako) {
+        const tryOffsets = [16, 12, 24, 32];
+        for (const off of tryOffsets) {
+            if (off >= u8.byteLength) continue;
+            const sub = u8.subarray(off);
+            try {
+                const res = window.pako.inflateRaw(sub);
+                if (res && res.byteLength > 64) return res;
+            } catch (e) {}
+            try {
+                const res = window.pako.inflate(sub);
+                if (res && res.byteLength > 64) return res;
+            } catch (e) {}
+        }
+    }
+
+    // Zlib header (0x78 0x9C yoki 0x78 0xDA) qidirish
+    if (window.pako) {
+        for (let i = 0; i < Math.min(u8.byteLength - 4, 256); i++) {
+            if (u8[i] === 0x78 && (u8[i + 1] === 0x9C || u8[i + 1] === 0xDA || u8[i + 1] === 0x01)) {
+                try {
+                    const res = window.pako.inflate(u8.subarray(i));
+                    if (res && res.byteLength > 64) return res;
+                } catch (e) {}
+            }
+        }
+    }
+    return u8;
+}
+
+function parseBinaryYFT(arrayBuffer, fileName) {
+    // 1. Agar matnli XML bo'lsa
+    const headStr = new TextDecoder().decode(new Uint8Array(arrayBuffer, 0, Math.min(200, arrayBuffer.byteLength)));
+    if (headStr.includes('<?xml') || headStr.includes('<Fragment') || headStr.includes('<Drawable')) {
+        const fullTxt = new TextDecoder().decode(arrayBuffer);
+        parseCodeWalkerYftXml(fullTxt, fileName);
+        return;
+    }
+
+    // 2. Binar RSC7 .YFT faylni dekompress qilish
+    const data = decompressRsc7Buffer(arrayBuffer);
+    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+    // Ichki DDS teksturalar bo'lsa (.yft ichiga joylangan embedded textures), ularni ham ajratib olamiz
+    extractEmbeddedDDSFromBuffer(data, fileName);
+
+    // 3. Binar oqimdan mashina suyak/detal nomlarini qidirish
+    const textAscii = new TextDecoder('ascii', { fatal: false }).decode(data);
+    const detectedPartNames = [];
+    const knownGta5Bones = [
+        'chassis', 'bodyshell', 'bonnet', 'boot', 'door_dside_f', 'door_pside_f',
+        'door_dside_r', 'door_pside_r', 'bumper_f', 'bumper_r', 'windscreen',
+        'wheel_lf', 'wheel_rf', 'wheel_lr', 'wheel_rr', 'spoiler', 'exhaust'
+    ];
+    knownGta5Bones.forEach(bName => {
+        if (textAscii.toLowerCase().includes(bName)) detectedPartNames.push(bName);
+    });
+
+    // 4. Dekompress qilingan RSC7 xotirasidan Float32 Vertex + Uint16 Index bloklarini qidirish
+    const extractedMeshes = [];
+    const strideCandidates = [36, 32, 40, 44, 48, 28];
+
+    for (let offset = 0; offset < data.byteLength - 512; offset += 4) {
+        // GTA V IndexBuffer va VertexBuffer bloklarini tekshirish
+        const possibleCount = dv.getUint32(offset, true);
+        if (possibleCount >= 24 && possibleCount <= 35000) {
+            for (const stride of strideCandidates) {
+                const byteLen = possibleCount * stride;
+                const vStart = offset + 16;
+                if (vStart + byteLen > data.byteLength) continue;
+
+                // Birinchi 8 ta vertex koordinatasi mashina o'lchamida (-4.5m .. +4.5m) ekanini tekshiramiz
+                let validVerts = true;
+                let nonZero = 0;
+                for (let v = 0; v < Math.min(12, possibleCount); v++) {
+                    const vp = vStart + v * stride;
+                    const vx = dv.getFloat32(vp, true);
+                    const vy = dv.getFloat32(vp + 4, true);
+                    const vz = dv.getFloat32(vp + 8, true);
+                    if (!Number.isFinite(vx) || !Number.isFinite(vy) || !Number.isFinite(vz) ||
+                        Math.abs(vx) > 6.5 || Math.abs(vy) > 6.5 || Math.abs(vz) > 6.5) {
+                        validVerts = false;
+                        break;
+                    }
+                    if (Math.hypot(vx, vy, vz) > 0.02) nonZero++;
+                }
+
+                if (validVerts && nonZero >= 6) {
+                    const posArr = new Float32Array(possibleCount * 3);
+                    let allValid = true;
+                    for (let v = 0; v < possibleCount; v++) {
+                        const vp = vStart + v * stride;
+                        const vx = dv.getFloat32(vp, true);
+                        const vy = dv.getFloat32(vp + 4, true);
+                        const vz = dv.getFloat32(vp + 8, true);
+                        if (!Number.isFinite(vx) || !Number.isFinite(vy) || !Number.isFinite(vz) ||
+                            Math.abs(vx) > 7.5 || Math.abs(vy) > 7.5 || Math.abs(vz) > 7.5) {
+                            allValid = false;
+                            break;
+                        }
+                        // GTA V Z-up -> Three.js Y-up
+                        posArr[v * 3]     = vx;
+                        posArr[v * 3 + 1] = vz;
+                        posArr[v * 3 + 2] = -vy;
+                    }
+
+                    if (allValid) {
+                        const geom = new THREE.BufferGeometry();
+                        geom.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+                        geom.computeVertexNormals();
+                        const mesh = new THREE.Mesh(geom);
+                        mesh.name = detectedPartNames[extractedMeshes.length] || ('yft_part_' + extractedMeshes.length);
+                        extractedMeshes.push(mesh);
+                        offset = vStart + byteLen;
+                        break;
+                    }
+                }
+            }
+        }
+        if (extractedMeshes.length >= 24) break;
+    }
+
+    if (extractedMeshes.length > 0) {
+        loadExternalCarMeshes(extractedMeshes, fileName);
+    } else {
+        setStatus(`⚠ "${fileName}" shifrlangan (Rockstar NG/Oodle) binar .YFT ekan (${detectedPartNames.length} ta suyak nomi aniqlandi). Uni CodeWalker orqali ".YFT.XML" yoki ".OBJ" qilib eksport qilib tashlang!`);
+    }
+}
+
+// ==================== 2. GTA V .YTD VA .DDS TEKSTURA PARSERI (DXT1 / DXT5 / RGBA8 DECODER) ====================
+function decodeDXT1Block(src, off, outRgba, outStride, bx, by, width, height) {
+    const c0 = src[off] | (src[off + 1] << 8);
+    const c1 = src[off + 2] | (src[off + 3] << 8);
+    const bits = src[off + 4] | (src[off + 5] << 8) | (src[off + 6] << 16) | (src[off + 7] << 24);
+
+    const r0 = ((c0 >> 11) & 31) * 255 / 31;
+    const g0 = ((c0 >> 5) & 63) * 255 / 63;
+    const b0 = (c0 & 31) * 255 / 31;
+
+    const r1 = ((c1 >> 11) & 31) * 255 / 31;
+    const g1 = ((c1 >> 5) & 63) * 255 / 63;
+    const b1 = (c1 & 31) * 255 / 31;
+
+    const colors = [
+        [r0, g0, b0, 255],
+        [r1, g1, b1, 255],
+        c0 > c1 ? [(2 * r0 + r1) / 3, (2 * g0 + g1) / 3, (2 * b0 + b1) / 3, 255] : [(r0 + r1) / 2, (g0 + g1) / 2, (b0 + b1) / 2, 255],
+        c0 > c1 ? [(r0 + 2 * r1) / 3, (g0 + 2 * g1) / 3, (b0 + 2 * b1) / 3, 255] : [0, 0, 0, 0]
+    ];
+
+    for (let py = 0; py < 4; py++) {
+        const y = by + py;
+        if (y >= height) continue;
+        for (let px = 0; px < 4; px++) {
+            const x = bx + px;
+            if (x >= width) continue;
+            const code = (bits >> ((py * 4 + px) * 2)) & 3;
+            const col = colors[code];
+            const dst = (y * width + x) * 4;
+            outRgba[dst]     = col[0];
+            outRgba[dst + 1] = col[1];
+            outRgba[dst + 2] = col[2];
+            outRgba[dst + 3] = col[3];
+        }
+    }
+}
+
+function parseDDSImage(u8, texName = 'texture') {
+    if (u8.byteLength < 128) return null;
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    if (dv.getUint32(0, true) !== 0x20534444) return null; // "DDS "
+
+    const height = dv.getUint32(12, true);
+    const width = dv.getUint32(16, true);
+    if (width === 0 || height === 0 || width > 4096 || height > 4096) return null;
+
+    const fourCC = dv.getUint32(84, true);
+    const rgba = new Uint8ClampedArray(width * height * 4);
+    let ptr = 128;
+
+    // DXT1 = 0x31545844, DXT5 = 0x35545844
+    if (fourCC === 0x31545844) {
+        for (let by = 0; by < height; by += 4) {
+            for (let bx = 0; bx < width; bx += 4) {
+                if (ptr + 8 <= u8.byteLength) {
+                    decodeDXT1Block(u8, ptr, rgba, width * 4, bx, by, width, height);
+                }
+                ptr += 8;
+            }
+        }
+    } else if (fourCC === 0x35545844 || fourCC === 0x33545844) {
+        for (let by = 0; by < height; by += 4) {
+            for (let bx = 0; bx < width; bx += 4) {
+                if (ptr + 16 <= u8.byteLength) {
+                    decodeDXT1Block(u8, ptr + 8, rgba, width * 4, bx, by, width, height);
+                }
+                ptr += 16;
+            }
+        }
+    } else {
+        // Uncompressed RGBA / BGRA
+        for (let i = 0; i < width * height && (ptr + 4 <= u8.byteLength); i++) {
+            rgba[i * 4]     = u8[ptr + 2];
+            rgba[i * 4 + 1] = u8[ptr + 1];
+            rgba[i * 4 + 2] = u8[ptr];
+            rgba[i * 4 + 3] = u8[ptr + 3] || 255;
+            ptr += 4;
+        }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.putImageData(new ImageData(rgba, width, height), 0, 0);
+
+    const threeTex = new THREE.CanvasTexture(canvas);
+    threeTex.encoding = THREE.sRGBEncoding;
+    threeTex.needsUpdate = true;
+
+    return {
+        name: texName.replace(/\.[^/.]+$/, '').slice(0, 28),
+        width,
+        height,
+        dataUrl: canvas.toDataURL('image/png'),
+        rgbaBytes: rgba,
+        threeTex
+    };
+}
+
+function extractEmbeddedDDSFromBuffer(u8, sourceFileName) {
+    let found = 0;
+    for (let i = 0; i < u8.byteLength - 128; i++) {
+        // "DDS " magic: 0x44, 0x44, 0x53, 0x20
+        if (u8[i] === 0x44 && u8[i + 1] === 0x44 && u8[i + 2] === 0x53 && u8[i + 3] === 0x20 && u8[i + 4] === 0x7C) {
+            const parsed = parseDDSImage(u8.subarray(i), `${sourceFileName.replace(/\.[^/.]+$/, '')}_tex_${found + 1}`);
+            if (parsed) {
+                loadedTextures.push(parsed);
+                found++;
+                i += 128;
+            }
+        }
+        if (found >= 24) break;
+    }
+    if (found > 0) {
+        renderTextureGallery();
+        applyPrimaryTextureToBody();
+    }
+    return found;
+}
+
+function parseYTDFile(arrayBuffer, fileName) {
+    const decompressed = decompressRsc7Buffer(arrayBuffer);
+    const count = extractEmbeddedDDSFromBuffer(decompressed, fileName);
+    if (count > 0) {
+        setStatus(`✓ "${fileName}" (.YTD) ichidan ${count} ta tekstura ajratib olindi va modelga ulandi!`);
+    } else {
+        setStatus(`⚠ "${fileName}" ichida ochiq DDS bloklari topilmadi (yoki fayl NG-shifrlangan). CodeWalker orqali DDS/PNG qilib ham tashlashingiz mumkin.`);
+    }
+}
+
+function renderTextureGallery() {
+    const gal = document.getElementById('texGallery');
+    document.getElementById('texCountBadge').textContent = loadedTextures.length + ' TEX';
+    if (loadedTextures.length === 0) return;
+
+    gal.innerHTML = '';
+    loadedTextures.forEach((t, idx) => {
+        const card = document.createElement('div');
+        card.className = 'tex-card';
+        card.title = `${t.name} (${t.width}x${t.height}) — Bosib kuzovga qo'llang`;
+        card.innerHTML = `
+            <img src="${t.dataUrl}" alt="${t.name}">
+            <div>${t.name.slice(0, 10)}</div>
+        `;
+        card.addEventListener('click', () => {
+            applyPrimaryTextureToBody(t.threeTex);
+            setStatus(`✓ "${t.name}" teksturasi mashina kuzoviga qo‘llandi!`);
+        });
+        gal.appendChild(card);
+    });
+}
+
+function applyPrimaryTextureToBody(tex = null) {
+    const chosen = tex || (loadedTextures[0] && loadedTextures[0].threeTex);
+    if (!chosen) return;
+    currentCarParts.forEach(p => {
+        if (['body', 'bonnet', 'boot', 'door_lf', 'door_rf'].includes(p.role)) {
+            p.mesh.material.map = chosen;
+            p.mesh.material.color.setHex(0xffffff);
+            p.mesh.material.needsUpdate = true;
+        }
+    });
+}
+
+// ==================== 3. RENDERWARE .DFF PARSER (GTA SA / ZMODELER DFF FAYLLARINI HAM O'QIYDI) ====================
+function parseDFFFile(arrayBuffer, fileName) {
+    const dv = new DataView(arrayBuffer);
+    let offset = 0;
+    const frameNames = [];
+    const meshes = [];
+
+    function walkSections(limit) {
+        while (offset + 12 <= limit) {
+            const type = dv.getUint32(offset, true);
+            const size = dv.getUint32(offset + 4, true);
+            const next = offset + 12 + size;
+            if (next > arrayBuffer.byteLength) break;
+
+            if (type === 0x0010 || type === 0x001A || type === 0x000E) {
+                offset += 12;
+                walkSections(next);
+            } else if (type === 0x0253F2FE) {
+                const str = new TextDecoder().decode(new Uint8Array(arrayBuffer, offset + 12, size)).replace(/\0/g, '').trim();
+                if (str) frameNames.push(str);
+                offset = next;
+            } else if (type === 0x000F) {
+                const g = readRWGeom(dv, offset + 12, next);
+                if (g) {
+                    const m = new THREE.Mesh(g);
+                    m.name = frameNames[meshes.length + 1] || frameNames[meshes.length] || ('part_' + meshes.length);
+                    meshes.push(m);
+                }
+                offset = next;
+            } else {
+                offset = next;
+            }
+        }
+    }
+
+    function readRWGeom(view, start, end) {
+        try {
+            if (view.getUint32(start, true) !== 0x0001) return null;
+            let pos = start + 12;
+            const flags = view.getUint32(pos, true);
+            const numTris = view.getUint32(pos + 4, true);
+            const numVerts = view.getUint32(pos + 8, true);
+            pos += 16;
+            if (numVerts === 0 || numVerts > 250000) return null;
+
+            const hasPrelit = (flags & 0x08) !== 0;
+            const hasTex = (flags & 0x04) !== 0 || (flags & 0x80) !== 0;
+            let numUV = (flags >> 16) & 0xFF;
+            if (numUV === 0 && hasTex) numUV = 1;
+
+            if (hasPrelit) pos += numVerts * 4;
+
+            let uvs = null;
+            if (numUV > 0) {
+                uvs = new Float32Array(numVerts * 2);
+                for (let i = 0; i < numVerts * 2; i++) {
+                    uvs[i] = view.getFloat32(pos, true);
+                    pos += 4;
+                }
+                if (numUV > 1) pos += (numUV - 1) * numVerts * 8;
+            }
+
+            const indices = [];
+            for (let i = 0; i < numTris; i++) {
+                const v2 = view.getUint16(pos, true);
+                const v1 = view.getUint16(pos + 2, true);
+                const v3 = view.getUint16(pos + 6, true);
+                pos += 8;
+                indices.push(v1, v2, v3);
+            }
+            pos += 24;
+
+            const verts = new Float32Array(numVerts * 3);
+            for (let i = 0; i < numVerts; i++) {
+                const x = view.getFloat32(pos, true);
+                const y = view.getFloat32(pos + 4, true);
+                const z = view.getFloat32(pos + 8, true);
+                pos += 12;
+                // GTA SA (x, y-forward, z-up) -> Three.js (x, z-up, -y)
+                verts[i * 3]     = x;
+                verts[i * 3 + 1] = z;
+                verts[i * 3 + 2] = y;
+            }
+
+            const g = new THREE.BufferGeometry();
+            g.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+            if (uvs) g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+            g.setIndex(indices);
+            g.computeVertexNormals();
+            return g;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    walkSections(arrayBuffer.byteLength);
+    if (meshes.length > 0) {
+        loadExternalCarMeshes(meshes, fileName);
+    } else {
+        setStatus(`⚠ "${fileName}" ichida standart RenderWare geometriya topilmadi.`);
+    }
+}
+
+// ==================== POLIGON OPTIMALLASHTIRGICH VA INTERAKTIV IERARXIYA ====================
+function decimateGeometryByRatio(origGeom, ratio, creaseDeg = 42) {
+    if (ratio >= 0.98) return weldAndSmoothGeometry(origGeom, creaseDeg);
     const nonIdx = origGeom.index ? origGeom.toNonIndexed() : origGeom.clone();
     const pos = nonIdx.attributes.position;
-    const col = nonIdx.attributes.color;
+    const uv = nonIdx.attributes.uv;
 
-    // Grid vertex clustering orqali tez va silliq poligon kamaytirish
     const box = new THREE.Box3().setFromBufferAttribute(pos);
     const span = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z, 0.1);
-    const gridCells = Math.max(18, Math.round(140 * (ratio ** 1.4)));
+    const gridCells = Math.max(20, Math.round(160 * (ratio ** 1.35)));
     const invCell = gridCells / span;
 
     const outPos = [];
-    const outCol = [];
+    const outUV = [];
 
     for (let i = 0; i < pos.count; i += 3) {
         const pts = [];
         const keys = [];
         for (let k = 0; k < 3; k++) {
             const vi = i + k;
-            const x = pos.getX(vi), y = pos.getY(vi), z = pos.getZ(vi);
-            const gx = Math.round(x * invCell) / invCell;
-            const gy = Math.round(y * invCell) / invCell;
-            const gz = Math.round(z * invCell) / invCell;
+            const gx = Math.round(pos.getX(vi) * invCell) / invCell;
+            const gy = Math.round(pos.getY(vi) * invCell) / invCell;
+            const gz = Math.round(pos.getZ(vi) * invCell) / invCell;
             pts.push([gx, gy, gz]);
             keys.push(`${gx.toFixed(3)}_${gy.toFixed(3)}_${gz.toFixed(3)}`);
         }
-        // Yopishib qolgan degenerat uchburchaklarni olib tashlash
         if (keys[0] !== keys[1] && keys[1] !== keys[2] && keys[0] !== keys[2]) {
             for (let k = 0; k < 3; k++) {
                 const vi = i + k;
                 outPos.push(pts[k][0], pts[k][1], pts[k][2]);
-                if (col) outCol.push(col.getX(vi), col.getY(vi), col.getZ(vi));
-                else outCol.push(0.22, 0.74, 0.97);
+                outUV.push(uv ? uv.getX(vi) : 0.5, uv ? uv.getY(vi) : 0.5);
             }
         }
     }
 
-    if (outPos.length < 9) return origGeom.clone();
-    const decimated = new THREE.BufferGeometry();
-    decimated.setAttribute('position', new THREE.Float32BufferAttribute(outPos, 3));
-    decimated.setAttribute('color', new THREE.Float32BufferAttribute(outCol, 3));
-    decimated.computeVertexNormals();
     if (nonIdx !== origGeom) nonIdx.dispose();
-    return decimated;
+    if (outPos.length < 9) return weldAndSmoothGeometry(origGeom, creaseDeg);
+
+    const tempG = new THREE.BufferGeometry();
+    tempG.setAttribute('position', new THREE.Float32BufferAttribute(outPos, 3));
+    tempG.setAttribute('uv', new THREE.Float32BufferAttribute(outUV, 2));
+    const welded = weldAndSmoothGeometry(tempG, creaseDeg);
+    tempG.dispose();
+    return welded;
 }
 
 function applyScaleAndOptimization() {
+    if (currentCarParts.length === 0) return;
     const ratio = (parseInt(document.getElementById('polyRatioSlider').value, 10) || 100) / 100;
-    const wheelScl = parseFloat(document.getElementById('wheelScaleSlider').value) || 1.0;
+    const creaseDeg = parseInt(document.getElementById('smoothAngleSlider').value, 10) || 42;
 
     currentCarParts.forEach(part => {
-        const newGeom = decimateGeometryByRatio(part.origGeom, ratio);
+        const newGeom = decimateGeometryByRatio(part.origGeom, ratio, creaseDeg);
         part.mesh.geometry.dispose();
         part.mesh.geometry = newGeom;
-
-        if (part.role === 'wheel' || part.role === 'rim') {
-            part.mesh.scale.set(wheelScl, wheelScl, wheelScl);
-        }
     });
 
     updateHudCounters();
@@ -952,8 +1641,9 @@ function applyScaleAndOptimization() {
 function updateHudCounters() {
     let totalV = 0;
     let totalP = 0;
-    currentCarParts.forEach(p => {
-        if (!p.mesh.visible || !p.mesh.geometry) return;
+    const activeParts = currentCarParts.filter(p => p.mesh && p.mesh.visible && p.mesh.geometry);
+
+    activeParts.forEach(p => {
         const pos = p.mesh.geometry.attributes.position;
         if (pos) {
             totalV += pos.count;
@@ -965,46 +1655,104 @@ function updateHudCounters() {
 
     const targetSelect = document.getElementById('saTargetCar');
     document.getElementById('hudTargetDff').textContent = targetSelect.value + '.dff';
-    document.getElementById('hudParts').textContent = currentCarParts.length;
+    document.getElementById('hudParts').textContent = activeParts.length;
     document.getElementById('hudVerts').textContent = totalV.toLocaleString();
     document.getElementById('hudPolys').textContent = totalP.toLocaleString();
 
     const statusEl = document.getElementById('hudStatus');
-    if (totalV <= 65535) {
+    if (activeParts.length === 0) {
+        statusEl.textContent = 'FAYL KUTILMOQDA';
+        statusEl.style.color = '#94a3b8';
+    } else if (totalV <= 65535) {
         statusEl.textContent = '✓ GTA SA READY';
         statusEl.style.color = '#22c55e';
     } else {
-        statusEl.textContent = '⚠ OPTIMIZE QILING';
-        statusEl.style.color = '#f59e0b';
+        statusEl.textContent = '✓ MULTI-PART READY';
+        statusEl.style.color = '#38bdf8';
     }
 }
 
-// ==================== IERARXIYA RO'YXATI VA HANDLING.CFG GENERATORI ====================
 function updateHierarchyUI() {
     const list = document.getElementById('hierarchyList');
-    list.innerHTML = '';
+    document.getElementById('mappedCountBadge').textContent = currentCarParts.length + ' QISM';
 
+    if (currentCarParts.length === 0) {
+        list.innerHTML = `<div style="text-align:center;padding:18px;font:10px monospace;color:#64748b;">Model yuklangandan so‘ng barcha qismlar ro‘yxati shu yerda chiqadi.</div>`;
+        return;
+    }
+
+    list.innerHTML = '';
     currentCarParts.forEach((p, idx) => {
         const row = document.createElement('div');
-        row.className = 'part-item mapped';
+        row.className = 'part-item' + (idx === selectedPartIndex ? ' selected' : '');
         row.innerHTML = `
             <div style="display:flex;align-items:center;gap:6px;overflow:hidden;">
-                <input type="checkbox" checked data-idx="${idx}" style="cursor:pointer;">
-                <span style="color:#94a3b8;">${p.gta5Name}</span>
+                <input type="checkbox" ${p.mesh.visible ? 'checked' : ''} style="cursor:pointer;">
+                <span style="color:#94a3b8;">${p.gta5Name.slice(0, 13)}</span>
                 <span class="part-arrow">→</span>
                 <b style="color:#fff;">${p.saName}</b>
             </div>
-            <span class="sa-tag">✓ SA OK</span>
+            <span class="sa-tag">${p.role.toUpperCase()}</span>
         `;
-        row.querySelector('input').addEventListener('change', e => {
+
+        const chk = row.querySelector('input');
+        chk.addEventListener('click', e => e.stopPropagation());
+        chk.addEventListener('change', e => {
             p.mesh.visible = e.target.checked;
             updateHudCounters();
         });
+
+        row.addEventListener('click', () => selectCarPart(idx));
         list.appendChild(row);
     });
-
-    document.getElementById('mappedCountBadge').textContent = currentCarParts.length + ' QISM';
 }
+
+function selectCarPart(idx) {
+    selectedPartIndex = idx;
+    updateHierarchyUI();
+    const box = document.getElementById('partInspectorBox');
+    if (idx < 0 || idx >= currentCarParts.length) {
+        box.style.display = 'none';
+        return;
+    }
+    const part = currentCarParts[idx];
+    box.style.display = 'flex';
+    document.getElementById('selectedPartOrigName').textContent = part.gta5Name;
+
+    const sel = document.getElementById('partSaRoleSelect');
+    const combinedVal = `${part.saName}|${part.role}`;
+    for (let i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value.startsWith(part.saName + '|')) {
+            sel.selectedIndex = i;
+            break;
+        }
+    }
+}
+
+document.getElementById('partSaRoleSelect').addEventListener('change', e => {
+    if (selectedPartIndex < 0 || selectedPartIndex >= currentCarParts.length) return;
+    const [newSaName, newRole] = e.target.value.split('|');
+    const part = currentCarParts[selectedPartIndex];
+    part.saName = newSaName;
+    part.role = newRole;
+    part.mesh.name = newSaName;
+    part.mesh.material = createMaterialForRole(newRole);
+    updateHierarchyUI();
+    setStatus(`✓ "${part.gta5Name}" qismi "${newSaName}" (${newRole}) sifatida belgilandi.`);
+});
+
+document.getElementById('btnDeleteSelectedPart').addEventListener('click', () => {
+    if (selectedPartIndex < 0 || selectedPartIndex >= currentCarParts.length) return;
+    const removed = currentCarParts.splice(selectedPartIndex, 1)[0];
+    if (removed && removed.mesh) {
+        carRootGroup.remove(removed.mesh);
+        removed.mesh.geometry.dispose();
+    }
+    selectedPartIndex = -1;
+    document.getElementById('partInspectorBox').style.display = 'none';
+    updateHierarchyUI();
+    updateHudCounters();
+});
 
 function updateHandlingGenerator() {
     const sel = document.getElementById('saTargetCar');
@@ -1019,23 +1767,30 @@ function updateHandlingGenerator() {
     const ideLine = `${carId}, ${sel.value}, ${sel.value}, car, ${carName}, ${carName}, null, executive, 5, 0, 0, -1, 0.76, 0.76, 0`;
 
     document.getElementById('handlingOutput').value =
-        `// 1) data/handling.cfg qatori:\n${handlingLine}\n\n// 2) data/vehicles.ide qatori:\n${ideLine}`;
+        `// data/handling.cfg:\n${handlingLine}\n\n// data/vehicles.ide:\n${ideLine}`;
 }
+updateHandlingGenerator();
 
 document.getElementById('saTargetCar').addEventListener('change', () => {
     updateHandlingGenerator();
     updateHudCounters();
 });
 
-// ==================== GTA SA MULTI-ATOMIC .DFF EXPORTER (RENDERWARE 3.6.0.3) ====================
+// ==================== 4. GTA SA MULTI-ATOMIC .DFF EXPORTER (Z-UP VA CARCOLS BILAN) ====================
 function exportGtaSaDFF() {
     const visibleParts = currentCarParts.filter(p => p.mesh && p.mesh.visible && p.mesh.geometry);
     if (visibleParts.length === 0) {
-        setStatus('⚠ Eksport qilish uchun kamida 1 ta mashina qismi faol bo‘lishi kerak!');
+        setStatus('⚠ Eksport qilish uchun avval GTA 5 mashina faylini yuklang!');
         return;
     }
 
-    const RW_VERSION = 0x1803FFFF; // GTA San Andreas RenderWare 3.6.0.3
+    // Eshik va kapot ochilgan bo'lsa, eksport oldidan 0° joyiga qaytaramiz
+    document.getElementById('openDoorsSlider').value = 0;
+    document.getElementById('openDoorsVal').textContent = '0%';
+    visibleParts.forEach(p => p.mesh.rotation.set(0, 0, 0));
+    carRootGroup.updateMatrixWorld(true);
+
+    const RW_VERSION = 0x1803FFFF;
     function makeSection(type, payloadBytes) {
         const out = new Uint8Array(12 + payloadBytes.byteLength);
         const dv = new DataView(out.buffer);
@@ -1054,20 +1809,20 @@ function exportGtaSaDFF() {
     }
 
     const numAtomics = visibleParts.length;
+    const paintMode = document.getElementById('paintModeSelect').value;
 
     // 1. Clump Struct (0x0001)
     const clumpStructBuf = new ArrayBuffer(12);
     new DataView(clumpStructBuf).setUint32(0, numAtomics, true);
     const clumpStruct = makeSection(0x0001, new Uint8Array(clumpStructBuf));
 
-    // 2. Frame List (0x000E) — Root chassis_dummy + barcha qismlar
+    // 2. Frame List (0x000E)
     const numFrames = numAtomics + 1;
     const frameStructBuf = new ArrayBuffer(4 + numFrames * 56);
     const frameDV = new DataView(frameStructBuf);
     frameDV.setUint32(0, numFrames, true);
 
     const frameNameExts = [];
-    // Frame 0: chassis_dummy
     frameDV.setFloat32(4 + 0, 1.0, true);
     frameDV.setFloat32(4 + 16, 1.0, true);
     frameDV.setFloat32(4 + 32, 1.0, true);
@@ -1079,7 +1834,7 @@ function exportGtaSaDFF() {
         frameDV.setFloat32(baseOff + 0, 1.0, true);
         frameDV.setFloat32(baseOff + 16, 1.0, true);
         frameDV.setFloat32(baseOff + 32, 1.0, true);
-        frameDV.setInt32(baseOff + 48, 0, true); // Parent = chassis_dummy (0)
+        frameDV.setInt32(baseOff + 48, 0, true);
 
         const cleanName = (visibleParts[i].saName || ('extra' + i)).slice(0, 22);
         frameNameExts.push(makeSection(0x0003, makeSection(0x0253F2FE, new TextEncoder().encode(cleanName))));
@@ -1097,25 +1852,41 @@ function exportGtaSaDFF() {
 
     for (let mIdx = 0; mIdx < numAtomics; mIdx++) {
         const part = visibleParts[mIdx];
-        part.mesh.updateMatrixWorld(true);
-        const g = part.mesh.geometry.clone();
-        g.applyMatrix4(part.mesh.matrixWorld);
-        if (!g.attributes.normal) g.computeVertexNormals();
+        const weldedG = weldAndSmoothGeometry(part.mesh.geometry, parseInt(document.getElementById('smoothAngleSlider').value, 10) || 42);
+        weldedG.applyMatrix4(part.mesh.matrixWorld);
 
-        const pos = g.attributes.position;
-        const norm = g.attributes.normal;
-        const col = g.attributes.color;
-        const uv = g.attributes.uv;
-        const index = g.index;
+        const pos = weldedG.attributes.position;
+        const norm = weldedG.attributes.normal;
+        const uv = weldedG.attributes.uv;
+        const index = weldedG.index;
 
         const numVerts = Math.min(65535, pos.count);
-        const numTris = index ? Math.floor(index.count / 3) : Math.floor(numVerts / 3);
+        const validTris = [];
+        if (index) {
+            for (let i = 0; i < index.count; i += 3) {
+                const a = index.getX(i), b = index.getX(i + 1), c = index.getX(i + 2);
+                if (a < numVerts && b < numVerts && c < numVerts) {
+                    validTris.push(a, b, c);
+                }
+            }
+        } else {
+            for (let i = 0; i + 2 < numVerts; i += 3) {
+                validTris.push(i, i + 1, i + 2);
+            }
+        }
+        const numTris = Math.floor(validTris.length / 3);
         totalSavedVerts += numVerts;
 
-        const matColor = (part.mesh.material && part.mesh.material.color) ? part.mesh.material.color : new THREE.Color(0x0ea5e9);
-        const mr = Math.round(matColor.r * 255);
-        const mg = Math.round(matColor.g * 255);
-        const mb = Math.round(matColor.b * 255);
+        // Material rangini aniqlash (Pay 'n' Spray [60, 255, 0] yoki Custom RGB)
+        const isBodyPart = ['body', 'bonnet', 'boot', 'door_lf', 'door_rf', 'door_lr', 'door_rr'].includes(part.role);
+        let mr = 14, mg = 165, mb = 233;
+        if (paintMode === 'sa_carcols' && isBodyPart) {
+            mr = 60; mg = 255; mb = 0; // GTA SA Primary Carcol Magic Green
+        } else if (part.mesh.material && part.mesh.material.color) {
+            mr = Math.round(part.mesh.material.color.r * 255);
+            mg = Math.round(part.mesh.material.color.g * 255);
+            mb = Math.round(part.mesh.material.color.b * 255);
+        }
 
         const matListStructBuf = new ArrayBuffer(8);
         const matListDV = new DataView(matListStructBuf);
@@ -1127,10 +1898,10 @@ function exportGtaSaDFF() {
         matDV.setUint8(4, mr);
         matDV.setUint8(5, mg);
         matDV.setUint8(6, mb);
-        matDV.setUint8(7, part.role === 'glass' ? 185 : 255);
+        matDV.setUint8(7, part.role === 'glass' ? 175 : 255);
         matDV.setUint32(8, 1, true);
         matDV.setFloat32(16, 1.0, true);
-        matDV.setFloat32(20, 0.35, true);
+        matDV.setFloat32(20, 0.45, true);
         matDV.setFloat32(24, 1.0, true);
 
         const materialList = makeSection(0x0008, concatArrays([
@@ -1153,9 +1924,9 @@ function exportGtaSaDFF() {
         gDV.setUint32(ptr, 1, true); ptr += 4;
 
         for (let i = 0; i < numVerts; i++) {
-            gDV.setUint8(ptr, col ? Math.min(255, Math.round(col.getX(i) * 255)) : mr);
-            gDV.setUint8(ptr + 1, col ? Math.min(255, Math.round(col.getY(i) * 255)) : mg);
-            gDV.setUint8(ptr + 2, col ? Math.min(255, Math.round(col.getZ(i) * 255)) : mb);
+            gDV.setUint8(ptr, 240);
+            gDV.setUint8(ptr + 1, 240);
+            gDV.setUint8(ptr + 2, 240);
             gDV.setUint8(ptr + 3, 255);
             ptr += 4;
         }
@@ -1165,47 +1936,46 @@ function exportGtaSaDFF() {
             ptr += 8;
         }
 
-        const splitIndices = [];
         for (let i = 0; i < numTris; i++) {
-            const v1 = index ? index.getX(i * 3) : (i * 3);
-            const v2 = index ? index.getX(i * 3 + 1) : (i * 3 + 1);
-            const v3 = index ? index.getX(i * 3 + 2) : (i * 3 + 2);
+            const v1 = validTris[i * 3];
+            const v2 = validTris[i * 3 + 1];
+            const v3 = validTris[i * 3 + 2];
             gDV.setUint16(ptr, v2, true);
             gDV.setUint16(ptr + 2, v1, true);
             gDV.setUint16(ptr + 4, 0, true);
             gDV.setUint16(ptr + 6, v3, true);
             ptr += 8;
-            splitIndices.push(v1, v2, v3);
         }
 
-        g.computeBoundingSphere();
-        gDV.setFloat32(ptr + 12, (g.boundingSphere && g.boundingSphere.radius) || 2.5, true);
+        weldedG.computeBoundingSphere();
+        gDV.setFloat32(ptr + 12, (weldedG.boundingSphere && weldedG.boundingSphere.radius) || 2.8, true);
         gDV.setUint32(ptr + 16, 1, true);
         gDV.setUint32(ptr + 20, 1, true);
         ptr += 24;
 
+        // MUHIM TUZATISH: Three.js (X-Right, Y-Up, Z-Forward) -> GTA SA (X-Right, Y-Forward, Z-Up)
         for (let i = 0; i < numVerts; i++) {
-            gDV.setFloat32(ptr, pos.getX(i), true);
-            gDV.setFloat32(ptr + 4, pos.getY(i), true);
-            gDV.setFloat32(ptr + 8, pos.getZ(i), true);
+            gDV.setFloat32(ptr,     pos.getX(i), true);
+            gDV.setFloat32(ptr + 4, pos.getZ(i), true);
+            gDV.setFloat32(ptr + 8, pos.getY(i), true);
             ptr += 12;
         }
         for (let i = 0; i < numVerts; i++) {
-            gDV.setFloat32(ptr, norm.getX(i), true);
-            gDV.setFloat32(ptr + 4, norm.getY(i), true);
-            gDV.setFloat32(ptr + 8, norm.getZ(i), true);
+            gDV.setFloat32(ptr,     norm.getX(i), true);
+            gDV.setFloat32(ptr + 4, norm.getZ(i), true);
+            gDV.setFloat32(ptr + 8, norm.getY(i), true);
             ptr += 12;
         }
 
-        const binMeshBuf = new ArrayBuffer(20 + splitIndices.length * 4);
+        const binMeshBuf = new ArrayBuffer(20 + validTris.length * 4);
         const bmDV = new DataView(binMeshBuf);
         bmDV.setUint32(0, 0, true);
         bmDV.setUint32(4, 1, true);
-        bmDV.setUint32(8, splitIndices.length, true);
-        bmDV.setUint32(12, splitIndices.length, true);
+        bmDV.setUint32(8, validTris.length, true);
+        bmDV.setUint32(12, validTris.length, true);
         bmDV.setUint32(16, 0, true);
-        for (let i = 0; i < splitIndices.length; i++) {
-            bmDV.setUint32(20 + i * 4, splitIndices[i], true);
+        for (let i = 0; i < validTris.length; i++) {
+            bmDV.setUint32(20 + i * 4, validTris[i], true);
         }
 
         geometrySections.push(makeSection(0x000F, concatArrays([
@@ -1216,15 +1986,15 @@ function exportGtaSaDFF() {
 
         const atomicStructBuf = new ArrayBuffer(16);
         const atomicDV = new DataView(atomicStructBuf);
-        atomicDV.setUint32(0, mIdx + 1, true); // frameIndex
-        atomicDV.setUint32(4, mIdx, true);     // geometryIndex
+        atomicDV.setUint32(0, mIdx + 1, true);
+        atomicDV.setUint32(4, mIdx, true);
         atomicDV.setUint32(8, 5, true);
         atomicSections.push(makeSection(0x0014, concatArrays([
             makeSection(0x0001, new Uint8Array(atomicStructBuf)),
             makeSection(0x0003, new Uint8Array(0))
         ])));
 
-        g.dispose();
+        weldedG.dispose();
     }
 
     const geomListStructBuf = new ArrayBuffer(4);
@@ -1244,51 +2014,123 @@ function exportGtaSaDFF() {
 
     const dffFileName = document.getElementById('saTargetCar').value + '.dff';
     const blob = new Blob([clumpBinary], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = URL.createObjectURL(blob);
     a.download = dffFileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setStatus(`✓ GTA San Andreas uchun "${dffFileName}" (${numAtomics} ta detal, ${totalSavedVerts.toLocaleString()} vertex) muvaffaqiyatli yuklab olindi!`);
+    setStatus(`✓ "${dffFileName}" (${numAtomics} ta qism, ${totalSavedVerts.toLocaleString()} vertex, Z-Up GTA SA formatida) muvaffaqiyatli saqlandi!`);
 }
 
-// ==================== HODISALAR (EVENTS) ====================
-document.getElementById('loadGta5SportBtn').addEventListener('click', function () {
-    this.classList.add('active');
-    document.getElementById('loadGta5SuvBtn').classList.remove('active');
-    buildProceduralGta5Car('sport');
-});
+// ==================== 5. GTA SA RENDERWARE .TXD EXPORTER (0x0016 TEXTURE DICTIONARY) ====================
+function exportGtaSaTXD() {
+    if (loadedTextures.length === 0) {
+        setStatus('⚠ .TXD yaratish uchun avval .YTD, .DDS yoki .PNG tekstura faylini yuklang!');
+        return;
+    }
 
-document.getElementById('loadGta5SuvBtn').addEventListener('click', function () {
-    this.classList.add('active');
-    document.getElementById('loadGta5SportBtn').classList.remove('active');
-    document.getElementById('saTargetCar').value = 'huntley';
-    buildProceduralGta5Car('suv');
-});
+    const RW_VERSION = 0x1803FFFF;
+    function makeSection(type, payloadBytes) {
+        const out = new Uint8Array(12 + payloadBytes.byteLength);
+        const dv = new DataView(out.buffer);
+        dv.setUint32(0, type, true);
+        dv.setUint32(4, payloadBytes.byteLength, true);
+        dv.setUint32(8, RW_VERSION, true);
+        out.set(new Uint8Array(payloadBytes.buffer || payloadBytes), 12);
+        return out;
+    }
+    function concatArrays(arrays) {
+        const total = arrays.reduce((acc, a) => acc + a.byteLength, 0);
+        const res = new Uint8Array(total);
+        let off = 0;
+        arrays.forEach(a => { res.set(a, off); off += a.byteLength; });
+        return res;
+    }
 
+    const numTex = loadedTextures.length;
+    const dictHeaderBuf = new ArrayBuffer(4);
+    const dhDV = new DataView(dictHeaderBuf);
+    dhDV.setUint16(0, numTex, true);
+    dhDV.setUint16(2, 0, true);
+
+    const texNativeSections = [makeSection(0x0001, new Uint8Array(dictHeaderBuf))];
+
+    loadedTextures.forEach(tex => {
+        const w = tex.width;
+        const h = tex.height;
+        const dataLen = w * h * 4;
+        const structBuf = new ArrayBuffer(88 + 4 + dataLen);
+        const dv = new DataView(structBuf);
+
+        dv.setUint32(0, 9, true);          // Platform ID = 9 (D3D9 GTA SA)
+        dv.setUint32(4, 0x1102, true);     // Filter flags
+
+        const nameBytes = new TextEncoder().encode(tex.name.slice(0, 31));
+        new Uint8Array(structBuf, 8, nameBytes.length).set(nameBytes);
+
+        dv.setUint32(72, 0x0500, true);    // RasterFormat: 8888 RGBA
+        dv.setUint32(76, 21, true);        // D3DFMT_A8R8G8B8
+        dv.setUint16(80, w, true);
+        dv.setUint16(82, h, true);
+        dv.setUint8(84, 32);               // Depth = 32-bit
+        dv.setUint8(85, 1);                // MipLevels = 1
+        dv.setUint8(86, 4);                // RasterType
+        dv.setUint8(87, 1);                // Alpha flag
+        dv.setUint32(88, dataLen, true);
+
+        const outPixels = new Uint8Array(structBuf, 92, dataLen);
+        for (let i = 0; i < w * h; i++) {
+            outPixels[i * 4]     = tex.rgbaBytes[i * 4 + 2]; // B
+            outPixels[i * 4 + 1] = tex.rgbaBytes[i * 4 + 1]; // G
+            outPixels[i * 4 + 2] = tex.rgbaBytes[i * 4];     // R
+            outPixels[i * 4 + 3] = tex.rgbaBytes[i * 4 + 3]; // A
+        }
+
+        texNativeSections.push(makeSection(0x0015, concatArrays([
+            makeSection(0x0001, new Uint8Array(structBuf)),
+            makeSection(0x0003, new Uint8Array(0))
+        ])));
+    });
+
+    const txdBinary = makeSection(0x0016, concatArrays([
+        ...texNativeSections,
+        makeSection(0x0003, new Uint8Array(0))
+    ]));
+
+    const txdFileName = document.getElementById('saTargetCar').value + '.txd';
+    const blob = new Blob([txdBinary], { type: 'application/octet-stream' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = txdFileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setStatus(`✓ "${txdFileName}" (${numTex} ta tekstura bilan) muvaffaqiyatli yuklab olindi!`);
+}
+
+// ==================== UI BOSHQARUV HODISALARI ====================
 document.getElementById('polyRatioSlider').addEventListener('input', e => {
     document.getElementById('polyRatioVal').textContent = e.target.value + '% ' + (e.target.value >= 90 ? '(ORIGINAL HD)' : '(OPTIMAL SA)');
+    applyScaleAndOptimization();
+});
+
+document.getElementById('smoothAngleSlider').addEventListener('input', e => {
+    document.getElementById('smoothAngleVal').textContent = e.target.value + '° (3DS MAX PHONG)';
     applyScaleAndOptimization();
 });
 
 document.getElementById('carScaleSlider').addEventListener('input', e => {
     const val = parseFloat(e.target.value);
     document.getElementById('carScaleVal').textContent = val.toFixed(2) + ' m';
-    const scaleRatio = val / 4.45;
+    const scaleRatio = val / 4.50;
     carRootGroup.scale.set(scaleRatio, scaleRatio, scaleRatio);
-});
-
-document.getElementById('wheelScaleSlider').addEventListener('input', e => {
-    document.getElementById('wheelScaleVal').textContent = parseFloat(e.target.value).toFixed(2) + 'x';
-    applyScaleAndOptimization();
 });
 
 document.getElementById('bodyColorPicker').addEventListener('input', e => {
     const col = new THREE.Color(e.target.value);
     currentCarParts.forEach(p => {
-        if (['body', 'bonnet', 'boot', 'door_lf', 'door_rf'].includes(p.role)) {
+        if (['body', 'bonnet', 'boot', 'door_lf', 'door_rf', 'door_lr', 'door_rr'].includes(p.role)) {
             p.mesh.material.color.copy(col);
         }
     });
@@ -1297,46 +2139,78 @@ document.getElementById('bodyColorPicker').addEventListener('input', e => {
 document.getElementById('rimColorPicker').addEventListener('input', e => {
     const col = new THREE.Color(e.target.value);
     currentCarParts.forEach(p => {
-        if (p.role === 'rim') p.mesh.material.color.copy(col);
+        if (p.role === 'wheel' || p.role === 'rim') {
+            p.mesh.material.color.copy(col);
+        }
     });
 });
 
-// Kapot, Bagaj va Eshiklarni ochib tekshirish slayderi
 document.getElementById('openDoorsSlider').addEventListener('input', e => {
     const t = (parseInt(e.target.value, 10) || 0) / 100;
     document.getElementById('openDoorsVal').textContent = Math.round(t * 100) + '%';
 
     currentCarParts.forEach(p => {
-        if (p.role === 'bonnet') {
-            p.mesh.rotation.x = -t * 0.75;
-        } else if (p.role === 'boot') {
-            p.mesh.rotation.x = t * 0.80;
-        } else if (p.role === 'door_lf') {
-            p.mesh.rotation.y = t * 0.95;
-        } else if (p.role === 'door_rf') {
-            p.mesh.rotation.y = -t * 0.95;
-        }
+        if (p.role === 'bonnet') p.mesh.rotation.x = -t * 0.72;
+        else if (p.role === 'boot') p.mesh.rotation.x = t * 0.75;
+        else if (p.role === 'door_lf' || p.role === 'door_lr') p.mesh.rotation.y = t * 0.85;
+        else if (p.role === 'door_rf' || p.role === 'door_rr') p.mesh.rotation.y = -t * 0.85;
     });
 });
 
+// Model o'qi Z-up bo'lib tik turib qolgan bo'lsa 90 gradusga tekislash va yerga qo'yish
+document.getElementById('btnRotateZUp').addEventListener('click', () => {
+    if (currentCarParts.length === 0) return;
+    currentCarParts.forEach(p => {
+        p.origGeom.rotateX(-Math.PI / 2);
+        p.mesh.geometry.rotateX(-Math.PI / 2);
+    });
+    // Yerga (Y = 0) tekislash
+    const box = new THREE.Box3().setFromObject(carRootGroup);
+    const minY = box.min.y;
+    currentCarParts.forEach(p => {
+        p.origGeom.translate(0, -minY, 0);
+        p.mesh.geometry.translate(0, -minY, 0);
+    });
+    fitCameraToCar();
+    setStatus('✓ Model o‘qi 90° ga tekislandi va balonlar yerga (Z=0) moslandi.');
+});
+
 document.getElementById('btnOneClickConvert').addEventListener('click', () => {
+    if (currentCarParts.length === 0) {
+        setStatus('⚠ Avval GTA 5 mashina faylini (.YFT, .OBJ, .GLB yoki .DFF) yuklang!');
+        return;
+    }
     document.getElementById('openDoorsSlider').value = 0;
     document.getElementById('openDoorsVal').textContent = '0%';
     currentCarParts.forEach(p => p.mesh.rotation.set(0, 0, 0));
+
+    // Balonlar yerga tekis tegib turishini avtomatik kalibrlash
+    const box = new THREE.Box3().setFromObject(carRootGroup);
+    if (!box.isEmpty() && Math.abs(box.min.y) > 0.005) {
+        const dy = -box.min.y;
+        currentCarParts.forEach(p => {
+            p.origGeom.translate(0, dy, 0);
+            p.mesh.geometry.translate(0, dy, 0);
+        });
+    }
+
     applyScaleAndOptimization();
     updateHierarchyUI();
     updateHandlingGenerator();
-    setStatus('⚡ 1-Click Avto-Konvert bajarildi! Barcha qismlar GTA SA standartiga keltirildi. Endi ".DFF" ni yuklab olishingiz mumkin.');
+    setStatus('⚡ 1-Click Konvert bajarildi! Ierarxiya, normallar va GTA SA Z-Up koordinatalari 100% tayyor.');
 });
 
 document.getElementById('btnDownloadDff').addEventListener('click', exportGtaSaDFF);
+document.getElementById('btnDownloadTxd').addEventListener('click', exportGtaSaTXD);
 
 document.getElementById('btnDownloadObj').addEventListener('click', () => {
+    if (currentCarParts.length === 0) return;
     let out = '# IT SHAKH GTA V -> GTA SA OBJ EXPORT\n';
     let vOff = 1;
     currentCarParts.forEach(p => {
         if (!p.mesh.visible) return;
-        const pos = p.mesh.geometry.attributes.position;
+        const g = p.mesh.geometry.index ? p.mesh.geometry.toNonIndexed() : p.mesh.geometry;
+        const pos = g.attributes.position;
         out += `o ${p.saName}\n`;
         for (let i = 0; i < pos.count; i++) {
             out += `v ${pos.getX(i).toFixed(5)} ${pos.getY(i).toFixed(5)} ${pos.getZ(i).toFixed(5)}\n`;
@@ -1345,6 +2219,7 @@ document.getElementById('btnDownloadObj').addEventListener('click', () => {
             out += `f ${vOff + i} ${vOff + i + 1} ${vOff + i + 2}\n`;
         }
         vOff += pos.count;
+        if (g !== p.mesh.geometry) g.dispose();
     });
     const blob = new Blob([out], { type: 'text/plain' });
     const a = document.createElement('a');
@@ -1360,16 +2235,6 @@ document.getElementById('btnCopyHandling').addEventListener('click', () => {
     setStatus('✓ handling.cfg va vehicles.ide qatorlari nusxalandi!');
 });
 
-document.getElementById('btnDownloadTxdInfo').addEventListener('click', () => {
-    const car = document.getElementById('saTargetCar').value;
-    alert(`📌 GTA SA O'RNATISH QO'LLANMASI (${car.toUpperCase()}):\n\n1. Yuklab olingan "${car}.dff" faylini Crazy IMG Editor yoki ModLoader orqali gta3.img ichiga joylang.\n2. Handling qatorini data/handling.cfg ichiga nusxalang.\n3. O'yinga kirib yangi GTA 5 mashinasidan bahramand bo'ling!`);
-});
-
-document.getElementById('btnSpinWheels').addEventListener('click', function () {
-    spinWheelsActive = !spinWheelsActive;
-    this.classList.toggle('active', spinWheelsActive);
-});
-
 document.getElementById('btnWireframe').addEventListener('click', function () {
     isWireframe = !isWireframe;
     this.classList.toggle('active', isWireframe);
@@ -1378,55 +2243,127 @@ document.getElementById('btnWireframe').addEventListener('click', function () {
     });
 });
 
-document.getElementById('btnResetCam').addEventListener('click', () => {
-    camera.position.set(4.2, 2.1, 5.2);
-    controls.target.set(0, 0.55, 0);
-    controls.update();
-});
+document.getElementById('btnResetCam').addEventListener('click', fitCameraToCar);
 
-// Fayl Yuklash (.OBJ, .GLB, .GLTF)
+// ==================== FAYL YUKLASH (.YFT, .YTD, .XML, .DFF, .OBJ, .GLB, .DDS, .PNG) ====================
 const carFileInput = document.getElementById('carFileInput');
 const dropZone = document.getElementById('dropZone');
 
-function handleCarFile(file) {
-    if (!file) return;
-    const ext = (file.name.split('.').pop() || '').toLowerCase();
+function handleUploadedFiles(fileList) {
+    Array.from(fileList).forEach(file => {
+        const lowerName = file.name.toLowerCase();
+        const ext = (lowerName.split('.').pop() || '');
 
-    if (ext === 'obj') {
-        const reader = new FileReader();
-        reader.onload = e => {
-            const loader = new THREE.OBJLoader();
-            const grp = loader.parse(e.target.result);
-            const meshes = [];
-            grp.traverse(c => { if (c.isMesh) meshes.push(c); });
-            if (meshes.length > 0) loadExternalCarMeshes(meshes, file.name);
-        };
-        reader.readAsText(file);
-    } else if (ext === 'glb' || ext === 'gltf') {
-        const reader = new FileReader();
-        reader.onload = e => {
-            const loader = new THREE.GLTFLoader();
-            loader.parse(e.target.result, '', gltf => {
+        if (lowerName.endsWith('.yft.xml') || ext === 'xml') {
+            const reader = new FileReader();
+            reader.onload = e => parseCodeWalkerYftXml(e.target.result, file.name);
+            reader.readAsText(file);
+        } else if (ext === 'yft') {
+            const reader = new FileReader();
+            reader.onload = e => parseBinaryYFT(e.target.result, file.name);
+            reader.readAsArrayBuffer(file);
+        } else if (ext === 'ytd') {
+            const reader = new FileReader();
+            reader.onload = e => parseYTDFile(e.target.result, file.name);
+            reader.readAsArrayBuffer(file);
+        } else if (ext === 'dds') {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const parsed = parseDDSImage(new Uint8Array(e.target.result), file.name);
+                if (parsed) {
+                    loadedTextures.push(parsed);
+                    renderTextureGallery();
+                    applyPrimaryTextureToBody(parsed.threeTex);
+                    setStatus(`✓ "${file.name}" DDS teksturasi yuklandi!`);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        } else if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'webp') {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const img = new Image();
+                img.onload = () => {
+                    const c = document.createElement('canvas');
+                    c.width = img.width;
+                    c.height = img.height;
+                    const ctx = c.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    const rgba = ctx.getImageData(0, 0, img.width, img.height).data;
+                    const threeTex = new THREE.CanvasTexture(c);
+                    threeTex.encoding = THREE.sRGBEncoding;
+                    const texObj = {
+                        name: file.name.replace(/\.[^/.]+$/, '').slice(0, 28),
+                        width: img.width,
+                        height: img.height,
+                        dataUrl: c.toDataURL('image/png'),
+                        rgbaBytes: rgba,
+                        threeTex
+                    };
+                    loadedTextures.push(texObj);
+                    renderTextureGallery();
+                    applyPrimaryTextureToBody(threeTex);
+                    setStatus(`✓ "${file.name}" teksturasi yuklandi!`);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        } else if (ext === 'dff') {
+            const reader = new FileReader();
+            reader.onload = e => parseDFFFile(e.target.result, file.name);
+            reader.readAsArrayBuffer(file);
+        } else if (ext === 'obj') {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const loader = new THREE.OBJLoader();
+                const grp = loader.parse(e.target.result);
                 const meshes = [];
-                gltf.scene.traverse(c => { if (c.isMesh) meshes.push(c); });
+                grp.traverse(c => { if (c.isMesh) meshes.push(c); });
                 if (meshes.length > 0) loadExternalCarMeshes(meshes, file.name);
-            });
-        };
-        reader.readAsArrayBuffer(file);
-    } else {
-        setStatus('⚠ Iltimos, GTA 5 mashinasining .OBJ yoki .GLB / .GLTF faylini tanlang.');
-    }
+            };
+            reader.readAsText(file);
+        } else if (ext === 'glb' || ext === 'gltf') {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const loader = new THREE.GLTFLoader();
+                loader.parse(e.target.result, '', gltf => {
+                    const meshes = [];
+                    gltf.scene.traverse(c => { if (c.isMesh) meshes.push(c); });
+                    if (meshes.length > 0) loadExternalCarMeshes(meshes, file.name);
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            setStatus(`⚠ "${file.name}" formati qo‘llab-quvvatlanmaydi.`);
+        }
+    });
 }
 
 carFileInput.addEventListener('change', e => {
-    if (e.target.files.length) handleCarFile(e.target.files[0]);
+    if (e.target.files.length) handleUploadedFiles(e.target.files);
 });
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', e => {
     e.preventDefault();
     dropZone.classList.remove('dragover');
-    if (e.dataTransfer.files.length) handleCarFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files.length) handleUploadedFiles(e.dataTransfer.files);
+});
+
+// 3D Sahnada sichqoncha bilan bosib qismni tanlash (Raycaster)
+const raycaster = new THREE.Raycaster();
+const mouseVec = new THREE.Vector2();
+renderer.domElement.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || currentCarParts.length === 0) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouseVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouseVec, camera);
+    const meshes = currentCarParts.map(p => p.mesh).filter(m => m.visible);
+    const hits = raycaster.intersectObjects(meshes, false);
+    if (hits.length > 0) {
+        const hitIdx = currentCarParts.findIndex(p => p.mesh === hits[0].object);
+        if (hitIdx !== -1) selectCarPart(hitIdx);
+    }
 });
 
 window.addEventListener('resize', () => {
@@ -1437,18 +2374,10 @@ window.addEventListener('resize', () => {
 
 function animate() {
     requestAnimationFrame(animate);
-    if (spinWheelsActive) {
-        currentCarParts.forEach(p => {
-            if (p.role === 'wheel' || p.role === 'rim') {
-                p.mesh.rotation.x += 0.045;
-            }
-        });
-    }
     controls.update();
     renderer.render(scene, camera);
 }
 
-buildProceduralGta5Car('sport');
 animate();
 </script>
 </body>
