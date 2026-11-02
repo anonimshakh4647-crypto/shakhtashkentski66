@@ -627,7 +627,7 @@
 
         <div class="status-footer">
             <span id="statusMsg">✓ Tayyor. Konvertatsiya qilish uchun GTA 5 mashina faylini (.YFT, .YTD, .OBJ, .GLB yoki .DFF) tanlang.</span>
-            <span>GTA SA DFF (v3.6.0.3) + TXD ENGINE</span>
+            <span>RAGE RSC7 (grmGeometryQB) → GTA SA DFF v3.6.0.3</span>
         </div>
     </div>
 
@@ -756,7 +756,7 @@ function mapGta5PartNameToSA(rawName, index) {
     return { gta5Name: rawName || ('part_' + index), saName: 'extra' + index, role: 'body' };
 }
 
-// ==================== THREE.JS 3D SHOWROOM VA PROCEDURAL STUDIO ENVIRONMENT ====================
+// ==================== THREE.JS 3D SHOWROOM ====================
 const viewport = document.getElementById('viewport');
 const scene = new THREE.Scene();
 
@@ -868,8 +868,12 @@ function weldAndSmoothGeometry(geom, creaseDeg = 42) {
         let nx = e1y * e2z - e1z * e2y;
         let ny = e1z * e2x - e1x * e2z;
         let nz = e1x * e2y - e1y * e2x;
-        const len = Math.hypot(nx, ny, nz) || 1;
-        nx /= len; ny /= len; nz /= len;
+        const len = Math.hypot(nx, ny, nz);
+        if (len > 1e-8) {
+            nx /= len; ny /= len; nz /= len;
+        } else {
+            nx = 0; ny = 1; nz = 0;
+        }
 
         for (let k = 0; k < 3; k++) {
             const vi = (i + k) * 3;
@@ -897,7 +901,7 @@ function weldAndSmoothGeometry(geom, creaseDeg = 42) {
             const cr = col ? col.getX(vi) : 1, cg = col ? col.getY(vi) : 1, cb = col ? col.getZ(vi) : 1;
             const u = uv ? uv.getX(vi) : 0.5, v = uv ? uv.getY(vi) : 0.5;
 
-            const key = `${Math.round(px * 1200)}_${Math.round(py * 1200)}_${Math.round(pz * 1200)}`;
+            const key = `${Math.round(px * 1500)}_${Math.round(py * 1500)}_${Math.round(pz * 1500)}`;
             let list = buckets.get(key);
             let matched = -1;
 
@@ -1028,7 +1032,9 @@ function loadExternalCarMeshes(meshesList, fileName) {
         if (m.geometry && m.geometry.attributes.position && m.geometry.attributes.position.count > 0) {
             m.geometry.computeBoundingBox();
             const b = m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld);
-            tempBox.union(b);
+            if (isFinite(b.min.x) && isFinite(b.max.x)) {
+                tempBox.union(b);
+            }
         }
     });
 
@@ -1056,6 +1062,8 @@ function loadExternalCarMeshes(meshesList, fileName) {
         const weldedG = weldAndSmoothGeometry(rawG, creaseAngle);
         rawG.dispose();
 
+        if (!weldedG.index || weldedG.index.count < 3) return;
+
         const mat = createMaterialForRole(mapped.role, m.material && m.material.map ? m.material.map : null);
         const newMesh = new THREE.Mesh(weldedG, mat);
         newMesh.name = mapped.saName;
@@ -1077,7 +1085,7 @@ function loadExternalCarMeshes(meshesList, fileName) {
     updateHierarchyUI();
     updateHandlingGenerator();
     updateHudCounters();
-    setStatus(`✓ "${fileName}" yuklandi (${currentCarParts.length} ta qism GTA San Andreas standartiga moslashtirildi).`);
+    setStatus(`✓ "${fileName}" muvaffaqiyatli o‘qildi (${currentCarParts.length} ta qism GTA San Andreas standartiga moslashtirildi).`);
 }
 
 function fitCameraToCar() {
@@ -1092,7 +1100,89 @@ function fitCameraToCar() {
     controls.update();
 }
 
-// ==================== 1. GTA V .YFT & .YFT.XML PARSER (RSC7 + ZLIB + CODEWALKER XML) ====================
+// ==================== 1. HAQIQIY RAGE RSC7 (.YFT / .YDR) GEOMETRIYA VA SKELET PARSERI ====================
+// CodeWalker RpfResourceFileEntry.GetSizeFromFlags algoritmi bo'yicha System (0x50000000) va Graphics (0x60000000) xotira hajmini hisoblash
+function getRsc7SizeFromFlags(flags) {
+    const s0 = ((flags >>> 27) & 0x1) << 0;
+    const s1 = ((flags >>> 26) & 0x1) << 1;
+    const s2 = ((flags >>> 25) & 0x1) << 2;
+    const s3 = ((flags >>> 24) & 0x1) << 3;
+    const s4 = ((flags >>> 17) & 0x7F) << 4;
+    const s5 = ((flags >>> 11) & 0x3F) << 5;
+    const s6 = ((flags >>> 7) & 0xF) << 6;
+    const s7 = ((flags >>> 5) & 0x3) << 7;
+    const s8 = ((flags >>> 4) & 0x1) << 8;
+    const baseSize = 0x200 << (flags & 0xF);
+    return baseSize * (s0 + s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8);
+}
+
+// IEEE-754 16-bit Half-Float -> 32-bit Float konverteri (UV va Half4 vertexlar uchun)
+function decodeFloat16(uint16) {
+    const s = (uint16 & 0x8000) >> 15;
+    const e = (uint16 & 0x7C00) >> 10;
+    const f = uint16 & 0x03FF;
+    if (e === 0) return (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
+    if (e === 0x1F) return f ? NaN : ((s ? -1 : 1) * Infinity);
+    return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
+}
+
+// GTA V VertexDeclaration (FVF) dagi har bir komponentning bayt uzunligi
+function getRageVertexComponentSize(typeNibble) {
+    switch (typeNibble & 0xF) {
+        case 0: return 4;  // Float / Half2
+        case 1: return 8;  // Float2 / Half4
+        case 2: return 12; // Float3
+        case 3: return 16; // Float4
+        case 4: return 4;  // UByte4 (BlendIndices / BlendWeights)
+        case 5: return 4;  // Color (RGBA8)
+        case 6: return 12; // Float3 (Position)
+        case 7: return 4;  // Dec3N (Packed Normal/Tangent)
+        case 8: return 4;  // UByte4N
+        case 9: return 4;  // Half2 (UV)
+        case 10: return 8; // Half4
+        case 14: return 4; // Short2N
+        case 15: return 8; // Short4N
+        default: return 4;
+    }
+}
+
+function parseVertexDeclarationLayout(dv, vdeclOff) {
+    const fvfFlags = dv.getUint32(vdeclOff, true);
+    const totalStride = dv.getUint8(vdeclOff + 4);
+    const typesLow = dv.getUint32(vdeclOff + 8, true);
+    const typesHigh = dv.getUint32(vdeclOff + 12, true);
+
+    let runningOffset = 0;
+    const layout = {
+        stride: totalStride,
+        fvfFlags,
+        posOffset: 0,
+        posType: 6,
+        weightsOffset: -1,
+        indicesOffset: -1,
+        normalOffset: -1,
+        normalType: -1,
+        uvOffset: -1,
+        uvType: -1
+    };
+
+    for (let bit = 0; bit < 16; bit++) {
+        if ((fvfFlags & (1 << bit)) === 0) continue;
+        const typeNib = bit < 8
+            ? ((typesLow >>> (bit * 4)) & 0xF)
+            : ((typesHigh >>> ((bit - 8) * 4)) & 0xF);
+
+        if (bit === 0) { layout.posOffset = runningOffset; layout.posType = typeNib; }
+        else if (bit === 1) { layout.weightsOffset = runningOffset; }
+        else if (bit === 2) { layout.indicesOffset = runningOffset; }
+        else if (bit === 3) { layout.normalOffset = runningOffset; layout.normalType = typeNib; }
+        else if (bit === 6) { layout.uvOffset = runningOffset; layout.uvType = typeNib; }
+
+        runningOffset += getRageVertexComponentSize(typeNib);
+    }
+    return layout;
+}
+
 function parseCodeWalkerYftXml(xmlText, fileName) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(xmlText, 'text/xml');
@@ -1153,130 +1243,458 @@ function parseCodeWalkerYftXml(xmlText, fileName) {
     }
 }
 
-function decompressRsc7Buffer(arrayBuffer) {
+function decompressRsc7(arrayBuffer) {
     const u8 = new Uint8Array(arrayBuffer);
-    if (u8.byteLength < 16) return u8;
+    if (u8.byteLength < 16) return { data: u8, systemSize: u8.byteLength, graphicsSize: 0 };
 
     const dv = new DataView(arrayBuffer);
     const magic = dv.getUint32(0, true);
 
     if (magic === 0x37435352 && window.pako) {
+        const sysFlags = dv.getUint32(8, true);
+        const gfxFlags = dv.getUint32(12, true);
+        const sysSize = getRsc7SizeFromFlags(sysFlags);
+        const gfxSize = getRsc7SizeFromFlags(gfxFlags);
+
         const tryOffsets = [16, 12, 24, 32];
         for (const off of tryOffsets) {
             if (off >= u8.byteLength) continue;
             const sub = u8.subarray(off);
             try {
                 const res = window.pako.inflateRaw(sub);
-                if (res && res.byteLength > 64) return res;
+                if (res && res.byteLength > 128) {
+                    const validSys = (sysSize > 0 && sysSize <= res.byteLength) ? sysSize : Math.floor(res.byteLength / 2);
+                    return { data: res, systemSize: validSys, graphicsSize: res.byteLength - validSys };
+                }
             } catch (e) {}
             try {
                 const res = window.pako.inflate(sub);
-                if (res && res.byteLength > 64) return res;
+                if (res && res.byteLength > 128) {
+                    const validSys = (sysSize > 0 && sysSize <= res.byteLength) ? sysSize : Math.floor(res.byteLength / 2);
+                    return { data: res, systemSize: validSys, graphicsSize: res.byteLength - validSys };
+                }
             } catch (e) {}
         }
     }
 
-    if (window.pako) {
-        for (let i = 0; i < Math.min(u8.byteLength - 4, 256); i++) {
-            if (u8[i] === 0x78 && (u8[i + 1] === 0x9C || u8[i + 1] === 0xDA || u8[i + 1] === 0x01)) {
-                try {
-                    const res = window.pako.inflate(u8.subarray(i));
-                    if (res && res.byteLength > 64) return res;
-                } catch (e) {}
-            }
-        }
-    }
-    return u8;
+    return { data: u8, systemSize: u8.byteLength, graphicsSize: 0 };
 }
 
 function parseBinaryYFT(arrayBuffer, fileName) {
+    // 1. Agar CodeWalker XML bo'lsa
     const headStr = new TextDecoder().decode(new Uint8Array(arrayBuffer, 0, Math.min(200, arrayBuffer.byteLength)));
     if (headStr.includes('<?xml') || headStr.includes('<Fragment') || headStr.includes('<Drawable')) {
-        const fullTxt = new TextDecoder().decode(arrayBuffer);
-        parseCodeWalkerYftXml(fullTxt, fileName);
+        parseCodeWalkerYftXml(new TextDecoder().decode(arrayBuffer), fileName);
         return;
     }
 
-    const data = decompressRsc7Buffer(arrayBuffer);
+    // 2. RSC7 Zlib oqimini ochish va System (0x50000000) / Graphics (0x60000000) segmentlarini ajratish
+    const { data, systemSize } = decompressRsc7(arrayBuffer);
+    const totalLen = data.byteLength;
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
+    // Ichki DDS teksturalar bo'lsa ajratib olish
     extractEmbeddedDDSFromBuffer(data, fileName);
 
-    const textAscii = new TextDecoder('ascii', { fatal: false }).decode(data);
-    const detectedPartNames = [];
-    const knownGta5Bones = [
-        'chassis', 'bodyshell', 'bonnet', 'boot', 'door_dside_f', 'door_pside_f',
-        'door_dside_r', 'door_pside_r', 'bumper_f', 'bumper_r', 'windscreen',
-        'wheel_lf', 'wheel_rf', 'wheel_lr', 'wheel_rr', 'spoiler', 'exhaust'
-    ];
-    knownGta5Bones.forEach(bName => {
-        if (textAscii.toLowerCase().includes(bName)) detectedPartNames.push(bName);
-    });
-
-    const extractedMeshes = [];
-    const strideCandidates = [36, 32, 40, 44, 48, 28];
-
-    for (let offset = 0; offset < data.byteLength - 512; offset += 4) {
-        const possibleCount = dv.getUint32(offset, true);
-        if (possibleCount >= 24 && possibleCount <= 35000) {
-            for (const stride of strideCandidates) {
-                const byteLen = possibleCount * stride;
-                const vStart = offset + 16;
-                if (vStart + byteLen > data.byteLength) continue;
-
-                let validVerts = true;
-                let nonZero = 0;
-                for (let v = 0; v < Math.min(12, possibleCount); v++) {
-                    const vp = vStart + v * stride;
-                    const vx = dv.getFloat32(vp, true);
-                    const vy = dv.getFloat32(vp + 4, true);
-                    const vz = dv.getFloat32(vp + 8, true);
-                    if (!Number.isFinite(vx) || !Number.isFinite(vy) || !Number.isFinite(vz) ||
-                        Math.abs(vx) > 6.5 || Math.abs(vy) > 6.5 || Math.abs(vz) > 6.5) {
-                        validVerts = false;
-                        break;
-                    }
-                    if (Math.hypot(vx, vy, vz) > 0.02) nonZero++;
-                }
-
-                if (validVerts && nonZero >= 6) {
-                    const posArr = new Float32Array(possibleCount * 3);
-                    let allValid = true;
-                    for (let v = 0; v < possibleCount; v++) {
-                        const vp = vStart + v * stride;
-                        const vx = dv.getFloat32(vp, true);
-                        const vy = dv.getFloat32(vp + 4, true);
-                        const vz = dv.getFloat32(vp + 8, true);
-                        if (!Number.isFinite(vx) || !Number.isFinite(vy) || !Number.isFinite(vz) ||
-                            Math.abs(vx) > 7.5 || Math.abs(vy) > 7.5 || Math.abs(vz) > 7.5) {
-                            allValid = false;
-                            break;
-                        }
-                        posArr[v * 3]     = vx;
-                        posArr[v * 3 + 1] = vz;
-                        posArr[v * 3 + 2] = -vy;
-                    }
-
-                    if (allValid) {
-                        const geom = new THREE.BufferGeometry();
-                        geom.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
-                        geom.computeVertexNormals();
-                        const mesh = new THREE.Mesh(geom);
-                        mesh.name = detectedPartNames[extractedMeshes.length] || ('yft_part_' + extractedMeshes.length);
-                        extractedMeshes.push(mesh);
-                        offset = vStart + byteLen;
-                        break;
-                    }
-                }
-            }
+    // 64-bit RAGE ko'rsatkichini (0x5....... yoki 0x6.......) bufer indeksiga o'girish
+    function resolvePtr(posOffset) {
+        if (posOffset < 0 || posOffset + 8 > totalLen) return -1;
+        const low = dv.getUint32(posOffset, true);
+        const high = dv.getUint32(posOffset + 4, true);
+        if (high !== 0 || low === 0) return -1;
+        const seg = (low >>> 28) & 0xF;
+        const off = low & 0x0FFFFFFF;
+        if (seg === 5) {
+            return off < totalLen ? off : -1;
         }
-        if (extractedMeshes.length >= 24) break;
+        if (seg === 6) {
+            const phys = systemSize + off;
+            return phys < totalLen ? phys : -1;
+        }
+        return -1;
     }
 
-    if (extractedMeshes.length > 0) {
-        loadExternalCarMeshes(extractedMeshes, fileName);
+    function readAsciiString(strOff, maxLen = 48) {
+        if (strOff < 0 || strOff >= totalLen) return '';
+        let s = '';
+        for (let i = 0; i < maxLen && (strOff + i) < totalLen; i++) {
+            const ch = data[strOff + i];
+            if (ch === 0) break;
+            if (ch < 32 || ch > 122) return '';
+            s += String.fromCharCode(ch);
+        }
+        return s.trim();
+    }
+
+    // 3. SKELETON BONES (`crBoneData`, 80 bytes = 0x50 each) qidirish:
+    // Har bir suyakning aniq nomi ("chassis", "bonnet", "door_dside_f", "wheel_lf" va h.k.) hamda koordinatasini topamiz!
+    let skeletonBones = [];
+    const scanLimit = Math.min(systemSize + 65536, totalLen - 160);
+
+    for (let off = 0; off < scanLimit - 80; off += 4) {
+        // Bone[0] da Scale (off + 0x20) = (1, 1, 1), ParentIndex (off + 0x32) = 0xFFFF yoki 0, Index (off + 0x44) = 0
+        const sx = dv.getFloat32(off + 0x20, true);
+        const sy = dv.getFloat32(off + 0x24, true);
+        const sz = dv.getFloat32(off + 0x28, true);
+        if (Math.abs(sx - 1.0) > 0.05 || Math.abs(sy - 1.0) > 0.05 || Math.abs(sz - 1.0) > 0.05) continue;
+
+        const boneIdx0 = dv.getUint16(off + 0x44, true);
+        if (boneIdx0 !== 0) continue;
+
+        const nameOff0 = resolvePtr(off + 0x38);
+        const name0 = readAsciiString(nameOff0);
+        if (!name0 || name0.length < 2) continue;
+
+        // Ketma-ket suyaklar massivini o'qiymiz
+        const candidateBones = [];
+        for (let b = 0; b < 256; b++) {
+            const bOff = off + b * 0x50;
+            if (bOff + 0x50 > totalLen) break;
+            const bIdx = dv.getUint16(bOff + 0x44, true);
+            const bNameOff = resolvePtr(bOff + 0x38);
+            const bName = readAsciiString(bNameOff);
+            if (bIdx !== b || !bName) break;
+
+            const qx = dv.getFloat32(bOff + 0x00, true);
+            const qy = dv.getFloat32(bOff + 0x04, true);
+            const qz = dv.getFloat32(bOff + 0x08, true);
+            const qw = dv.getFloat32(bOff + 0x0C, true);
+            const tx = dv.getFloat32(bOff + 0x10, true);
+            const ty = dv.getFloat32(bOff + 0x14, true);
+            const tz = dv.getFloat32(bOff + 0x18, true);
+            const parentIdx = dv.getInt16(bOff + 0x32, true);
+
+            candidateBones.push({
+                index: b,
+                name: bName,
+                parentIndex: parentIdx,
+                localPos: new THREE.Vector3(tx, ty, tz),
+                localQuat: new THREE.Quaternion(qx, qy, qz, qw),
+                worldPos: new THREE.Vector3(tx, ty, tz)
+            });
+        }
+
+        if (candidateBones.length > skeletonBones.length && candidateBones.length >= 4) {
+            // World pozitsiyalarni ota-ona suyaklar orqali hisoblash
+            candidateBones.forEach(bone => {
+                if (bone.parentIndex >= 0 && bone.parentIndex < bone.index) {
+                    const pBone = candidateBones[bone.parentIndex];
+                    const rotated = bone.localPos.clone().applyQuaternion(pBone.localQuat);
+                    bone.worldPos.copy(pBone.worldPos).add(rotated);
+                }
+            });
+            skeletonBones = candidateBones;
+        }
+    }
+
+    // 4. PAST SIFATLI LOD (`Med`, `Low`, `VLow`) VA SHIKASTLANGAN (`_dam`) DRAWABLE GEOMETRIYALARINI ANIQLAB CHETLAB O'TISH
+    const excludedGeomOffsets = new Set();
+
+    function collectGeomsFromModelsBlock(blockOff) {
+        const listOff = resolvePtr(blockOff);
+        const count = dv.getUint16(blockOff + 8, true);
+        const cap = dv.getUint16(blockOff + 10, true);
+        if (listOff < 0 || count === 0 || count > 64 || count !== cap) return [];
+        const geomOffs = [];
+        for (let m = 0; m < count; m++) {
+            const modelOff = resolvePtr(listOff + m * 8);
+            if (modelOff < 0 || modelOff + 0x30 > totalLen) continue;
+            const gListOff = resolvePtr(modelOff + 0x08);
+            const gCount = dv.getUint16(modelOff + 0x10, true);
+            if (gListOff < 0 || gCount > 128) continue;
+            for (let g = 0; g < gCount; g++) {
+                const gOff = resolvePtr(gListOff + g * 8);
+                if (gOff >= 0) geomOffs.push(gOff);
+            }
+        }
+        return geomOffs;
+    }
+
+    // Drawable strukturalarini topib, Med (+0x58), Low (+0x60), VLow (+0x68) LODlarni exclude ro'yxatiga qo'shish
+    for (let off = 0; off < scanLimit - 0x90; off += 8) {
+        const dHigh = dv.getFloat32(off + 0x70, true);
+        const dMed  = dv.getFloat32(off + 0x74, true);
+        const dLow  = dv.getFloat32(off + 0x78, true);
+        if (dHigh > 0.5 && dHigh < 15000 && dMed >= dHigh && dLow >= dMed && dLow < 25000) {
+            const medBlock = resolvePtr(off + 0x58);
+            const lowBlock = resolvePtr(off + 0x60);
+            const vlowBlock = resolvePtr(off + 0x68);
+            if (medBlock >= 0) collectGeomsFromModelsBlock(medBlock).forEach(g => excludedGeomOffsets.add(g));
+            if (lowBlock >= 0) collectGeomsFromModelsBlock(lowBlock).forEach(g => excludedGeomOffsets.add(g));
+            if (vlowBlock >= 0) collectGeomsFromModelsBlock(vlowBlock).forEach(g => excludedGeomOffsets.add(g));
+        }
+    }
+
+    // FragTypeChild ichidagi DamagedEntity (Drawable2Pointer at +0xA8) larni ham exclude qilish
+    for (let off = 0; off < scanLimit - 0xB8; off += 8) {
+        const drw1 = resolvePtr(off + 0xA0);
+        const drw2 = resolvePtr(off + 0xA8);
+        if (drw1 > 0 && drw2 > 0 && drw1 !== drw2 && drw2 + 0x70 < totalLen) {
+            const highBlock2 = resolvePtr(drw2 + 0x50);
+            if (highBlock2 >= 0) {
+                collectGeomsFromModelsBlock(highBlock2).forEach(g => excludedGeomOffsets.add(g));
+            }
+        }
+    }
+
+    // 5. BARCHA HAQIQIY `DrawableGeometry` (`grmGeometryQB`) STRUKTURALARINI TOPISH VA O'QISH:
+    // Har bir `DrawableGeometry` da VertexBuffer (+0x18) va IndexBuffer (+0x38) mavjud!
+    const validGeometries = [];
+    for (let off = 0; off < scanLimit - 0x80; off += 8) {
+        if (excludedGeomOffsets.has(off)) continue;
+
+        const indicesCount = dv.getUint32(off + 0x58, true);
+        const trianglesCount = dv.getUint32(off + 0x5C, true);
+        const verticesCount = dv.getUint16(off + 0x60, true);
+        const stride = dv.getUint16(off + 0x70, true);
+        const boneIdsCount = dv.getUint16(off + 0x72, true);
+
+        if (verticesCount < 3 || verticesCount > 65535) continue;
+        if (indicesCount < 3 || indicesCount > 600000 || indicesCount % 3 !== 0) continue;
+        if (trianglesCount * 3 !== indicesCount) continue;
+        if (stride < 12 || stride > 128) continue;
+
+        const vbOff = resolvePtr(off + 0x18);
+        const ibOff = resolvePtr(off + 0x38);
+        if (vbOff < 0 || ibOff < 0 || vbOff + 0x38 > totalLen || ibOff + 0x18 > totalLen) continue;
+
+        const vbVerts = dv.getUint16(vbOff + 0x08, true);
+        const vbStride = dv.getUint32(vbOff + 0x18, true);
+        const ibIndices = dv.getUint32(ibOff + 0x08, true);
+
+        if (vbVerts !== verticesCount || vbStride !== stride || ibIndices !== indicesCount) continue;
+
+        let vDataOff = resolvePtr(vbOff + 0x10);
+        if (vDataOff < 0) vDataOff = resolvePtr(vbOff + 0x20);
+        const iDataOff = resolvePtr(ibOff + 0x10);
+        const vdeclOff = resolvePtr(vbOff + 0x30);
+
+        if (vDataOff < 0 || iDataOff < 0) continue;
+        if (vDataOff + verticesCount * stride > totalLen) continue;
+        if (iDataOff + indicesCount * 2 > totalLen) continue;
+
+        const boneIdsOff = resolvePtr(off + 0x68);
+        const boneIds = [];
+        if (boneIdsOff >= 0 && boneIdsCount > 0 && boneIdsCount <= 256 && boneIdsOff + boneIdsCount * 2 <= totalLen) {
+            for (let b = 0; b < boneIdsCount; b++) {
+                boneIds.push(dv.getUint16(boneIdsOff + b * 2, true));
+            }
+        }
+
+        const declLayout = vdeclOff >= 0 ? parseVertexDeclarationLayout(dv, vdeclOff) : {
+            stride, posOffset: 0, weightsOffset: -1, indicesOffset: -1, normalOffset: -1, uvOffset: -1
+        };
+
+        validGeometries.push({
+            geomOff: off,
+            verticesCount,
+            indicesCount,
+            stride,
+            vDataOff,
+            iDataOff,
+            boneIds,
+            declLayout
+        });
+    }
+
+    if (validGeometries.length === 0) {
+        setStatus(`⚠ "${fileName}" shifrlangan (Rockstar NG) binar fayl ekan. Uni CodeWalker da ochib, ".YFT.XML" yoki ".OBJ" formatida eksport qilib tashlang!`);
+        return;
+    }
+
+    // 6. HAR BIR GEOMETRIYADAN ANIQ VERTEX, UV VA INDEXLARNI O'QIB, SUYAK NOMLARI BO'YICHA QISMLARGA AJRATISH
+    const partBuckets = new Map(); // partName -> { pos: [], uv: [] }
+    let standaloneWheelGeoms = [];
+
+    function getMajorPartBucketName(rawBoneName) {
+        const b = (rawBoneName || '').toLowerCase();
+        if (!b) return 'bodyshell';
+        // _dam (damaged) yoki _hi bo'laklarni filtrlash
+        if (b.includes('_dam')) return 'skip_damaged';
+
+        const majorPrefixes = [
+            'bonnet', 'boot', 'door_dside_f', 'door_pside_f', 'door_dside_r', 'door_pside_r',
+            'bumper_f', 'bumper_r', 'windscreen', 'spoiler', 'exhaust',
+            'wheel_lf', 'wheel_rf', 'wheel_lr', 'wheel_rr',
+            'headlight', 'taillight', 'indicator', 'siren', 'engine', 'seat', 'dash', 'steering'
+        ];
+        for (const pref of majorPrefixes) {
+            if (b.includes(pref)) return pref;
+        }
+        return 'bodyshell';
+    }
+
+    validGeometries.forEach((gInfo, gIdx) => {
+        const { verticesCount, indicesCount, stride, vDataOff, iDataOff, boneIds, declLayout } = gInfo;
+
+        const vX = new Float32Array(verticesCount);
+        const vY = new Float32Array(verticesCount);
+        const vZ = new Float32Array(verticesCount);
+        const vU = new Float32Array(verticesCount);
+        const vV = new Float32Array(verticesCount);
+        const vBoneName = new Array(verticesCount);
+
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+
+        for (let v = 0; v < verticesCount; v++) {
+            const base = vDataOff + v * stride;
+            const px = dv.getFloat32(base + declLayout.posOffset, true);
+            const py = dv.getFloat32(base + declLayout.posOffset + 4, true);
+            const pz = dv.getFloat32(base + declLayout.posOffset + 8, true);
+
+            // GTA V (X-Right, Y-Forward, Z-Up) -> Three.js (X-Right, Y-Up, Z-Forward)
+            const tx = Number.isFinite(px) && Math.abs(px) < 25 ? px : 0;
+            const ty = Number.isFinite(pz) && Math.abs(pz) < 25 ? pz : 0;
+            const tz = Number.isFinite(py) && Math.abs(py) < 25 ? py : 0;
+
+            vX[v] = tx; vY[v] = ty; vZ[v] = tz;
+            if (tx < minX) minX = tx; if (tx > maxX) maxX = tx;
+            if (ty < minY) minY = ty; if (ty > maxY) maxY = ty;
+            if (tz < minZ) minZ = tz; if (tz > maxZ) maxZ = tz;
+
+            // UV koordinatalarini o'qish (Float2 yoki Half2)
+            if (declLayout.uvOffset >= 0 && declLayout.uvOffset + 4 <= stride) {
+                if (declLayout.uvType === 1) {
+                    vU[v] = dv.getFloat32(base + declLayout.uvOffset, true);
+                    vV[v] = 1.0 - dv.getFloat32(base + declLayout.uvOffset + 4, true);
+                } else if (declLayout.uvType === 9 || declLayout.uvType === 0) {
+                    vU[v] = decodeFloat16(dv.getUint16(base + declLayout.uvOffset, true));
+                    vV[v] = 1.0 - decodeFloat16(dv.getUint16(base + declLayout.uvOffset + 2, true));
+                }
+            }
+
+            // Vertexning qaysi suyakka (bonnet, door_dside_f, bumper_f va h.k.) tegishli ekanini aniqlash
+            let assignedBone = 'bodyshell';
+            if (declLayout.indicesOffset >= 0 && declLayout.indicesOffset + 4 <= stride) {
+                let bestSlot = 0;
+                if (declLayout.weightsOffset >= 0 && declLayout.weightsOffset + 4 <= stride) {
+                    let maxW = -1;
+                    for (let k = 0; k < 4; k++) {
+                        const wVal = data[base + declLayout.weightsOffset + k];
+                        if (wVal > maxW) { maxW = wVal; bestSlot = k; }
+                    }
+                }
+                const localBoneIdx = data[base + declLayout.indicesOffset + bestSlot];
+                const skelBoneIdx = (boneIds.length > 0 && localBoneIdx < boneIds.length)
+                    ? boneIds[localBoneIdx]
+                    : localBoneIdx;
+                if (skeletonBones[skelBoneIdx]) {
+                    assignedBone = skeletonBones[skelBoneIdx].name;
+                }
+            } else if (boneIds.length === 1 && skeletonBones[boneIds[0]]) {
+                assignedBone = skeletonBones[boneIds[0]].name;
+            }
+            vBoneName[v] = getMajorPartBucketName(assignedBone);
+        }
+
+        // Agar bu geometriya (0,0,0) markazda turgan alohida G'ildirak (Wheel/Tire/Rim) bo'lsa:
+        const spanX = maxX - minX, spanY = maxY - minY, spanZ = maxZ - minZ;
+        const centerDist = Math.hypot((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
+        const isLocalWheelMesh = (
+            centerDist < 0.25 &&
+            spanY > 0.35 && spanY < 1.15 &&
+            spanZ > 0.35 && spanZ < 1.15 &&
+            Math.abs(spanY - spanZ) < 0.12 &&
+            spanX > 0.12 && spanX < 0.65
+        );
+
+        if (isLocalWheelMesh) {
+            const wPos = [];
+            const wUV = [];
+            for (let i = 0; i < indicesCount; i += 3) {
+                const i0 = dv.getUint16(iDataOff + i * 2, true);
+                const i1 = dv.getUint16(iDataOff + (i + 1) * 2, true);
+                const i2 = dv.getUint16(iDataOff + (i + 2) * 2, true);
+                if (i0 >= verticesCount || i1 >= verticesCount || i2 >= verticesCount) continue;
+                wPos.push(vX[i0], vY[i0], vZ[i0], vX[i1], vY[i1], vZ[i1], vX[i2], vY[i2], vZ[i2]);
+                wUV.push(vU[i0], vV[i0], vU[i1], vV[i1], vU[i2], vV[i2]);
+            }
+            if (wPos.length >= 9) {
+                standaloneWheelGeoms.push({ pos: wPos, uv: wUV });
+            }
+            return;
+        }
+
+        // IndexBuffer dagi haqiqiy uchburchaklarni o'qib, tegishli mashina qismiga yozish
+        for (let i = 0; i < indicesCount; i += 3) {
+            const i0 = dv.getUint16(iDataOff + i * 2, true);
+            const i1 = dv.getUint16(iDataOff + (i + 1) * 2, true);
+            const i2 = dv.getUint16(iDataOff + (i + 2) * 2, true);
+            if (i0 >= verticesCount || i1 >= verticesCount || i2 >= verticesCount) continue;
+
+            const bName = vBoneName[i0] || 'bodyshell';
+            if (bName === 'skip_damaged') continue;
+
+            // Shisha / Oyna ekanini aniqlash (agar suyak nomi bodyshell bo'lsa ham lekin alohida oyna geometriyasi bo'lsa)
+            const bucketKey = (bName === 'bodyshell' && validGeometries.length > 4 && gIdx > 0)
+                ? `${bName}_${gIdx}`
+                : bName;
+
+            let bucket = partBuckets.get(bucketKey);
+            if (!bucket) {
+                bucket = { baseName: bName, pos: [], uv: [] };
+                partBuckets.set(bucketKey, bucket);
+            }
+
+            bucket.pos.push(
+                vX[i0], vY[i0], vZ[i0],
+                vX[i1], vY[i1], vZ[i1],
+                vX[i2], vY[i2], vZ[i2]
+            );
+            bucket.uv.push(
+                vU[i0], vV[i0],
+                vU[i1], vV[i1],
+                vU[i2], vV[i2]
+            );
+        }
+    });
+
+    const finalMeshes = [];
+    for (const [key, bucket] of partBuckets.entries()) {
+        if (bucket.pos.length < 9) continue;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(bucket.pos, 3));
+        g.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
+        const m = new THREE.Mesh(g);
+        m.name = bucket.baseName;
+        finalMeshes.push(m);
+    }
+
+    // 7. Agar .yft ichida (0,0,0) da turgan g'ildirak (wheel_lf) topilgan bo'lsa, uni skeletning 4 ta g'ildirak o'rniga qo'yamiz!
+    if (standaloneWheelGeoms.length > 0) {
+        const wheelBones = [
+            { name: 'wheel_lf', mirrorX: false },
+            { name: 'wheel_rf', mirrorX: true },
+            { name: 'wheel_lr', mirrorX: false },
+            { name: 'wheel_rr', mirrorX: true }
+        ];
+
+        wheelBones.forEach(wb => {
+            const skelBone = skeletonBones.find(b => b.name.toLowerCase() === wb.name);
+            // GTA V (x, y, z) -> Three.js (x, z, y)
+            const wx = skelBone ? skelBone.worldPos.x : (wb.mirrorX ? 0.82 : -0.82);
+            const wy = skelBone ? skelBone.worldPos.z : 0.34;
+            const wz = skelBone ? skelBone.worldPos.y : (wb.name.endsWith('f') ? 1.38 : -1.38);
+
+            standaloneWheelGeoms.forEach((wg, wSubIdx) => {
+                const g = new THREE.BufferGeometry();
+                g.setAttribute('position', new THREE.Float32BufferAttribute(wg.pos.slice(), 3));
+                g.setAttribute('uv', new THREE.Float32BufferAttribute(wg.uv.slice(), 2));
+                if (wb.mirrorX) {
+                    g.scale(-1, 1, 1);
+                }
+                g.translate(wx, wy, wz);
+                const m = new THREE.Mesh(g);
+                m.name = wSubIdx === 0 ? wb.name : (wb.name + '_rim');
+                finalMeshes.push(m);
+            });
+        });
+    }
+
+    if (finalMeshes.length > 0) {
+        loadExternalCarMeshes(finalMeshes, fileName);
     } else {
-        setStatus(`⚠ "${fileName}" shifrlangan (Rockstar NG/Oodle) binar .YFT ekan (${detectedPartNames.length} ta suyak nomi aniqlandi). Uni CodeWalker orqali ".YFT.XML" yoki ".OBJ" qilib eksport qilib tashlang!`);
+        setStatus(`⚠ "${fileName}" ichidan 3D poligonlarni ajratib bo‘lmadi.`);
     }
 }
 
@@ -1400,12 +1818,12 @@ function extractEmbeddedDDSFromBuffer(u8, sourceFileName) {
 }
 
 function parseYTDFile(arrayBuffer, fileName) {
-    const decompressed = decompressRsc7Buffer(arrayBuffer);
-    const count = extractEmbeddedDDSFromBuffer(decompressed, fileName);
+    const { data } = decompressRsc7(arrayBuffer);
+    const count = extractEmbeddedDDSFromBuffer(data, fileName);
     if (count > 0) {
         setStatus(`✓ "${fileName}" (.YTD) ichidan ${count} ta tekstura ajratib olindi va modelga ulandi!`);
     } else {
-        setStatus(`⚠ "${fileName}" ichida ochiq DDS bloklari topilmadi (yoki fayl NG-shifrlangan). CodeWalker orqali DDS/PNG qilib ham tashlashingiz mumkin.`);
+        setStatus(`⚠ "${fileName}" ichida ochiq DDS bloklari topilmadi. CodeWalker orqali DDS/PNG qilib ham tashlashingiz mumkin.`);
     }
 }
 
@@ -1742,7 +2160,7 @@ document.getElementById('saTargetCar').addEventListener('change', () => {
     updateHudCounters();
 });
 
-// ==================== 4. GTA SA MULTI-ATOMIC .DFF EXPORTER (Z-UP VA CARCOLS BILAN) ====================
+// ==================== 4. GTA SA MULTI-ATOMIC .DFF EXPORTER ====================
 function exportGtaSaDFF() {
     const visibleParts = currentCarParts.filter(p => p.mesh && p.mesh.visible && p.mesh.geometry);
     if (visibleParts.length === 0) {
