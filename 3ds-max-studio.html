@@ -996,9 +996,256 @@ function getDetailValue() {
     return d ? (parseInt(d.value, 10) || 0) : 30;
 }
 
+// ==================== 1a. FOTO-SEGMENTATSIYA: FON RANGINI RASMNING O'ZIDAN O'RGANADI ====================
+// Eski usul faqat yorqinlikni (oq/qora) chegaralab kesardi: oq fonli rasmda xrom/yaltiroq (och) qismlar fon bilan
+// aralashib, spitsalar parchalanib ketardi. Yangi usul: (1) rasm chetidan fon rangini aniqlaydi, (2) fonga o'xshash
+// sohalarni bog'langan komponentlarga ajratadi, (3) faqat haqiqiy fon (tashqi fon + spitsalar orasidagi katta
+// teshiklar) kesiladi, xrom yaltirashlar esa obyekt ichida qoladi, (4) mayda dog'lar tozalanadi va qirralar tekislanadi.
+function segmentPhoto(rgba, gw, gh, pad, sens) {
+    sens = Math.max(-1, Math.min(1, sens || 0));
+    const n = gw * gh, x0 = pad, x1 = gw - pad, y0 = pad, y1 = gh - pad;
+    const W = x1 - x0, H = y1 - y0, area = W * H;
+    // --- 1. Fon rangi: rasm chetidagi halqaning mediani ---
+    const r = Math.max(3, Math.round(Math.min(W, H) * 0.012));
+    const hist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+    let ringN = 0;
+    const take = (x, y) => {
+        const i = (y * gw + x) * 4;
+        if (rgba[i + 3] < 200) return;
+        hist[0][rgba[i]]++; hist[1][rgba[i + 1]]++; hist[2][rgba[i + 2]]++; ringN++;
+    };
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        if (x < x0 + r || x >= x1 - r || y < y0 + r || y >= y1 - r) take(x, y);
+    }
+    if (ringN < 50) return null;
+    const bg = hist.map(hh => { let c = 0, v = 0; for (; v < 256; v++) { c += hh[v]; if (c >= ringN / 2) break; } return Math.min(255, v); });
+    let near = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        if (!(x < x0 + r || x >= x1 - r || y < y0 + r || y >= y1 - r)) continue;
+        const i = (y * gw + x) * 4;
+        if (Math.max(Math.abs(rgba[i] - bg[0]), Math.abs(rgba[i + 1] - bg[1]), Math.abs(rgba[i + 2] - bg[2])) < 30) near++;
+    }
+    if (near / ringN < 0.55) return null; // fon bir xil emas — eski usulga qaytamiz
+
+    // --- 2. Fonga o'xshashlik (3x3 o'rtachalangan masofa) ---
+    const d0 = new Float32Array(n).fill(255);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const i = (y * gw + x) * 4;
+        d0[y * gw + x] = rgba[i + 3] < 30 ? 0 : Math.max(Math.abs(rgba[i] - bg[0]), Math.abs(rgba[i + 1] - bg[1]), Math.abs(rgba[i + 2] - bg[2]));
+    }
+    const d = new Float32Array(n).fill(255);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        let s = 0, c = 0;
+        for (let dy = -1; dy <= 1; dy++) { const yy = y + dy; if (yy < y0 || yy >= y1) continue;
+            for (let dx = -1; dx <= 1; dx++) { const xx = x + dx; if (xx < x0 || xx >= x1) continue; s += d0[yy * gw + xx]; c++; } }
+        d[y * gw + x] = s / c;
+    }
+    const TBG = 14;
+    const cand = new Uint8Array(n);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (d[y * gw + x] < TBG) cand[y * gw + x] = 1;
+    // 1 piksellik ingichka ko'prikchalar orqali "oqib ketmasligi" uchun yengil eroziya
+    const er = new Uint8Array(n);
+    for (let y = y0 + 1; y < y1 - 1; y++) for (let x = x0 + 1; x < x1 - 1; x++) {
+        const p = y * gw + x;
+        if (cand[p] && cand[p - 1] && cand[p + 1] && cand[p - gw] && cand[p + gw]) er[p] = 1;
+    }
+    // chetdagi piksellar eroziyada yo'qolmasin (tashqi fon chetga tegib turadi)
+    for (let x = x0; x < x1; x++) { er[y0 * gw + x] = cand[y0 * gw + x]; er[(y1 - 1) * gw + x] = cand[(y1 - 1) * gw + x]; }
+    for (let y = y0; y < y1; y++) { er[y * gw + x0] = cand[y * gw + x0]; er[y * gw + x1 - 1] = cand[y * gw + x1 - 1]; }
+
+    // --- 3. Bog'langan komponentlar (4-qo'shnilik) ---
+    const lab = new Int32Array(n), stack = new Int32Array(n);
+    const comps = [];
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const s = y * gw + x;
+        if (!er[s] || lab[s]) continue;
+        const id = comps.length + 1; let sp = 0, cnt = 0, border = false;
+        stack[sp++] = s; lab[s] = id;
+        while (sp) {
+            const p = stack[--sp]; cnt++;
+            const px = p % gw, py = (p - px) / gw;
+            if (px === x0 || px === x1 - 1 || py === y0 || py === y1 - 1) border = true;
+            if (px > x0 && er[p - 1] && !lab[p - 1]) { lab[p - 1] = id; stack[sp++] = p - 1; }
+            if (px < x1 - 1 && er[p + 1] && !lab[p + 1]) { lab[p + 1] = id; stack[sp++] = p + 1; }
+            if (py > y0 && er[p - gw] && !lab[p - gw]) { lab[p - gw] = id; stack[sp++] = p - gw; }
+            if (py < y1 - 1 && er[p + gw] && !lab[p + gw]) { lab[p + gw] = id; stack[sp++] = p + gw; }
+        }
+        comps.push({ cnt, border });
+    }
+    // Obyekt ichidagi yaltirash (xrom) rasmda "shiny" bo'ladi: bunda kichik och dog'lar teshik emas, obyektning o'zi.
+    const pickBg = (minHole) => {
+        const keep = new Uint8Array(comps.length + 1);
+        comps.forEach((c, i) => { if (c.border ? c.cnt > area * 0.0005 : c.cnt >= minHole) keep[i + 1] = 1; });
+        return keep;
+    };
+    let keep = pickBg(Math.max(6, area * 0.00006));
+    // Obyekt ichidagi "och" sohalarni sanaymiz. Anti-alias chetlari (1-3 px) hisobga kirmasin deb 7x7 ichki yadro olinadi.
+    let fgN = 0, fgLight = 0;
+    const lt = new Int32Array((gw + 1) * (gh + 1));
+    for (let y = 0; y < gh; y++) { let row = 0; for (let x = 0; x < gw; x++) { const p = y * gw + x; row += (!keep[lab[p]] && d[p] < 90 && x >= x0 && x < x1 && y >= y0 && y < y1) ? 1 : 0; lt[(y + 1) * (gw + 1) + x + 1] = lt[y * (gw + 1) + x + 1] + row; } }
+    for (let y = y0 + 3; y < y1 - 3; y++) for (let x = x0 + 3; x < x1 - 3; x++) {
+        const p = y * gw + x;
+        if (keep[lab[p]]) continue;
+        fgN++;
+        const sum = lt[(y + 4) * (gw + 1) + x + 4] - lt[(y - 3) * (gw + 1) + x + 4] - lt[(y + 4) * (gw + 1) + x - 3] + lt[(y - 3) * (gw + 1) + x - 3];
+        if (sum === 49) fgLight++;
+    }
+    const bgL = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+    const shiny = bgL > 150 && fgN > 0 && fgLight / fgN > 0.06;
+    if (shiny) keep = pickBg(area * 0.0012);
+
+    // --- 4. Ishonchli fon (urug') + silliq o'tish bo'ylab o'stirish ---
+    // Rasmdagi yumshoq soya yoki yorug'lik gradienti fon bilan bir xil "silliq" sirt: qo'shni pikselga o'tishda
+    // yorqinlik sakrashi kichik bo'lsa, fon davom etadi. Qora chiziq/qirra (katta sakrash) kesib to'xtatadi.
+    // Xrom yaltirash esa qora kontur bilan o'ralgan, shuning uchun fonga qo'shilib ketmaydi.
+    const L = new Float32Array(n);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        let sum = 0, c = 0;
+        for (let dy = -1; dy <= 1; dy++) { const yy = y + dy; if (yy < y0 || yy >= y1) continue;
+            for (let dx = -1; dx <= 1; dx++) { const xx = x + dx; if (xx < x0 || xx >= x1) continue; const i = (yy * gw + xx) * 4; sum += 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]; c++; } }
+        L[y * gw + x] = sum / c;
+    }
+    let bgm = new Uint8Array(n), qn = 0;
+    const queue = stack; // qayta ishlatamiz
+    if (shiny) {
+        // Yaltiroq (xrom) obyekt: xrom och yo'llar fonga tegib turishi mumkin, shuning uchun "o'sish" xavfli.
+        // O'rniga: fon = silliq + och + KENG soha. Ingichka xrom chiziqlar (kengligi < 2R) fon bo'la olmaydi —
+        // morfologik "ochish" (opening, disk R) ularni olib tashlaydi, katta teshiklar (spitsalar orasi, soya bilan) qoladi.
+        const R = Math.max(3, Math.round(Math.min(W, H) * 0.011 * (1 - 0.35 * sens)));
+        // 5x5 lokal tebranish (range) — silliqlikni o'lchaydi
+        const tmx = new Float32Array(n), tmn = new Float32Array(n), rg = new Float32Array(n);
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+            let mx = -1e9, mn = 1e9;
+            for (let dx = -2; dx <= 2; dx++) { const xx = Math.min(x1 - 1, Math.max(x0, x + dx)), v = L[y * gw + xx]; if (v > mx) mx = v; if (v < mn) mn = v; }
+            tmx[y * gw + x] = mx; tmn[y * gw + x] = mn;
+        }
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+            let mx = -1e9, mn = 1e9;
+            for (let dy = -2; dy <= 2; dy++) { const yy = Math.min(y1 - 1, Math.max(y0, y + dy)), p = yy * gw + x; if (tmx[p] > mx) mx = tmx[p]; if (tmn[p] < mn) mn = tmn[p]; }
+            rg[y * gw + x] = mx - mn;
+        }
+        const Lmin = bgL * (0.55 - 0.15 * sens), RG = Math.max(3, 10 + 14 * sens), CHR = 45 + 20 * sens;
+        const cl = new Uint8Array(n);
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+            const p = y * gw + x, i = p * 4;
+            const chroma = Math.max(rgba[i], rgba[i + 1], rgba[i + 2]) - Math.min(rgba[i], rgba[i + 1], rgba[i + 2]);
+            if (rgba[i + 3] < 30 || (L[p] >= Lmin && rg[p] < RG && chroma < CHR)) cl[p] = 1;
+        }
+        // chamfer masofa: cl ichida eng yaqin "cl emas" pikselgacha
+        const INF = 1e9, dist = new Float32Array(n);
+        const chamfer = (zero) => {
+            for (let p = 0; p < n; p++) dist[p] = zero(p) ? 0 : INF;
+            for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+                const p = y * gw + x; let v = dist[p]; if (!v) continue;
+                if (x > x0) v = Math.min(v, dist[p - 1] + 1);
+                if (y > y0) { v = Math.min(v, dist[p - gw] + 1); if (x > x0) v = Math.min(v, dist[p - gw - 1] + 1.4142); if (x < x1 - 1) v = Math.min(v, dist[p - gw + 1] + 1.4142); }
+                dist[p] = v;
+            }
+            for (let y = y1 - 1; y >= y0; y--) for (let x = x1 - 1; x >= x0; x--) {
+                const p = y * gw + x; let v = dist[p]; if (!v) continue;
+                if (x < x1 - 1) v = Math.min(v, dist[p + 1] + 1);
+                if (y < y1 - 1) { v = Math.min(v, dist[p + gw] + 1); if (x < x1 - 1) v = Math.min(v, dist[p + gw + 1] + 1.4142); if (x > x0) v = Math.min(v, dist[p + gw - 1] + 1.4142); }
+                dist[p] = v;
+            }
+        };
+        chamfer(p => !cl[p]);
+        // yadro: cl ichida chetdan kamida R masofadagi piksellar; rasm chetiga tegib turgan soha yadroni yo'qotmasin
+        const core = new Uint8Array(n);
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+            const p = y * gw + x;
+            if (cl[p] && (dist[p] >= R || (dist[p] >= 1e8))) core[p] = 1;
+        }
+        // yadro komponentlari: chetga tegadigan yoki toza-oq (fon rangidagi) markazi bor bo'lsa — haqiqiy teshik/fon
+        const cl2 = new Int32Array(n); let cid = 0;
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+            const s0 = y * gw + x; if (!core[s0] || cl2[s0]) continue;
+            cid++; let sp = 0, cnt = 0, border = false, pure = 0; const mem = [];
+            stack[sp++] = s0; cl2[s0] = cid;
+            while (sp) {
+                const p = stack[--sp]; cnt++; mem.push(p);
+                const px = p % gw, py = (p - px) / gw;
+                if (px < x0 + 2 * R || px >= x1 - 2 * R || py < y0 + 2 * R || py >= y1 - 2 * R) border = true;
+                if (d0[p] < 14) pure++;
+                if (px > x0 && core[p - 1] && !cl2[p - 1]) { cl2[p - 1] = cid; stack[sp++] = p - 1; }
+                if (px < x1 - 1 && core[p + 1] && !cl2[p + 1]) { cl2[p + 1] = cid; stack[sp++] = p + 1; }
+                if (py > y0 && core[p - gw] && !cl2[p - gw]) { cl2[p - gw] = cid; stack[sp++] = p - gw; }
+                if (py < y1 - 1 && core[p + gw] && !cl2[p + gw]) { cl2[p + gw] = cid; stack[sp++] = p + gw; }
+            }
+            const ok = (border && cnt > R * R) || (pure >= 25 && cnt >= area * 0.0004);
+            if (!ok) for (const p of mem) core[p] = 0;
+        }
+        // fon = tasdiqlangan yadroning R-kengayishi (= morfologik ochish) ∩ cl
+        chamfer(p => core[p] === 1);
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const p = y * gw + x; if (dist[p] <= R + 0.5 && cl[p]) bgm[p] = 1; }
+    } else {
+        for (let p = 0; p < n; p++) if (lab[p] && keep[lab[p]]) { bgm[p] = 1; queue[qn++] = p; }
+    }
+    const STEP = 5;
+    let qh = 0;
+    while (qh < qn) {
+        const p = queue[qh++], px = p % gw, py = (p - px) / gw, lp = L[p];
+        if (px > x0 && !bgm[p - 1] && Math.abs(L[p - 1] - lp) <= STEP && rgba[(p - 1) * 4 + 3] >= 30) { bgm[p - 1] = 1; queue[qn++] = p - 1; }
+        if (px < x1 - 1 && !bgm[p + 1] && Math.abs(L[p + 1] - lp) <= STEP && rgba[(p + 1) * 4 + 3] >= 30) { bgm[p + 1] = 1; queue[qn++] = p + 1; }
+        if (py > y0 && !bgm[p - gw] && Math.abs(L[p - gw] - lp) <= STEP && rgba[(p - gw) * 4 + 3] >= 30) { bgm[p - gw] = 1; queue[qn++] = p - gw; }
+        if (py < y1 - 1 && !bgm[p + gw] && Math.abs(L[p + gw] - lp) <= STEP && rgba[(p + gw) * 4 + 3] >= 30) { bgm[p + gw] = 1; queue[qn++] = p + gw; }
+    }
+    // Qirradagi o'tish piksellarini (anti-alias) fonga qaytarish: fonga tegib turgan va fonga yaqinroq piksellar
+    for (let it = 0; it < 2; it++) {
+        const nx = bgm.slice();
+        for (let y = y0 + 1; y < y1 - 1; y++) for (let x = x0 + 1; x < x1 - 1; x++) {
+            const p = y * gw + x;
+            if (bgm[p]) continue;
+            let nb = -1;
+            if (bgm[p - 1]) nb = L[p - 1]; else if (bgm[p + 1]) nb = L[p + 1]; else if (bgm[p - gw]) nb = L[p - gw]; else if (bgm[p + gw]) nb = L[p + gw];
+            if (nb < 0) continue;
+            // piksel qora tomonga emas, fon tomoniga yaqinmi? (yarim yo'l: fon yorqinligining 60% idan yuqori)
+            if (Math.abs(L[p] - nb) < Math.max(40, Math.abs(nb - 40) * 0.45)) nx[p] = 1;
+        }
+        bgm = nx;
+    }
+    let fg = new Uint8Array(n);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const p = y * gw + x; fg[p] = bgm[p] ? 0 : 1; }
+
+    // --- 5. Mayda obyekt dog'larini (shovqin) tozalash ---
+    const minSpeck = Math.max(4, area * (shiny ? 0.0004 : 0.00004));
+    lab.fill(0);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const s = y * gw + x;
+        if (!fg[s] || lab[s]) continue;
+        let sp = 0, cnt = 0; const members = [];
+        stack[sp++] = s; lab[s] = 1;
+        while (sp) {
+            const p = stack[--sp]; cnt++; members.push(p);
+            const px = p % gw, py = (p - px) / gw;
+            if (px > x0 && fg[p - 1] && !lab[p - 1]) { lab[p - 1] = 1; stack[sp++] = p - 1; }
+            if (px < x1 - 1 && fg[p + 1] && !lab[p + 1]) { lab[p + 1] = 1; stack[sp++] = p + 1; }
+            if (py > y0 && fg[p - gw] && !lab[p - gw]) { lab[p - gw] = 1; stack[sp++] = p - gw; }
+            if (py < y1 - 1 && fg[p + gw] && !lab[p + gw]) { lab[p + gw] = 1; stack[sp++] = p + gw; }
+        }
+        if (cnt < minSpeck) for (const p of members) fg[p] = 0;
+    }
+
+    // --- 6. Qirralarni silliqlash: 5x5 ko'pchilik filtri (2 marta, integral rasm bilan tez) — tishsiz, toza kontur ---
+    const rad = shiny ? Math.max(2, Math.round(Math.min(W, H) * 0.0022)) : 1;
+    for (let it = 0; it < 2; it++) {
+        const ii = new Int32Array((gw + 1) * (gh + 1));
+        for (let y = 0; y < gh; y++) { let row = 0; for (let x = 0; x < gw; x++) { row += fg[y * gw + x]; ii[(y + 1) * (gw + 1) + x + 1] = ii[y * (gw + 1) + x + 1] + row; } }
+        const o = new Uint8Array(n);
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+            const xa = Math.max(x0, x - rad), xb = Math.min(x1, x + rad + 1), ya = Math.max(y0, y - rad), yb = Math.min(y1, y + rad + 1);
+            const sum = ii[yb * (gw + 1) + xb] - ii[ya * (gw + 1) + xb] - ii[yb * (gw + 1) + xa] + ii[ya * (gw + 1) + xa];
+            o[y * gw + x] = sum * 2 >= (xb - xa) * (yb - ya) ? 1 : 0;
+        }
+        fg = o;
+    }
+    return { fg, shiny, bg };
+}
+
 function extractBinaryFieldFromImage(img) {
     const pad = 4;
-    const fit = PS3D.drawFitted(img, getQualityMaxSide(), pad);
+    // Manba rasmdan 1.5 baravardan ortiq kattalashtirish yangi ma'lumot bermaydi, faqat sekinlashtiradi va uchburchaklarni ko'paytiradi
+    const srcMax = Math.max(img.naturalWidth || img.width || 1024, img.naturalHeight || img.height || 1024);
+    const fit = PS3D.drawFitted(img, Math.min(getQualityMaxSide(), Math.max(700, Math.round(srcMax * 1.5))), pad);
     const { ctx, gw, gh } = fit;
     const rgba = ctx.getImageData(0, 0, gw, gh).data;
     const threshold = parseInt(document.getElementById('threshRange').value, 10) || 128;
@@ -1032,6 +1279,14 @@ function extractBinaryFieldFromImage(img) {
         : (darkIsForeground ? 'AVTO: OQ FON KESILDI' : 'AVTO: QORA FON KESILDI');
 
     let field = new Float32Array(gw * gh);
+    // Shaffof bo'lmagan rasm (foto): fon rangini o'rganib segmentatsiya qilamiz; bir xil fon topilmasa — eski usul.
+    const seg = useAlpha ? null : segmentPhoto(rgba, gw, gh, pad, 0.6 + (threshold - 128) / 107 * 0.4);
+    if (seg) {
+        const inv = invertMaskPolarity === true;
+        for (let p = 0; p < field.length; p++) field[p] = (seg.fg[p] ? 255 : 0);
+        if (inv) for (let y = pad; y < gh - pad; y++) for (let x = pad; x < gw - pad; x++) { const p = y * gw + x; field[p] = 255 - field[p]; }
+        document.getElementById('maskStatusTxt').textContent = inv ? 'AVTO: OBYEKT / FON ALMASHTIRILDI' : (seg.shiny ? 'AVTO: FON ANIQLANDI (xrom / yaltiroq obyekt)' : 'AVTO: FON ANIQLANDI');
+    } else
     for (let y = pad; y < gh - pad; y++) {
         for (let x = pad; x < gw - pad; x++) {
             const p = y * gw + x, i4 = p * 4;
@@ -1043,12 +1298,16 @@ function extractBinaryFieldFromImage(img) {
         }
     }
 
+    // Segmentatsiyalangan niqob: pikselli zinapoyani sub-piksel silliq konturga aylantirish uchun qo'shimcha tekislash
+    if (seg) field = PS3D.blurField(field, gw, gh, seg.shiny ? 3 : 2);
     // Faqat juda yengil tekislash (0..3 marta) — kichik detallar yo'qolmasligi uchun
     const passes = Math.round(getDetailValue() / 100 * 3);
     if (passes > 0) field = PS3D.blurField(field, gw, gh, passes);
 
-    drawMaskPreview(field, gw, gh, threshold);
-    return { field, w: gw, h: gh, threshold, scale: 160 / Math.max(gw, gh), pad };
+    // Segmentatsiyalangan (0/255) niqobda slayder "sezgirlik" vazifasini bajaradi, kontur esa har doim 50% darajasida olinadi
+    const iso = seg ? 128 : threshold;
+    drawMaskPreview(field, gw, gh, iso);
+    return { field, w: gw, h: gh, threshold: iso, scale: 160 / Math.max(gw, gh), pad };
 }
 
 function drawMaskPreview(field, w, h, threshold) {
