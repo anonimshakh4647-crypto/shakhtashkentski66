@@ -1,1 +1,634 @@
-<!doctype html><html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Audio Cutter | IT SHAKH</title><link rel="stylesheet" href="tools.css"><style>.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}audio{width:100%;margin:16px 0}@media(max-width:600px){.grid{grid-template-columns:1fr}}</style></head><body><header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="javascript:history.back()">← ORQAGA</a></header><main><div class="eyebrow">// LOCAL AUDIO TOOL</div><h1>AUDIO CUTTER</h1><p class="intro">Qo‘shiq yoki audio faylning kerakli qismini kesib, WAV formatida saqlang.</p><section class="panel"><input id="file" type="file" accept="audio/*"><audio id="audio" controls hidden></audio><div class="grid"><label class="field"><span class="label">BOSHLANISH (SONIYA)</span><input id="start" type="number" min="0" step="0.1" value="0"></label><label class="field"><span class="label">TUGASH (SONIYA)</span><input id="end" type="number" min="0" step="0.1" value="0"></label></div><div class="actions"><button id="cut">KESISH</button><a id="download" class="secondary" hidden>↓ WAV YUKLAB OLISH</a></div><p id="status" class="notice">Audio tanlang.</p></section></main><script>const f=document.getElementById('file'),a=document.getElementById('audio'),st=document.getElementById('start'),en=document.getElementById('end'),msg=document.getElementById('status'),dl=document.getElementById('download');let src=null;f.onchange=()=>{if(!f.files[0])return;src=URL.createObjectURL(f.files[0]);a.src=src;a.hidden=false;a.onloadedmetadata=()=>{st.value=0;en.value=a.duration.toFixed(1);msg.textContent='Davomiyligi: '+a.duration.toFixed(1)+' soniya.'}};function wav(buffer){const ch=buffer.numberOfChannels,len=buffer.length*ch*2+44,ab=new ArrayBuffer(len),v=new DataView(ab),rate=buffer.sampleRate;const w=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i))};w(0,'RIFF');v.setUint32(4,36+buffer.length*ch*2,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,ch,true);v.setUint32(24,rate,true);v.setUint32(28,rate*ch*2,true);v.setUint16(32,ch*2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,buffer.length*ch*2,true);let off=44;for(let i=0;i<buffer.length;i++)for(let c=0;c<ch;c++){let x=Math.max(-1,Math.min(1,buffer.getChannelData(c)[i]));v.setInt16(off,x<0?x*32768:x*32767,true);off+=2}return new Blob([ab],{type:'audio/wav'})}document.getElementById('cut').onclick=async()=>{if(!f.files[0]){msg.textContent='Audio tanlang.';return}const s=Number(st.value),e=Number(en.value);if(e<=s){msg.textContent='Tugash vaqti boshlanishdan katta bo‘lishi kerak.';return}msg.textContent='Kesilmoqda…';const ac=new AudioContext();const buf=await ac.decodeAudioData(await f.files[0].arrayBuffer());const from=Math.floor(s*buf.sampleRate),to=Math.min(buf.length,Math.floor(e*buf.sampleRate)),out=ac.createBuffer(buf.numberOfChannels,to-from,buf.sampleRate);for(let c=0;c<buf.numberOfChannels;c++)out.copyToChannel(buf.getChannelData(c).slice(from,to),c);const blob=wav(out),url=URL.createObjectURL(blob);dl.href=url;dl.download='it-shakh-cut.wav';dl.hidden=false;msg.textContent='Tayyor. WAV faylni yuklab oling.'};</script></body></html>
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Audio Cutter | IT SHAKH</title>
+<style>
+:root{--a:#38bdf8;--a2:#818cf8;--bg:#050b14;--p:#0a1424;--p2:#0d1b30;--ln:#17283f;--tx:#e8f1ff;--mu:#8aa0bd;--ok:#27e39a;--wa:#ffb020;--bad:#ff5470}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1100px 560px at 50% -8%,#0e2342 0,var(--bg) 62%) fixed;color:var(--tx);font:14px/1.45 Inter,system-ui,"Segoe UI",Arial,sans-serif;min-height:100vh}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;border-bottom:1px solid var(--ln)}
+.brand{font-weight:900;letter-spacing:2px;color:var(--a);text-decoration:none;font-size:19px}
+.back{color:var(--a);text-decoration:none;font-weight:800;font-size:12px;letter-spacing:1px}
+main{max-width:1240px;margin:0 auto;padding:28px 18px 70px}
+.eyebrow{color:var(--mu);font-size:12px;letter-spacing:3px;font-weight:700}
+h1{margin:6px 0 8px;font-size:clamp(32px,6vw,54px);font-weight:900;letter-spacing:2px;background:linear-gradient(90deg,#38bdf8,#818cf8);-webkit-background-clip:text;background-clip:text;color:transparent}
+.intro{color:var(--mu);max-width:780px;line-height:1.6;margin:0 0 20px}
+.card{background:var(--p);border:1px solid var(--ln);border-radius:16px;padding:16px;margin-bottom:14px;min-width:0}
+.drop{border:2px dashed #2a4664;border-radius:18px;background:#07101a;padding:46px 20px;text-align:center;cursor:pointer;transition:.2s}
+.drop.over,.drop:hover{border-color:var(--a);background:#0a1a2c}
+.drop .ic{font-size:44px;line-height:1}.drop b{display:block;font-size:18px;margin:10px 0 4px}.drop small{color:var(--mu)}
+button.b,label.b{white-space:nowrap;display:inline-block;border:1px solid #2d4a72;background:var(--p2);color:var(--tx);border-radius:10px;padding:9px 13px;font:800 12px Inter,Arial;letter-spacing:.5px;cursor:pointer;user-select:none}
+button.b:hover:not(:disabled){border-color:var(--a);color:var(--a)}
+button.b:disabled{opacity:.4;cursor:not-allowed}
+button.pri{background:linear-gradient(135deg,#0ea5e9,#6366f1);border:0;color:#fff}
+button.pri:hover:not(:disabled){color:#fff;filter:brightness(1.1)}
+button.on{border-color:var(--a);color:var(--a);background:rgba(56,189,248,.12)}
+button.danger:hover:not(:disabled){border-color:var(--bad);color:var(--bad)}
+button.sm{padding:6px 10px;font-size:11px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.fname{font-weight:800;font-size:15px;word-break:break-all}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.chip{padding:5px 10px;border-radius:99px;background:#0b1626;border:1px solid var(--ln);color:var(--mu);font-size:12px}.chip b{color:var(--tx)}
+.transport{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.time{font:800 22px ui-monospace,Consolas,monospace;color:var(--a);margin:0 6px}
+.time small{color:var(--mu);font-size:13px;font-weight:600}
+.vol{display:flex;align-items:center;gap:6px;color:var(--mu);font-size:12px}
+input[type=range]{accent-color:var(--a)}
+.meter{display:grid;gap:3px;width:110px}.meter i{display:block;height:6px;background:#0f1b2c;border-radius:9px;overflow:hidden}.meter i s{display:block;height:100%;width:0;background:linear-gradient(90deg,#27e39a,#ffb020 80%,#ff5470)}
+.wfw{position:relative;border:1px solid var(--ln);border-radius:12px;overflow:hidden;background:#050a10}
+#rl{display:block;width:100%;height:22px;background:#08111c;border-bottom:1px solid var(--ln)}
+#cv{display:block;width:100%;height:230px;touch-action:none;cursor:crosshair}
+#ov{display:block;width:100%;height:46px;margin-top:8px;border:1px solid var(--ln);border-radius:10px;background:#050a10;touch-action:none;cursor:pointer}
+.hov{position:absolute;right:8px;top:28px;font:11px ui-monospace,monospace;color:var(--mu);background:#050a10cc;padding:2px 6px;border-radius:6px;pointer-events:none}
+.zrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.zrow .sp{flex:1}
+.chk{display:inline-flex;align-items:center;gap:6px;color:var(--mu);font-size:12.5px;cursor:pointer}
+.chk input{accent-color:var(--a);width:15px;height:15px}
+.selrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f>label{font-size:10.5px;font-weight:800;letter-spacing:.6px;color:var(--mu)}
+.f .inl{display:flex;gap:4px}
+input[type=text],input[type=number],select{width:100%;background:#050b14;color:var(--tx);border:1px solid #1e3552;border-radius:9px;padding:8px 10px;outline:none;font:13px ui-monospace,Consolas,monospace;min-width:0}
+select{font-family:Inter,Arial,sans-serif}
+input:focus,select:focus{border-color:var(--a);box-shadow:0 0 0 3px rgba(56,189,248,.18)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--ln);margin:-4px 0 14px;overflow-x:auto}
+.tabs button{padding:10px 14px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--mu);font:800 12px Inter,Arial;letter-spacing:1.2px;cursor:pointer;white-space:nowrap}
+.tabs button.on{color:var(--a);border-bottom-color:var(--a)}
+.pane{display:none}.pane.on{display:block}
+.h{font-size:11px;letter-spacing:2px;color:var(--mu);font-weight:800;margin:14px 0 10px;display:flex;align-items:center;gap:8px}
+.h:first-child{margin-top:0}.h::after{content:"";flex:1;height:1px;background:var(--ln)}
+.grp{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
+.opt{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;align-items:end;margin-bottom:10px}
+.note{color:var(--mu);font-size:12px;line-height:1.55;margin:6px 0}
+.regs{display:grid;gap:6px;margin-top:10px;max-height:420px;overflow:auto}
+.reg{display:grid;grid-template-columns:30px minmax(80px,1fr) 150px 70px auto;gap:8px;align-items:center;padding:7px 9px;border:1px solid var(--ln);border-radius:10px;background:var(--p2);font:12px ui-monospace,monospace}
+.reg input[type=text]{font-family:Inter,Arial;padding:6px 8px}
+.reg .x{color:var(--mu)}
+.prog{height:8px;background:#0f1b2c;border-radius:99px;overflow:hidden;margin-top:10px}.prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0ea5e9,#6366f1);transition:width .15s}
+.status{color:var(--mu);font-size:12.5px;margin-top:8px;min-height:18px}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#0d2236;border:1px solid var(--a);color:var(--tx);padding:10px 18px;border-radius:99px;opacity:0;pointer-events:none;transition:.25s;z-index:20;font-weight:700;max-width:90vw}
+.toast.on{opacity:1;transform:translateX(-50%)}
+.hist{color:var(--mu);font-size:12px}
+kbd{background:#0b1626;border:1px solid var(--ln);border-radius:5px;padding:1px 6px;font:11px ui-monospace,monospace;color:var(--tx)}
+@media(max-width:760px){.selrow{grid-template-columns:1fr 1fr}.reg{grid-template-columns:26px 1fr 60px;}.reg .rg,.reg .x{display:none}.time{font-size:18px}.meter{width:80px}}
+</style>
+</head>
+<body>
+<header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="javascript:history.back()">← ORQAGA</a></header>
+<main>
+<div class="eyebrow">// LOCAL AUDIO EDITOR</div>
+<h1>AUDIO CUTTER</h1>
+<p class="intro">Qo‘shiq yoki ovozni to‘lqin shaklida ko‘rib kesing, o‘chiring, ulang, effekt bering, qismlarga bo‘ling va WAV / Opus formatida saqlang. Fayl hech qayerga yuklanmaydi — hammasi brauzeringizda.</p>
+
+<label class="drop" id="drop" for="file" style="display:block">
+<div class="ic">🎧</div><b>Audio yoki video faylni shu yerga tashlang</b>
+<small>yoki bosib tanlang · MP3, WAV, OGG, M4A/AAC, FLAC, WEBM, MP4 (brauzer ochadigan formatlar)</small>
+<div style="margin-top:16px"><span class="b" style="display:inline-block;border:1px solid #2d4a72;border-radius:10px;padding:9px 16px;font-weight:800;font-size:12px">FAYL TANLASH</span> <button class="b" id="demo" type="button" style="margin-left:6px">DEMO OVOZ</button></div>
+</label>
+<input type="file" id="file" accept="audio/*,video/*,.mp3,.wav,.ogg,.m4a,.aac,.flac,.opus,.weba" hidden>
+<div class="status" id="loadSt"></div>
+
+<div id="ed" hidden>
+<div class="card top">
+<div><div class="fname" id="fname">—</div><div class="chips" id="chips"></div></div>
+<div class="bar"><button class="b" id="bUndo" disabled>↶ BEKOR</button><button class="b" id="bRedo" disabled>↷ QAYTA</button><label class="b" for="file">↑ BOSHQA FAYL</label></div>
+</div>
+
+<div class="card">
+<div class="transport">
+<button class="b pri" id="bPlay" title="Space">▶ PLEY</button>
+<button class="b" id="bPlaySel" title="Enter">▶ TANLANMA</button>
+<button class="b" id="bStop">■</button>
+<button class="b" id="bLoop" title="L">⟲ LOOP</button>
+<span class="time"><span id="tNow">0:00.000</span> <small>/ <span id="tTot">0:00.000</span></small></span>
+<span class="vol">TEZLIK <select id="rate" style="width:78px"><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option></select></span>
+<span class="vol">OVOZ <input type="range" id="vol" min="0" max="1.5" step="0.01" value="1" style="width:90px"></span>
+<span class="meter"><i><s id="mL"></s></i><i><s id="mR"></s></i></span>
+</div>
+<div class="wfw"><canvas id="rl"></canvas><canvas id="cv"></canvas><div class="hov" id="hov"></div></div>
+<canvas id="ov"></canvas>
+<div class="zrow">
+<button class="b sm" id="zOut" title="-">− ZOOM</button><button class="b sm" id="zIn" title="+">+ ZOOM</button><button class="b sm" id="zSel">TANLANMAGA</button><button class="b sm" id="zAll">HAMMASI</button>
+<span class="sp"></span>
+<button class="b sm on" id="vWave">TO‘LQIN</button><button class="b sm" id="vSpec">SPEKTROGRAMMA</button>
+<span class="vol">AMPLITUDA <input type="range" id="amp" min="1" max="8" step="0.1" value="1" style="width:90px"></span>
+<label class="chk"><input type="checkbox" id="follow" checked> kuzatish</label>
+<label class="chk"><input type="checkbox" id="snap"> nol-kesishga yopishish</label>
+</div>
+<div class="selrow">
+<div class="f"><label>BOSHLANISH</label><div class="inl"><input type="text" id="selA" value="0:00.000"><button class="b sm" id="aCur" title="I">◀ I</button></div></div>
+<div class="f"><label>TUGASH</label><div class="inl"><input type="text" id="selB" value="0:00.000"><button class="b sm" id="bCur" title="O">O ▶</button></div></div>
+<div class="f"><label>UZUNLIK</label><input type="text" id="selL" value="0:00.000"></div>
+</div>
+<div class="zrow"><button class="b sm" id="qAll">HAMMASINI TANLASH</button><button class="b sm" id="qHead">BOSHIDAN KURSORGACHA</button><button class="b sm" id="qTail">KURSORDAN OXIRIGACHA</button><button class="b sm" id="qView">KO‘RINAYOTGAN QISM</button><button class="b sm" id="qNone">BEKOR QILISH</button>
+<span class="sp"></span><span class="hist" id="histTxt"></span></div>
+<div class="note"><kbd>Space</kbd> pley · <kbd>I</kbd>/<kbd>O</kbd> boshlanish/tugash · <kbd>Del</kbd> o‘chirish · <kbd>M</kbd> belgi · <kbd>Ctrl+Z</kbd> bekor · <kbd>Ctrl+C/X/V</kbd> · g‘ildirak — zoom · <kbd>Shift</kbd>+g‘ildirak — surish</div>
+</div>
+
+<div class="card">
+<div class="tabs" id="tabs"><button class="on" data-p="edit">✂ TAHRIRLASH</button><button data-p="fx">✦ EFFEKTLAR</button><button data-p="split">☰ BO‘LISH · BELGILAR</button><button data-p="exp">↓ EKSPORT</button></div>
+
+<div class="pane on" id="p-edit">
+<div class="h">ASOSIY</div>
+<div class="grp">
+<button class="b pri" id="oTrim">✂ KESIB OLISH (tanlanma qoladi)</button>
+<button class="b danger" id="oDel">🗑 TANLANMANI O‘CHIRISH</button>
+<button class="b" id="oSil">🔇 TANLANMANI JIM QILISH</button>
+<button class="b" id="oCopy">⧉ NUSXALASH</button>
+<button class="b" id="oCut">✂ KESIB OLIB QO‘YISH (Cut)</button>
+<button class="b" id="oPaste">⎘ KURSORGA QO‘YISH</button>
+</div>
+<label class="chk" style="margin-top:10px"><input type="checkbox" id="declick" checked> Anti-click: ulanish joylarida 2 ms yumshatish</label>
+<div class="h">KIRITISH VA TAKRORLASH</div>
+<div class="opt">
+<div class="f"><label>JIM JOY (soniya)</label><input type="number" id="inSil" value="1" min="0.01" step="0.1"></div>
+<button class="b" id="oInsSil">KURSORGA JIM JOY QO‘SHISH</button>
+<div class="f"><label>TAKROR SONI</label><input type="number" id="inRep" value="2" min="1" max="50"></div>
+<button class="b" id="oRep">TANLANMANI TAKRORLASH</button>
+</div>
+<div class="h">JIMLIKLAR</div>
+<div class="opt">
+<div class="f"><label>CHEGARA (dB)</label><input type="number" id="thr" value="-50" min="-100" max="-5"></div>
+<div class="f"><label>MIN. UZUNLIK (ms)</label><input type="number" id="minMs" value="300" min="10"></div>
+<div class="f"><label>CHETDA QOLDIRISH (ms)</label><input type="number" id="padMs" value="50" min="0"></div>
+</div>
+<div class="grp"><button class="b" id="oTrimSil">BOSH VA OXIRDAGI JIMLIKNI KESISH</button><button class="b" id="oRemSil">ICHKI JIMLIKLARNI OLIB TASHLASH</button></div>
+<div class="h">KANALLAR</div>
+<div class="grp"><button class="b" id="cMono">MONOGA AYLANTIRISH</button><button class="b" id="cSwap">CHAP ↔ O‘NG</button><button class="b" id="cL">FAQAT CHAP (mono)</button><button class="b" id="cR">FAQAT O‘NG (mono)</button><button class="b" id="cSt">MONO → STEREO</button></div>
+</div>
+
+<div class="pane" id="p-fx">
+<div class="note" id="fxScope">Effektlar tanlangan qismga qo‘llanadi; tanlanma bo‘lmasa — butun faylga.</div>
+<div class="h">FADE (SO‘NISH / PAYDO BO‘LISH)</div>
+<div class="opt">
+<div class="f"><label>EGRI CHIZIQ</label><select id="fxCurve"><option value="lin">Chiziqli</option><option value="cos">S-egri (silliq)</option><option value="exp">Eksponensial</option><option value="log">Logarifmik</option></select></div>
+<div class="f"><label>UZUNLIK (s) — tanlanma yo‘q bo‘lsa</label><input type="number" id="fxFade" value="2" min="0.05" step="0.1"></div>
+<button class="b" id="fIn">FADE IN</button><button class="b" id="fOut">FADE OUT</button>
+</div>
+<div class="h">OVOZ BALANDLIGI</div>
+<div class="opt">
+<div class="f"><label>KUCHAYTIRISH: <span id="gainV">+3.0</span> dB</label><input type="range" id="gain" min="-24" max="24" step="0.5" value="3"></div>
+<button class="b" id="fGain">QO‘LLASH</button>
+<div class="f"><label>NORMALLASH MAQSADI (dBFS)</label><input type="number" id="normT" value="-1" min="-30" max="0" step="0.5"></div>
+<button class="b" id="fNorm">NORMALLASHTIRISH</button>
+<div class="f"><label>LIMITER SHIFTI (dBFS)</label><input type="number" id="limT" value="-3" min="-30" max="0" step="0.5"></div>
+<button class="b" id="fLim">LIMITER</button>
+</div>
+<div class="h">TESKARI · FAZA · DC</div>
+<div class="grp"><button class="b" id="fRev">⇄ REVERSE (teskari)</button><button class="b" id="fInv">FAZANI INVERT QILISH</button><button class="b" id="fDc">DC OFFSET OLIB TASHLASH</button></div>
+<div class="h">TEZLIK (PITCH BILAN)</div>
+<div class="opt">
+<div class="f"><label>KOEFFITSIENT: ×<span id="spdV">1.25</span></label><input type="range" id="spd" min="0.5" max="2" step="0.01" value="1.25"></div>
+<button class="b" id="fSpd">QO‘LLASH</button>
+<button class="b sm" data-spd="0.8">×0.8</button><button class="b sm" data-spd="1.25">×1.25</button><button class="b sm" data-spd="1.5">×1.5</button><button class="b sm" data-spd="0.5">×0.5</button>
+</div>
+<div class="note">Eslatma: tezlik o‘zgarganda ton ham o‘zgaradi (vinil effekti). Tonni saqlagan holda cho‘zish bu versiyada yo‘q.</div>
+<div class="h">FILTR / EKVALAYZER</div>
+<div class="opt">
+<div class="f"><label>TURI</label><select id="flT"><option value="lowpass">Low-pass (yuqorini kesish)</option><option value="highpass">High-pass (pastni kesish)</option><option value="bandpass">Band-pass</option><option value="notch">Notch</option><option value="lowshelf">Bass (low shelf)</option><option value="highshelf">Treble (high shelf)</option><option value="peaking">Peaking EQ</option></select></div>
+<div class="f"><label>CHASTOTA (Hz)</label><input type="number" id="flF" value="1000" min="20" max="20000"></div>
+<div class="f"><label>Q</label><input type="number" id="flQ" value="0.707" min="0.1" max="20" step="0.1"></div>
+<div class="f"><label>GAIN (dB, shelf/peak)</label><input type="number" id="flG" value="6" min="-24" max="24" step="0.5"></div>
+<button class="b" id="fFil">QO‘LLASH</button>
+</div>
+<div class="h">ECHO</div>
+<div class="opt">
+<div class="f"><label>KECHIKISH (ms)</label><input type="number" id="ecD" value="300" min="10" max="2000"></div>
+<div class="f"><label>FEEDBACK (%)</label><input type="number" id="ecF" value="40" min="0" max="90"></div>
+<div class="f"><label>ARALASHMA (%)</label><input type="number" id="ecM" value="50" min="0" max="100"></div>
+<button class="b" id="fEcho">QO‘LLASH</button>
+</div>
+</div>
+
+<div class="pane" id="p-split">
+<div class="note">Belgilar (marker) faylni qismlarga ajratadi. Har bir qism alohida eksport qilinishi mumkin (ZIP ichida).</div>
+<div class="grp">
+<button class="b pri" id="mAdd" title="M">⚑ KURSORGA BELGI QO‘YISH</button>
+<button class="b danger" id="mClr">BARCHA BELGILARNI O‘CHIRISH</button>
+</div>
+<div class="h">AVTOMATIK BO‘LISH</div>
+<div class="opt">
+<div class="f"><label>TENG QISMLAR SONI</label><input type="number" id="spN" value="4" min="2" max="500"></div><button class="b" id="spEq">TENG BO‘LAKLARGA</button>
+<div class="f"><label>HAR X SONIYADA</label><input type="number" id="spX" value="30" min="0.1" step="0.5"></div><button class="b" id="spEvery">HAR X SONIYADA</button>
+</div>
+<div class="opt">
+<div class="f"><label>JIMLIK CHEGARASI (dB)</label><input type="number" id="spThr" value="-45" min="-100" max="-5"></div>
+<div class="f"><label>MIN. JIMLIK (s)</label><input type="number" id="spMin" value="0.6" min="0.05" step="0.05"></div>
+<button class="b" id="spSil">JIMLIK BO‘YICHA BO‘LISH</button>
+</div>
+<div class="h">QISMLAR</div>
+<div class="bar"><button class="b sm" id="rAll">HAMMASINI BELGILASH</button><button class="b sm" id="rNone">HECHQAYSISINI</button><span class="note" id="rInfo" style="margin:0"></span></div>
+<div class="regs" id="regs"></div>
+</div>
+
+<div class="pane" id="p-exp">
+<div class="grp" style="margin-bottom:8px"><button class="b sm" data-ring="15">RINGTON 15 s</button><button class="b sm" data-ring="30">RINGTON 30 s</button><button class="b sm" data-ring="40">RINGTON 40 s</button><button class="b sm" data-ring="60">STATUS 60 s</button></div>
+<div class="note">Rington tugmalari kursordan boshlab shu uzunlikdagi qismni tanlaydi va 0.5 s fade qo‘shadi.</div>
+<div class="h">SOZLAMALAR</div>
+<div class="opt">
+<div class="f"><label>FORMAT</label><select id="xFmt"><option value="wav16">WAV · 16-bit</option><option value="wav24">WAV · 24-bit</option><option value="wav32">WAV · 32-bit float</option><option value="opus">WebM/Opus (real vaqtda yozadi)</option></select></div>
+<div class="f"><label>SAMPLE RATE</label><select id="xSr"><option value="0">Asl (ishchi)</option><option>48000</option><option>44100</option><option>32000</option><option>22050</option><option>16000</option><option>8000</option></select></div>
+<div class="f"><label>KANALLAR</label><select id="xCh"><option value="0">Asl</option><option value="1">Mono</option></select></div>
+<div class="f"><label>QISM</label><select id="xRange"><option value="auto">Tanlanma (yo‘q bo‘lsa — hammasi)</option><option value="all">Butun fayl</option><option value="regs">Belgilangan qismlar (ZIP)</option></select></div>
+</div>
+<div class="opt">
+<div class="f"><label>FADE IN (ms)</label><input type="number" id="xFi" value="0" min="0" step="50"></div>
+<div class="f"><label>FADE OUT (ms)</label><input type="number" id="xFo" value="0" min="0" step="50"></div>
+<div class="f"><label>FAYL NOMI</label><input type="text" id="xName" value="audio" style="font-family:Inter,Arial"></div>
+<label class="chk" style="padding-bottom:10px"><input type="checkbox" id="xNorm"> Normallash (−1 dBFS)</label>
+<label class="chk" style="padding-bottom:10px"><input type="checkbox" id="xDith" checked> Dither (16-bit)</label>
+</div>
+<div class="bar"><button class="b pri" id="xGo">↓ EKSPORT QILISH</button><span class="note" id="xEst" style="margin:0"></span></div>
+<div class="prog"><i id="prog"></i></div>
+<div class="status" id="xSt"></div>
+<div class="note">MP3 formatida saqlash bu sahifada yo‘q (internetsiz ishlaydigan kodlovchi kerak) — sifat yo‘qotmaslik uchun WAV tavsiya etiladi. Opus: kichik hajm, ko‘p telefon va brauzerlar ochadi.</div>
+</div>
+</div>
+</div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+/* ================= helpers ================= */
+const $=id=>document.getElementById(id);
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const toDb=x=>x<=1e-9?-Infinity:20*Math.log10(x);
+const fromDb=d=>Math.pow(10,d/20);
+const fmtDb=d=>isFinite(d)?d.toFixed(1)+' dB':'−∞';
+function fmtT(t,dec=3){if(!isFinite(t)||t<0)t=0;const h=Math.floor(t/3600),m=Math.floor((t%3600)/60);let s=t-h*3600-m*60;let st=s.toFixed(dec);if(+st>=60){st=(0).toFixed(dec);return fmtT(Math.floor(t/60)*60+60,dec)}if(s<10)st='0'+st;return h?`${h}:${String(m).padStart(2,'0')}:${st}`:`${m}:${st}`}
+function parseT(s){s=String(s).trim().replace(',','.');if(!s)return NaN;const p=s.split(':').map(Number);if(p.some(isNaN))return NaN;let t=0;for(const x of p)t=t*60+x;return t}
+let toastT;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('on'),2200)}
+function download(name,blob){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
+const fmtSize=n=>n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB';
+const safe=s=>String(s).replace(/[\\/:*?"<>|]+/g,'_').replace(/\s+/g,' ').trim().slice(0,80)||'audio';
+const yieldUI=()=>new Promise(r=>setTimeout(r,0));
+
+/* ---- ZIP (store) ---- */
+const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(u){let c=0xFFFFFFFF;for(let i=0;i<u.length;i++)c=CRC[(c^u[i])&255]^(c>>>8);return(c^0xFFFFFFFF)>>>0}
+function zipStore(files){const enc=new TextEncoder(),parts=[],cd=[];let off=0;
+ for(const f of files){const nm=enc.encode(f.name),crc=crc32(f.data),sz=f.data.length;
+  const lh=new Uint8Array(30+nm.length),d=new DataView(lh.buffer);d.setUint32(0,0x04034b50,true);d.setUint16(4,20,true);d.setUint16(6,0x0800,true);d.setUint16(12,0x21,true);d.setUint32(14,crc,true);d.setUint32(18,sz,true);d.setUint32(22,sz,true);d.setUint16(26,nm.length,true);lh.set(nm,30);parts.push(lh,f.data);
+  const ch=new Uint8Array(46+nm.length),c=new DataView(ch.buffer);c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(14,0x21,true);c.setUint32(16,crc,true);c.setUint32(20,sz,true);c.setUint32(24,sz,true);c.setUint16(28,nm.length,true);c.setUint32(42,off,true);ch.set(nm,46);cd.push(ch);off+=lh.length+sz}
+ let cl=0;for(const c of cd)cl+=c.length;const end=new Uint8Array(22),e=new DataView(end.buffer);e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cl,true);e.setUint32(16,off,true);
+ return new Blob([...parts,...cd,end],{type:'application/zip'})}
+
+/* ================= state ================= */
+const S={sr:44100,ch:[],name:'audio',sel:null,cur:0,vs:0,spp:100,mk:[],n0:'Qism 1',hist:[],redo:[],clip:null,vh:'wave',amp:1,follow:true,loop:false,rate:1,ver:0};
+const N=()=>S.ch.length?S.ch[0].length:0;
+const hasSel=()=>!!(S.sel&&S.sel.b-S.sel.a>0);
+const range=()=>hasSel()?[S.sel.a,S.sel.b]:[0,N()];
+const cloneMk=()=>S.mk.map(m=>({...m}));
+let uidN=1;
+
+/* ================= audio engine ================= */
+let AC=null,gainN=null,anL=null,anR=null,src=null,AB=null,ABver=-1;
+const P={on:false,t0:0,from:0,to:0,loop:false,rate:1,lo:0,hi:0};
+function ctx(){if(!AC){const C=window.AudioContext||window.webkitAudioContext;AC=new C();gainN=AC.createGain();gainN.gain.value=+$('vol').value;const sp=AC.createChannelSplitter(2);anL=AC.createAnalyser();anR=AC.createAnalyser();anL.fftSize=anR.fftSize=1024;gainN.connect(AC.destination);gainN.connect(sp);sp.connect(anL,0);sp.connect(anR,1)}return AC}
+function getAB(){if(AB&&ABver===S.ver)return AB;const a=ctx();const n=N();AB=a.createBuffer(S.ch.length,n,S.sr);S.ch.forEach((c,i)=>AB.copyToChannel(c,i));ABver=S.ver;return AB}
+function stopSrc(){if(src){try{src.onended=null;src.stop()}catch(e){}try{src.disconnect()}catch(e){}src=null}}
+function play(from,to,loop){ctx();if(AC.state==='suspended')AC.resume();stopSrc();const ab=getAB();const s=AC.createBufferSource();s.buffer=ab;s.playbackRate.value=S.rate;s.connect(gainN);src=s;
+ const reg=to!=null&&to>from;const N_=N();
+ if(loop){s.loop=true;s.loopStart=(reg?from:0)/S.sr;s.loopEnd=(reg?to:N_)/S.sr}
+ if(reg&&!loop)s.start(0,from/S.sr,(to-from)/S.sr);else s.start(0,from/S.sr);
+ Object.assign(P,{on:true,t0:AC.currentTime,from,to:reg?to:N_,loop,rate:S.rate,lo:reg?from:0,hi:reg?to:N_});
+ s.onended=()=>{if(src===s&&P.on&&!P.loop)endPlay(true)};
+ setPlayUI();requestAnimationFrame(tick)}
+function posNow(){if(!P.on)return S.cur;let p=P.from+(AC.currentTime-P.t0)*P.rate*S.sr;if(P.loop){const L=P.hi-P.lo;if(L>0&&p>=P.hi)p=P.lo+((p-P.lo)%L)}return Math.min(p,P.to)}
+function endPlay(natural){const p=natural?P.to:posNow();stopSrc();P.on=false;S.cur=clamp(Math.round(p),0,N());setPlayUI();$('mL').style.width=$('mR').style.width='0';draw()}
+function stopPlay(toStart){if(P.on){stopSrc();P.on=false}if(toStart){S.cur=hasSel()?S.sel.a:0}setPlayUI();$('mL').style.width=$('mR').style.width='0';updateTime();draw()}
+function togglePlay(){if(!N())return;if(P.on){endPlay(false);return}
+ let from=S.cur,to=null;
+ if(hasSel()){const{a,b}=S.sel;if(from>=a&&from<b)to=b;else{from=a;to=b}}
+ else if(from>=N()-2)from=0;
+ play(from,to,S.loop)}
+function playSel(){if(!hasSel()){toast('Avval qism tanlang');return}if(P.on)stopSrc(),P.on=false;play(S.sel.a,S.sel.b,S.loop)}
+function setPlayUI(){$('bPlay').textContent=P.on?'❚❚ PAUZA':'▶ PLEY';$('bLoop').classList.toggle('on',S.loop)}
+const buf=new Float32Array(1024);
+let mL=0,mR=0;
+function tick(){
+ if(!P.on)return;
+ const p=posNow();S.cur=p;
+ if(S.follow){const W=$('cv').clientWidth,x=(p-S.vs)/S.spp;if(x>W*0.95||x<0){S.vs=clampVS(p-W*0.1*S.spp)}}
+ const lv=a=>{a.getFloatTimeDomainData(buf);let m=0;for(let i=0;i<buf.length;i++){const v=Math.abs(buf[i]);if(v>m)m=v}return m};
+ let l=lv(anL),r=S.ch.length>1?lv(anR):l;mL=Math.max(l,mL*0.9);mR=Math.max(r,mR*0.9);
+ const w=v=>clamp((toDb(v)+60)/60,0,1)*100+'%';$('mL').style.width=w(mL);$('mR').style.width=w(mR);
+ updateTime();draw();requestAnimationFrame(tick)}
+function updateTime(){$('tNow').textContent=fmtT(S.cur/S.sr);}
+
+/* ================= peaks / drawing ================= */
+const BLK=128;let PK=[];
+function buildPeaks(){PK=S.ch.map(c=>{const n=Math.ceil(c.length/BLK),mn=new Float32Array(n),mx=new Float32Array(n);for(let b=0;b<n;b++){let lo=1,hi=-1;const e=Math.min(c.length,(b+1)*BLK);for(let i=b*BLK;i<e;i++){const v=c[i];if(v<lo)lo=v;if(v>hi)hi=v}mn[b]=lo;mx[b]=hi}return{mn,mx}})}
+function colPeak(ci,s0,s1){const c=S.ch[ci];s0=Math.max(0,Math.floor(s0));s1=Math.min(c.length,Math.max(s0+1,Math.ceil(s1)));let lo=1,hi=-1;
+ if(s1-s0>=BLK*2){const b0=Math.ceil(s0/BLK),b1=Math.floor(s1/BLK),p=PK[ci];for(let i=s0;i<b0*BLK;i++){const v=c[i];if(v<lo)lo=v;if(v>hi)hi=v}for(let b=b0;b<b1;b++){if(p.mn[b]<lo)lo=p.mn[b];if(p.mx[b]>hi)hi=p.mx[b]}for(let i=b1*BLK;i<s1;i++){const v=c[i];if(v<lo)lo=v;if(v>hi)hi=v}}
+ else for(let i=s0;i<s1;i++){const v=c[i];if(v<lo)lo=v;if(v>hi)hi=v}
+ if(lo>hi){lo=hi=0}return[lo,hi]}
+const sToX=s=>(s-S.vs)/S.spp,xToS=x=>S.vs+x*S.spp;
+function clampVS(v){const W=$('cv').clientWidth||800,span=W*S.spp;return Math.max(0,Math.min(v,Math.max(0,N()-span)))}
+function fitAll(){const W=$('cv').clientWidth||800;S.spp=Math.max(1/64,N()/W);S.vs=0}
+function zoomAt(f,ax){const W=$('cv').clientWidth;const s=xToS(ax);const maxSpp=Math.max(1/64,N()/W);S.spp=clamp(S.spp/f,1/64,maxSpp);S.vs=clampVS(s-ax*S.spp);draw()}
+function sizeCanvas(cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr)}const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);return[g,W,H]}
+let raf=0;function draw(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;drawNow()})}
+function drawNow(){if(!N()||$('ed').hidden||$('cv').clientWidth<2||$('ov').clientWidth<2)return;drawRuler();drawMain();drawOverview();updateSelUI()}
+const STEPS=[.001,.002,.005,.01,.02,.05,.1,.2,.5,1,2,5,10,15,30,60,120,300,600,1800,3600];
+function drawRuler(){const[g,W,H]=sizeCanvas($('rl'));g.clearRect(0,0,W,H);const pps=S.sr/S.spp;let step=STEPS.find(s=>s*pps>=90)||3600;const t0=S.vs/S.sr,t1=(S.vs+W*S.spp)/S.sr;g.fillStyle='#8aa0bd';g.strokeStyle='#27405f';g.font='10px ui-monospace,monospace';g.textBaseline='middle';
+ const dec=step<0.01?3:step<0.1?2:step<1?1:0;
+ for(let t=Math.floor(t0/step)*step;t<=t1+step;t+=step){const x=Math.round(t*pps-S.vs/S.spp)+.5;g.beginPath();g.moveTo(x,H-9);g.lineTo(x,H);g.stroke();g.fillText(fmtT(Math.max(0,t),dec),x+3,8)}
+ for(let t=Math.floor(t0/step)*step;t<=t1+step;t+=step/5){const x=Math.round(t*pps-S.vs/S.spp)+.5;g.beginPath();g.moveTo(x,H-4);g.lineTo(x,H);g.stroke()}}
+function drawMain(){const[g,W,H]=sizeCanvas($('cv'));g.fillStyle='#050a10';g.fillRect(0,0,W,H);
+ if(S.vh==='spec')drawSpec(g,W,H);else drawWave(g,W,H);
+ // selection
+ if(hasSel()){const x1=sToX(S.sel.a),x2=sToX(S.sel.b);g.fillStyle='rgba(5,10,16,.55)';g.fillRect(0,0,Math.max(0,x1),H);g.fillRect(Math.min(W,x2),0,W-Math.min(W,x2),H);g.fillStyle='rgba(56,189,248,.13)';g.fillRect(x1,0,x2-x1,H);g.fillStyle='#38bdf8';g.fillRect(Math.round(x1)-1,0,2,H);g.fillRect(Math.round(x2)-1,0,2,H);g.fillRect(x1-4,0,9,14);g.fillRect(x2-4,H-14,9,14)}
+ // markers
+ g.font='bold 10px Inter,Arial';g.textBaseline='top';
+ S.mk.forEach((m,i)=>{const x=Math.round(sToX(m.t))+.5;if(x<-50||x>W+50)return;g.strokeStyle='#ffb020';g.setLineDash([4,3]);g.beginPath();g.moveTo(x,0);g.lineTo(x,H);g.stroke();g.setLineDash([]);g.fillStyle='#ffb020';g.fillRect(x,0,Math.min(120,g.measureText(m.name||'').width+10),14);g.fillStyle='#1a1203';g.fillText(m.name||'#'+(i+1),x+4,2)});
+ // cursor
+ const cx=Math.round(sToX(S.cur))+.5;if(cx>=0&&cx<=W){g.strokeStyle=P.on?'#27e39a':'#ffffff';g.lineWidth=1.5;g.beginPath();g.moveTo(cx,0);g.lineTo(cx,H);g.stroke();g.lineWidth=1;g.fillStyle=g.strokeStyle;g.beginPath();g.moveTo(cx-5,0);g.lineTo(cx+5,0);g.lineTo(cx,7);g.fill()}}
+function drawWave(g,W,H){const nc=Math.min(2,S.ch.length),lh=H/nc,amp=S.amp;
+ for(let ci=0;ci<nc;ci++){const mid=lh*ci+lh/2,half=lh/2-3;
+  g.strokeStyle='#142338';g.lineWidth=1;g.beginPath();g.moveTo(0,mid+.5);g.lineTo(W,mid+.5);g.stroke();
+  if(ci>0){g.strokeStyle='#1b2f4a';g.beginPath();g.moveTo(0,lh*ci+.5);g.lineTo(W,lh*ci+.5);g.stroke()}
+  g.fillStyle='#38bdf8';
+  if(S.spp<=1.5){ // sample-accurate line
+   g.strokeStyle='#38bdf8';g.beginPath();let first=true;const c=S.ch[ci];const i0=Math.max(0,Math.floor(S.vs)-1),i1=Math.min(c.length-1,Math.ceil(S.vs+W*S.spp)+1);
+   for(let i=i0;i<=i1;i++){const x=(i-S.vs)/S.spp,y=mid-clamp(c[i]*amp,-1,1)*half;if(first){g.moveTo(x,y);first=false}else g.lineTo(x,y)}g.stroke();
+   if(S.spp<=1/6){g.fillStyle='#fff';for(let i=i0;i<=i1;i++){const x=(i-S.vs)/S.spp,y=mid-clamp(c[i]*amp,-1,1)*half;g.fillRect(x-1.5,y-1.5,3,3)}}
+  }else for(let x=0;x<W;x++){const s0=S.vs+x*S.spp;if(s0>=N())break;const[lo,hi]=colPeak(ci,s0,s0+S.spp);const y1=mid-clamp(hi*amp,-1,1)*half,y2=mid-clamp(lo*amp,-1,1)*half;g.fillRect(x,y1,1,Math.max(1,y2-y1))}
+ }}
+/* ---- spectrogram ---- */
+const FN=1024,WIN=new Float32Array(FN),CT=new Float32Array(FN/2),ST=new Float32Array(FN/2),REV=new Uint16Array(FN);
+for(let i=0;i<FN;i++)WIN[i]=0.5-0.5*Math.cos(2*Math.PI*i/(FN-1));
+for(let i=0;i<FN/2;i++){CT[i]=Math.cos(2*Math.PI*i/FN);ST[i]=-Math.sin(2*Math.PI*i/FN)}
+for(let i=0;i<FN;i++){let r=0,x=i;for(let b=0;b<10;b++){r=(r<<1)|(x&1);x>>=1}REV[i]=r}
+function fft(re,im){for(let i=0;i<FN;i++){const j=REV[i];if(j>i){let t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t}}
+ for(let size=2;size<=FN;size<<=1){const h=size>>1,ts=FN/size;for(let i=0;i<FN;i+=size){for(let j=0,k=0;j<h;j++,k+=ts){const a=i+j,b=a+h,tr=re[b]*CT[k]-im[b]*ST[k],ti=re[b]*ST[k]+im[b]*CT[k];re[b]=re[a]-tr;im[b]=im[a]-ti;re[a]+=tr;im[a]+=ti}}}}
+const PAL=(()=>{const st=[[0,[4,6,20]],[.25,[60,20,110]],[.5,[190,40,110]],[.75,[250,160,40]],[1,[255,255,230]]],o=new Uint8ClampedArray(256*3);for(let i=0;i<256;i++){const t=i/255;let k=0;while(k<st.length-2&&t>st[k+1][0])k++;const[a,ca]=st[k],[b,cb]=st[k+1],u=(t-a)/(b-a);for(let c=0;c<3;c++)o[i*3+c]=ca[c]+(cb[c]-ca[c])*u}return o})();
+let specCache={key:'',cv:null};
+function drawSpec(g,W,H){const key=[S.ver,Math.round(S.vs),S.spp,W,H].join('|');
+ if(specCache.key!==key){const Hs=256,cv=document.createElement('canvas');cv.width=W;cv.height=Hs;const cg=cv.getContext('2d'),img=cg.createImageData(W,Hs),re=new Float32Array(FN),im=new Float32Array(FN),nb=FN/2,col=new Float32Array(nb);
+  const nch=S.ch.length;
+  for(let x=0;x<W;x++){const c0=Math.round(S.vs+(x+0.5)*S.spp)-FN/2;for(let i=0;i<FN;i++){const s=c0+i;let v=0;if(s>=0&&s<N()){for(let c=0;c<nch;c++)v+=S.ch[c][s];v/=nch}re[i]=v*WIN[i];im[i]=0}fft(re,im);
+   for(let k=0;k<nb;k++){const m=Math.sqrt(re[k]*re[k]+im[k]*im[k])/(FN/4);col[k]=m}
+   for(let y=0;y<Hs;y++){const f=Math.pow((Hs-1-y)/(Hs-1),2)*(nb-2),k0=Math.floor(f),u=f-k0;const m=col[k0]*(1-u)+col[k0+1]*u;const t=clamp((toDb(m)+95)/85,0,1),pi=Math.round(t*255)*3,o=(y*W+x)*4;img.data[o]=PAL[pi];img.data[o+1]=PAL[pi+1];img.data[o+2]=PAL[pi+2];img.data[o+3]=255}}
+  cg.putImageData(img,0,0);specCache={key,cv}}
+ g.imageSmoothingEnabled=true;g.drawImage(specCache.cv,0,0,W,H);
+ g.fillStyle='#ffffffaa';g.font='10px ui-monospace,monospace';g.textBaseline='middle';const nyq=S.sr/2;[0.25,0.5,0.75].forEach(r=>{const y=H*(1-Math.sqrt(r));g.fillText((nyq*r/1000).toFixed(nyq*r>=1000?1:0)+' kHz',4,y)})}
+/* ---- overview ---- */
+let ovCache={key:'',cv:null};
+function drawOverview(){const[g,W,H]=sizeCanvas($('ov'));g.fillStyle='#050a10';g.fillRect(0,0,W,H);const key=[S.ver,W,H].join('|');
+ if(ovCache.key!==key){const cv=document.createElement('canvas');cv.width=W;cv.height=H;const cg=cv.getContext('2d');cg.fillStyle='#2b7fa8';const step=N()/W,mid=H/2;for(let x=0;x<W;x++){let lo=1,hi=-1;for(let c=0;c<S.ch.length;c++){const[l,h]=colPeak(c,x*step,(x+1)*step);if(l<lo)lo=l;if(h>hi)hi=h}cg.fillRect(x,mid-hi*(mid-2),1,Math.max(1,(hi-lo)*(mid-2)))}ovCache={key,cv}}
+ g.drawImage(ovCache.cv,0,0,W,H);
+ const x1=S.vs/N()*W,x2=(S.vs+$('cv').clientWidth*S.spp)/N()*W;
+ if(hasSel()){g.fillStyle='rgba(56,189,248,.3)';g.fillRect(S.sel.a/N()*W,0,(S.sel.b-S.sel.a)/N()*W,H)}
+ g.fillStyle='rgba(129,140,248,.18)';g.strokeStyle='#818cf8';g.lineWidth=1.5;g.fillRect(x1,0,Math.max(3,x2-x1),H);g.strokeRect(x1+.75,.75,Math.max(3,x2-x1)-1.5,H-1.5);
+ S.mk.forEach(m=>{g.fillStyle='#ffb020';g.fillRect(m.t/N()*W,0,1,H)});
+ g.fillStyle='#fff';g.fillRect(S.cur/N()*W,0,1.5,H)}
+
+/* ================= selection UI ================= */
+function updateSelUI(){const a=hasSel()?S.sel.a:S.cur,b=hasSel()?S.sel.b:S.cur;
+ const set=(id,v)=>{if(document.activeElement!==$(id))$(id).value=v};
+ set('selA',fmtT(a/S.sr));set('selB',fmtT(b/S.sr));set('selL',fmtT((b-a)/S.sr));
+ const has=hasSel();['oTrim','oDel','oSil','oCopy','oCut','bPlaySel','zSel','oRep'].forEach(i=>$(i).disabled=!has);
+ $('oPaste').disabled=!S.clip;
+ $('fxScope').textContent=has?`Effektlar tanlangan qismga qo‘llanadi: ${fmtT(S.sel.a/S.sr)} → ${fmtT(S.sel.b/S.sr)}`:'Tanlanma yo‘q — effektlar butun faylga qo‘llanadi.';
+ $('bUndo').disabled=!S.hist.length;$('bRedo').disabled=!S.redo.length;
+ $('histTxt').textContent=S.hist.length?'Oxirgi: '+S.hist.slice(-3).map(h=>h.label).join(' → '):''}
+function snapZ(s){if(!$('snap').checked)return s;const c=S.ch[0];s=clamp(Math.round(s),0,N()-1);let best=s,bd=1e9;const R=Math.round(S.sr*0.01);for(let d=0;d<R;d++){for(const t of[s-d,s+d]){if(t<1||t>=c.length)continue;if((c[t-1]<=0&&c[t]>0)||(c[t-1]>=0&&c[t]<0)){return t}}}return s}
+function setSel(a,b){a=clamp(Math.round(a),0,N());b=clamp(Math.round(b),0,N());if(b<a)[a,b]=[b,a];S.sel=b-a>0?{a,b}:null;draw()}
+function fitToSel(){if(!hasSel())return;const W=$('cv').clientWidth,span=(S.sel.b-S.sel.a)*1.1;S.spp=Math.max(1/64,span/W);S.vs=clampVS(S.sel.a-(S.sel.b-S.sel.a)*0.05)}
+
+/* ================= edit engine ================= */
+function snapshot(label){return{label,ch:S.ch,mk:cloneMk(),sel:S.sel&&{...S.sel},cur:S.cur,n0:S.n0}}
+function pushHist(label){S.hist.push(snapshot(label));if(S.hist.length>15)S.hist.shift();S.redo=[]}
+function restore(h){S.ch=h.ch;S.mk=h.mk;S.sel=h.sel;S.cur=h.cur;S.n0=h.n0;changed(false)}
+function undo(){if(!S.hist.length)return;stopPlay();const h=S.hist.pop();S.redo.push(snapshot(h.label));restore(h);toast('↶ '+h.label+' bekor qilindi')}
+function redo(){if(!S.redo.length)return;stopPlay();const h=S.redo.pop();S.hist.push(snapshot(h.label));restore(h);toast('↷ '+h.label)}
+function commit(label,ch,o={}){if(!ch[0]||!ch[0].length){toast('Natija bo‘sh bo‘lib qoladi — amal bekor qilindi');return false}
+ stopPlay();pushHist(label);S.ch=ch;if(o.mk)S.mk=o.mk;if('sel' in o)S.sel=o.sel;if('cur' in o)S.cur=o.cur;S.cur=clamp(S.cur,0,N());changed(true);if(o.msg)toast(o.msg);return true}
+let statT=0;
+function changed(fit){S.ver++;buildPeaks();specCache.key='';ovCache.key='';if(S.sel&&(S.sel.b>N()))S.sel.b=N();if(S.sel&&S.sel.a>=S.sel.b)S.sel=null;S.mk=S.mk.filter(m=>m.t>0&&m.t<N());
+ const W=$('cv').clientWidth||800;const maxSpp=Math.max(1/64,N()/W);if(S.spp>maxSpp||fit)S.spp=Math.min(S.spp,maxSpp);S.vs=clampVS(S.vs);
+ $('tTot').textContent=fmtT(N()/S.sr);updateTime();clearTimeout(statT);statT=setTimeout(computeStats,120);renderRegs();draw()}
+function mkAfterSplice(a,b,newLen){const d=newLen-(b-a);return S.mk.filter(m=>m.t<=a||m.t>=b).map(m=>m.t>=b?{...m,t:m.t+d}:{...m})}
+function splice(a,b,segs){return S.ch.map((c,i)=>{const s=segs[i]||segs[0];const o=new Float32Array(a+s.length+(c.length-b));o.set(c.subarray(0,a));o.set(s,a);o.set(c.subarray(b),a+s.length);return o})}
+function slices(a,b){return S.ch.map(c=>c.slice(a,b))}
+function declickJoin(chs,j){if(!$('declick').checked)return;const n=Math.round(S.sr*0.002);chs.forEach(c=>{for(let i=0;i<n;i++){const k=i/n;const L=j-1-i,R=j+i;if(L>=0)c[L]*=k;if(R<c.length)c[R]*=k}})}
+function applyRange(label,fn,o={}){const[a,b]=range();const ch=S.ch.map((c,ci)=>{const o2=new Float32Array(c);fn(o2.subarray(a,b),ci,a,b);return o2});return commit(label,ch,o)}
+
+/* ---- operations ---- */
+function opTrim(){if(!hasSel())return;const{a,b}=S.sel;const mk=S.mk.filter(m=>m.t>a&&m.t<b).map(m=>({...m,t:m.t-a}));commit('Kesib olish',slices(a,b),{mk,sel:null,cur:0,msg:'✓ Faqat tanlangan qism qoldi'});fitAllNow()}
+function opDel(){if(!hasSel())return;const{a,b}=S.sel;if(b-a>=N()){toast('Butun faylni o‘chirib bo‘lmaydi');return}const ch=splice(a,b,[new Float32Array(0)]);declickJoin(ch,a);commit('O‘chirish',ch,{mk:mkAfterSplice(a,b,0),sel:null,cur:a,msg:'✓ Tanlangan qism o‘chirildi'})}
+function opSilence(){if(!hasSel())return;const{a,b}=S.sel;applyRange('Jim qilish',seg=>seg.fill(0),{msg:'✓ Jim qilindi'})}
+function opCopy(){if(!hasSel())return;const{a,b}=S.sel;S.clip={ch:slices(a,b)};updateSelUI();toast('⧉ Nusxalandi ('+fmtT((b-a)/S.sr,2)+')')}
+function opCut(){if(!hasSel())return;opCopy();opDel()}
+function opPaste(){if(!S.clip)return;let a=S.cur,b=S.cur;if(hasSel()){a=S.sel.a;b=S.sel.b}const segs=S.ch.map((_,i)=>S.clip.ch[i%S.clip.ch.length]);const len=segs[0].length;const ch=splice(a,b,segs);commit('Qo‘yish',ch,{mk:mkAfterSplice(a,b,len),sel:{a,b:a+len},cur:a,msg:'✓ Qo‘yildi'})}
+function opInsSil(){const s=Math.round((+$('inSil').value||0)*S.sr);if(s<1)return;const a=S.cur;const z=new Float32Array(s);commit('Jim joy qo‘shish',splice(a,a,[z]),{mk:mkAfterSplice(a,a,s),sel:{a,b:a+s},msg:'✓ Jim joy qo‘shildi'})}
+function opRep(){if(!hasSel())return;const{a,b}=S.sel,n=clamp(Math.round(+$('inRep').value||1),1,50),L=b-a;const segs=S.ch.map(c=>{const s=c.subarray(a,b),o=new Float32Array(L*n);for(let i=0;i<n;i++)o.set(s,i*L);return o});commit('Takrorlash',splice(a,b,segs),{mk:mkAfterSplice(a,b,L*n),sel:{a,b:a+L*n},msg:'✓ '+n+' marta takrorlandi'})}
+function opChan(kind){const n=S.ch.length;let ch;
+ if(kind==='mono'){if(n<2){toast('Fayl allaqachon mono');return}const o=new Float32Array(N());for(const c of S.ch)for(let i=0;i<o.length;i++)o[i]+=c[i]/n;ch=[o]}
+ else if(kind==='swap'){if(n<2){toast('Mono faylda almashtirish yo‘q');return}ch=[S.ch[1],S.ch[0],...S.ch.slice(2)]}
+ else if(kind==='L'){ch=[S.ch[0]]}else if(kind==='R'){if(n<2){toast('O‘ng kanal yo‘q');return}ch=[S.ch[1]]}
+ else if(kind==='st'){if(n!==1){toast('Fayl allaqachon stereo');return}ch=[S.ch[0],new Float32Array(S.ch[0])]}
+ commit('Kanallar',ch,{msg:'✓ Kanallar o‘zgartirildi'});}
+function silences(a,b,thrDb,minSamples){const w=Math.max(1,Math.round(S.sr*0.01)),thr=fromDb(thrDb),out=[];let st=-1;
+ for(let i=a;i<b;i+=w){const e=Math.min(b,i+w);let m=0;for(let c=0;c<S.ch.length;c++){const ch=S.ch[c];for(let j=i;j<e;j++){const v=ch[j]<0?-ch[j]:ch[j];if(v>m)m=v}}
+  if(m<thr){if(st<0)st=i}else if(st>=0){if(i-st>=minSamples)out.push([st,i]);st=-1}}
+ if(st>=0&&b-st>=minSamples)out.push([st,b]);return out}
+function opTrimSil(){const thr=+$('thr').value,pad=Math.round(+$('padMs').value/1000*S.sr);const sil=silences(0,N(),thr,Math.round(S.sr*0.02));let a=0,b=N();
+ if(sil.length&&sil[0][0]===0)a=Math.max(0,sil[0][1]-pad);const l=sil[sil.length-1];if(sil.length&&l[1]===N())b=Math.min(N(),l[0]+pad);
+ if(a===0&&b===N()){toast('Boshida/oxirida jimlik topilmadi');return}if(b<=a){toast('Hammasi jimlik — kesib bo‘lmaydi');return}
+ const mk=S.mk.filter(m=>m.t>a&&m.t<b).map(m=>({...m,t:m.t-a}));commit('Chekka jimlikni kesish',slices(a,b),{mk,sel:null,cur:0,msg:`✓ ${fmtT(a/S.sr,2)} boshidan va ${fmtT((N()-b)/S.sr,2)} oxiridan kesildi`});fitAllNow()}
+function opRemSil(){const thr=+$('thr').value,minS=Math.round(+$('minMs').value/1000*S.sr),pad=Math.round(+$('padMs').value/1000*S.sr);const[ra,rb]=range();
+ const sil=silences(ra,rb,thr,minS).map(([s,e])=>[s+pad,e-pad]).filter(([s,e])=>e>s);if(!sil.length){toast('Mos jimlik topilmadi');return}
+ let total=0;const keep=[];let p=0;for(const[s,e]of sil){keep.push([p,s]);p=e;total+=e-s}keep.push([p,N()]);
+ const out=S.ch.map(c=>{const o=new Float32Array(N()-total);let w=0;for(const[s,e]of keep){o.set(c.subarray(s,e),w);w+=e-s}return o});
+ const mk=[];S.mk.forEach(m=>{let sh=0,drop=false;for(const[s,e]of sil){if(m.t>=e)sh+=e-s;else if(m.t>s){drop=true;break}}if(!drop)mk.push({...m,t:m.t-sh})});
+ commit('Jimliklarni olib tashlash',out,{mk,sel:null,cur:0,msg:`✓ ${sil.length} ta jimlik olib tashlandi (−${fmtT(total/S.sr,2)})`})}
+/* effects */
+const CURVES={lin:t=>t,cos:t=>0.5-0.5*Math.cos(Math.PI*t),exp:t=>t*t,log:t=>Math.sqrt(t)};
+function opFade(dir){const cv=CURVES[$('fxCurve').value];let a,b;if(hasSel()){a=S.sel.a;b=S.sel.b}else{const L=Math.min(N(),Math.round((+$('fxFade').value||1)*S.sr));if(dir==='in'){a=0;b=L}else{a=N()-L;b=N()}}
+ const ch=S.ch.map(c=>{const o=new Float32Array(c);const L=b-a;for(let i=0;i<L;i++){const t=(i+0.5)/L;o[a+i]*=cv(dir==='in'?t:1-t)}return o});commit(dir==='in'?'Fade in':'Fade out',ch,{msg:'✓ Fade '+(dir==='in'?'in':'out')+' qo‘llandi'})}
+function opGain(){const g=fromDb(+$('gain').value);applyRange('Kuchaytirish',seg=>{for(let i=0;i<seg.length;i++)seg[i]*=g},{msg:'✓ '+$('gain').value+' dB'})}
+function peakOf(a,b){let m=0;for(const c of S.ch)for(let i=a;i<b;i++){const v=c[i]<0?-c[i]:c[i];if(v>m)m=v}return m}
+function opNorm(){const[a,b]=range();const pk=peakOf(a,b);if(pk<1e-6){toast('Ovoz juda past/jim');return}const g=fromDb(+$('normT').value)/pk;applyRange('Normallash',seg=>{for(let i=0;i<seg.length;i++)seg[i]*=g},{msg:'✓ Normallandi ('+(toDb(g)>=0?'+':'')+toDb(g).toFixed(1)+' dB)'})}
+function opLim(){const ceil=fromDb(+$('limT').value),sr=S.sr,rel=1-Math.exp(-1/(sr*0.12));const[a,b]=range();const ch=S.ch.map(c=>new Float32Array(c));let g=1;for(let i=a;i<b;i++){let m=0;for(const c of S.ch){const v=Math.abs(c[i]);if(v>m)m=v}const tg=m>ceil?ceil/m:1;if(tg<g)g=tg;else g+=(tg-g)*rel;if(g<1)for(const c of ch)c[i]*=g}commit('Limiter',ch,{msg:'✓ Limiter qo‘llandi'})}
+function opRev(){applyRange('Reverse',seg=>seg.reverse(),{msg:'✓ Teskari qilindi'})}
+function opInv(){applyRange('Faza invert',seg=>{for(let i=0;i<seg.length;i++)seg[i]=-seg[i]},{msg:'✓ Faza invert'})}
+function opDc(){applyRange('DC olib tashlash',seg=>{let s=0;for(let i=0;i<seg.length;i++)s+=seg[i];const m=s/seg.length;for(let i=0;i<seg.length;i++)seg[i]-=m},{msg:'✓ DC offset olib tashlandi'})}
+function resample(seg,f){const n=Math.max(1,Math.round(seg.length/f)),o=new Float32Array(n),L=seg.length;for(let i=0;i<n;i++){const p=i*f,k=Math.floor(p),t=p-k;const y1=seg[k]??0,y0=k>0?seg[k-1]:y1,y2=k+1<L?seg[k+1]:y1,y3=k+2<L?seg[k+2]:y2;o[i]=y1+0.5*t*(y2-y0+t*(2*y0-5*y1+4*y2-y3+t*(3*(y1-y2)+y3-y0)))}return o}
+function opSpeed(){const f=+$('spd').value;if(Math.abs(f-1)<0.005)return;const[a,b]=range();const segs=S.ch.map(c=>resample(c.subarray(a,b),f));const nl=segs[0].length;
+ const mk=S.mk.filter(m=>m.t<=a||m.t>=b).map(m=>m.t>=b?{...m,t:m.t+nl-(b-a)}:{...m});S.mk.filter(m=>m.t>a&&m.t<b).forEach(m=>mk.push({...m,t:a+Math.round((m.t-a)/f)}));mk.sort((x,y)=>x.t-y.t);
+ commit('Tezlik ×'+f,splice(a,b,segs),{mk,sel:hasSel()?{a,b:a+nl}:null,msg:'✓ Tezlik ×'+f})}
+function biquad(type,f0,Q,gdb,sr){const w=2*Math.PI*f0/sr,cw=Math.cos(w),sw=Math.sin(w),A=Math.pow(10,gdb/40),al=sw/(2*Q);let b0,b1,b2,a0,a1,a2;
+ switch(type){case'lowpass':b0=(1-cw)/2;b1=1-cw;b2=b0;a0=1+al;a1=-2*cw;a2=1-al;break;
+ case'highpass':b0=(1+cw)/2;b1=-(1+cw);b2=b0;a0=1+al;a1=-2*cw;a2=1-al;break;
+ case'bandpass':b0=al;b1=0;b2=-al;a0=1+al;a1=-2*cw;a2=1-al;break;
+ case'notch':b0=1;b1=-2*cw;b2=1;a0=1+al;a1=-2*cw;a2=1-al;break;
+ case'peaking':b0=1+al*A;b1=-2*cw;b2=1-al*A;a0=1+al/A;a1=-2*cw;a2=1-al/A;break;
+ case'lowshelf':{const t=2*Math.sqrt(A)*al;b0=A*((A+1)-(A-1)*cw+t);b1=2*A*((A-1)-(A+1)*cw);b2=A*((A+1)-(A-1)*cw-t);a0=(A+1)+(A-1)*cw+t;a1=-2*((A-1)+(A+1)*cw);a2=(A+1)+(A-1)*cw-t;break}
+ case'highshelf':{const t=2*Math.sqrt(A)*al;b0=A*((A+1)+(A-1)*cw+t);b1=-2*A*((A-1)+(A+1)*cw);b2=A*((A+1)+(A-1)*cw-t);a0=(A+1)-(A-1)*cw+t;a1=2*((A-1)-(A+1)*cw);a2=(A+1)-(A-1)*cw-t;break}}
+ return[b0/a0,b1/a0,b2/a0,a1/a0,a2/a0]}
+function opFilter(){const type=$('flT').value,f=clamp(+$('flF').value||1000,20,S.sr/2-100),Q=clamp(+$('flQ').value||0.707,0.1,20),g=+$('flG').value||0;const[b0,b1,b2,a1,a2]=biquad(type,f,Q,g,S.sr);
+ applyRange('Filtr: '+type,seg=>{let z1=0,z2=0;for(let i=0;i<seg.length;i++){const x=seg[i],y=b0*x+z1;z1=b1*x-a1*y+z2;z2=b2*x-a2*y;seg[i]=y}},{msg:'✓ Filtr qo‘llandi'})}
+function opEcho(){const d=Math.max(1,Math.round(+$('ecD').value/1000*S.sr)),fb=clamp(+$('ecF').value/100,0,0.9),mix=clamp(+$('ecM').value/100,0,1);
+ applyRange('Echo',seg=>{const y=new Float32Array(seg.length);for(let i=0;i<seg.length;i++)y[i]=seg[i]+(i>=d?fb*y[i-d]:0);for(let i=0;i<seg.length;i++)seg[i]=seg[i]+mix*(y[i]-seg[i])},{msg:'✓ Echo qo‘llandi'})}
+
+/* ================= markers / regions ================= */
+function addMarker(t,name){t=Math.round(t);if(t<=0||t>=N())return false;if(S.mk.some(m=>Math.abs(m.t-t)<S.sr*0.01))return false;S.mk.push({id:uidN++,t,name:name||''});S.mk.sort((a,b)=>a.t-b.t);return true}
+function regionsList(){const b=[0,...S.mk.map(m=>m.t),N()];const r=[];for(let i=0;i<b.length-1;i++)r.push({i,a:b[i],b:b[i+1],name:i===0?S.n0:(S.mk[i-1].name||('Qism '+(i+1))),mk:i?S.mk[i-1]:null});return r}
+let regOn={};
+function renderRegs(){const box=$('regs');if(!box)return;box.innerHTML='';const rs=regionsList();
+ $('rInfo').textContent=rs.length+' ta qism';
+ rs.forEach(r=>{const key=r.mk?r.mk.id:0;if(!(key in regOn))regOn[key]=true;
+  const d=document.createElement('div');d.className='reg';
+  const cb=document.createElement('input');cb.type='checkbox';cb.checked=regOn[key];cb.onchange=()=>regOn[key]=cb.checked;
+  const nm=document.createElement('input');nm.type='text';nm.value=r.name;nm.onchange=()=>{if(r.mk)r.mk.name=nm.value;else S.n0=nm.value;draw()};
+  const tr=document.createElement('span');tr.className='rg';tr.textContent=fmtT(r.a/S.sr,2)+' → '+fmtT(r.b/S.sr,2);
+  const du=document.createElement('span');du.textContent=fmtT((r.b-r.a)/S.sr,2);
+  const bt=document.createElement('span');bt.className='bar';bt.style.gap='4px';
+  const p=document.createElement('button');p.className='b sm';p.textContent='▶';p.title='Eshitish';p.onclick=()=>{S.sel={a:r.a,b:r.b};draw();play(r.a,r.b,false)};
+  const s=document.createElement('button');s.className='b sm';s.textContent='TANLASH';s.onclick=()=>{setSel(r.a,r.b);fitToSel();draw()};
+  bt.appendChild(p);bt.appendChild(s);
+  if(r.mk){const x=document.createElement('button');x.className='b sm danger';x.textContent='✕';x.title='Belgini o‘chirish (oldingi qism bilan birlashadi)';x.onclick=()=>{S.mk=S.mk.filter(m=>m!==r.mk);renderRegs();draw()};bt.appendChild(x)}
+  d.append(cb,nm,tr,du,bt);box.appendChild(d)})}
+function splitEq(){const n=clamp(Math.round(+$('spN').value),2,500);S.mk=[];for(let i=1;i<n;i++)addMarker(N()*i/n);renderRegs();draw();toast('✓ '+n+' qismga bo‘lindi')}
+function splitEvery(){const x=+$('spX').value;if(!(x>0))return;S.mk=[];for(let t=x;t*S.sr<N()-S.sr*0.05;t+=x)addMarker(t*S.sr);renderRegs();draw();toast('✓ '+(S.mk.length+1)+' qism')}
+function splitSil(){const sil=silences(0,N(),+$('spThr').value,Math.round(+$('spMin').value*S.sr));S.mk=[];sil.forEach(([s,e])=>{if(s>0&&e<N())addMarker((s+e)/2)});renderRegs();draw();toast(S.mk.length?'✓ '+(S.mk.length+1)+' qism topildi':'Jimlik topilmadi — chegarani oshiring (masalan −35 dB)')}
+
+/* ================= export ================= */
+function encWav(chs,sr,bits,dither){const nc=chs.length,n=chs[0].length,bps=bits===32?4:bits/8,dl=n*nc*bps;if(dl>2e9)throw new Error('Fayl juda katta (2 GB dan oshadi)');
+ const ab=new ArrayBuffer(44+dl),v=new DataView(ab),str=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};
+ str(0,'RIFF');v.setUint32(4,36+dl,true);str(8,'WAVE');str(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,bits===32?3:1,true);v.setUint16(22,nc,true);v.setUint32(24,sr,true);v.setUint32(28,sr*nc*bps,true);v.setUint16(32,nc*bps,true);v.setUint16(34,bits,true);str(36,'data');v.setUint32(40,dl,true);
+ let o=44;
+ if(bits===16){for(let i=0;i<n;i++)for(let c=0;c<nc;c++){let x=chs[c][i]*32767;if(dither)x+=Math.random()-Math.random();v.setInt16(o,clamp(Math.round(x),-32768,32767),true);o+=2}}
+ else if(bits===24){for(let i=0;i<n;i++)for(let c=0;c<nc;c++){const x=clamp(Math.round(chs[c][i]*8388607),-8388608,8388607);v.setUint8(o,x&255);v.setUint8(o+1,(x>>8)&255);v.setUint8(o+2,(x>>16)&255);o+=3}}
+ else{for(let i=0;i<n;i++)for(let c=0;c<nc;c++){v.setFloat32(o,chs[c][i],true);o+=4}}
+ return new Blob([ab],{type:'audio/wav'})}
+async function resampleHQ(chs,sr,tsr){const nl=Math.max(1,Math.round(chs[0].length*tsr/sr));const oc=new OfflineAudioContext(chs.length,nl,tsr);const ab=oc.createBuffer(chs.length,chs[0].length,sr);chs.forEach((c,i)=>ab.copyToChannel(c,i));const s=oc.createBufferSource();s.buffer=ab;s.connect(oc.destination);s.start();const r=await oc.startRendering();return[...Array(chs.length).keys()].map(i=>r.getChannelData(i).slice())}
+async function prepare(a,b){let chs=S.ch.map(c=>c.slice(a,b)),sr=S.sr;
+ const fi=Math.round((+$('xFi').value||0)/1000*sr),fo=Math.round((+$('xFo').value||0)/1000*sr),n=chs[0].length;
+ chs.forEach(c=>{for(let i=0;i<Math.min(fi,n);i++)c[i]*=i/fi;for(let i=0;i<Math.min(fo,n);i++)c[n-1-i]*=i/fo});
+ if($('xCh').value==='1'&&chs.length>1){const o=new Float32Array(n);for(const c of chs)for(let i=0;i<n;i++)o[i]+=c[i]/chs.length;chs=[o]}
+ if($('xNorm').checked){let m=0;for(const c of chs)for(let i=0;i<n;i++){const v=Math.abs(c[i]);if(v>m)m=v}if(m>1e-6){const g=fromDb(-1)/m;chs.forEach(c=>{for(let i=0;i<n;i++)c[i]*=g})}}
+ const tsr=+$('xSr').value||sr;if(tsr!==sr){chs=await resampleHQ(chs,sr,tsr);sr=tsr}
+ return{chs,sr}}
+function recordOpus(chs,sr,onProg){return new Promise((res,rej)=>{const types=['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm'];const mt=types.find(t=>window.MediaRecorder&&MediaRecorder.isTypeSupported(t));if(!mt)return rej(new Error('Brauzer Opus yozishni qo‘llamaydi — WAV tanlang'));
+ const a=ctx();if(a.state==='suspended')a.resume();const ab=a.createBuffer(chs.length,chs[0].length,sr);chs.forEach((c,i)=>ab.copyToChannel(c,i));const s=a.createBufferSource();s.buffer=ab;const dest=a.createMediaStreamDestination();s.connect(dest);const rec=new MediaRecorder(dest.stream,{mimeType:mt,audioBitsPerSecond:192000});const parts=[];rec.ondataavailable=e=>{if(e.data.size)parts.push(e.data)};rec.onstop=()=>res({blob:new Blob(parts,{type:mt.split(';')[0]}),ext:mt.includes('ogg')?'ogg':'webm'});rec.onerror=e=>rej(e.error||new Error('yozish xatosi'));
+ const dur=ab.duration,t0=a.currentTime;rec.start(250);s.onended=()=>setTimeout(()=>rec.stop(),200);s.start();const iv=setInterval(()=>{onProg(clamp((a.currentTime-t0)/dur,0,1));if(rec.state==='inactive')clearInterval(iv)},200)})}
+async function doExport(){const btn=$('xGo');btn.disabled=true;const st=$('xSt'),pg=$('prog');pg.style.width='0';
+ try{const fmt=$('xFmt').value,mode=$('xRange').value,base=safe($('xName').value||S.name);let jobs=[];
+  if(mode==='regs'){const rs=regionsList().filter(r=>regOn[r.mk?r.mk.id:0]);if(!rs.length)throw new Error('Qism belgilanmagan (BO‘LISH bo‘limida)');rs.forEach((r,i)=>jobs.push({a:r.a,b:r.b,name:`${base}-${String(i+1).padStart(2,'0')}-${safe(r.name)}`}))}
+  else{const[a,b]=mode==='all'?[0,N()]:range();jobs.push({a,b,name:base+(a===0&&b===N()?'':'-cut')})}
+  const outs=[];
+  for(let j=0;j<jobs.length;j++){const jb=jobs[j];st.textContent=`Tayyorlanmoqda ${j+1}/${jobs.length}…`;await yieldUI();
+   const{chs,sr}=await prepare(jb.a,jb.b);let blob,ext;
+   if(fmt==='opus'){st.textContent=`Opus yozilmoqda (real vaqtda) ${j+1}/${jobs.length}…`;const r=await recordOpus(chs,sr,p=>{pg.style.width=((j+p)/jobs.length*100)+'%'});blob=r.blob;ext=r.ext}
+   else{const bits=fmt==='wav24'?24:fmt==='wav32'?32:16;blob=encWav(chs,sr,bits,bits===16&&$('xDith').checked);ext='wav'}
+   outs.push({name:jb.name+'.'+ext,blob});pg.style.width=((j+1)/jobs.length*100)+'%';await yieldUI()}
+  if(outs.length===1){download(outs[0].name,outs[0].blob);st.textContent=`✓ ${outs[0].name} — ${fmtSize(outs[0].blob.size)}`}
+  else{const files=[];for(const o of outs)files.push({name:o.name,data:new Uint8Array(await o.blob.arrayBuffer())});const z=zipStore(files);download(base+'-qismlar.zip',z);st.textContent=`✓ ${outs.length} ta fayl ZIP ichida — ${fmtSize(z.size)}`}
+  toast('✓ Eksport tayyor');
+ }catch(e){st.textContent='Xato: '+e.message;toast('Xato: '+e.message)}
+ btn.disabled=false}
+function updateEst(){const mode=$('xRange').value;let n;if(mode==='regs'){n=0;regionsList().forEach(r=>{if(regOn[r.mk?r.mk.id:0])n+=r.b-r.a})}else{const[a,b]=mode==='all'?[0,N()]:range();n=b-a}
+ const sr=+$('xSr').value||S.sr,nc=$('xCh').value==='1'?1:S.ch.length,f=$('xFmt').value;const sec=n/S.sr;
+ if(f==='opus'){$('xEst').textContent=`≈ ${fmtSize(sec*192000/8)} · ${fmtT(sec,1)} (yozish ${fmtT(sec,0)} davom etadi)`}
+ else{const bps=f==='wav24'?3:f==='wav32'?4:2;$('xEst').textContent=`≈ ${fmtSize(Math.round(sec*sr)*nc*bps+44)} · ${fmtT(sec,2)}`}}
+
+/* ================= stats ================= */
+function computeStats(){if(!N())return;let pk=0,ss=0;for(const c of S.ch)for(let i=0;i<c.length;i++){const v=c[i];const a=v<0?-v:v;if(a>pk)pk=a;ss+=v*v}const rms=Math.sqrt(ss/(N()*S.ch.length));
+ const chips=[['Davomiylik',fmtT(N()/S.sr,2)],['Sample rate',S.sr+' Hz'],['Kanallar',S.ch.length===1?'mono':S.ch.length===2?'stereo':S.ch.length],['Peak',fmtDb(toDb(pk))],['RMS',fmtDb(toDb(rms))],['Qismlar',S.mk.length+1]];
+ $('chips').innerHTML='';chips.forEach(([k,v])=>{const s=document.createElement('span');s.className='chip';s.innerHTML=k+': <b></b>';s.querySelector('b').textContent=v;if(k==='Peak'&&pk>=0.999){s.querySelector('b').style.color='var(--bad)';s.title='Clipping bo‘lishi mumkin'}$('chips').appendChild(s)});updateEst()}
+
+/* ================= file loading ================= */
+async function loadFile(file){const st=$('loadSt');st.textContent='Dekodlanmoqda: '+file.name+' …';
+ try{stopPlay();const a=ctx();if(a.state==='suspended')a.resume().catch(()=>{});const ab=await file.arrayBuffer();const dec=await a.decodeAudioData(ab);
+  if(dec.length<2){throw new Error('Audio juda qisqa')}
+  const ch=[];for(let i=0;i<Math.min(dec.numberOfChannels,8);i++)ch.push(dec.getChannelData(i).slice());
+  setAudio(ch,dec.sampleRate,file.name.replace(/\.[^.]+$/,''));st.textContent=''}
+ catch(e){st.textContent='';toast('Faylni ochib bo‘lmadi. WAV, MP3, OGG, M4A, FLAC formatlarini sinab ko‘ring.');console.error(e)}}
+function setAudio(ch,sr,name){S.ch=ch;S.sr=sr;S.name=name||'audio';S.sel=null;S.cur=0;S.mk=[];S.n0='Qism 1';S.hist=[];S.redo=[];S.clip=null;regOn={};AB=null;
+ $('drop').style.display='none';$('ed').hidden=false;$('fname').textContent=S.name;$('xName').value=S.name;
+ S.ver++;buildPeaks();specCache.key='';ovCache.key='';fitAll();$('tTot').textContent=fmtT(N()/S.sr);updateTime();computeStats();renderRegs();draw()}
+function demoAudio(){const sr=44100,n=sr*10,L=new Float32Array(n),R=new Float32Array(n);
+ for(let i=0;i<n;i++){const t=i/sr;let env=0;
+  const seg=Math.floor(t/2.5),lt=t-seg*2.5;if(lt<1.8){env=Math.min(1,lt*20)*Math.exp(-lt*1.2)}
+  const f=[261.6,329.6,392,523.3][seg%4];const s=Math.sin(2*Math.PI*f*t)*0.6+Math.sin(2*Math.PI*f*2*t)*0.2+Math.sin(2*Math.PI*f*3*t)*0.08;
+  const beat=(t%0.5<0.05)?Math.sin(2*Math.PI*60*t)*Math.exp(-(t%0.5)*50)*0.5:0;
+  L[i]=(s*env+beat)*0.8;R[i]=(s*env*0.9+beat)*0.8}
+ setAudio([L,R],sr,'demo-ovoz')}
+function fitAllNow(){fitAll();draw()}
+
+/* ================= interaction ================= */
+function wire(){
+ const cv=$('cv');let drag=null;
+ const ex=e=>e.clientX-cv.getBoundingClientRect().left;
+ cv.addEventListener('pointerdown',e=>{if(!N())return;cv.setPointerCapture(e.pointerId);const x=ex(e),s=xToS(x);
+  if(hasSel()&&Math.abs(x-sToX(S.sel.a))<8)drag={k:'a'};else if(hasSel()&&Math.abs(x-sToX(S.sel.b))<8)drag={k:'b'};else drag={k:'new',s0:s,x0:x,moved:false};});
+ cv.addEventListener('pointermove',e=>{const x=ex(e),s=clamp(xToS(x),0,N());$('hov').textContent=fmtT(s/S.sr,3);
+  if(!drag){cv.style.cursor=hasSel()&&(Math.abs(x-sToX(S.sel.a))<8||Math.abs(x-sToX(S.sel.b))<8)?'ew-resize':'crosshair';return}
+  if(drag.k==='new'){if(!drag.moved&&Math.abs(x-drag.x0)<4)return;drag.moved=true;setSel(snapZ(drag.s0),snapZ(s))}
+  else if(drag.k==='a'){setSel(snapZ(s),S.sel.b)}else if(drag.k==='b'){setSel(S.sel.a,snapZ(s))}
+  if(drag.k==='new'&&(x<8||x>cv.clientWidth-8)){S.vs=clampVS(S.vs+(x<8?-1:1)*S.spp*12)}});
+ const up=e=>{if(!drag)return;if(drag.k==='new'&&!drag.moved){const s=clamp(Math.round(xToS(ex(e))),0,N());const was=P.on;S.sel=null;S.cur=s;if(was)play(s,null,S.loop);else{updateTime();draw()}}drag=null};
+ cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',()=>drag=null);
+ cv.addEventListener('dblclick',e=>{setSel(0,N())});
+ cv.addEventListener('wheel',e=>{if(!N())return;e.preventDefault();if(e.shiftKey||Math.abs(e.deltaX)>Math.abs(e.deltaY)){S.vs=clampVS(S.vs+(e.deltaX||e.deltaY)*S.spp);draw()}else zoomAt(e.deltaY<0?1.25:0.8,ex(e))},{passive:false});
+ // overview
+ const ov=$('ov');let od=null;
+ const ovPan=e=>{const r=ov.getBoundingClientRect(),W=r.width,x=e.clientX-r.left,span=cv.clientWidth*S.spp;S.vs=clampVS(x/W*N()-span/2);draw()};
+ ov.addEventListener('pointerdown',e=>{ov.setPointerCapture(e.pointerId);od=true;ovPan(e)});ov.addEventListener('pointermove',e=>{if(od)ovPan(e)});ov.addEventListener('pointerup',()=>od=null);
+ // buttons
+ $('bPlay').onclick=togglePlay;$('bPlaySel').onclick=playSel;$('bStop').onclick=()=>stopPlay(true);
+ $('bLoop').onclick=()=>{S.loop=!S.loop;setPlayUI();if(P.on){const p=posNow();play(hasSel()?(p>=S.sel.a&&p<S.sel.b?p:S.sel.a):p,hasSel()?S.sel.b:null,S.loop)}};
+ $('rate').onchange=()=>{S.rate=+$('rate').value;if(P.on){const p=posNow();play(p,hasSel()&&p<S.sel.b?S.sel.b:null,S.loop)}};
+ $('vol').oninput=()=>{if(gainN)gainN.gain.value=+$('vol').value};
+ $('zIn').onclick=()=>zoomAt(1.6,cv.clientWidth/2);$('zOut').onclick=()=>zoomAt(1/1.6,cv.clientWidth/2);$('zSel').onclick=()=>{fitToSel();draw()};$('zAll').onclick=fitAllNow;
+ $('vWave').onclick=()=>{S.vh='wave';$('vWave').classList.add('on');$('vSpec').classList.remove('on');draw()};$('vSpec').onclick=()=>{S.vh='spec';$('vSpec').classList.add('on');$('vWave').classList.remove('on');draw()};
+ $('amp').oninput=()=>{S.amp=+$('amp').value;draw()};$('follow').onchange=()=>S.follow=$('follow').checked;
+ const readT=(id,fn)=>$(id).addEventListener('change',()=>{const t=parseT($(id).value);if(isNaN(t)){updateSelUI();return}fn(t*S.sr)});
+ readT('selA',v=>setSel(v,hasSel()?S.sel.b:N()));readT('selB',v=>setSel(hasSel()?S.sel.a:0,v));readT('selL',v=>{const a=hasSel()?S.sel.a:S.cur;setSel(a,a+v)});
+ $('aCur').onclick=()=>setSel(S.cur,hasSel()?S.sel.b:N());$('bCur').onclick=()=>setSel(hasSel()?S.sel.a:0,S.cur);
+ $('qAll').onclick=()=>setSel(0,N());$('qHead').onclick=()=>setSel(0,S.cur);$('qTail').onclick=()=>setSel(S.cur,N());$('qView').onclick=()=>setSel(S.vs,S.vs+cv.clientWidth*S.spp);$('qNone').onclick=()=>{S.sel=null;draw()};
+ $('bUndo').onclick=undo;$('bRedo').onclick=redo;
+ // ops
+ const on=(id,f)=>$(id).onclick=f;
+ on('oTrim',opTrim);on('oDel',opDel);on('oSil',opSilence);on('oCopy',opCopy);on('oCut',opCut);on('oPaste',opPaste);on('oInsSil',opInsSil);on('oRep',opRep);on('oTrimSil',opTrimSil);on('oRemSil',opRemSil);
+ on('cMono',()=>opChan('mono'));on('cSwap',()=>opChan('swap'));on('cL',()=>opChan('L'));on('cR',()=>opChan('R'));on('cSt',()=>opChan('st'));
+ on('fIn',()=>opFade('in'));on('fOut',()=>opFade('out'));on('fGain',opGain);on('fNorm',opNorm);on('fLim',opLim);on('fRev',opRev);on('fInv',opInv);on('fDc',opDc);on('fSpd',opSpeed);on('fFil',opFilter);on('fEcho',opEcho);
+ $('gain').oninput=()=>$('gainV').textContent=(+$('gain').value>=0?'+':'')+(+$('gain').value).toFixed(1);$('spd').oninput=()=>$('spdV').textContent=(+$('spd').value).toFixed(2);
+ document.querySelectorAll('[data-spd]').forEach(b=>b.onclick=()=>{$('spd').value=b.dataset.spd;$('spdV').textContent=(+b.dataset.spd).toFixed(2)});
+ on('mAdd',()=>{if(addMarker(S.cur)){renderRegs();draw();toast('⚑ Belgi qo‘yildi')}else toast('Bu yerga belgi qo‘yib bo‘lmaydi')});on('mClr',()=>{S.mk=[];renderRegs();draw()});
+ on('spEq',splitEq);on('spEvery',splitEvery);on('spSil',splitSil);
+ on('rAll',()=>{regionsList().forEach(r=>regOn[r.mk?r.mk.id:0]=true);renderRegs();updateEst()});on('rNone',()=>{regionsList().forEach(r=>regOn[r.mk?r.mk.id:0]=false);renderRegs();updateEst()});
+ $('regs').addEventListener('change',updateEst);
+ document.querySelectorAll('[data-ring]').forEach(b=>b.onclick=()=>{const L=+b.dataset.ring*S.sr,a=clamp(S.cur,0,Math.max(0,N()-1)),bb=Math.min(N(),a+L);setSel(a,bb);$('xFi').value=500;$('xFo').value=500;$('xRange').value='auto';$('xFmt').value='wav16';updateEst();toast('Rington: '+fmtT((bb-a)/S.sr,1)+' tanlandi')});
+ ['xFmt','xSr','xCh','xRange'].forEach(i=>$(i).addEventListener('change',updateEst));
+ on('xGo',doExport);
+ $('tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.p));if(b.dataset.p==='exp')updateEst()};
+ // files
+ $('file').onchange=e=>{const f=e.target.files[0];if(f)loadFile(f);e.target.value=''};
+ $('demo').onclick=e=>{e.preventDefault();e.stopPropagation();demoAudio()};
+ const dz=$('drop');['dragenter','dragover'].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();dz.classList.add('over')}));['dragleave','drop'].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();dz.classList.remove('over')}));
+ document.addEventListener('drop',e=>{const f=e.dataTransfer&&e.dataTransfer.files[0];if(f)loadFile(f)});
+ window.addEventListener('resize',draw);if(window.ResizeObserver)new ResizeObserver(draw).observe($('cv'));
+ document.addEventListener('keydown',e=>{if($('ed').hidden)return;const tg=e.target.tagName;if(tg==='INPUT'&&e.target.type!=='checkbox'&&e.target.type!=='range'||tg==='SELECT'||tg==='TEXTAREA')return;
+  const c=e.ctrlKey||e.metaKey,k=e.key;
+  if(k===' '){e.preventDefault();togglePlay()}else if(k==='Enter'){e.preventDefault();playSel()}
+  else if(c&&k.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo()}else if(c&&k.toLowerCase()==='y'){e.preventDefault();redo()}
+  else if(c&&k.toLowerCase()==='a'){e.preventDefault();setSel(0,N())}else if(c&&k.toLowerCase()==='c'){e.preventDefault();opCopy()}else if(c&&k.toLowerCase()==='x'){e.preventDefault();opCut()}else if(c&&k.toLowerCase()==='v'){e.preventDefault();opPaste()}
+  else if(k==='Delete'||k==='Backspace'){e.preventDefault();opDel()}
+  else if(k==='i'||k==='I')setSel(S.cur,hasSel()?S.sel.b:N());else if(k==='o'||k==='O')setSel(hasSel()?S.sel.a:0,S.cur);
+  else if(k==='m'||k==='M')$('mAdd').click();else if(k==='l'||k==='L')$('bLoop').click();
+  else if(k==='+'||k==='=')$('zIn').click();else if(k==='-'||k==='_')$('zOut').click();
+  else if(k==='Home'){S.cur=0;S.vs=0;draw();updateTime()}else if(k==='End'){S.cur=N();S.vs=clampVS(N());draw();updateTime()}
+  else if(k==='ArrowLeft'||k==='ArrowRight'){e.preventDefault();const d=(k==='ArrowLeft'?-1:1)*(e.shiftKey?1:0.1)*S.sr;S.cur=clamp(Math.round(S.cur+d),0,N());updateTime();draw()}});
+}
+wire();
+window.AC_T={S,N,opTrim,opDel,opCut,opPaste,opCopy,opFade,opGain,opNorm,opRev,opSpeed,opFilter,opEcho,opLim,opChan,opTrimSil,opRemSil,opSilence,opRep,opInsSil,silences,splitEq,splitSil,splitEvery,regionsList,encWav,setAudio,demoAudio,undo,redo,setSel,addMarker,prepare,zipStore,crc32,parseT,fmtT,peakOf,play,stopPlay,togglePlay,P,doExport};
+</script>
+</body>
+</html>
