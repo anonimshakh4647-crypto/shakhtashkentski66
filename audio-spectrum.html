@@ -5301,11 +5301,21 @@ async function download1080Video(){
     rc.imageSmoothingEnabled=true;
     rc.imageSmoothingQuality='high';
 
+    // Qotishsiz video: kadrlar barqaror 30 FPS ritmida, har bir tayyor kadr aniq vaqtida yoziladi.
+    // (Eski usul: 60 FPS so'rab, og'ir kadrlarni tashlab yuborardi -> tayyor videoda qotishlar.)
+    const EXPORT_FPS=30, frameMs=1000/EXPORT_FPS;
+    let vTrack=null, canReq=false, nextFrameAt=performance.now();
     const paint=()=>{
       if(!exporting) return;
-      rc.fillStyle='#01040a';
-      rc.fillRect(0,0,outW,outH);
-      rc.drawImage(C,0,0,C.width,C.height,0,0,outW,outH);
+      const now=performance.now();
+      if(now>=nextFrameAt-3){
+        nextFrameAt+=frameMs;
+        if(now-nextFrameAt>frameMs) nextFrameAt=now+frameMs; // juda orqada qolsa, ritmni qayta tiklash
+        rc.fillStyle='#01040a';
+        rc.fillRect(0,0,outW,outH);
+        rc.drawImage(C,0,0,C.width,C.height,0,0,outW,outH);
+        if(canReq){ try{vTrack.requestFrame();}catch(e){} }
+      }
       exportAnimationId=requestAnimationFrame(paint);
     };
     paint();
@@ -5318,11 +5328,15 @@ async function download1080Video(){
     exportMuteGain.connect(ac.destination);
 
     // 4) Fresh audio destination: the recording gets the song even though speakers are silent
-    const videoStream=recCanvas.captureStream(60);
+    const videoStream=recCanvas.captureStream(0);
+    vTrack=videoStream.getVideoTracks()[0];
+    canReq=!!(vTrack && typeof vTrack.requestFrame==='function');
+    if(!canReq){ videoStream.getTracks().forEach(t=>t.stop()); }
+    const videoStream2=canReq?videoStream:recCanvas.captureStream(EXPORT_FPS);
     recordAudioDest=ac.createMediaStreamDestination();
     src.connect(recordAudioDest);
     const audioTracks=recordAudioDest.stream.getAudioTracks();
-    const videoTracks=videoStream.getVideoTracks();
+    const videoTracks=videoStream2.getVideoTracks();
     if(!audioTracks.length) throw new Error('Audio track yaratilmadi.');
     recordStream=new MediaStream([...videoTracks,...audioTracks]);
 
@@ -5340,8 +5354,8 @@ async function download1080Video(){
     const ext=mp4?'mp4':'webm';
 
     mediaRecorder=null;
-    for(const vb of [60000000,40000000,20000000]){
-      try{mediaRecorder=new MediaRecorder(recordStream,{mimeType:mime,videoBitsPerSecond:vb,audioBitsPerSecond:320000});break;}catch(e){}
+    for(const vb of [16000000,12000000,8000000]){
+      try{mediaRecorder=new MediaRecorder(recordStream,{mimeType:mime,videoBitsPerSecond:vb,audioBitsPerSecond:256000});break;}catch(e){}
     }
     if(!mediaRecorder) mediaRecorder=new MediaRecorder(recordStream,{mimeType:mime});
     recordedChunks=[];
