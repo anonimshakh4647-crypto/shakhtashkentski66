@@ -101,7 +101,7 @@ details.qm-d[open]>summary::after{transform:rotate(180deg)}
 <main class="qm">
 <div class="eyebrow">// QUICK SHARE TOOL</div>
 <h1>QR MAKER</h1>
-<p class="intro">Havola, matn, Wi‑Fi, kontakt, to‘lov, joylashuv, video va rasm havolalari — hammasi uchun professional QR kod. Rang, logo, ramka va shakllarni sozlang; PNG, SVG yoki JPG qilib yuklab oling. Hech narsa serverga yuborilmaydi.</p>
+<p class="intro">Havola, matn, Wi‑Fi, kontakt, to‘lov, joylashuv, video va rasm havolalari — hammasi uchun professional QR kod. Rang, logo, ramka va shakllarni sozlang; PNG, SVG yoki JPG qilib yuklab oling. QR yaratish to‘liq brauzeringizda bajariladi — faqat «Fayl» turida siz o‘zingiz tanlab «Yuklash» ni bosganingizdagina fayl tanlangan xizmatga yuboriladi.</p>
 <div class="qm-grid">
   <section class="qm-card" id="left">
     <div class="qm-tabs" id="tabs"><button data-p="create" class="on">YARATISH</button><button data-p="bulk">OMMAVIY</button><button data-p="hist">TARIX</button></div>
@@ -380,7 +380,7 @@ const TYPES = [
     b: (v) => { let s = trim(v.url); if (!s) return ''; if ((v.kind || 'youtube') === 'youtube' && /^[\w-]{11}$/.test(s)) return 'https://youtu.be/' + s; return normUrl(s); },
     hint: '<b>Katta video yoki rasm QR ichiga sig‘maydi</b> — QR faqat matn/havola saqlaydi (taxminan 2–3 KB). To‘g‘ri yo‘l: faylni biror joyga yuklab, <b>ulashish havolasini</b> shu yerga qo‘ying. Skaner qilganda video/rasm to‘g‘ridan-to‘g‘ri ochiladi. Fayl hajmi cheklanmaydi.',
     links: [['Google Drive', 'https://drive.google.com/drive/my-drive'], ['YouTube Studio', 'https://studio.youtube.com'], ['Dropbox', 'https://www.dropbox.com/home'], ['MEGA', 'https://mega.nz'], ['WeTransfer', 'https://wetransfer.com']], ex: { kind: 'youtube', url: 'dQw4w9WgXcQ' } },
-  { id: 'file', ic: '📎', n: 'Kichik fayl', custom: 'file', b: (v) => v.data || '', hint: 'Juda kichik fayl (<b>~2 KB</b> gacha: matn, vCard, kichik ikonka) to‘g‘ridan-to‘g‘ri QR ichiga joylanadi. Matn fayllari oddiy matn sifatida, boshqalari <code>data:</code> havolasi sifatida saqlanadi. Rasm/video uchun «Video / Rasm» turini tanlang.' },
+  { id: 'file', ic: '📎', n: 'Fayl', custom: 'file', b: (v) => (v.mode === 'embed' ? v.data : v.link) || '', hint: '<b>Har qanday hajmdagi fayl</b> (video, rasm, PDF, arxiv…): fayl tanlang → «Yuklash» ni bosing → QR ichiga fayl emas, <b>yuklab olish havolasi</b> joylanadi. Skaner qilgan odam faylni ochadi yoki yuklab oladi. Chunki QR kodning o‘ziga ~3 KB dan ortiq ma’lumot sig‘maydi — katta fayl faqat havola orqali uzatiladi.' },
   { id: 'geo', ic: '📍', n: 'Joylashuv', f: [{ k: 'lat', l: 'Kenglik (lat)', ph: '41.2995', ty: 'text' }, { k: 'lng', l: 'Uzunlik (lng)', ph: '69.2401', ty: 'text' }, { k: 'link', l: 'Yoki Google Maps / Yandex havolasi', ph: 'https://maps.app.goo.gl/…', w: 1 }],
     custom: 'geo', b: (v) => { if (trim(v.link)) return normUrl(v.link); const a = parseFloat(trim(v.lat).replace(',', '.')), o = parseFloat(trim(v.lng).replace(',', '.')); return isFinite(a) && isFinite(o) && Math.abs(a) <= 90 && Math.abs(o) <= 180 ? 'geo:' + a + ',' + o : ''; }, ex: { lat: '41.2995', lng: '69.2401' } },
   { id: 'event', ic: '📅', n: 'Tadbir', f: [{ k: 'title', l: 'Tadbir nomi', w: 1 }, { k: 'start', l: 'Boshlanishi', ty: 'datetime-local' }, { k: 'end', l: 'Tugashi', ty: 'datetime-local' }, { k: 'loc', l: 'Joy', w: 1 }, { k: 'desc', l: 'Tavsif', area: 1, w: 1 }],
@@ -555,19 +555,115 @@ function buildForm() {
     T.ex ? h('button', { class: 'qm-btn sm', type: 'button', text: 'Namuna', onclick: () => { S.fields[T.id] = Object.assign({}, T.ex); buildForm(); update(); } }) : null,
     h('button', { class: 'qm-btn sm', type: 'button', text: 'Tozalash', onclick: () => { S.fields[T.id] = {}; buildForm(); update(); } })]));
 }
+/* ---------------- fayl → QR (hajm cheklanmagan: yuklab, havolani QR qilamiz) ---------------- */
+const MB = 1048576;
+const HOSTS = Object.assign({ gofile: 'https://upload.gofile.io/uploadfile', tmpfiles: 'https://tmpfiles.org/api/v1/upload', uguu: 'https://uguu.se/upload' }, window.__QRHOSTS || {});
+const PROV = {
+  gofile: { n: 'Gofile', note: 'hajm cheklanmagan', max: Infinity, field: 'file', parse: (j) => j && j.status === 'ok' && j.data && (j.data.downloadPage || j.data.directLink) },
+  tmpfiles: { n: 'TmpFiles', note: '≤100 MB · 1 soat saqlanadi', max: 100 * MB, field: 'file', parse: (j) => j && j.data && typeof j.data.url === 'string' && j.data.url.replace(/^http:/, 'https:').replace('tmpfiles.org/', 'tmpfiles.org/dl/') },
+  uguu: { n: 'Uguu', note: '≤128 MB · 3 soat saqlanadi', max: 128 * MB, field: 'files[]', parse: (j) => j && j.files && j.files[0] && j.files[0].url }
+};
+const fmtSize = (n) => (n >= MB ? (n / MB).toFixed(n >= 10 * MB ? 0 : 1) + ' MB' : n >= 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' bayt');
+const UP = { file: null, busy: false, abort: null, pct: 0, msg: '' };
+
+function postForm(url, field, file, onProg) {
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest(), fd = new FormData();
+    fd.append(field, file, file.name);
+    UP.abort = () => x.abort();
+    x.open('POST', url); x.responseType = 'text';
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onProg(e.loaded / e.total); };
+    x.onload = () => (x.status >= 200 && x.status < 300 ? res(x.responseText) : rej(new Error('HTTP ' + x.status)));
+    x.onerror = () => rej(new Error('tarmoq yoki CORS xatosi'));
+    x.onabort = () => rej(Object.assign(new Error('bekor qilindi'), { aborted: true }));
+    x.send(fd);
+  });
+}
+function parseUpload(text, key) {
+  let j = null; try { j = JSON.parse(text); } catch (_) {}
+  if (key === 'custom') {
+    if (j) { const c = [j.url, j.link, j.downloadPage, j.data && (j.data.url || j.data.link || j.data.downloadPage), j.files && j.files[0] && j.files[0].url, j.result && j.result.url].find((x) => typeof x === 'string' && /^https?:\/\//.test(x)); return c || ''; }
+    const t = trim(text); return /^https?:\/\/\S+$/.test(t) ? t : '';
+  }
+  return PROV[key].parse(j) || '';
+}
+async function uploadFile(file, v, setMsg) {
+  const order = (v.prov || 'auto') === 'auto' ? ['gofile', 'tmpfiles', 'uguu'] : [v.prov];
+  const errs = [];
+  for (const k of order) {
+    let url, field;
+    if (k === 'custom') { url = trim(v.cUrl); field = trim(v.cField) || 'file'; if (!/^https?:\/\//.test(url)) { errs.push('server manzili noto‘g‘ri'); continue; } }
+    else { if (file.size > PROV[k].max) { errs.push(PROV[k].n + ': fayl juda katta (' + PROV[k].note + ')'); continue; } url = HOSTS[k]; field = PROV[k].field; }
+    setMsg((k === 'custom' ? 'Serveringizga' : PROV[k].n + ' ga') + ' yuklanmoqda…');
+    try {
+      const text = await postForm(url, field, file, (p) => { UP.pct = p; paintUp(); });
+      const link = parseUpload(text, k); if (!link) throw new Error('javobda havola yo‘q');
+      return { link, provider: k };
+    } catch (e) { if (e.aborted) throw e; errs.push((k === 'custom' ? 'Server' : PROV[k].n) + ': ' + e.message); UP.pct = 0; }
+  }
+  throw new Error(errs.join('; ') || 'yuklash amalga oshmadi');
+}
+function paintUp() {
+  const bar = $('#upBar'), txt = $('#upTxt'); if (!bar) return;
+  bar.style.width = Math.round(UP.pct * 100) + '%'; if (txt) txt.textContent = UP.msg + (UP.pct > 0 && UP.pct < 1 ? ' ' + Math.round(UP.pct * 100) + '%' : '');
+}
 function buildFileField(v) {
-  const info = h('div', { class: 'qm-hint', text: v.name ? v.name + ' · ' + v.size + ' bayt' + (v.err ? ' — ' + v.err : ' ✓ QR ichiga joylandi') : 'Fayl tanlanmagan.' });
+  v.mode = v.mode || 'host'; v.prov = v.prov || 'auto';
+  const mode = h('div', { class: 'qm-f w' }, [h('label', { text: 'Usul' }), (() => {
+    const box = h('div', { class: 'qm-chips' });
+    [['host', '☁ Havola orqali — hajm cheklanmaydi'], ['embed', '▣ QR ichiga (≤ 2 KB)']].forEach(([m, t]) => box.appendChild(h('button', { class: 'qm-chip' + (v.mode === m ? ' on' : ''), type: 'button', text: t, onclick: () => { v.mode = m; buildForm(); update(); } })));
+    return box;
+  })()]);
+  formEl.appendChild(mode);
   const inp = h('input', { type: 'file', hidden: true });
   inp.addEventListener('change', () => {
-    const f = inp.files[0]; if (!f) return; v.name = f.name; v.size = f.size; v.err = ''; v.data = '';
-    if (f.size > 2300) { v.err = 'juda katta (QR ga ~2 KB gacha sig‘adi). «Video / Rasm» turida havola QR qiling'; buildForm(); update(); return; }
-    const r = new FileReader();
-    if (/^text\/|json|xml|vcard|calendar/.test(f.type) || /\.(txt|vcf|ics|json|csv|md)$/i.test(f.name)) { r.onload = () => { v.data = String(r.result); buildForm(); update(); }; r.readAsText(f); }
-    else { r.onload = () => { v.data = String(r.result); buildForm(); update(); }; r.readAsDataURL(f); }
+    const file = inp.files[0]; if (!file) return;
+    UP.file = file; UP.pct = 0; UP.msg = ''; v.name = file.name; v.size = file.size; v.err = ''; v.data = ''; v.link = '';
+    if (v.mode === 'embed') {
+      if (file.size > 2300) { v.err = 'juda katta — QR ichiga ~2 KB gacha sig‘adi. «Havola orqali» usulini tanlang'; buildForm(); update(); return; }
+      const r = new FileReader(); r.onload = () => { v.data = String(r.result); buildForm(); update(); };
+      if (/^text\/|json|xml|vcard|calendar/.test(file.type) || /\.(txt|vcf|ics|json|csv|md)$/i.test(file.name)) r.readAsText(file); else r.readAsDataURL(file);
+      return;
+    }
+    buildForm(); update();
   });
-  formEl.appendChild(h('div', { class: 'qm-f w' }, [h('button', { class: 'qm-btn', type: 'button', text: '📂 FAYL TANLASH', onclick: () => inp.click() }), inp]));
-  formEl.appendChild(info);
+  formEl.appendChild(h('div', { class: 'qm-f w' }, [h('button', { class: 'qm-btn', type: 'button', text: '📂 FAYL TANLASH (har qanday turdagi)', onclick: () => inp.click() }), inp]));
+  if (v.name) formEl.appendChild(h('div', { class: 'qm-hint', html: '<b>' + esc(v.name) + '</b> · ' + fmtSize(v.size || 0) + (v.err ? ' — <span style="color:var(--qbad)">' + esc(v.err) + '</span>' : v.mode === 'embed' && v.data ? ' ✓ QR ichiga joylandi' : '') }));
+  if (v.mode !== 'host') return;
+
+  const pv = h('select', {});
+  [['auto', 'Avtomatik (Gofile → TmpFiles → Uguu)'], ['gofile', 'Gofile — ' + PROV.gofile.note], ['tmpfiles', 'TmpFiles — ' + PROV.tmpfiles.note], ['uguu', 'Uguu — ' + PROV.uguu.note], ['custom', 'O‘z serverim']].forEach(([val, t]) => pv.appendChild(h('option', { value: val, text: t })));
+  pv.value = v.prov; pv.addEventListener('change', () => { v.prov = pv.value; buildForm(); update(); });
+  formEl.appendChild(h('div', { class: 'qm-f w' }, [h('label', { text: 'Yuklash xizmati' }), pv]));
+  if (v.prov === 'custom') {
+    const cu = h('input', { type: 'text', placeholder: 'https://serveringiz.uz/upload', spellcheck: 'false' }); cu.value = v.cUrl || ''; cu.addEventListener('input', () => { v.cUrl = cu.value; persist(); });
+    const cf = h('input', { type: 'text', placeholder: 'file' }); cf.value = v.cField || ''; cf.addEventListener('input', () => { v.cField = cf.value; persist(); });
+    formEl.appendChild(h('div', { class: 'qm-f' }, [h('label', { text: 'Yuklash manzili (POST)' }), cu])); formEl.appendChild(h('div', { class: 'qm-f' }, [h('label', { text: 'Fayl maydoni nomi' }), cf]));
+    formEl.appendChild(h('div', { class: 'qm-hint', html: 'Server <b>multipart/form-data</b> POST qabul qilib, javobda <b>havola</b> qaytarishi kerak: oddiy matn yoki JSON (<code>url</code>, <code>link</code> yoki <code>data.url</code>). Server CORS ga ruxsat berishi shart (<code>Access-Control-Allow-Origin</code>).' }));
+  }
+  const go = h('button', { class: 'qm-btn pri', type: 'button', text: UP.busy ? '⏳ YUKLANMOQDA…' : v.link ? '↻ QAYTA YUKLASH' : '☁ YUKLASH VA QR YARATISH', onclick: async () => {
+    if (!UP.file) { inp.click(); return; }
+    UP.busy = true; UP.pct = 0; UP.msg = 'Tayyorlanmoqda…'; v.err = ''; buildForm();
+    try {
+      const r = await uploadFile(UP.file, v, (m) => { UP.msg = m; paintUp(); });
+      v.link = r.link; v.err = ''; UP.pct = 1; UP.msg = '✓ Yuklandi';
+    } catch (e) { v.link = ''; v.err = e.aborted ? 'yuklash bekor qilindi' : 'yuklab bo‘lmadi — ' + e.message + '. Boshqa xizmatni tanlang yoki «Video / Rasm» turida o‘z havolangizni qo‘ying.'; UP.pct = 0; }
+    UP.busy = false; UP.abort = null; if (S.type === 'file') { buildForm(); } update();
+  } });
+  go.disabled = UP.busy || !(UP.file && v.name);
+  const stop = UP.busy ? h('button', { class: 'qm-btn sm', type: 'button', text: '✕ Bekor qilish', onclick: () => UP.abort && UP.abort() }) : null;
+  formEl.appendChild(h('div', { class: 'qm-f w' }, [go, h('div', { class: 'qm-prog', style: 'display:' + (UP.busy ? 'block' : 'none') }, [h('i', { id: 'upBar' })]), h('div', { class: 'qm-note', id: 'upTxt', style: 'margin:6px 0 0' }), stop]));
+  paintUp();
+  if (v.err && !(v.name && v.mode === 'embed')) formEl.appendChild(h('div', { class: 'qm-hint', style: 'border-color:rgba(255,84,112,.5);color:var(--qbad)', text: '✕ ' + v.err }));
+  if (v.link) {
+    const out = h('input', { type: 'text', readonly: true }); out.value = v.link; out.addEventListener('focus', () => out.select());
+    formEl.appendChild(h('div', { class: 'qm-f w' }, [h('label', { text: 'Yuklab olish havolasi (QR ichida)' }), out, h('div', { class: 'qm-links' }, [
+      h('button', { class: 'qm-btn sm', type: 'button', text: '⧉ Nusxa', onclick: () => { try { navigator.clipboard.writeText(v.link); } catch (_) { out.select(); document.execCommand('copy'); } } }),
+      h('a', { class: 'qm-btn sm', href: v.link, target: '_blank', rel: 'noopener', text: 'Ochish ↗' })])]));
+  }
+  formEl.appendChild(h('div', { class: 'qm-hint', html: '🔒 <b>Maxfiylik:</b> fayl tanlangan uchinchi tomon xizmatiga yuklanadi va havolasi borlar uni yuklab olishi mumkin. Maxfiy fayllarni yuklamang. Bepul xizmatlar faylni vaqt o‘tgach o‘chirishi mumkin — muhim/uzoq muddatli QR uchun <b>o‘z serveringizni</b> ishlating.' }));
 }
+
 
 /* ---------------- dizayn paneli ---------------- */
 const designEl = $('#design'), O = S.opt;
@@ -663,7 +759,7 @@ $('#dlPrint').addEventListener('click', (e) => btnBusy(e.currentTarget, async ()
 /* ---------------- tarix ---------------- */
 const loadHist = () => { try { return JSON.parse(localStorage.getItem(HKEY) || '[]'); } catch (_) { return []; } };
 function remember() {
-  if (!S.payload) return; const f = JSON.parse(JSON.stringify(fieldsOf(S.type))); if (S.type === 'file') return;
+  if (!S.payload) return; const f = JSON.parse(JSON.stringify(fieldsOf(S.type))); if (S.type === 'file' && fieldsOf('file').mode === 'embed') return;
   const hh = loadHist().filter((x) => !(x.type === S.type && x.p === S.payload)); hh.unshift({ t: Date.now(), type: S.type, f, p: S.payload.slice(0, 120) });
   try { localStorage.setItem(HKEY, JSON.stringify(hh.slice(0, 15))); } catch (_) {} renderHist();
 }
