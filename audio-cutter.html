@@ -81,7 +81,7 @@ kbd{background:#0b1626;border:1px solid var(--ln);border-radius:5px;padding:1px 
 <main>
 <div class="eyebrow">// LOCAL AUDIO EDITOR</div>
 <h1>AUDIO CUTTER</h1>
-<p class="intro">Qo‘shiq yoki ovozni to‘lqin shaklida ko‘rib kesing, o‘chiring, ulang, effekt bering, qismlarga bo‘ling va WAV / Opus formatida saqlang. Fayl hech qayerga yuklanmaydi — hammasi brauzeringizda.</p>
+<p class="intro">Qo‘shiq yoki ovozni to‘lqin shaklida ko‘rib kesing, o‘chiring, ulang, effekt bering, qismlarga bo‘ling va WAV / MP3 / Opus formatida saqlang. Fayl hech qayerga yuklanmaydi — hammasi brauzeringizda.</p>
 
 <label class="drop" id="drop" for="file" style="display:block">
 <div class="ic">🎧</div><b>Audio yoki video faylni shu yerga tashlang</b>
@@ -229,7 +229,8 @@ kbd{background:#0b1626;border:1px solid var(--ln);border-radius:5px;padding:1px 
 <div class="note">Rington tugmalari kursordan boshlab shu uzunlikdagi qismni tanlaydi va 0.5 s fade qo‘shadi.</div>
 <div class="h">SOZLAMALAR</div>
 <div class="opt">
-<div class="f"><label>FORMAT</label><select id="xFmt"><option value="wav16">WAV · 16-bit</option><option value="wav24">WAV · 24-bit</option><option value="wav32">WAV · 32-bit float</option><option value="opus">WebM/Opus (real vaqtda yozadi)</option></select></div>
+<div class="f"><label>FORMAT</label><select id="xFmt"><option value="wav16">WAV · 16-bit</option><option value="wav24">WAV · 24-bit</option><option value="wav32">WAV · 32-bit float</option><option value="mp3">MP3</option><option value="opus">WebM/Opus (real vaqtda yozadi)</option></select></div>
+<div class="f" id="xBrW" style="display:none"><label>MP3 BITRATE</label><select id="xBr"><option value="96">96 kbps</option><option value="128">128 kbps</option><option value="160">160 kbps</option><option value="192" selected>192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></div>
 <div class="f"><label>SAMPLE RATE</label><select id="xSr"><option value="0">Asl (ishchi)</option><option>48000</option><option>44100</option><option>32000</option><option>22050</option><option>16000</option><option>8000</option></select></div>
 <div class="f"><label>KANALLAR</label><select id="xCh"><option value="0">Asl</option><option value="1">Mono</option></select></div>
 <div class="f"><label>QISM</label><select id="xRange"><option value="auto">Tanlanma (yo‘q bo‘lsa — hammasi)</option><option value="all">Butun fayl</option><option value="regs">Belgilangan qismlar (ZIP)</option></select></div>
@@ -244,7 +245,7 @@ kbd{background:#0b1626;border:1px solid var(--ln);border-radius:5px;padding:1px 
 <div class="bar"><button class="b pri" id="xGo">↓ EKSPORT QILISH</button><span class="note" id="xEst" style="margin:0"></span></div>
 <div class="prog"><i id="prog"></i></div>
 <div class="status" id="xSt"></div>
-<div class="note">MP3 formatida saqlash bu sahifada yo‘q (internetsiz ishlaydigan kodlovchi kerak) — sifat yo‘qotmaslik uchun WAV tavsiya etiladi. Opus: kichik hajm, ko‘p telefon va brauzerlar ochadi.</div>
+<div class="note"><b>MP3:</b> sahifaning ichiga o‘rnatilgan o‘z kodlagichi (CBR, MPEG-1 Layer III; 32 / 44.1 / 48 kHz — boshqa sample rate eng yaqiniga moslanadi). Internet va fayl yuklash kerak emas. Psixoakustik model yo‘q, shuning uchun 192 kbps va undan yuqorisi tavsiya etiladi; eng toza natija — WAV. <b>Opus:</b> kichik hajm, ko‘p telefon va brauzerlar ochadi.</div>
 </div>
 </div>
 </div>
@@ -526,6 +527,9 @@ async function doExport(){const btn=$('xGo');btn.disabled=true;const st=$('xSt')
   for(let j=0;j<jobs.length;j++){const jb=jobs[j];st.textContent=`Tayyorlanmoqda ${j+1}/${jobs.length}…`;await yieldUI();
    const{chs,sr}=await prepare(jb.a,jb.b);let blob,ext;
    if(fmt==='opus'){st.textContent=`Opus yozilmoqda (real vaqtda) ${j+1}/${jobs.length}…`;const r=await recordOpus(chs,sr,p=>{pg.style.width=((j+p)/jobs.length*100)+'%'});blob=r.blob;ext=r.ext}
+   else if(fmt==='mp3'){let c2=mp3Mix(chs),s2=sr;const ts=mp3Snap(sr);if(ts!==sr){st.textContent=`Sample rate ${sr} → ${ts} Hz ga o‘tkazilmoqda…`;await yieldUI();c2=await resampleHQ(c2,sr,ts);s2=ts}
+    c2.forEach(c=>{for(let i=0;i<c.length;i++){const v=c[i];if(v>1)c[i]=1;else if(v<-1)c[i]=-1}});
+    st.textContent=`MP3 kodlanmoqda ${j+1}/${jobs.length}…`;blob=await encodeMp3Async(c2,s2,+$('xBr').value||192,p=>{pg.style.width=((j+p)/jobs.length*100)+'%'},jb.name);ext='mp3'}
    else{const bits=fmt==='wav24'?24:fmt==='wav32'?32:16;blob=encWav(chs,sr,bits,bits===16&&$('xDith').checked);ext='wav'}
    outs.push({name:jb.name+'.'+ext,blob});pg.style.width=((j+1)/jobs.length*100)+'%';await yieldUI()}
   if(outs.length===1){download(outs[0].name,outs[0].blob);st.textContent=`✓ ${outs[0].name} — ${fmtSize(outs[0].blob.size)}`}
@@ -535,8 +539,125 @@ async function doExport(){const btn=$('xGo');btn.disabled=true;const st=$('xSt')
  btn.disabled=false}
 function updateEst(){const mode=$('xRange').value;let n;if(mode==='regs'){n=0;regionsList().forEach(r=>{if(regOn[r.mk?r.mk.id:0])n+=r.b-r.a})}else{const[a,b]=mode==='all'?[0,N()]:range();n=b-a}
  const sr=+$('xSr').value||S.sr,nc=$('xCh').value==='1'?1:S.ch.length,f=$('xFmt').value;const sec=n/S.sr;
- if(f==='opus'){$('xEst').textContent=`≈ ${fmtSize(sec*192000/8)} · ${fmtT(sec,1)} (yozish ${fmtT(sec,0)} davom etadi)`}
+ $('xBrW').style.display=f==='mp3'?'':'none';
+ if(f==='mp3'){const k=+$('xBr').value||192;$('xEst').textContent=`≈ ${fmtSize(Math.round(sec*k*125)+1500)} · ${fmtT(sec,2)} · ${k} kbps`}
+ else if(f==='opus'){$('xEst').textContent=`≈ ${fmtSize(sec*192000/8)} · ${fmtT(sec,1)} (yozish ${fmtT(sec,0)} davom etadi)`}
  else{const bps=f==='wav24'?3:f==='wav32'?4:2;$('xEst').textContent=`≈ ${fmtSize(Math.round(sec*sr)*nc*bps+44)} · ${fmtT(sec,2)}`}}
+
+/* ================= MP3 encoder (pure JS, offline) ================= */
+const MP3_HT={1:{x:2,y:2,c:[1,1,1,0],l:[1,3,2,3]},2:{x:3,y:3,c:[1,2,1,3,1,1,3,2,0],l:[1,3,6,3,3,5,5,5,6]},3:{x:3,y:3,c:[3,2,1,1,1,1,3,2,0],l:[2,2,6,3,2,5,5,5,6]},5:{x:4,y:4,c:[1,2,6,5,3,1,4,4,7,5,7,1,6,1,1,0],l:[1,3,6,7,3,3,6,7,6,6,7,8,7,6,7,8]},6:{x:4,y:4,c:[7,3,5,1,6,2,3,2,5,4,4,1,3,3,2,0],l:[3,3,5,7,3,2,4,5,4,4,5,6,6,5,6,7]},7:{x:6,y:6,c:[1,2,10,19,16,10,3,3,7,10,5,3,11,4,13,17,8,4,12,11,18,15,11,2,7,6,9,14,3,1,6,4,5,3,2,0],l:[1,3,6,8,8,9,3,4,6,7,7,8,6,5,7,8,8,9,7,7,8,9,9,9,7,7,8,9,9,10,8,8,9,10,10,10]},8:{x:6,y:6,c:[3,4,6,18,12,5,5,1,2,16,9,3,7,3,5,14,7,3,19,17,15,13,10,4,13,5,8,11,5,1,12,4,4,1,1,0],l:[2,3,6,8,8,9,3,2,4,8,8,8,6,4,6,8,8,9,8,8,8,9,9,10,8,7,8,9,10,10,9,8,9,9,11,11]},9:{x:6,y:6,c:[7,5,9,14,15,7,6,4,5,5,6,7,7,6,8,8,8,5,15,6,9,10,5,1,11,7,9,6,4,1,14,4,6,2,6,0],l:[3,3,5,6,8,9,3,3,4,5,6,8,4,4,5,6,7,8,6,5,6,7,7,8,7,6,7,7,8,9,8,7,8,8,9,9]},10:{x:8,y:8,c:[1,2,10,23,35,30,12,17,3,3,8,12,18,21,12,7,11,9,15,21,32,40,19,6,14,13,22,34,46,23,18,7,20,19,33,47,27,22,9,3,31,22,41,26,21,20,5,3,14,13,10,11,16,6,5,1,9,8,7,8,4,4,2,0],l:[1,3,6,8,9,9,9,10,3,4,6,7,8,9,8,8,6,6,7,8,9,10,9,9,7,7,8,9,10,10,9,10,8,8,9,10,10,10,10,10,9,9,10,10,11,11,10,11,8,8,9,10,10,10,11,11,9,8,9,10,10,11,11,11]},11:{x:8,y:8,c:[3,4,10,24,34,33,21,15,5,3,4,10,32,17,11,10,11,7,13,18,30,31,20,5,25,11,19,59,27,18,12,5,35,33,31,58,30,16,7,5,28,26,32,19,17,15,8,14,14,12,9,13,14,9,4,1,11,4,6,6,6,3,2,0],l:[2,3,5,7,8,9,8,9,3,3,4,6,8,8,7,8,5,5,6,7,8,9,8,8,7,6,7,9,8,10,8,9,8,8,8,9,9,10,9,10,8,8,9,10,10,11,10,11,8,7,7,8,9,10,10,10,8,7,8,9,10,10,10,10]},12:{x:8,y:8,c:[9,6,16,33,41,39,38,26,7,5,6,9,23,16,26,11,17,7,11,14,21,30,10,7,17,10,15,12,18,28,14,5,32,13,22,19,18,16,9,5,40,17,31,29,17,13,4,2,27,12,11,15,10,7,4,1,27,12,8,12,6,3,1,0],l:[4,3,5,7,8,9,9,9,3,3,4,5,7,7,8,8,5,4,5,6,7,8,7,8,6,5,6,6,7,8,8,8,7,6,7,7,8,8,8,9,8,7,8,8,8,9,8,9,8,7,7,8,8,9,9,10,9,8,8,9,9,9,9,10]},13:{x:16,y:16,c:[1,5,14,21,34,51,46,71,42,52,68,52,67,44,43,19,3,4,12,19,31,26,44,33,31,24,32,24,31,35,22,14,15,13,23,36,59,49,77,65,29,40,30,40,27,33,42,16,22,20,37,61,56,79,73,64,43,76,56,37,26,31,25,14,35,16,60,57,97,75,114,91,54,73,55,41,48,53,23,24,58,27,50,96,76,70,93,84,77,58,79,29,74,49,41,17,47,45,78,74,115,94,90,79,69,83,71,50,59,38,36,15,72,34,56,95,92,85,91,90,86,73,77,65,51,44,43,42,43,20,30,44,55,78,72,87,78,61,46,54,37,30,20,16,53,25,41,37,44,59,54,81,66,76,57,54,37,18,39,11,35,33,31,57,42,82,72,80,47,58,55,21,22,26,38,22,53,25,23,38,70,60,51,36,55,26,34,23,27,14,9,7,34,32,28,39,49,75,30,52,48,40,52,28,18,17,9,5,45,21,34,64,56,50,49,45,31,19,12,15,10,7,6,3,48,23,20,39,36,35,53,21,16,23,13,10,6,1,4,2,16,15,17,27,25,20,29,11,17,12,16,8,1,1,0,1],l:[1,4,6,7,8,9,9,10,9,10,11,11,12,12,13,13,3,4,6,7,8,8,9,9,9,9,10,10,11,12,12,12,6,6,7,8,9,9,10,10,9,10,10,11,11,12,13,13,7,7,8,9,9,10,10,10,10,11,11,11,11,12,13,13,8,7,9,9,10,10,11,11,10,11,11,12,12,13,13,14,9,8,9,10,10,10,11,11,11,11,12,11,13,13,14,14,9,9,10,10,11,11,11,11,11,12,12,12,13,13,14,14,10,9,10,11,11,11,12,12,12,12,13,13,13,14,16,16,9,8,9,10,10,11,11,12,12,12,12,13,13,14,15,15,10,9,10,10,11,11,11,13,12,13,13,14,14,14,16,15,10,10,10,11,11,12,12,13,12,13,14,13,14,15,16,17,11,10,10,11,12,12,12,12,13,13,13,14,15,15,15,16,11,11,11,12,12,13,12,13,14,14,15,15,15,16,16,16,12,11,12,13,13,13,14,14,14,14,14,15,16,15,16,16,13,12,12,13,13,13,15,14,14,17,15,15,15,17,16,16,12,12,13,14,14,14,15,14,15,15,16,16,19,18,19,16]},15:{x:16,y:16,c:[7,12,18,53,47,76,124,108,89,123,108,119,107,81,122,63,13,5,16,27,46,36,61,51,42,70,52,83,65,41,59,36,19,17,15,24,41,34,59,48,40,64,50,78,62,80,56,33,29,28,25,43,39,63,55,93,76,59,93,72,54,75,50,29,52,22,42,40,67,57,95,79,72,57,89,69,49,66,46,27,77,37,35,66,58,52,91,74,62,48,79,63,90,62,40,38,125,32,60,56,50,92,78,65,55,87,71,51,73,51,70,30,109,53,49,94,88,75,66,122,91,73,56,42,64,44,21,25,90,43,41,77,73,63,56,92,77,66,47,67,48,53,36,20,71,34,67,60,58,49,88,76,67,106,71,54,38,39,23,15,109,53,51,47,90,82,58,57,48,72,57,41,23,27,62,9,86,42,40,37,70,64,52,43,70,55,42,25,29,18,11,11,118,68,30,55,50,46,74,65,49,39,24,16,22,13,14,7,91,44,39,38,34,63,52,45,31,52,28,19,14,8,9,3,123,60,58,53,47,43,32,22,37,24,17,12,15,10,2,1,71,37,34,30,28,20,17,26,21,16,10,6,8,6,2,0],l:[3,4,5,7,7,8,9,9,9,10,10,11,11,11,12,13,4,3,5,6,7,7,8,8,8,9,9,10,10,10,11,11,5,5,5,6,7,7,8,8,8,9,9,10,10,11,11,11,6,6,6,7,7,8,8,9,9,9,10,10,10,11,11,11,7,6,7,7,8,8,9,9,9,9,10,10,10,11,11,11,8,7,7,8,8,8,9,9,9,9,10,10,11,11,11,12,9,7,8,8,8,9,9,9,9,10,10,10,11,11,12,12,9,8,8,9,9,9,9,10,10,10,10,10,11,11,11,12,9,8,8,9,9,9,9,10,10,10,10,11,11,12,12,12,9,8,9,9,9,9,10,10,10,11,11,11,11,12,12,12,10,9,9,9,10,10,10,10,10,11,11,11,11,12,13,12,10,9,9,9,10,10,10,10,11,11,11,11,12,12,12,13,11,10,9,10,10,10,11,11,11,11,11,11,12,12,13,13,11,10,10,10,10,11,11,11,11,12,12,12,12,12,13,13,12,11,11,11,11,11,11,11,12,12,12,12,13,13,12,13,12,11,11,11,11,11,11,12,12,12,12,12,13,13,13,13]},16:{x:16,y:16,c:[1,5,14,44,74,63,110,93,172,149,138,242,225,195,376,17,3,4,12,20,35,62,53,47,83,75,68,119,201,107,207,9,15,13,23,38,67,58,103,90,161,72,127,117,110,209,206,16,45,21,39,69,64,114,99,87,158,140,252,212,199,387,365,26,75,36,68,65,115,101,179,164,155,264,246,226,395,382,362,9,66,30,59,56,102,185,173,265,142,253,232,400,388,378,445,16,111,54,52,100,184,178,160,133,257,244,228,217,385,366,715,10,98,48,91,88,165,157,148,261,248,407,397,372,380,889,884,8,85,84,81,159,156,143,260,249,427,401,392,383,727,713,708,7,154,76,73,141,131,256,245,426,406,394,384,735,359,710,352,11,139,129,67,125,247,233,229,219,393,743,737,720,885,882,439,4,243,120,118,115,227,223,396,746,742,736,721,712,706,223,436,6,202,224,222,218,216,389,386,381,364,888,443,707,440,437,1728,4,747,211,210,208,370,379,734,723,714,1735,883,877,876,3459,865,2,377,369,102,187,726,722,358,711,709,866,1734,871,3458,870,434,0,12,10,7,11,10,17,11,9,13,12,10,7,5,3,1,3],l:[1,4,6,8,9,9,10,10,11,11,11,12,12,12,13,9,3,4,6,7,8,9,9,9,10,10,10,11,12,11,12,8,6,6,7,8,9,9,10,10,11,10,11,11,11,12,12,9,8,7,8,9,9,10,10,10,11,11,12,12,12,13,13,10,9,8,9,9,10,10,11,11,11,12,12,12,13,13,13,9,9,8,9,9,10,11,11,12,11,12,12,13,13,13,14,10,10,9,9,10,11,11,11,11,12,12,12,12,13,13,14,10,10,9,10,10,11,11,11,12,12,13,13,13,13,15,15,10,10,10,10,11,11,11,12,12,13,13,13,13,14,14,14,10,11,10,10,11,11,12,12,13,13,13,13,14,13,14,13,11,11,11,10,11,12,12,12,12,13,14,14,14,15,15,14,10,12,11,11,11,12,12,13,14,14,14,14,14,14,13,14,11,12,12,12,12,12,13,13,13,13,15,14,14,14,14,16,11,14,12,12,12,13,13,14,14,14,16,15,15,15,17,15,11,13,13,11,12,14,14,13,14,14,15,16,15,17,15,14,11,9,8,8,9,9,10,10,10,11,11,11,11,11,11,11,8]},24:{x:16,y:16,c:[15,13,46,80,146,262,248,434,426,669,653,649,621,517,1032,88,14,12,21,38,71,130,122,216,209,198,327,345,319,297,279,42,47,22,41,74,68,128,120,221,207,194,182,340,315,295,541,18,81,39,75,70,134,125,116,220,204,190,178,325,311,293,271,16,147,72,69,135,127,118,112,210,200,188,352,323,306,285,540,14,263,66,129,126,119,114,214,202,192,180,341,317,301,281,262,12,249,123,121,117,113,215,206,195,185,347,330,308,291,272,520,10,435,115,111,109,211,203,196,187,353,332,313,298,283,531,381,17,427,212,208,205,201,193,186,177,169,320,303,286,268,514,377,16,335,199,197,191,189,181,174,333,321,305,289,275,521,379,371,11,668,184,183,179,175,344,331,314,304,290,277,530,383,373,366,10,652,346,171,168,164,318,309,299,287,276,263,513,375,368,362,6,648,322,316,312,307,302,292,284,269,261,512,376,370,364,359,4,620,300,296,294,288,282,273,266,515,380,374,369,365,361,357,2,1033,280,278,274,267,264,259,382,378,372,367,363,360,358,356,0,43,20,19,17,15,13,11,9,7,6,4,7,5,3,1,3],l:[4,4,6,7,8,9,9,10,10,11,11,11,11,11,12,9,4,4,5,6,7,8,8,9,9,9,10,10,10,10,10,8,6,5,6,7,7,8,8,9,9,9,9,10,10,10,11,7,7,6,7,7,8,8,8,9,9,9,9,10,10,10,10,7,8,7,7,8,8,8,8,9,9,9,10,10,10,10,11,7,9,7,8,8,8,8,9,9,9,9,10,10,10,10,10,7,9,8,8,8,8,9,9,9,9,10,10,10,10,10,11,7,10,8,8,8,9,9,9,9,10,10,10,10,10,11,11,8,10,9,9,9,9,9,9,9,9,10,10,10,10,11,11,8,10,9,9,9,9,9,9,10,10,10,10,10,11,11,11,8,11,9,9,9,9,10,10,10,10,10,10,11,11,11,11,8,11,10,9,9,9,10,10,10,10,10,10,11,11,11,11,8,11,10,10,10,10,10,10,10,10,10,11,11,11,11,11,8,11,10,10,10,10,10,10,10,11,11,11,11,11,11,11,8,12,10,10,10,10,10,10,11,11,11,11,11,11,11,11,8,8,7,7,7,7,7,7,7,7,7,7,8,8,8,8,4]},32:{x:1,y:16,c:[1,5,4,5,6,5,4,4,7,3,6,0,7,2,3,1],l:[1,4,4,5,4,6,5,6,4,5,5,6,5,6,6,6]},33:{x:1,y:16,c:[15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0],l:[4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4]}};
+const MP3_WIN=[0,-1,-1,-1,-1,-1,-1,-2,-2,-2,-2,-3,-3,-4,-4,-5,-5,-6,-7,-7,-8,-9,-10,-11,-13,-14,-16,-17,-19,-21,-24,-26,-29,-31,-35,-38,-41,-45,-49,-53,-58,-63,-68,-73,-79,-85,-91,-97,-104,-111,-117,-125,-132,-139,-147,-154,-161,-169,-176,-183,-190,-196,-202,-208,213,218,222,225,227,228,228,227,224,221,215,208,200,189,177,163,146,127,106,83,57,29,-2,-36,-72,-111,-153,-197,-244,-294,-347,-401,-459,-519,-581,-645,-711,-779,-848,-919,-991,-1064,-1137,-1210,-1283,-1356,-1428,-1498,-1567,-1634,-1698,-1759,-1817,-1870,-1919,-1962,-2001,-2032,-2057,-2075,-2085,-2087,-2080,-2063,2037,2000,1952,1893,1822,1739,1644,1535,1414,1280,1131,970,794,605,402,185,-45,-288,-545,-814,-1095,-1388,-1692,-2006,-2330,-2663,-3004,-3351,-3705,-4063,-4425,-4788,-5153,-5517,-5879,-6237,-6589,-6935,-7271,-7597,-7910,-8209,-8491,-8755,-8998,-9219,-9416,-9585,-9727,-9838,-9916,-9959,-9966,-9935,-9863,-9750,-9592,-9389,-9139,-8840,-8492,-8092,-7640,-7134,6574,5959,5288,4561,3776,2935,2037,1082,70,-998,-2122,-3300,-4533,-5818,-7154,-8540,-9975,-11455,-12980,-14548,-16155,-17799,-19478,-21189,-22929,-24694,-26482,-28289,-30112,-31947,-33791,-35640,-37489,-39336,-41176,-43006,-44821,-46617,-48390,-50137,-51853,-53534,-55178,-56778,-58333,-59838,-61289,-62684,-64019,-65290,-66494,-67629,-68692,-69679,-70590,-71420,-72169,-72835,-73415,-73908,-74313,-74630,-74856,-74992,75038];
+
+/* ===== MP3 (MPEG-1 Layer III) encoder, pure JS, offline =====
+   44.1 / 48 / 32 kHz, mono or stereo, CBR 32..320 kbps. Polyphase filterbank + MDCT (long blocks),
+   power-law quantiser with global-gain search, Huffman coding, optional M/S stereo. */
+const MP3_SFB=[[0,4,8,12,16,20,24,30,36,44,52,62,74,90,110,134,162,196,238,288,342,418,576],[0,4,8,12,16,20,24,30,36,42,50,60,72,88,106,128,156,190,230,276,330,384,576],[0,4,8,12,16,20,24,30,36,44,54,66,82,102,126,156,194,240,296,364,448,550,576]];
+const MP3_SR=[44100,48000,32000],MP3_BR=[0,32,40,48,56,64,80,96,112,128,160,192,224,256,320];
+const MP3_LIN1=[1,2,3,4,6,8,10,13],MP3_LIN2=[4,5,6,7,8,9,11,13];
+const MP3_ISO=Math.SQRT1_2;
+const MP3_GAIN=1/9;/*calibrated against reference decoder*/
+function Mp3Encoder(sr,nch,kbps,opt){
+  opt=opt||{};const si=MP3_SR.indexOf(sr),bi=MP3_BR.indexOf(kbps);
+  if(si<0)throw new Error('MP3 uchun sample rate 44100, 48000 yoki 32000 bo‘lishi kerak');if(bi<1)throw new Error('Noto‘g‘ri bitrate');if(nch!==1&&nch!==2)throw new Error('MP3: 1 yoki 2 kanal');
+  const C=new Float64Array(512);for(let i=0;i<=256;i++){const v=MP3_WIN[i]/65536/32;C[i]=v;if(i!==0)C[512-i]=(i&63)!==0?-v:v}
+  const M=new Float64Array(32*64);for(let k=0;k<32;k++)for(let i=0;i<64;i++)M[k*64+i]=Math.cos((2*k+1)*(i-16)*Math.PI/64);
+  const CM=new Float64Array(18*36);for(let k=0;k<18;k++)for(let i=0;i<36;i++)CM[k*36+i]=Math.cos(Math.PI/72*(2*i+19)*(2*k+1));
+  const W36=new Float64Array(36);for(let i=0;i<36;i++)W36[i]=Math.sin(Math.PI/36*(i+.5));
+  const ci=[-.6,-.535,-.33,-.185,-.095,-.041,-.0142,-.0037],CS=ci.map(c=>1/Math.sqrt(1+c*c)),CA=ci.map(c=>c/Math.sqrt(1+c*c));
+  const st=[];for(let c=0;c<nch;c++)st.push({X:new Float64Array(512),prev:new Float64Array(576)});
+  const Y=new Float64Array(64),cur=new Float64Array(576),z=new Float64Array(36);
+  const side=nch===1?17:32,fb0=Math.floor(144000*kbps/sr),rem0=(144000*kbps)%sr;let acc=0;
+  /* low-pass cutoff (line index) */
+  const cutHz=opt.cutoff||(kbps<=48?10000:kbps<=64?12500:kbps<=96?15500:kbps<=128?17000:kbps<=160?18500:kbps<=192?19500:20500);
+  const cutIdx=Math.min(576,Math.ceil(cutHz/(sr/2)*576));
+  function granule(ch,pcm,off,xr){const s=st[ch],X=s.X;
+    for(let t=0;t<18;t++){X.copyWithin(32,0,480);for(let i=0;i<32;i++){const p=off+t*32+i;X[31-i]=p<pcm.length?pcm[p]:0}
+      for(let i=0;i<64;i++){let y=0;for(let j=0;j<8;j++)y+=C[i+64*j]*X[i+64*j];Y[i]=y}
+      for(let k=0;k<32;k++){let a=0;const mo=k*64;for(let i=0;i<64;i++)a+=M[mo+i]*Y[i];cur[k*18+t]=((k&1)&&(t&1))?-a:a}}
+    for(let sb=0;sb<32;sb++){const b=sb*18;for(let i=0;i<18;i++){z[i]=s.prev[b+i];z[18+i]=cur[b+i]}
+      for(let k=0;k<18;k++){let a=0;const co=k*36;for(let i=0;i<36;i++)a+=W36[i]*z[i]*CM[co+i];xr[b+k]=a*MP3_GAIN}}
+    s.prev.set(cur);
+    for(let sb=1;sb<32;sb++)for(let i=0;i<8;i++){const u=sb*18-1-i,d=sb*18+i,bu=xr[u],bd=xr[d];xr[u]=bu*CS[i]+bd*CA[i];xr[d]=bd*CS[i]-bu*CA[i]}
+    for(let i=cutIdx;i<576;i++)xr[i]=0}
+  /* ---- Huffman helpers ---- */
+  const ix=new Int32Array(576),a0=new Float64Array(576);
+  function tabBits(t,lb,n){const T=MP3_HT[t],xl=T.x,yl=T.y,L=T.l;let bits=0;
+    if(lb===0){for(let i=0;i<n;i+=2){const x=ix[i],y=ix[i+1];bits+=L[x*yl+y]+(x?1:0)+(y?1:0)}}
+    else{for(let i=0;i<n;i+=2){let x=ix[i],y=ix[i+1],b=0;if(x>14){x=15;b+=lb}if(y>14){y=15;b+=lb}bits+=L[x*16+y]+b+(ix[i]?1:0)+(ix[i+1]?1:0)}}return bits}
+  function analyze(){let n=576;while(n>1&&ix[n-1]===0&&ix[n-2]===0)n-=2;let c=n;while(c>=4&&ix[c-1]<=1&&ix[c-2]<=1&&ix[c-3]<=1&&ix[c-4]<=1)c-=4;
+    let mx=0;for(let i=0;i<c;i++)if(ix[i]>mx)mx=ix[i];let best=null;
+    const tryT=(sel,t,lb)=>{const b=tabBits(t,lb,c);if(!best||b<best.bits)best={sel,t,lb,bits:b}};
+    if(c===0)best={sel:0,t:0,lb:0,bits:0};
+    else if(mx<=15){const cands=mx<=1?[1]:mx<=2?[2,3]:mx<=3?[5,6]:mx<=5?[7,8,9]:mx<=7?[10,11,12]:[13,15];
+      for(const t of cands)tryT(t,t,0)}
+    else{const need=mx-15;for(let q=0;q<8;q++)if((1<<MP3_LIN1[q])-1>=need){tryT(16+q,16,MP3_LIN1[q]);break}for(let q=0;q<8;q++)if((1<<MP3_LIN2[q])-1>=need){tryT(24+q,24,MP3_LIN2[q]);break}}
+    if(!best)best={sel:0,t:0,lb:0,bits:1e9};
+    let a=0,b=0;for(let i=c;i<n;i+=4){const v=ix[i],w=ix[i+1],x=ix[i+2],y=ix[i+3],nz=(v?1:0)+(w?1:0)+(x?1:0)+(y?1:0);a+=MP3_HT[32].l[v*8+w*4+x*2+y]+nz;b+=4+nz}
+    const c1=a<=b?0:1;return{c,n,big:c>>1,sel:best.sel,t:best.t,lb:best.lb,c1,bits:best.bits+Math.min(a,b)}}
+  function quant(g){const lim=8206;let over=false;for(let i=0;i<576;i++){const v=Math.floor(a0[i]*g+.4054);if(v>lim){over=true;ix[i]=lim}else ix[i]=v}return over}
+  function pickGain(budget){/* smallest global_gain (finest) whose bits fit */
+    let lo=0,hi=255,res=null;
+    while(lo<hi){const mid=(lo+hi)>>1;const ov=quant(Math.pow(2,-(3/16)*(mid-210)));const an=analyze();if(!ov&&an.bits<=budget)hi=mid;else lo=mid+1}
+    const ov=quant(Math.pow(2,-(3/16)*(lo-210)));const an=analyze();an.gg=lo;an.ok=!ov&&an.bits<=budget;return an}
+  /* ---- bit writer ---- */
+  function BW(n){this.b=new Uint8Array(n);this.p=0}
+  BW.prototype.put=function(v,n){for(let i=n-1;i>=0;i--){if((v>>>i)&1)this.b[this.p>>3]|=0x80>>(this.p&7);this.p++}};
+  function writeGran(bw,an){const t=MP3_HT[an.t||1],yl=t&&t.y,L=t&&t.l,Cd=t&&t.c;
+    if(an.c>0){if(an.lb===0){for(let i=0;i<an.c;i+=2){const x=ix[i],y=ix[i+1],k=x*yl+y;bw.put(Cd[k],L[k]);if(x)bw.put(ap[i]<0?1:0,1);if(y)bw.put(ap[i+1]<0?1:0,1)}}
+      else{const lb=an.lb;for(let i=0;i<an.c;i+=2){let x=ix[i],y=ix[i+1],ex=0,ey=0;if(x>14){ex=x-15;x=15}if(y>14){ey=y-15;y=15}const k=x*16+y;bw.put(Cd[k],L[k]);if(x===15)bw.put(ex,lb);if(ix[i])bw.put(ap[i]<0?1:0,1);if(y===15)bw.put(ey,lb);if(ix[i+1])bw.put(ap[i+1]<0?1:0,1)}}}
+    const T=MP3_HT[an.c1?33:32];for(let i=an.c;i<an.n;i+=4){const v=ix[i],w=ix[i+1],x=ix[i+2],y=ix[i+3],k=v*8+w*4+x*2+y;bw.put(T.c[k],T.l[k]);if(v)bw.put(ap[i]<0?1:0,1);if(w)bw.put(ap[i+1]<0?1:0,1);if(x)bw.put(ap[i+2]<0?1:0,1);if(y)bw.put(ap[i+3]<0?1:0,1)}}
+  let ap=null;/* current signed xr (for sign bits) */
+  /* ---- frame ---- */
+  const XR=[[new Float64Array(576),new Float64Array(576)],[new Float64Array(576),new Float64Array(576)]];
+  this.frameSamples=1152;
+  this.encodeFrame=function(pcm,off){
+    for(let gr=0;gr<2;gr++)for(let ch=0;ch<nch;ch++)granule(ch,pcm[ch],off+gr*576,XR[gr][ch]);
+    let ms=false;
+    if(nch===2&&!opt.noMS){let cl=0,cm=0;for(let gr=0;gr<2;gr++){const L=XR[gr][0],R=XR[gr][1];for(let i=0;i<cutIdx;i++){const l=L[i],r=R[i];cl+=Math.pow(Math.abs(l),.75)+Math.pow(Math.abs(r),.75);cm+=Math.pow(Math.abs(l+r)*MP3_ISO,.75)+Math.pow(Math.abs(l-r)*MP3_ISO,.75)}}
+      if(cm<cl*.92){ms=true;for(let gr=0;gr<2;gr++){const L=XR[gr][0],R=XR[gr][1];for(let i=0;i<576;i++){const l=L[i],r=R[i];L[i]=(l+r)*MP3_ISO;R[i]=(l-r)*MP3_ISO}}}}
+    let pad=0;acc+=rem0;if(acc>=sr){acc-=sr;pad=1}
+    const fbytes=fb0+pad,mainBytes=fbytes-4-side,avail=mainBytes*8,bw=new BW(mainBytes),infos=[];let left=avail,remain=2*nch;
+    for(let gr=0;gr<2;gr++)for(let ch=0;ch<nch;ch++){const x=XR[gr][ch];ap=x;for(let i=0;i<576;i++)a0[i]=Math.pow(Math.abs(x[i]),.75);
+      const budget=Math.min(4095,Math.floor(left/remain));const an=pickGain(budget);
+      writeGran(bw,an);infos.push(an);left-=an.bits;remain--;if(bw.p>avail)throw new Error('MP3: ichki xato (bit sig‘imi)')}
+    /* assemble */
+    const out=new Uint8Array(fbytes);out[0]=0xFF;out[1]=0xFB;out[2]=(bi<<4)|(si<<2)|(pad<<1);out[3]=(nch===1?0xC0:(0x40|(ms?0x20:0)))|0x04;
+    const sw=new BW(side);sw.put(0,9);sw.put(0,nch===1?5:3);for(let c=0;c<nch;c++)sw.put(0,4);
+    let k=0;for(let gr=0;gr<2;gr++)for(let ch=0;ch<nch;ch++){const an=infos[k++];sw.put(an.bits,12);sw.put(an.big,9);sw.put(an.gg,8);sw.put(0,4);sw.put(0,1);sw.put(an.sel,5);sw.put(an.sel,5);sw.put(an.sel,5);sw.put(0,4);sw.put(0,3);sw.put(0,1);sw.put(0,1);sw.put(an.c1,1)}
+    out.set(sw.b,4);out.set(bw.b,4+side);return out};
+  this.sr=sr;this.nch=nch;this.kbps=kbps;this.cutIdx=cutIdx;
+}
+/* Encode whole buffer synchronously (used by tests); the page uses encodeMp3Async below */
+function mp3EncodeAll(chs,sr,kbps,opt){const nch=chs.length,enc=new Mp3Encoder(sr,nch,kbps,opt),n=chs[0].length,frames=Math.ceil(n/1152)+2,out=[];
+  for(let f=0;f<frames;f++)out.push(enc.encodeFrame(chs,f*1152));return out}
+
+
+/* ===== MP3 file assembly: ID3v2 + Xing/LAME "Info" frame (gapless) + frames ===== */
+function mp3Id3(title){const enc=s=>{const a=[1,0xFF,0xFE];for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);a.push(c&255,c>>8)}a.push(0,0);return a};
+  const frame=(id,body)=>{const n=body.length;return[...id].map(c=>c.charCodeAt(0)).concat([(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n&255,0,0],body)};
+  const fr=[].concat(frame('TIT2',enc(String(title||'audio').slice(0,120))),frame('TSSE',enc('IT SHAKH Audio Cutter')));
+  const sz=fr.length,ss=[(sz>>21)&127,(sz>>14)&127,(sz>>7)&127,sz&127];return new Uint8Array([0x49,0x44,0x33,3,0,0].concat(ss,fr))}
+function mp3InfoFrame(sr,nch,kbps,frames,totalBytes,delay,padding,cutHz){
+  const si=MP3_SR.indexOf(sr),bi=MP3_BR.indexOf(kbps),size=Math.floor(144000*kbps/sr),f=new Uint8Array(size);
+  f[0]=0xFF;f[1]=0xFB;f[2]=(bi<<4)|(si<<2);f[3]=(nch===1?0xC0:0x40)|0x04;
+  const o=4+(nch===1?17:32),w32=(p,v)=>{f[p]=(v>>>24)&255;f[p+1]=(v>>>16)&255;f[p+2]=(v>>>8)&255;f[p+3]=v&255};
+  f.set([0x49,0x6E,0x66,0x6F],o);w32(o+4,0x0F);w32(o+8,frames);w32(o+12,totalBytes);
+  const t=o+120;f.set([...'LAME3.99r'].map(c=>c.charCodeAt(0)),t);f[t+9]=0x01;f[t+10]=Math.min(255,Math.round(cutHz/100));f[t+20]=Math.min(255,kbps);
+  f[t+21]=(delay>>4)&255;f[t+22]=((delay&15)<<4)|((padding>>8)&15);f[t+23]=padding&255;w32(t+28,totalBytes);return f}
+/* async driver: yields to the UI between frames */
+async function encodeMp3Async(chs,sr,kbps,onProg,title){
+  const nch=chs.length,enc=new Mp3Encoder(sr,nch,kbps),n=chs[0].length,frames=Math.ceil(n/1152)+2,parts=[];let bytes=0;
+  const t0=performance.now();let last=t0;
+  for(let f=0;f<frames;f++){const fr=enc.encodeFrame(chs,f*1152);parts.push(fr);bytes+=fr.length;
+    const now=performance.now();if(now-last>40){last=now;onProg(f/frames);await new Promise(r=>setTimeout(r,0))}}
+  const delay=528,padding=Math.max(0,frames*1152-n-delay),id3=mp3Id3(title),
+    info=mp3InfoFrame(sr,nch,kbps,frames,bytes+info0(sr,kbps),delay,padding,sr/2*enc.cutIdx/576);
+  return new Blob([id3,info,...parts],{type:'audio/mpeg'})}
+function info0(sr,kbps){return Math.floor(144000*kbps/sr)}
+
+
+function mp3Snap(sr){let t=sr;if(t>=88200)t=Math.round(t/2);return[32000,44100,48000].reduce((a,b)=>Math.abs(b-t)<Math.abs(a-t)?b:a)}
+function mp3Mix(chs){if(chs.length<=2)return chs;const n=chs[0].length,L=new Float32Array(n),R=new Float32Array(n);let nl=0,nr=0;chs.forEach((c,k)=>{const D=k%2?R:L;k%2?nr++:nl++;for(let i=0;i<n;i++)D[i]+=c[i]});for(let i=0;i<n;i++){L[i]/=nl;R[i]/=nr}return[L,R]}
 
 /* ================= stats ================= */
 function computeStats(){if(!N())return;let pk=0,ss=0;for(const c of S.ch)for(let i=0;i<c.length;i++){const v=c[i];const a=v<0?-v:v;if(a>pk)pk=a;ss+=v*v}const rms=Math.sqrt(ss/(N()*S.ch.length));
@@ -606,7 +727,7 @@ function wire(){
  on('rAll',()=>{regionsList().forEach(r=>regOn[r.mk?r.mk.id:0]=true);renderRegs();updateEst()});on('rNone',()=>{regionsList().forEach(r=>regOn[r.mk?r.mk.id:0]=false);renderRegs();updateEst()});
  $('regs').addEventListener('change',updateEst);
  document.querySelectorAll('[data-ring]').forEach(b=>b.onclick=()=>{const L=+b.dataset.ring*S.sr,a=clamp(S.cur,0,Math.max(0,N()-1)),bb=Math.min(N(),a+L);setSel(a,bb);$('xFi').value=500;$('xFo').value=500;$('xRange').value='auto';$('xFmt').value='wav16';updateEst();toast('Rington: '+fmtT((bb-a)/S.sr,1)+' tanlandi')});
- ['xFmt','xSr','xCh','xRange'].forEach(i=>$(i).addEventListener('change',updateEst));
+ ['xFmt','xBr','xSr','xCh','xRange'].forEach(i=>$(i).addEventListener('change',updateEst));
  on('xGo',doExport);
  $('tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.p));if(b.dataset.p==='exp')updateEst()};
  // files
@@ -628,7 +749,7 @@ function wire(){
   else if(k==='ArrowLeft'||k==='ArrowRight'){e.preventDefault();const d=(k==='ArrowLeft'?-1:1)*(e.shiftKey?1:0.1)*S.sr;S.cur=clamp(Math.round(S.cur+d),0,N());updateTime();draw()}});
 }
 wire();
-window.AC_T={S,N,opTrim,opDel,opCut,opPaste,opCopy,opFade,opGain,opNorm,opRev,opSpeed,opFilter,opEcho,opLim,opChan,opTrimSil,opRemSil,opSilence,opRep,opInsSil,silences,splitEq,splitSil,splitEvery,regionsList,encWav,setAudio,demoAudio,undo,redo,setSel,addMarker,prepare,zipStore,crc32,parseT,fmtT,peakOf,play,stopPlay,togglePlay,P,doExport};
+window.AC_T={encodeMp3Async,mp3Snap,S,N,opTrim,opDel,opCut,opPaste,opCopy,opFade,opGain,opNorm,opRev,opSpeed,opFilter,opEcho,opLim,opChan,opTrimSil,opRemSil,opSilence,opRep,opInsSil,silences,splitEq,splitSil,splitEvery,regionsList,encWav,setAudio,demoAudio,undo,redo,setSel,addMarker,prepare,zipStore,crc32,parseT,fmtT,peakOf,play,stopPlay,togglePlay,P,doExport};
 </script>
 </body>
 </html>
