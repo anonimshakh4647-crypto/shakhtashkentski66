@@ -79,6 +79,11 @@ h1 b{color:var(--ac)}
  :root,[data-theme=dark]{--bg:#fff;--bg2:#fff;--sf:#fff;--sf2:#f4f4f4;--bd:#cfcfcf;--bd2:#bbb;--tx:#000;--mu:#333;--mu2:#555;--ac:#005f78}
  body:before,.bar,.acts,#toast{display:none}.hero{box-shadow:none}.grid{columns:2}
 }
+.k{display:flex;align-items:flex-start;gap:7px}
+.cf{flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:var(--ok);cursor:help}
+.cf.t{background:var(--warn)}.cf.y{background:var(--mu2)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin:4px 0 14px;font-size:12px;color:var(--mu)}
+.legend span{display:inline-flex;align-items:center;gap:7px}.legend .cf{margin:0;cursor:default}
 </style>
 </head>
 <body>
@@ -108,6 +113,7 @@ h1 b{color:var(--ac)}
     <button class="btn" id="prnBtn"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z"/></svg>Chop etish</button>
   </div>
 
+  <div class="legend"><span><i class="cf a"></i>Aniq — brauzer to‘g‘ridan-to‘g‘ri beradi</span><span><i class="cf t"></i>Taxminiy — hisoblangan yoki yaxlitlangan</span><span><i class="cf y"></i>Cheklangan — brauzer yashiradi / bermaydi</span></div>
   <div class="live" id="live"></div>
   <div class="grid" id="grid"></div>
 
@@ -123,7 +129,7 @@ h1 b{color:var(--ac)}
 (function(){
 'use strict';
 var $=function(s){return document.querySelector(s)};
-function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 var LS='it_shakh_device_v1';
 function sget(k){try{return localStorage.getItem(LS+k)}catch(e){return null}}
 function sset(k,v){try{localStorage.setItem(LS+k,v)}catch(e){}}
@@ -134,86 +140,164 @@ $('#backLink').onclick=function(e){if(history.length>1&&document.referrer){e.pre
 var tt;function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(function(){t.classList.remove('on')},1700)}
 
 var UA=navigator.userAgent||'',nav=navigator,uad=nav.userAgentData||null;
-var I={hi:{},bat:null,perm:{},media:null,storage:null,fps:null,gpu:null,gpuVendor:null,webgl:'',gamepads:0,loadMs:null,heap:null};
+/* hiState: none = brauzer bermaydi, wait = kutilmoqda, ok = olindi, fail = rad etildi */
+var I={hi:{},hiState:(uad&&uad.getHighEntropyValues)?'wait':'none',brave:false,bat:null,perm:{},media:null,storage:null,fps:null,fpsNote:'',gpu:null,gpuVendor:null,webgl:'',maxTex:0,loadMs:null,heap:null};
 
-/* ---------- detection ---------- */
+/* ---------- yordamchi ---------- */
+function mq(q){try{return window.matchMedia(q).matches}catch(e){return false}}
 function isTouch(){return (nav.maxTouchPoints||0)>0||'ontouchstart' in window}
+function fmtBytes(b){if(b==null||isNaN(b))return '—';var u=['B','KB','MB','GB','TB'],i=0;while(b>=1024&&i<4){b/=1024;i++}return (i>1?b.toFixed(1):Math.round(b))+' '+u[i]}
+function fmtMin(sec){var m=Math.round(sec/60),h=Math.floor(m/60);return (h?h+' soat ':'')+(m%60)+' daqiqa'}
+function yn(v,y,n){return v?'<span class="yes">'+(y||'Ha')+'</span>':'<span class="no">'+(n||'Yo‘q')+'</span>'}
+function na(t){return '<span class="na">'+(t||'mavjud emas')+'</span>'}
+function realBrands(){
+  var l=(I.hi&&I.hi.fullVersionList&&I.hi.fullVersionList.length)?I.hi.fullVersionList:((uad&&uad.brands)||[]);
+  return l.filter(function(b){return !/^Not[^a-z]*A[^a-z]*Brand$/i.test(b.brand)});
+}
+function brandVer(re){var l=realBrands();for(var i=0;i<l.length;i++)if(re.test(l[i].brand))return l[i].version;return null}
+function hiWait(){return I.hiState==='wait'}
+
+/* ---------- aniqlash ---------- */
 function deviceType(){
+  var tvUA=/SmartTV|SMART-TV|Tizen|WebOS|Web0S|HbbTV|AppleTV|Android.*\bTV\b|CrKey|BRAVIA|AFT[A-Z]|Roku|NetCast/i.test(UA);
+  if(tvUA)return 'tv';
   var mobUA=/Mobi|Android.*Mobile|iPhone|iPod|Windows Phone/i.test(UA);
   var tabUA=/iPad|Tablet|(Android(?!.*Mobile))|Silk|Kindle/i.test(UA);
   var ipadOS=/Macintosh/.test(UA)&&(nav.maxTouchPoints||0)>1;
-  if(uad&&uad.mobile===true&&!tabUA)return 'phone';
   if(tabUA||ipadOS)return 'tablet';
-  if(mobUA||(uad&&uad.mobile))return 'phone';
-  if(/SmartTV|Tizen|WebOS|Web0S|HbbTV|AppleTV|Android.*TV|CrKey|BRAVIA/i.test(UA))return 'tv';
+  if(mobUA||(uad&&uad.mobile===true))return 'phone';
   return 'desktop';
 }
 function osInfo(){
-  var o={name:'Noma’lum',ver:'',note:''},m;
-  var plat=(uad&&uad.platform)||'';
+  var o={name:'Noma’lum',ver:'',note:'',conf:'t'},m;
+  var plat=(uad&&uad.platform)||'',pv=I.hi&&I.hi.platformVersion;
   if(/Windows Phone/i.test(UA)){o.name='Windows Phone'}
-  else if(/Android/i.test(UA)){o.name='Android';m=/Android\s([\d.]+)/.exec(UA);if(m)o.ver=m[1]}
-  else if(/iPhone|iPad|iPod/i.test(UA)||(/Macintosh/.test(UA)&&(nav.maxTouchPoints||0)>1)){o.name=/iPad/.test(UA)||/Macintosh/.test(UA)?'iPadOS':'iOS';m=/OS\s([\d_]+)/.exec(UA);if(m&&!/Macintosh/.test(UA))o.ver=m[1].replace(/_/g,'.');else o.note='Versiyani Safari yashiradi'}
+  else if(/HarmonyOS|OpenHarmony/i.test(UA)){o.name='HarmonyOS';m=/HarmonyOS\s?([\d.]+)/i.exec(UA);if(m)o.ver=m[1];o.conf='a'}
+  else if(/Android/i.test(UA)){
+    o.name='Android';
+    if(pv&&/Android/i.test(plat||'Android')){o.ver=pv.split('.').slice(0,2).join('.').replace(/\.0$/,'');o.conf='a'}
+    else{m=/Android\s([\d.]+)/.exec(UA);if(m)o.ver=m[1];
+      if(hiWait())o.note='Aniq versiya aniqlanmoqda…';
+      else if(uad)o.note='Chrome UA dagi Android versiyasini qotirgan — haqiqiy versiya yashirin';}
+  }
+  else if(/iPhone|iPad|iPod/i.test(UA)||(/Macintosh/.test(UA)&&(nav.maxTouchPoints||0)>1)){
+    o.name=(/iPad/.test(UA)||/Macintosh/.test(UA))?'iPadOS':'iOS';
+    m=/OS\s([\d_]+)/.exec(UA);
+    if(m&&!/Macintosh/.test(UA)){o.ver=m[1].replace(/_/g,'.');o.note='Safari UA dan olindi — yangi tizimlarda haqiqiydan eski ko‘rsatilishi mumkin'}
+    else o.note='iPad “kompyuter sayti” rejimida versiyani yashiradi';
+  }
   else if(/CrOS/i.test(UA)){o.name='ChromeOS'}
   else if(/Windows/i.test(UA)){
     o.name='Windows';
-    var pv=I.hi&&I.hi.platformVersion;
-    if(pv&&plat==='Windows'){var mj=parseInt(pv.split('.')[0],10);o.ver=mj>=13?'11':'10';o.note='Aniqlandi (platformVersion '+pv+')'}
-    else{m=/Windows NT ([\d.]+)/.exec(UA);if(m){var nt=m[1];o.ver=nt==='10.0'?'10 yoki 11':nt==='6.3'?'8.1':nt==='6.2'?'8':nt==='6.1'?'7':nt;if(nt==='10.0')o.note='Brauzer Windows 10 va 11 ni farqlamadi'}}
+    if(pv&&plat==='Windows'){var mj=parseInt(pv.split('.')[0],10);o.ver=mj>=13?'11':'10';o.conf='a';o.note='Brauzer bergan platforma versiyasi asosida aniqlandi (platformVersion '+pv+')'}
+    else if(hiWait()){o.ver='';o.note='Versiya aniqlanmoqda…'}
+    else{m=/Windows NT ([\d.]+)/.exec(UA);if(m){var nt=m[1];o.ver=nt==='10.0'?'10 yoki 11':nt==='6.3'?'8.1':nt==='6.2'?'8':nt==='6.1'?'7':nt;if(nt==='10.0')o.note='Bu brauzer Windows 10 va 11 ni farqlamaydi (Chrome/Edge/Opera farqlaydi)'}}
   }
-  else if(/Mac OS X|Macintosh/i.test(UA)){o.name='macOS';m=/Mac OS X ([\d_]+)/.exec(UA);if(m)o.ver=m[1].replace(/_/g,'.');o.note='Brauzer macOS versiyasini haqiqiydan eski (10.15) ko‘rsatishi mumkin'}
-  else if(/Linux|X11/i.test(UA)){o.name=/Ubuntu/i.test(UA)?'Ubuntu (Linux)':'Linux'}
+  else if(/Mac OS X|Macintosh/i.test(UA)){
+    o.name='macOS';
+    if(pv&&plat==='macOS'){o.ver=pv.replace(/(\.0)+$/,'');o.conf='a'}
+    else{m=/Mac OS X ([\d_]+)/.exec(UA);var v=m?m[1].replace(/_/g,'.'):'';if(!v||/^10\.15(\.\d+)?$/.test(v)){o.note='Brauzer macOS versiyasini 10.15 deb qotirgan — haqiqiy versiya yashirin'}else o.ver=v}
+  }
+  else if(/Linux|X11/i.test(UA)){o.name=/Ubuntu/i.test(UA)?'Ubuntu (Linux)':'Linux';o.note='Distributiv brauzerdan ko‘rinmaydi'}
   else if(plat)o.name=plat;
   return o;
 }
 function browserInfo(){
-  var b={name:'Noma’lum',ver:'',engine:''},m;
-  var list=(uad&&uad.brands)||[];
-  if(/Edg(e|A|iOS)?\//.test(UA)){b.name='Microsoft Edge';m=/Edg(?:e|A|iOS)?\/([\d.]+)/.exec(UA)}
-  else if(/OPR\/|Opera/.test(UA)){b.name='Opera';m=/OPR\/([\d.]+)/.exec(UA)}
-  else if(/SamsungBrowser/.test(UA)){b.name='Samsung Internet';m=/SamsungBrowser\/([\d.]+)/.exec(UA)}
+  var b={name:'Noma’lum',ver:'',verFull:false,engine:'',note:'',conf:'a'},m,v=null;
+  var ios=/iPhone|iPad|iPod/.test(UA)||(/Macintosh/.test(UA)&&(nav.maxTouchPoints||0)>1);
+  if(/Vivaldi\//.test(UA)){b.name='Vivaldi';m=/Vivaldi\/([\d.]+)/.exec(UA)}
+  else if(/OPR\/|Opera/.test(UA)){b.name=/OPR\/[\d.]+.*\bGX\b|OPX/.test(UA)?'Opera GX':'Opera';m=/OPR\/([\d.]+)/.exec(UA);v=brandVer(/^Opera/i)}
+  else if(/Edg(e|A|iOS)?\//.test(UA)){b.name='Microsoft Edge';m=/Edg(?:e|A|iOS)?\/([\d.]+)/.exec(UA);v=brandVer(/Microsoft Edge/i)}
+  else if(/SamsungBrowser/.test(UA)){b.name='Samsung Internet';m=/SamsungBrowser\/([\d.]+)/.exec(UA);v=brandVer(/Samsung/i)}
   else if(/YaBrowser/.test(UA)){b.name='Yandex Browser';m=/YaBrowser\/([\d.]+)/.exec(UA)}
+  else if(/UCBrowser|UCWEB/.test(UA)){b.name='UC Browser';m=/UCBrowser\/([\d.]+)/.exec(UA)}
+  else if(/HuaweiBrowser/.test(UA)){b.name='Huawei Browser';m=/HuaweiBrowser\/([\d.]+)/.exec(UA)}
+  else if(/MiuiBrowser/.test(UA)){b.name='Mi Browser';m=/MiuiBrowser\/([\d.]+)/.exec(UA)}
+  else if(/DuckDuckGo|\bDdg\//.test(UA)){b.name='DuckDuckGo';m=/(?:DuckDuckGo|Ddg)\/([\d.]+)/.exec(UA)}
   else if(/Firefox|FxiOS/.test(UA)){b.name='Firefox';m=/(?:Firefox|FxiOS)\/([\d.]+)/.exec(UA)}
   else if(/CriOS/.test(UA)){b.name='Chrome (iOS)';m=/CriOS\/([\d.]+)/.exec(UA)}
-  else if(/Chrome\//.test(UA)){b.name='Google Chrome';m=/Chrome\/([\d.]+)/.exec(UA);
-    for(var i=0;i<list.length;i++){if(/Brave/i.test(list[i].brand))b.name='Brave'}}
+  else if(/Chrome\//.test(UA)){
+    m=/Chrome\/([\d.]+)/.exec(UA);v=brandVer(/^Google Chrome$/i);
+    if(I.brave){b.name='Brave';v=v||brandVer(/^Chromium$/i)}
+    else if(uad&&realBrands().length&&!brandVer(/^Google Chrome$/i)&&brandVer(/^Chromium$/i)){b.name='Chromium';b.note='Brend ro‘yxatida “Google Chrome” yo‘q — Chromium asosidagi boshqa brauzer'}
+    else b.name='Google Chrome';
+    if(/; wv\)|\bVersion\/[\d.]+ Chrome\//.test(UA)){b.name='Android WebView';b.note='Ilova ichidagi brauzer (Telegram, Instagram va h.k.)'}
+  }
   else if(/Safari\//.test(UA)){b.name='Safari';m=/Version\/([\d.]+)/.exec(UA)}
-  if(m)b.ver=m[1];
-  if(/Gecko\/\d/.test(UA)&&/Firefox/.test(UA))b.engine='Gecko';
-  else if(/AppleWebKit/.test(UA)&&/Chrome|Chromium|CriOS|Edg|OPR|SamsungBrowser/.test(UA)&&!/iPhone|iPad|iPod/.test(UA))b.engine='Blink (Chromium)';
+  if(/Instagram/.test(UA)){b.note='Instagram ilovasi ichidagi brauzer'}
+  else if(/FBAN|FBAV|FB_IAB/.test(UA)){b.note='Facebook ilovasi ichidagi brauzer'}
+  else if(/Line\//.test(UA)){b.note='LINE ilovasi ichidagi brauzer'}
+  else if(/Snapchat/.test(UA)){b.note='Snapchat ichidagi brauzer'}
+  else if(/musical_ly|BytedanceWebview|TikTok/.test(UA)){b.note='TikTok ichidagi brauzer'}
+  else if(/Telegram/i.test(UA)){b.note='Telegram ichidagi brauzer'}
+  if(v){b.ver=v;b.verFull=true}else if(m){b.ver=m[1];b.verFull=true}
+  if(!v&&/^(Google Chrome|Brave|Microsoft Edge|Opera|Opera GX|Chromium)$/.test(b.name)&&m&&/^\d+\.0\.0\.0$/.test(m[1])){b.ver=m[1].split('.')[0];b.verFull=false}
+  if(b.ver&&/^\d+\.0\.0\.0$/.test(b.ver)){b.ver=b.ver.split('.')[0];b.verFull=false}
+  if(ios)b.engine='WebKit (iOS da barcha brauzerlar WebKit)';
+  else if(/Gecko\/\d/.test(UA)&&/Firefox/.test(UA))b.engine='Gecko';
+  else if(/AppleWebKit/.test(UA)&&/Chrome|Chromium|CriOS|Edg|OPR|SamsungBrowser/.test(UA))b.engine='Blink (Chromium)';
   else if(/AppleWebKit/.test(UA))b.engine='WebKit';
   return b;
 }
+function verText(b){
+  if(!b.ver)return '';
+  if(b.verFull)return b.ver;
+  var maj=b.ver.split('.')[0];
+  return /^\d+$/.test(b.ver)?maj:b.ver.split('.').slice(0,3).join('.');
+}
 function arch(){
   var h=I.hi||{};
-  if(h.architecture){var an=h.architecture==='x86'?'x86':h.architecture==='arm'?'ARM':h.architecture;return an+(h.bitness?' ('+h.bitness+'-bit)':'')}
+  if(h.architecture){
+    var a=h.architecture,bit=h.bitness;
+    if(a==='x86')return bit==='64'?'x64 (AMD64 / Intel 64)':'x86 (32-bit)';
+    if(a==='arm')return 'ARM'+(bit?' ('+bit+'-bit)':'')+(h.wow64?' • x86 emulyatsiyasi':'');
+    return a+(bit?' ('+bit+'-bit)':'');
+  }
   if(/arm64|aarch64/i.test(UA))return 'ARM 64-bit';
   if(/x86_64|Win64|x64|WOW64|amd64/i.test(UA))return 'x64 (64-bit)';
-  if(/i686|i386|Win32/i.test(UA)&&!/Win64/.test(UA))return '32-bit';
+  if(/i686|i386/i.test(UA))return '32-bit';
   return '';
 }
 function conn(){return nav.connection||nav.mozConnection||nav.webkitConnection||null}
-function fmtBytes(b){if(b==null||isNaN(b))return '—';var u=['B','KB','MB','GB','TB'],i=0;while(b>=1024&&i<4){b/=1024;i++}return (i>1?b.toFixed(1):Math.round(b))+' '+u[i]}
-function mq(q){try{return window.matchMedia(q).matches}catch(e){return false}}
-function yn(v,y,n){return v?'<span class="yes">'+(y||'Ha')+'</span>':'<span class="no">'+(n||'Yo‘q')+'</span>'}
-function na(){return '<span class="na">mavjud emas</span>'}
+function gpuName(){
+  var g=I.gpu||'',m=/^ANGLE \((.*)\)$/.exec(g);
+  if(m){
+    var parts=[],d=0,cur='',s=m[1];
+    for(var i=0;i<s.length;i++){var c=s[i];if(c==='(')d++;if(c===')')d--;if(c===','&&d===0){parts.push(cur.trim());cur=''}else cur+=c}
+    parts.push(cur.trim());
+    g=parts.length>1?parts[1]:parts[0];
+  }
+  g=g.replace(/^ANGLE Metal Renderer:\s*/i,'').replace(/\s*\(0x[0-9A-Fa-f]+\)/g,'').replace(/\s+Direct3D\d*.*$/i,'').replace(/\s+vs_\d.*$/i,'').replace(/\/PCIe\/SSE2$/,'').replace(/^Mesa\s+/,'');
+  return g.trim();
+}
+function isSoftGpu(){return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(I.gpu||'')}
 
-/* ---------- async collectors ---------- */
+/* ---------- asinxron o‘lchovlar ---------- */
+function loadTime(){try{var t=performance.getEntriesByType('navigation')[0];if(t&&t.loadEventEnd>0)I.loadMs=Math.round(t.loadEventEnd-t.startTime)}catch(e){}}
+function mediaCount(list,kind){
+  var has=false,labeled=false,ids={};
+  list.forEach(function(d){
+    if(d.kind!==kind)return;has=true;
+    if(d.label){labeled=true;if(d.deviceId!=='default'&&d.deviceId!=='communications')ids[d.deviceId||d.groupId||d.label]=1}
+  });
+  return {has:has,labeled:labeled,n:Object.keys(ids).length};
+}
 function collect(){
   var p=[];
   if(uad&&uad.getHighEntropyValues){
-    p.push(uad.getHighEntropyValues(['architecture','bitness','model','platformVersion','uaFullVersion','wow64','fullVersionList']).then(function(h){I.hi=h||{}}).catch(function(){}));
+    I.hiState='wait';
+    p.push(uad.getHighEntropyValues(['architecture','bitness','model','platformVersion','uaFullVersion','wow64','fullVersionList']).then(function(h){I.hi=h||{};I.hiState='ok'}).catch(function(){I.hiState='fail'}));
   }
-  if(nav.getBattery){p.push(nav.getBattery().then(function(b){I.bat=b;['chargingchange','levelchange','chargingtimechange','dischargingtimechange'].forEach(function(e){b.addEventListener(e,render)})}).catch(function(){}))}
+  if(nav.brave&&nav.brave.isBrave){p.push(nav.brave.isBrave().then(function(r){I.brave=!!r}).catch(function(){}))}
+  if(nav.getBattery){p.push(nav.getBattery().then(function(b){if(!I.bat){['chargingchange','levelchange','chargingtimechange','dischargingtimechange'].forEach(function(e){b.addEventListener(e,render)})}I.bat=b}).catch(function(){}))}
   if(nav.storage&&nav.storage.estimate){p.push(nav.storage.estimate().then(function(e){I.storage=e}).catch(function(){}))}
-  if(nav.mediaDevices&&nav.mediaDevices.enumerateDevices){p.push(nav.mediaDevices.enumerateDevices().then(function(l){var c={cam:0,mic:0,spk:0};l.forEach(function(d){if(d.kind==='videoinput')c.cam++;else if(d.kind==='audioinput')c.mic++;else if(d.kind==='audiooutput')c.spk++});I.media=c}).catch(function(){}))}
+  if(nav.mediaDevices&&nav.mediaDevices.enumerateDevices){p.push(nav.mediaDevices.enumerateDevices().then(function(l){I.media={cam:mediaCount(l,'videoinput'),mic:mediaCount(l,'audioinput'),spk:mediaCount(l,'audiooutput')}}).catch(function(){}))}
   if(nav.permissions&&nav.permissions.query){
     ['geolocation','notifications','camera','microphone','clipboard-read','persistent-storage'].forEach(function(n){
       p.push(nav.permissions.query({name:n}).then(function(r){I.perm[n]=r.state;r.onchange=function(){I.perm[n]=r.state;render()}}).catch(function(){}));
     });
   }
-  gpu();
-  try{var t=performance.getEntriesByType('navigation')[0];if(t)I.loadMs=Math.round(t.loadEventEnd>0?t.loadEventEnd:t.domContentLoadedEventEnd>0?t.domContentLoadedEventEnd:performance.now())}catch(e){}
+  gpu();loadTime();
   if(performance.memory)I.heap=performance.memory;
   Promise.all(p).then(render);
   fpsTest();
@@ -229,13 +313,28 @@ function gpu(){
     I.maxTex=gl.getParameter(gl.MAX_TEXTURE_SIZE);
   }catch(e){}
 }
+var fpsRun=0;
 function fpsTest(){
-  var ts=[],last=0,n=0;
-  function f(t){if(last){ts.push(t-last)}last=t;n++;if(n<70)requestAnimationFrame(f);else{ts.sort(function(a,b){return a-b});var med=ts[Math.floor(ts.length/2)];var hz=Math.round(1000/med);var std=[24,30,48,50,60,72,75,90,100,120,144,165,240,360];var best=std.reduce(function(a,b){return Math.abs(b-hz)<Math.abs(a-hz)?b:a});I.fps=best;render()}}
+  var my=++fpsRun,ts=[],last=0,n=0,hiddenSeen=false;
+  function done(){
+    ts=ts.slice(8).sort(function(a,b){return a-b});
+    if(ts.length<20)return;
+    var q=ts[Math.floor(ts.length*0.25)],hz=1000/q;               // pastki chorak: tasodifiy sustlashlarga chidamli
+    var std=[24,30,48,50,60,72,75,90,100,120,144,165,180,240,360],best=std.reduce(function(a,b){return Math.abs(b-hz)<Math.abs(a-hz)?b:a});
+    I.fps=Math.abs(best-hz)/best<0.08?best:Math.round(hz);
+    I.fpsNote=hiddenSeen?'Sahifa fonda qolgani uchun natija noto‘g‘ri bo‘lishi mumkin':(I.fps<=30?'Tejash rejimi yoki yuklama ekran chastotasini pasaytirgan bo‘lishi mumkin':'Animatsiya chastotasidan taxminiy o‘lchandi');
+    render();
+  }
+  function f(t){
+    if(my!==fpsRun)return;
+    if(document.hidden)hiddenSeen=true;
+    if(last)ts.push(t-last);last=t;n++;
+    if(n<130)requestAnimationFrame(f);else done();
+  }
   requestAnimationFrame(f);
 }
 
-/* ---------- build info ---------- */
+/* ---------- bo‘limlar ---------- */
 var ICON={
  desktop:'<svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8 20.5h8M12 16.5v4"/></svg>',
  phone:'<svg viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
@@ -243,6 +342,8 @@ var ICON={
  tv:'<svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8"/></svg>'
 };
 var DT_NAME={desktop:'kompyuter (yoki noutbuk)',phone:'telefon',tablet:'planshet',tv:'televizor'};
+var CF={a:'Aniq — brauzer to‘g‘ridan-to‘g‘ri beradi',t:'Taxminiy — hisoblab/taxmin qilib topildi',y:'Cheklangan — brauzer maxfiylik uchun yashirgan yoki qisman beradi'};
+/* qator: [nom, qiymat(HTML), izoh, ishonch(a|t|y)] */
 function buildSections(){
   var dt=deviceType(),os=osInfo(),br=browserInfo(),h=I.hi||{},c=conn(),S=[];
   var sw=screen.width,sh=screen.height,dpr=window.devicePixelRatio||1;
@@ -250,105 +351,113 @@ function buildSections(){
   var tz='';try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone}catch(e){}
   var off=-new Date().getTimezoneOffset(),sign=off>=0?'+':'−',oh=Math.floor(Math.abs(off)/60),om=Math.abs(off)%60;
   var utc='UTC'+sign+oh+(om?':'+('0'+om).slice(-2):'');
+  var mem=nav.deviceMemory,archT=arch();
 
-  S.push({t:'Qurilma va tizim',i:'💻',rows:[
-    ['Qurilma turi',DT_NAME[dt].charAt(0).toUpperCase()+DT_NAME[dt].slice(1),dt==='desktop'&&isTouch()?'Sensorli ekran ham bor':''],
-    ['Operatsion tizim',os.name+(os.ver?' '+os.ver:''),os.note],
-    ['Arxitektura',arch()||na()],
-    ['Model',h.model?esc(h.model):na(),h.model?'':'Telefon modelini ko‘p brauzerlar yashiradi'],
-    ['Platforma (navigator)',esc((uad&&uad.platform)||nav.platform||'—')],
-    ['Qurilma xotirasi (RAM)',nav.deviceMemory?'≈ '+nav.deviceMemory+' GB<small>Brauzer 8 GB dan ortig‘ini ham 8 deb beradi</small>':na()],
-    ['Protsessor yadrolari',nav.hardwareConcurrency?nav.hardwareConcurrency+' ta mantiqiy yadro':na()]
-  ]});
-  S.push({t:'Brauzer',i:'🌐',rows:[
-    ['Brauzer',br.name+(br.ver?' '+br.ver.split('.').slice(0,3).join('.'):'')],
-    ['Dvigatel',br.engine||na()],
-    ['Brauzer tili',esc(nav.language||'—')],
-    ['Tillar ro‘yxati',esc((nav.languages||[]).join(', ')||'—')],
-    ['Cookie',yn(nav.cookieEnabled,'Yoqilgan','O‘chirilgan')],
-    ['Do Not Track',nav.doNotTrack==='1'||window.doNotTrack==='1'?'<span class="yes">Yoqilgan</span>':'O‘chirilgan / aniqlanmadi'],
-    ['Maxsus (Incognito) rejim',I.incog===true?'<span class="yes">Ehtimol</span>':I.incog===false?'Yo‘q':'<span class="na">tekshirilmoqda</span>'],
-    ['User-Agent','<small style="font-size:11.5px;color:var(--mu);font-weight:400">'+esc(UA)+'</small>']
-  ]});
+  var sys=[
+    ['Qurilma turi',DT_NAME[dt].charAt(0).toUpperCase()+DT_NAME[dt].slice(1),dt==='desktop'&&isTouch()?'Sensorli ekran ham bor':'','t'],
+    ['Operatsion tizim',esc(os.name+(os.ver?' '+os.ver:'')),os.note,os.conf],
+    ['Arxitektura',archT?esc(archT):na(),archT?'':'Bu brauzer protsessor turini bermaydi','y']
+  ];
+  if(h.model||dt==='phone'||dt==='tablet')sys.push(['Model',h.model?esc(h.model):na(),h.model?'':(hiWait()?'Aniqlanmoqda…':'Telefon modelini ko‘p brauzerlar (Safari, Firefox) yashiradi'),h.model?'a':'y']);
+  sys.push(['Platforma (navigator)',esc((uad&&uad.platform)||nav.platform||'—'),/^Win32$/.test(nav.platform||'')?'“Win32” 64-bitli Windowsda ham shunday yoziladi (eski nom)':'','a']);
+  sys.push(['Qurilma xotirasi (RAM)',mem?(mem>=8?'8 GB yoki ko‘proq':'≈ '+mem+' GB'):na(),mem?'Brauzer maxfiylik uchun 8 GB dan ortig‘ini 8 deb yaxlitlaydi':'Firefox va Safari bermaydi','y']);
+  sys.push(['Protsessor yadrolari',nav.hardwareConcurrency?nav.hardwareConcurrency+' ta mantiqiy yadro':na(),nav.hardwareConcurrency?'Mantiqiy yadro = fizik yadro × oqim (Hyper-Threading)':'','a']);
+  S.push({t:'Qurilma va tizim',i:'💻',rows:sys});
+
+  var brRows=[
+    ['Brauzer',esc(br.name+(verText(br)?' '+verText(br):'')),br.note||(br.verFull||!br.ver?'':'Chromium brauzerlari to‘liq versiyani yashiradi (faqat asosiy raqam ishonchli)'),br.name==='Noma’lum'?'y':'a'],
+    ['Dvigatel',br.engine?esc(br.engine):na(),'','a'],
+    ['Brauzer tili',esc(nav.language||'—'),'','a'],
+    ['Tillar ro‘yxati',esc((nav.languages||[]).join(', ')||'—'),'','a'],
+    ['Cookie',yn(nav.cookieEnabled,'Yoqilgan','O‘chirilgan'),'','a'],
+    ['Do Not Track',nav.doNotTrack==='1'||window.doNotTrack==='1'?'<span class="yes">Yoqilgan</span>':'O‘chirilgan / belgilanmagan','','a'],
+    ['Global Privacy Control',nav.globalPrivacyControl===true?'<span class="yes">Yoqilgan</span>':nav.globalPrivacyControl===false?'O‘chirilgan':na(),'','a'],
+    ['Xavfsiz kontekst (HTTPS)',yn(window.isSecureContext,'Ha','Yo‘q'),window.isSecureContext?'':'Kamera, geolokatsiya va clipboard faqat HTTPS da ishlaydi','a'],
+    ['User-Agent','<small style="font-size:11.5px;color:var(--mu);font-weight:400">'+esc(UA)+'</small>','Zamonaviy brauzerlar bu satrni qisqartirib beradi — shuning uchun yuqoridagi qiymatlar uchun User-Agent Client Hints ishlatiladi','a']
+  ];
+  S.push({t:'Brauzer',i:'🌐',rows:brRows});
+
   S.push({t:'Ekran va oyna',i:'🖥️',rows:[
-    ['Ekran o‘lchami',sw+' × '+sh+' px','Qurilma ekrani (CSS pikselda)'],
-    ['Haqiqiy piksellar',Math.round(sw*dpr)+' × '+Math.round(sh*dpr)+' px','Taxminiy: ekran × pixel ratio'],
-    ['Pixel ratio',dpr+'×',dpr>=2?'Retina / yuqori zichlik':'Oddiy zichlik'],
-    ['Brauzer oynasi',window.innerWidth+' × '+window.innerHeight+' px','Hozirgi ko‘rinadigan maydon'],
-    ['Ishchi maydon',screen.availWidth+' × '+screen.availHeight+' px','Taskbar va panellarsiz'],
-    ['Rang chuqurligi',(screen.colorDepth||'—')+' bit'],
-    ['Yo‘nalish',orient.indexOf('portrait')>-1?'Tik (portrait)':'Yotiq (landscape)'],
-    ['Yangilanish tezligi',I.fps?'≈ '+I.fps+' Hz':'<span class="na">o‘lchanmoqda…</span>','Brauzer animatsiya chastotasidan taxminiy o‘lchandi'],
-    ['Keng rang (P3)',yn(mq('(color-gamut: p3)'))],
-    ['HDR',yn(mq('(dynamic-range: high)'))],
-    ['To‘liq ekran rejimi',yn(!!(document.fullscreenElement),'Yoqilgan','O‘chirilgan')]
+    ['Ekran o‘lchami',sw+' × '+sh+' px','Qurilma ekrani (CSS pikselda)','a'],
+    ['Haqiqiy piksellar',Math.round(sw*dpr)+' × '+Math.round(sh*dpr)+' px','Ekran × pixel ratio. Brauzer masshtabi 100% bo‘lmasa noto‘g‘ri chiqadi','t'],
+    ['Pixel ratio',(Math.round(dpr*100)/100)+'×',dpr>=2?'Retina / yuqori zichlik':'Oddiy zichlik (masshtab 125–150% bo‘lsa ham shunday)','a'],
+    ['Brauzer oynasi',window.innerWidth+' × '+window.innerHeight+' px','Hozirgi ko‘rinadigan maydon','a'],
+    ['Ishchi maydon',screen.availWidth+' × '+screen.availHeight+' px','Taskbar va panellarsiz','a'],
+    ['Rang chuqurligi',(screen.colorDepth||'—')+' bit','','a'],
+    ['Yo‘nalish',orient.indexOf('portrait')>-1?'Tik (portrait)':'Yotiq (landscape)','','a'],
+    ['Yangilanish tezligi',I.fps?'≈ '+I.fps+' Hz':na('o‘lchanmoqda…'),I.fps?I.fpsNote:'','t'],
+    ['Keng rang (P3)',yn(mq('(color-gamut: p3)')),'','a'],
+    ['HDR',yn(mq('(dynamic-range: high)')),'','a'],
+    ['To‘liq ekran rejimi',yn(!!(document.fullscreenElement),'Yoqilgan','O‘chirilgan'),'','a']
   ]});
+
+  var gn=I.gpu?gpuName():'';
   S.push({t:'Grafika (GPU)',i:'🎮',rows:[
-    ['Video karta',I.gpu?esc(gpuName()):na(),I.gpu&&gpuName()!==I.gpu?'To‘liq nomi: '+I.gpu:''],
-    ['WebGL',I.webgl||na()],
-    ['Maks. tekstura',I.maxTex?I.maxTex+' px':na()],
-    ['WebGPU',yn('gpu' in nav,'Qo‘llab-quvvatlanadi','Yo‘q')]
+    ['Video karta',I.gpu?esc(gn):na(),!I.gpu?'Firefox va ba’zi maxfiylik rejimlari yashiradi':(isSoftGpu()?'Dasturiy renderer — haqiqiy video karta ishlatilmayapti (drayver/virtual mashina)':(gn!==I.gpu?'To‘liq nomi: '+I.gpu:'')),I.gpu?(isSoftGpu()?'t':'a'):'y'],
+    ['Ishlab chiqaruvchi',I.gpuVendor?esc(I.gpuVendor.replace(/^Google Inc\.\s*\(?|\)$/g,'')):na(),'','a'],
+    ['WebGL',I.webgl||na(),'','a'],
+    ['Maks. tekstura',I.maxTex?I.maxTex+' px':na(),'','a'],
+    ['WebGPU',yn('gpu' in nav,'Qo‘llab-quvvatlanadi','Yo‘q'),'','a']
   ]});
 
   var b=I.bat;
   S.push({t:'Batareya',i:'🔋',rows:b?[
-    ['Zaryad darajasi',Math.round(b.level*100)+'%<div class="bar2"><i style="width:'+Math.round(b.level*100)+'%"></i></div>'],
-    ['Holati',b.charging?'<span class="yes">Zaryadlanmoqda</span>':'Zaryadlanmayapti'],
-    ['To‘liq zaryadlanishgacha',b.charging&&isFinite(b.chargingTime)?fmtMin(b.chargingTime):'—'],
-    ['Qolgan vaqt',!b.charging&&isFinite(b.dischargingTime)?fmtMin(b.dischargingTime):'—']
-  ]:[['Batareya ma’lumoti',na(),dt==='desktop'?'Stol kompyuteri yoki brauzer bermaydi (Safari/Firefox bermaydi)':'Bu brauzer batareya ma’lumotini bermaydi']]});
+    ['Zaryad darajasi',Math.round(b.level*100)+'%<div class="bar2"><i style="width:'+Math.round(b.level*100)+'%"></i></div>','','a'],
+    ['Holati',b.charging?'<span class="yes">Zaryadlanmoqda</span>':'Zaryadlanmayapti','','a'],
+    ['To‘liq zaryadlanishgacha',b.charging&&isFinite(b.chargingTime)?(b.level>=1||b.chargingTime===0?'To‘liq zaryadlangan':fmtMin(b.chargingTime)):'—','','t'],
+    ['Qolgan vaqt',!b.charging&&isFinite(b.dischargingTime)?fmtMin(b.dischargingTime):'—','Tizim hisoblagan taxminiy vaqt','t']
+  ]:[['Batareya ma’lumoti',na(),dt==='desktop'?'Stol kompyuterida batareya yo‘q yoki brauzer bermaydi (Safari/Firefox bermaydi)':'Bu brauzer batareya ma’lumotini bermaydi','y']]});
 
   S.push({t:'Tarmoq',i:'📶',rows:[
-    ['Internet holati',yn(nav.onLine,'Onlayn','Oflayn')],
-    ['Ulanish turi',c&&c.type?esc(c.type):na(),'Wi‑Fi yoki mobil ekanini ko‘p brauzerlar bermaydi'],
-    ['Samarali tezlik turi',c&&c.effectiveType?esc(c.effectiveType.toUpperCase()):na(),'4g = tez, 3g/2g = sekin'],
-    ['Taxminiy tezlik (downlink)',c&&c.downlink?c.downlink+' Mbit/s':na()],
-    ['Ping (RTT)',c&&c.rtt!=null?c.rtt+' ms':na()],
-    ['Trafik tejash rejimi',c&&c.saveData!=null?yn(c.saveData,'Yoqilgan','O‘chirilgan'):na()]
+    ['Internet holati',yn(nav.onLine,'Onlayn','Oflayn'),nav.onLine?'“Onlayn” — faqat tarmoq ulangan; internet ishlashini kafolatlamaydi':'','t'],
+    ['Ulanish turi',c&&c.type?esc(c.type):na(),'Wi‑Fi yoki mobil ekanini asosan Android Chrome beradi','y'],
+    ['Samarali tezlik turi',c&&c.effectiveType?esc(c.effectiveType.toUpperCase()):na(),'Bu SIM-karta avlodi emas, balki o‘lchangan sifat: 4g = tez, 3g/2g = sekin','t'],
+    ['Taxminiy tezlik (downlink)',c&&c.downlink?(c.downlink>=10?'10+ Mbit/s':c.downlink+' Mbit/s'):na(),c&&c.downlink?'Brauzer 10 Mbit/s dan yuqorisini ko‘rsatmaydi — haqiqiy tezlik uchun “Speed Test” sahifasiga qarang':'','t'],
+    ['Ping (RTT)',c&&c.rtt!=null?c.rtt+' ms':na(),c&&c.rtt!=null?'25 ms ga yaxlitlangan':'','t'],
+    ['Trafik tejash rejimi',c&&c.saveData!=null?yn(c.saveData,'Yoqilgan','O‘chirilgan'):na(),'','a']
   ]});
   S.push({t:'Vaqt va til',i:'🕒',rows:[
-    ['Vaqt mintaqasi',esc(tz||'—'),utc],
-    ['Hozirgi vaqt',new Date().toLocaleString()],
-    ['Sana/son formati',esc((Intl.DateTimeFormat().resolvedOptions().locale)||'—')],
-    ['Qorong‘i rejim (tizim)',yn(mq('(prefers-color-scheme: dark)'),'Ha','Yo‘q (yorug‘)')],
-    ['Animatsiyani kamaytirish',yn(mq('(prefers-reduced-motion: reduce)'),'Yoqilgan','O‘chirilgan')]
+    ['Vaqt mintaqasi',esc(tz||'—'),utc,'a'],
+    ['Hozirgi vaqt',esc(new Date().toLocaleString()),'','a'],
+    ['Sana/son formati',esc((Intl.DateTimeFormat().resolvedOptions().locale)||'—'),'','a'],
+    ['Qorong‘i rejim (tizim)',yn(mq('(prefers-color-scheme: dark)'),'Ha','Yo‘q (yorug‘)'),'','a'],
+    ['Animatsiyani kamaytirish',yn(mq('(prefers-reduced-motion: reduce)'),'Yoqilgan','O‘chirilgan'),'','a']
   ]});
   var padN=0;try{var gp=nav.getGamepads?nav.getGamepads():[];for(var i=0;i<gp.length;i++)if(gp[i])padN++}catch(e){}
   S.push({t:'Kiritish qurilmalari',i:'🖱️',rows:[
-    ['Sensorli ekran',isTouch()?'<span class="yes">Bor</span>'+'<small>Bir vaqtda '+(nav.maxTouchPoints||'?')+' ta bosish</small>':'<span class="no">Yo‘q</span>'],
-    ['Asosiy ko‘rsatkich',mq('(pointer: fine)')?'Sichqoncha / trackpad (aniq)':mq('(pointer: coarse)')?'Barmoq (sensorli)':'—'],
-    ['Sichqoncha ustiga olib borish (hover)',yn(mq('(hover: hover)'))],
-    ['Gamepad ulangan',padN?'<span class="yes">'+padN+' ta</span>':'Aniqlanmadi','Tugma bosilgandan so‘ng ko‘rinadi']
+    ['Sensorli ekran',isTouch()?'<span class="yes">Bor</span>'+'<small>Bir vaqtda '+(nav.maxTouchPoints||'?')+' ta bosish</small>':'<span class="no">Yo‘q</span>','','a'],
+    ['Asosiy ko‘rsatkich',mq('(pointer: fine)')?'Sichqoncha / trackpad (aniq)':mq('(pointer: coarse)')?'Barmoq (sensorli)':'—','','a'],
+    ['Sichqoncha ustiga olib borish (hover)',yn(mq('(hover: hover)')),'','a'],
+    ['Gamepad ulangan',padN?'<span class="yes">'+padN+' ta</span>':'Aniqlanmadi','Gamepad tugmasi bosilgandan keyingina ko‘rinadi','y']
   ]});
   S.push({t:'Kamera, mikrofon va ruxsatlar',i:'🎤',rows:(function(){
     var r=[];
-    r.push(['Kamera soni',I.media?I.media.cam+' ta':na()]);
-    r.push(['Mikrofon soni',I.media?I.media.mic+' ta':na()]);
-    r.push(['Karnay/quloqchin',I.media?I.media.spk+' ta':na(),I.media&&I.media.spk===0?'Ba’zi brauzerlar ruxsatsiz ko‘rsatmaydi':'']);
+    function dev(name,x){
+      if(!I.media||!x)return [name,na(),'','y'];
+      if(x.labeled)return [name,x.n+' ta','','a'];
+      return [name,x.has?'Bor':'Yo‘q',x.has?'Aniq soni ruxsat berilgandan keyin ko‘rinadi':'','y'];
+    }
+    r.push(dev('Kamera',I.media&&I.media.cam));
+    r.push(dev('Mikrofon',I.media&&I.media.mic));
+    r.push(dev('Karnay/quloqchin',I.media&&I.media.spk));
     var nm={geolocation:'Joylashuv ruxsati',notifications:'Bildirishnomalar',camera:'Kamera ruxsati',microphone:'Mikrofon ruxsati','clipboard-read':'Clipboard o‘qish','persistent-storage':'Doimiy xotira'};
     var tr={granted:'<span class="yes">Berilgan</span>',denied:'<span class="no">Taqiqlangan</span>',prompt:'So‘ralmagan'};
-    Object.keys(nm).forEach(function(k){r.push([nm[k],I.perm[k]?tr[I.perm[k]]||esc(I.perm[k]):na()])});
+    Object.keys(nm).forEach(function(k){r.push([nm[k],I.perm[k]?(tr[I.perm[k]]||esc(I.perm[k])):na(),'','a'])});
     return r;
   })()});
   var st=I.storage;
   S.push({t:'Xotira va ishlash',i:'⚡',rows:[
-    ['Brauzer uchun joy',st&&st.quota?fmtBytes(st.quota)+'<small>Saytlar uchun ajratilgan umumiy joy (taxminiy)</small>':na()],
-    ['Hozir ishlatilgan',st&&st.usage!=null?fmtBytes(st.usage)+(st.quota?'<div class="bar2"><i style="width:'+Math.max(1,Math.min(100,st.usage/st.quota*100))+'%"></i></div>':''):na()],
-    ['JS xotirasi',I.heap?fmtBytes(I.heap.usedJSHeapSize)+' / '+fmtBytes(I.heap.jsHeapSizeLimit):na(),I.heap?'':'Faqat Chromium brauzerlarda'],
-    ['Sahifa yuklanish vaqti',I.loadMs?I.loadMs+' ms':na()],
-    ['localStorage',yn(testStore('localStorage'),'Ishlaydi','Ishlamaydi')],
-    ['sessionStorage',yn(testStore('sessionStorage'),'Ishlaydi','Ishlamaydi')],
-    ['IndexedDB',yn('indexedDB' in window,'Bor','Yo‘q')]
+    ['Brauzer uchun joy',st&&st.quota?fmtBytes(st.quota):na(),st&&st.quota?'Saytlar uchun ajratilgan umumiy joy. Brauzer buni disk hajmiga qarab taxminan beradi':'','t'],
+    ['Hozir ishlatilgan',st&&st.usage!=null?fmtBytes(st.usage)+(st.quota?'<div class="bar2"><i style="width:'+Math.max(1,Math.min(100,st.usage/st.quota*100))+'%"></i></div>':''):na(),'Faqat shu sayt','t'],
+    ['JS xotirasi',I.heap?fmtBytes(I.heap.usedJSHeapSize)+' / '+fmtBytes(I.heap.jsHeapSizeLimit):na(),I.heap?'':'Faqat Chromium brauzerlarida','a'],
+    ['Shu sahifaning yuklanish vaqti',I.loadMs?I.loadMs+' ms':na('o‘lchanmoqda…'),'Keshdan yuklanganda juda kichik chiqadi','t'],
+    ['localStorage',yn(testStore('localStorage'),'Ishlaydi','Ishlamaydi'),'','a'],
+    ['sessionStorage',yn(testStore('sessionStorage'),'Ishlaydi','Ishlamaydi'),'','a'],
+    ['IndexedDB',yn('indexedDB' in window,'Bor','Yo‘q'),'','a']
   ]});
   return S;
 }
-function gpuName(){
-  var g=I.gpu||'';var m=/^ANGLE \((.*)\)$/.exec(g);
-  if(m){var parts=m[1].split(/,\s*(?![^(]*\))/);g=parts.length>1?parts[1]:parts[0];g=g.replace(/\s*\(0x[0-9A-Fa-f]+\)/,'').replace(/\s+Direct3D.*$/,'').replace(/\s+vs_\d.*$/,'')}
-  return g.trim();
-}
 function testStore(n){try{var s=window[n],k='__t';s.setItem(k,'1');s.removeItem(k);return true}catch(e){return false}}
-function fmtMin(sec){var m=Math.round(sec/60),h=Math.floor(m/60);return (h?h+' soat ':'')+(m%60)+' daqiqa'}
 
 function features(){
   var T=[
@@ -360,8 +469,8 @@ function features(){
    ['Gamepad API','getGamepads' in nav],['Pointer Events','PointerEvent' in window],['Touch Events','ontouchstart' in window],
    ['Web Workers','Worker' in window],['OffscreenCanvas','OffscreenCanvas' in window],['WebCodecs','VideoEncoder' in window],['CompressionStream','CompressionStream' in window],
    ['Screen Wake Lock','wakeLock' in nav],['Speech Recognition','SpeechRecognition' in window||'webkitSpeechRecognition' in window],['Speech Synthesis (ovoz)','speechSynthesis' in window],
-   ['Device Orientation','DeviceOrientationEvent' in window],['Accelerometer','Accelerometer' in window],['PWA o‘rnatish','BeforeInstallPromptEvent' in window||'standalone' in nav],
-   ['WebXR','xr' in nav],['IntersectionObserver','IntersectionObserver' in window],['BroadcastChannel','BroadcastChannel' in window],['CSS color-mix',window.CSS&&CSS.supports&&CSS.supports('color','color-mix(in srgb,red,blue)')]
+   ['Device Orientation','DeviceOrientationEvent' in window],['Accelerometer','Accelerometer' in window],
+   ['WebXR','xr' in nav],['IntersectionObserver','IntersectionObserver' in window],['BroadcastChannel','BroadcastChannel' in window],['CSS color-mix',!!(window.CSS&&CSS.supports&&CSS.supports('color','color-mix(in srgb,red,blue)'))]
   ];
   var yes=T.filter(function(x){return x[1]}).length;
   var h='<section class="card" style="column-span:all"><h2><i>🧩</i>Brauzer imkoniyatlari <span style="margin-left:auto;font:12px Consolas,monospace;color:var(--ac)">'+yes+' / '+T.length+'</span></h2><div class="chips">';
@@ -369,22 +478,24 @@ function features(){
   return h+'</div></section>';
 }
 
-/* ---------- render ---------- */
+/* ---------- chizish ---------- */
 var lastSecs=[];
 function render(){
   var dt=deviceType(),os=osInfo(),br=browserInfo();
+  var osT=os.name+(os.ver?' '+os.ver:''),brT=br.name+(verText(br)?' '+verText(br):'');
   $('#dico').innerHTML=ICON[dt];
   var who=dt==='phone'?'Siz <b>telefondan</b>':dt==='tablet'?'Siz <b>planshetdan</b>':dt==='tv'?'Siz <b>televizordan</b>':'Siz <b>kompyuterdan</b>';
-  $('#h1').innerHTML=dt==='desktop'?'KOMPYUTERDAN <b>KIRDINGIZ</b>':dt==='phone'?'TELEFONDAN <b>KIRDINGIZ</b>':dt==='tablet'?'PLANSHETDAN <b>KIRDINGIZ</b>':'QURILMA <b>MA’LUMOTI</b>';
-  $('#lead').innerHTML=who+' kirdingiz: <b>'+esc(os.name+(os.ver?' '+os.ver:''))+'</b> tizimi va <b>'+esc(br.name)+'</b> brauzeri. Ekran <b>'+screen.width+'×'+screen.height+'</b>'+(nav.hardwareConcurrency?', <b>'+nav.hardwareConcurrency+'</b> yadroli protsessor':'')+(nav.deviceMemory?', taxminan <b>'+nav.deviceMemory+' GB</b> RAM':'')+'.';
-  var tags=[['Tizim',os.name+(os.ver?' '+os.ver:'')],['Brauzer',br.name+(br.ver?' '+br.ver.split('.')[0]:'')],['Ekran',screen.width+'×'+screen.height],['Til',nav.language||'—']];
+  $('#h1').innerHTML=dt==='desktop'?'KOMPYUTERDAN <b>KIRDINGIZ</b>':dt==='phone'?'TELEFONDAN <b>KIRDINGIZ</b>':dt==='tablet'?'PLANSHETDAN <b>KIRDINGIZ</b>':'TELEVIZORDAN <b>KIRDINGIZ</b>';
+  var mem=nav.deviceMemory;
+  $('#lead').innerHTML=who+' kirdingiz: <b>'+esc(osT)+'</b> tizimi va <b>'+esc(brT)+'</b> brauzeri. Ekran <b>'+screen.width+'×'+screen.height+'</b>'+(nav.hardwareConcurrency?', <b>'+nav.hardwareConcurrency+'</b> ta mantiqiy yadro':'')+(mem?', RAM <b>'+(mem>=8?'8 GB yoki ko‘proq':'≈ '+mem+' GB')+'</b>':'')+'.';
+  var tags=[['Tizim',osT],['Brauzer',br.name+(br.ver?' '+br.ver.split('.')[0]:'')],['Ekran',screen.width+'×'+screen.height],['Til',nav.language||'—']];
   if(I.gpu)tags.push(['GPU',gpuName().slice(0,44)]);
   $('#tags').innerHTML=tags.map(function(t){return '<span class="tag">'+esc(t[0])+': <b>'+esc(t[1])+'</b></span>'}).join('');
 
   var c=conn(),b=I.bat;
   var L=[
    ['Oyna',window.innerWidth+'×'+window.innerHeight,'jonli'],
-   ['Internet',nav.onLine?'Onlayn':'Oflayn',c&&c.effectiveType?c.effectiveType.toUpperCase()+(c.downlink?' • ≈'+c.downlink+' Mbit/s':''):''],
+   ['Internet',nav.onLine?'Onlayn':'Oflayn',c&&c.effectiveType?c.effectiveType.toUpperCase()+(c.downlink?' • ≈'+(c.downlink>=10?'10+':c.downlink)+' Mbit/s':''):''],
    ['Batareya',b?Math.round(b.level*100)+'%':'—',b?(b.charging?'zaryadlanmoqda':'zaryadlanmayapti'):'ma’lumot yo‘q'],
    ['Yangilanish',I.fps?I.fps+' Hz':'…','ekran chastotasi'],
    ['Vaqt',new Date().toLocaleTimeString(),'jonli']
@@ -395,15 +506,19 @@ function render(){
   var h='';
   S.forEach(function(s){
     h+='<section class="card"><h2><i>'+s.i+'</i>'+esc(s.t)+'</h2>';
-    s.rows.forEach(function(r){h+='<div class="r"><div class="k">'+esc(r[0])+'</div><div class="v">'+r[1]+(r[2]?'<small>'+esc(r[2])+'</small>':'')+'</div></div>'});
+    s.rows.forEach(function(r){
+      var cf=r[3]||'a';
+      h+='<div class="r"><div class="k">'+esc(r[0])+'<i class="cf '+cf+'" title="'+esc(CF[cf])+'" aria-label="'+esc(CF[cf])+'"></i></div><div class="v">'+r[1]+(r[2]?'<small>'+esc(r[2])+'</small>':'')+'</div></div>';
+    });
     h+='</section>';
   });
   $('#grid').innerHTML=h+features();
 }
 function strip(html){var d=document.createElement('div');d.innerHTML=html;return (d.textContent||'').replace(/\s+/g,' ').trim()}
+var CFL={a:'aniq',t:'taxminiy',y:'cheklangan'};
 function report(){
   var o=[];o.push('QURILMA MA’LUMOTI — IT SHAKH');o.push(new Date().toLocaleString());o.push('');
-  lastSecs.forEach(function(s){o.push('== '+s.t+' ==');s.rows.forEach(function(r){o.push(r[0]+': '+strip(r[1])+(r[2]?' ('+r[2]+')':''))});o.push('')});
+  lastSecs.forEach(function(s){o.push('== '+s.t+' ==');s.rows.forEach(function(r){o.push(r[0]+': '+strip(r[1])+(r[2]?' ('+r[2]+')':'')+' ['+CFL[r[3]||'a']+']')});o.push('')});
   return o.join('\n');
 }
 function copy(s){
@@ -414,7 +529,7 @@ function copy(s){
 $('#copyBtn').onclick=function(){copy(report())};
 $('#jsonBtn').onclick=function(){
   var o={generated:new Date().toISOString(),userAgent:UA};
-  lastSecs.forEach(function(s){var x={};s.rows.forEach(function(r){x[r[0]]=strip(r[1])+(r[2]?' ('+r[2]+')':'')});o[s.t]=x});
+  lastSecs.forEach(function(s){var x={};s.rows.forEach(function(r){x[r[0]]={value:strip(r[1]),note:r[2]||'',reliability:CFL[r[3]||'a']}});o[s.t]=x});
   var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(o,null,2)],{type:'application/json'}));a.download='qurilma-malumoti.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);
   toast('JSON yuklab olindi');
 };
@@ -424,16 +539,13 @@ $('#prnBtn').onclick=function(){window.print()};
 ['resize','orientationchange','online','offline'].forEach(function(e){window.addEventListener(e,function(){clearTimeout(window.__rt);window.__rt=setTimeout(render,120)})});
 var c0=conn();if(c0&&c0.addEventListener)c0.addEventListener('change',render);
 window.addEventListener('gamepadconnected',render);window.addEventListener('gamepaddisconnected',render);
+window.addEventListener('load',function(){setTimeout(function(){loadTime();render()},0)});
 setInterval(function(){var el=document.querySelector('#live .stat:last-child strong');if(el)el.textContent=new Date().toLocaleTimeString()},1000);
 
-/* incognito heuristic (storage quota is small in private windows of some browsers) */
-(function(){
-  if(nav.storage&&nav.storage.estimate){nav.storage.estimate().then(function(e){I.incog=(e.quota&&e.quota<120*1024*1024)?true:false;render()}).catch(function(){I.incog=undefined})}
+render();collect();
+window.__DEV={I:I,deviceType:deviceType,osInfo:osInfo,browserInfo:browserInfo,gpuName:gpuName};
 })();
 
-render();collect();
-window.__DEV={I:I,deviceType:deviceType,osInfo:osInfo,browserInfo:browserInfo,UAsetter:function(u){UA=u}};
-})();
 </script>
 </body>
 </html>
