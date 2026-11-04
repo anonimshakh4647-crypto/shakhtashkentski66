@@ -1029,17 +1029,15 @@ function exportOBJ(model,lod,texNames){
 Object.assign(G,{modelFromFragment,modelFromDrawables,modelFromDff,modelStats,exportOBJ,FLIP_TAGS});
 })(GV);
 
-/* ===== Mesh decimation (quadric edge collapse, seam/material aware) ===== */
+/* ===== Mesh decimation (quadric edge collapse, seam/material aware, optimal placement on untextured surfaces) ===== */
 (function(G){
 'use strict';
-/* spec: {pos:Float32Array, nrm:Float32Array, uv:Float32Array|null, tris:[a,b,c,mat,...], materials, ...}
-   returns a new spec with about `target` triangles (or as close as the topology allows). */
+const VIS_W=8;
 function decimateSpec(spec,target){
   const nT0=spec.tris.length/4;
   if(nT0<=target)return spec;
   const nV=spec.pos.length/3;
   const P=new Float32Array(spec.pos);
-  // ---- triangles
   const tv=new Int32Array(nT0*3),tm=new Int32Array(nT0),alive=new Uint8Array(nT0);
   let nAlive=0;
   for(let t=0;t<nT0;t++){
@@ -1047,10 +1045,10 @@ function decimateSpec(spec,target){
     tv[t*3]=a;tv[t*3+1]=b;tv[t*3+2]=c;tm[t]=spec.tris[t*4+3];
     alive[t]=(a!==b&&b!==c&&a!==c)?1:0;nAlive+=alive[t];
   }
+  const matTex=spec.materials.map(m=>!G.NOTEX&&!!(m&&m.tex));
   // ---- weld split vertices by position -> pv
   const pvOf=new Int32Array(nV);let nPV=0;
   const keyMap=new Map();
-  // quantise to 1e-5 relative to bbox
   let mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30];
   for(let i=0;i<nV;i++)for(let k=0;k<3;k++){const v=P[i*3+k];if(v<mn[k])mn[k]=v;if(v>mx[k])mx[k]=v;}
   const diag=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])||1,q=1/(diag*1e-6);
@@ -1059,13 +1057,13 @@ function decimateSpec(spec,target){
     let id=keyMap.get(key);if(id===undefined){id=nPV++;keyMap.set(key,id);}pvOf[i]=id;
   }
   keyMap.clear();
-  const PP=new Float64Array(nPV*3);          // pv positions
-  for(let i=0;i<nV;i++){const p=pvOf[i];PP[p*3]=P[i*3];PP[p*3+1]=P[i*3+1];PP[p*3+2]=P[i*3+2];}
-  const members=new Array(nPV);for(let p=0;p<nPV;p++)members[p]=null; // extra sv's moved onto this pv (unmapped)
-  // ---- pv -> triangle lists
+  const PP=new Float64Array(nPV*3);
+  const svl=new Array(nPV);for(let p=0;p<nPV;p++)svl[p]=[];
+  for(let i=0;i<nV;i++){const p=pvOf[i];PP[p*3]=P[i*3];PP[p*3+1]=P[i*3+1];PP[p*3+2]=P[i*3+2];svl[p].push(i);}
   const tl=new Array(nPV);for(let p=0;p<nPV;p++)tl[p]=[];
-  for(let t=0;t<nT0;t++){if(!alive[t])continue;for(let k=0;k<3;k++){const p=pvOf[tv[t*3+k]];const L=tl[p];if(L[L.length-1]!==t)L.push(t);}}
-  // ---- quadrics (10 floats / pv): a2 ab ac ad b2 bc bd c2 cd d2
+  const pvTex=new Uint8Array(nPV);
+  for(let t=0;t<nT0;t++){if(!alive[t])continue;for(let k=0;k<3;k++){const p=pvOf[tv[t*3+k]];const L=tl[p];if(L[L.length-1]!==t)L.push(t);if(matTex[tm[t]])pvTex[p]=1;}}
+  // ---- quadrics
   const Q=new Float64Array(nPV*10);
   const addPlane=(p,nx,ny,nz,d,w)=>{
     const o=p*10;
@@ -1081,8 +1079,7 @@ function decimateSpec(spec,target){
     return Math.hypot(out[0],out[1],out[2]);
   };
   const nrm=[0,0,0];
-  // edge usage at split-vertex level (seam / open / material borders)
-  const edgeInfo=new Map(); // key(sv min,max) -> [count, mat, mixed]
+  const edgeInfo=new Map();
   const ek=(a,b)=>a<b?a*nV+b:b*nV+a;
   for(let t=0;t<nT0;t++){
     if(!alive[t])continue;
@@ -1094,13 +1091,13 @@ function decimateSpec(spec,target){
   }
   for(let t=0;t<nT0;t++){
     if(!alive[t])continue;
-    const area2=triNormal(t,nrm);if(area2<1e-18){continue;}
+    const area2=triNormal(t,nrm);if(area2<1e-18)continue;
     const nx=nrm[0]/area2,ny=nrm[1]/area2,nz=nrm[2]/area2;
     const a=pvOf[tv[t*3]],b=pvOf[tv[t*3+1]],c=pvOf[tv[t*3+2]];
     const d=-(nx*PP[a*3]+ny*PP[a*3+1]+nz*PP[a*3+2]);
-    const w=area2*0.5;
+    const imp=spec._vis?(spec._vis[t]?VIS_W:1):1;
+    const w=area2*0.5*imp;
     addPlane(a,nx,ny,nz,d,w);addPlane(b,nx,ny,nz,d,w);addPlane(c,nx,ny,nz,d,w);
-    // border constraint planes
     for(let k=0;k<3;k++){
       const sa=tv[t*3+k],sb=tv[t*3+(k+1)%3];
       const e=edgeInfo.get(ek(sa,sb));
@@ -1111,31 +1108,55 @@ function decimateSpec(spec,target){
       let bx=ey*nz-ez*ny,by=ez*nx-ex*nz,bz=ex*ny-ey*nx;
       const bl=Math.hypot(bx,by,bz);if(bl<1e-18)continue;bx/=bl;by/=bl;bz/=bl;
       const bd=-(bx*PP[pa*3]+by*PP[pa*3+1]+bz*PP[pa*3+2]);
-      const bw=el*el*60;
+      const bw=el*el*60*imp;
       addPlane(pa,bx,by,bz,bd,bw);addPlane(pb,bx,by,bz,bd,bw);
     }
   }
-  // ---- helpers
-  const costAt=(a,b,x,y,z)=>{ // error of (Qa+Qb) at point
+  const errAt=(a,b,x,y,z)=>{
     const o=a*10,r=b*10;
     const A=Q[o]+Q[r],B=Q[o+1]+Q[r+1],C=Q[o+2]+Q[r+2],D=Q[o+3]+Q[r+3],E=Q[o+4]+Q[r+4],F=Q[o+5]+Q[r+5],G2=Q[o+6]+Q[r+6],H=Q[o+7]+Q[r+7],I=Q[o+8]+Q[r+8],J=Q[o+9]+Q[r+9];
     return A*x*x+2*B*x*y+2*C*x*z+2*D*x+E*y*y+2*F*y*z+2*G2*y+H*z*z+2*I*z+J;
   };
+  const best=[0,0,0,0];
+  const bestPos=(a,b)=>{ // -> [cost,x,y,z]
+    const ax=PP[a*3],ay=PP[a*3+1],az=PP[a*3+2],bx=PP[b*3],by=PP[b*3+1],bz=PP[b*3+2];
+    let c=errAt(a,b,bx,by,bz),X=bx,Y=by,Z=bz;
+    const ca=errAt(a,b,ax,ay,az);if(ca<c){c=ca;X=ax;Y=ay;Z=az;}
+    if(!pvTex[a]&&!pvTex[b]){
+      const o=a*10,r=b*10;
+      const A=Q[o]+Q[r],B=Q[o+1]+Q[r+1],C=Q[o+2]+Q[r+2],D=Q[o+3]+Q[r+3],E=Q[o+4]+Q[r+4],F=Q[o+5]+Q[r+5],G2=Q[o+6]+Q[r+6],H=Q[o+7]+Q[r+7],I=Q[o+8]+Q[r+8];
+      const det=A*(E*H-F*F)-B*(B*H-F*C)+C*(B*F-E*C);
+      const sc=Math.abs(A)+Math.abs(E)+Math.abs(H);
+      if(Math.abs(det)>1e-9*sc*sc*sc&&sc>0){
+        const r1=-D,r2=-G2,r3=-I;
+        const x=(r1*(E*H-F*F)-B*(r2*H-F*r3)+C*(r2*F-E*r3))/det;
+        const y=(A*(r2*H-F*r3)-r1*(B*H-F*C)+C*(B*r3-r2*C))/det;
+        const z=(A*(E*r3-r2*F)-B*(B*r3-r2*C)+r1*(B*F-E*C))/det;
+        const el=Math.hypot(ax-bx,ay-by,az-bz);
+        const mxp=(ax+bx)/2,myp=(ay+by)/2,mzp=(az+bz)/2;
+        if(Math.hypot(x-mxp,y-myp,z-mzp)<el*0.75){
+          const co=errAt(a,b,x,y,z);if(co<c){c=co;X=x;Y=y;Z=z;}
+        }
+      }
+    }
+    best[0]=c;best[1]=X;best[2]=Y;best[3]=Z;return best;
+  };
   const ver=new Int32Array(nPV),dead=new Uint8Array(nPV);
-  // binary min-heap on cost
-  const hc=[],ha=[],hb=[],hva=[],hvb=[];
-  const hpush=(c,a,b)=>{
-    let i=hc.length;hc.push(c);ha.push(a);hb.push(b);hva.push(ver[a]);hvb.push(ver[b]);
+  const hc=[],ha=[],hb=[],hva=[],hvb=[],hx=[],hy=[],hz=[];
+  const sw=(i,j)=>{let t;
+    t=hc[i];hc[i]=hc[j];hc[j]=t;t=ha[i];ha[i]=ha[j];ha[j]=t;t=hb[i];hb[i]=hb[j];hb[j]=t;t=hva[i];hva[i]=hva[j];hva[j]=t;t=hvb[i];hvb[i]=hvb[j];hvb[j]=t;
+    t=hx[i];hx[i]=hx[j];hx[j]=t;t=hy[i];hy[i]=hy[j];hy[j]=t;t=hz[i];hz[i]=hz[j];hz[j]=t;};
+  const hpush=(c,a,b,x,y,z)=>{
+    let i=hc.length;hc.push(c);ha.push(a);hb.push(b);hva.push(ver[a]);hvb.push(ver[b]);hx.push(x);hy.push(y);hz.push(z);
     while(i>0){const p=(i-1)>>1;if(hc[p]<=hc[i])break;sw(i,p);i=p;}
   };
-  const sw=(i,j)=>{let t=hc[i];hc[i]=hc[j];hc[j]=t;t=ha[i];ha[i]=ha[j];ha[j]=t;t=hb[i];hb[i]=hb[j];hb[j]=t;t=hva[i];hva[i]=hva[j];hva[j]=t;t=hvb[i];hvb[i]=hvb[j];hvb[j]=t;};
   const hpop=()=>{
-    const n=hc.length-1;sw(0,n);const r=[hc.pop(),ha.pop(),hb.pop(),hva.pop(),hvb.pop()];
+    const n=hc.length-1;sw(0,n);
+    const r=[hc.pop(),ha.pop(),hb.pop(),hva.pop(),hvb.pop(),hx.pop(),hy.pop(),hz.pop()];
     let i=0;const m=hc.length;
     for(;;){const l=2*i+1,rr=l+1;let s=i;if(l<m&&hc[l]<hc[s])s=l;if(rr<m&&hc[rr]<hc[s])s=rr;if(s===i)break;sw(i,s);i=s;}
     return r;
   };
-  // neighbours of pv (alive)
   const nbrs=(p)=>{
     const out=new Set();const L=tl[p];let w=0;
     for(let i=0;i<L.length;i++){
@@ -1144,43 +1165,39 @@ function decimateSpec(spec,target){
     }
     L.length=w;return out;
   };
-  const pushEdgesOf=(p)=>{
-    const N=nbrs(p);
-    for(const o of N){
-      // a->b : move a onto b
-      hpush(costAt(p,o,PP[o*3],PP[o*3+1],PP[o*3+2]),p,o);
-      hpush(costAt(p,o,PP[p*3],PP[p*3+1],PP[p*3+2]),o,p);
+  const pushEdgesOf=(p,all)=>{
+    for(const o of nbrs(p)){
+      if(!all&&false)continue;
+      if(all&&o<p)continue; // undirected: push once in full rebuilds
+      const r=bestPos(p,o);hpush(r[0],p,o,r[1],r[2],r[3]);
     }
   };
-  for(let p=0;p<nPV;p++)if(tl[p].length)pushEdgesOf(p);
-  // dedupe: each undirected edge pushed from both ends -> fine (lazy)
-  // ---- collapse loop
-  const tn=[0,0,0];let flipMin=0.25;
-  const tryCollapse=(a,b)=>{
-    // a moves onto b. validity checks
-    const La=tl[a];
-    const shared=[];let apex=new Set();
-    const bx=PP[b*3],by=PP[b*3+1],bz=PP[b*3+2];
-    for(let i=0;i<La.length;i++){
-      const t=La[i];if(!alive[t])continue;
-      let hasB=false,third=-1;
-      for(let k=0;k<3;k++){const o=pvOf[tv[t*3+k]];if(o===b)hasB=true;else if(o!==a)third=o;}
-      if(hasB){shared.push(t);if(third>=0)apex.add(third);continue;}
-      // flip check: normal before/after
+  for(let p=0;p<nPV;p++)if(tl[p].length)pushEdgesOf(p,true);
+  const tn=[0,0,0];let flipMin=0.5;
+  const tryCollapse=(a,b,X,Y,Z)=>{ // merge a and b at (X,Y,Z); b survives
+    const La=tl[a],Lb=tl[b];
+    const shared=[];const apex=new Set();
+    const chk=(t)=>{
+      let hasA=false,hasB=false,third=-1;
+      for(let k=0;k<3;k++){const o=pvOf[tv[t*3+k]];if(o===a)hasA=true;else if(o===b)hasB=true;else third=o;}
+      if(hasA&&hasB){shared.push(t);if(third>=0)apex.add(third);return true;}
       triNormal(t,tn);const l0=Math.hypot(tn[0],tn[1],tn[2]);
-      const ox=PP[a*3],oy=PP[a*3+1],oz=PP[a*3+2];
-      // temporarily compute with a replaced by b
-      let ids=[0,0,0];for(let k=0;k<3;k++){const o=pvOf[tv[t*3+k]];ids[k]=o===a?-1:o;}
-      const g=(id,c)=>id<0?(c===0?bx:c===1?by:bz):PP[id*3+c];
+      const ids=[0,0,0];for(let k=0;k<3;k++){const o=pvOf[tv[t*3+k]];ids[k]=(o===a||o===b)?-1:o;}
+      const g=(id,c)=>id<0?(c===0?X:c===1?Y:Z):PP[id*3+c];
       const ux=g(ids[1],0)-g(ids[0],0),uy=g(ids[1],1)-g(ids[0],1),uz=g(ids[1],2)-g(ids[0],2);
       const vx=g(ids[2],0)-g(ids[0],0),vy=g(ids[2],1)-g(ids[0],1),vz=g(ids[2],2)-g(ids[0],2);
       const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
       const l1=Math.hypot(nx,ny,nz);
-      if(l1<1e-14*Math.max(1,l0)&&l1<1e-12)return false;
-      if(l0>1e-18){const dot=(nx*tn[0]+ny*tn[1]+nz*tn[2])/(l0*l1||1);if(dot<flipMin)return false;}
-    }
+      if(l1<1e-12)return false;
+      if(l0>1e-18){const dot=(nx*tn[0]+ny*tn[1]+nz*tn[2])/(l0*l1);if(dot<flipMin)return false;}
+      return true;
+    };
+    for(let i=0;i<La.length;i++){const t=La[i];if(!alive[t])continue;if(!chk(t)&&!(shared.length&&shared[shared.length-1]===t))return false;}
+    for(let i=0;i<Lb.length;i++){const t=Lb[i];if(!alive[t])continue;
+      // skip shared ones already counted
+      let hasA=false;for(let k=0;k<3;k++)if(pvOf[tv[t*3+k]]===a)hasA=true;if(hasA)continue;
+      if(!chk(t))return false;}
     if(!shared.length)return false;
-    // link condition
     const Na=nbrs(a),Nb=nbrs(b);
     for(const o of Na){if(o!==b&&Nb.has(o)&&!apex.has(o))return false;}
     // ---- perform
@@ -1198,29 +1215,30 @@ function decimateSpec(spec,target){
         if(pvOf[s]!==a)continue;
         const m=map.get(s);
         if(m!==undefined)tv[t*3+k]=m;
-        else{ // keep own attributes, snap position onto b
-          pvOf[s]=b;
-          if(!members[b])members[b]=[];members[b].push(s);
-          P[s*3]=bx;P[s*3+1]=by;P[s*3+2]=bz;
-        }
+        else{pvOf[s]=b;svl[b].push(s);}
       }
       tl[b].push(t);
     }
-    // quadric accumulate
+    // surviving split vertices of b take the new position
+    PP[b*3]=X;PP[b*3+1]=Y;PP[b*3+2]=Z;
+    const L2=svl[b];let w=0;
+    for(let i=0;i<L2.length;i++){const s=L2[i];if(pvOf[s]!==b)continue;L2[w++]=s;P[s*3]=X;P[s*3+1]=Y;P[s*3+2]=Z;}
+    L2.length=w;
     const o=a*10,r=b*10;for(let i=0;i<10;i++)Q[r+i]+=Q[o+i];
-    dead[a]=1;tl[a]=[];ver[a]++;ver[b]++;
-    pushEdgesOf(b);
+    if(pvTex[a])pvTex[b]=1;
+    dead[a]=1;tl[a]=[];svl[a]=[];ver[a]++;ver[b]++;
+    pushEdgesOf(b,false);
     return true;
   };
-  const FLIPS=[0.25,0.0,-0.3,-0.6];
+  const FLIPS=G.FLIPS||[0.5,0.25,0.0];
   for(let pass=0;pass<FLIPS.length&&nAlive>target;pass++){
     flipMin=FLIPS[pass];
-    if(pass>0){hc.length=ha.length=hb.length=hva.length=hvb.length=0;for(let p=0;p<nPV;p++)if(!dead[p]&&tl[p].length)pushEdgesOf(p);}
-    const before=nAlive;if(G.DEBUG)console.log("pass",pass,"alive",nAlive,"target",target);
+    if(pass>0){hc.length=ha.length=hb.length=hva.length=hvb.length=hx.length=hy.length=hz.length=0;for(let p=0;p<nPV;p++)if(!dead[p]&&tl[p].length)pushEdgesOf(p,true);}
+    const before=nAlive;
     while(nAlive>target&&hc.length){
-      const [c,a,b,va,vb]=hpop();
+      const [c,a,b,va,vb,X,Y,Z]=hpop();
       if(dead[a]||dead[b]||ver[a]!==va||ver[b]!==vb)continue;
-      tryCollapse(a,b);
+      tryCollapse(a,b,X,Y,Z);
     }
     if(pass>0&&before-nAlive<before*0.002)break;
   }
@@ -1231,7 +1249,7 @@ function decimateSpec(spec,target){
     if(!alive[t])continue;
     const a=tv[t*3],b=tv[t*3+1],c=tv[t*3+2];
     if(a===b||b===c||a===c)continue;
-    if(pvOf[a]===pvOf[b]||pvOf[b]===pvOf[c]||pvOf[a]===pvOf[c])continue; // collapsed to a line
+    if(pvOf[a]===pvOf[b]||pvOf[b]===pvOf[c]||pvOf[a]===pvOf[c])continue;
     keep.push(t);
   }
   for(const t of keep)for(let k=0;k<3;k++){const s=tv[t*3+k];if(remap[s]<0)remap[s]=nv2++;}
@@ -1240,10 +1258,7 @@ function decimateSpec(spec,target){
     pos[r*3]=P[s*3];pos[r*3+1]=P[s*3+1];pos[r*3+2]=P[s*3+2];
     nr[r*3]=spec.nrm[s*3];nr[r*3+1]=spec.nrm[s*3+1];nr[r*3+2]=spec.nrm[s*3+2];
     if(uv){uv[r*2]=spec.uv[s*2];uv[r*2+1]=spec.uv[s*2+1];}}
-  const tris=new Array(keep.length*4);
-  keep.forEach((t,i)=>{tris[i*4]=remap[tv[t*3]];tris[i*4+1]=remap[tv[t*3+1]];tris[i*4+2]=remap[tv[t*3+2]];tris[i*4+3]=tm[t];});
-  // ---- re-smooth normals from the simplified geometry (respecting hard edges via the original normal)
-  {
+  if(!G.NOSMOOTH){
     const nK=keep.length,cnt=new Int32Array(nPV+1);
     const fnx=new Float32Array(nK),fny=new Float32Array(nK),fnz=new Float32Array(nK);
     for(let i=0;i<nK;i++){const t=keep[i];
@@ -1265,9 +1280,73 @@ function decimateSpec(spec,target){
       if(l>1e-20){nr[r*3]=sx/l;nr[r*3+1]=sy/l;nr[r*3+2]=sz/l;}
     }
   }
-  const out=Object.assign({},spec,{pos,nrm:nr,uv,tris});
-  return out;
+  const tris=new Array(keep.length*4);
+  keep.forEach((t,i)=>{tris[i*4]=remap[tv[t*3]];tris[i*4+1]=remap[tv[t*3+1]];tris[i*4+2]=remap[tv[t*3+2]];tris[i*4+3]=tm[t];});
+  return Object.assign({},spec,{pos,nrm:nr,uv,tris});
 }
+/* Which triangles can be seen from outside? (software z-buffer from 26 directions; glass does not occlude) */
+function computeVisibility(geoms,isTransparent,res){
+  res=res||640;
+  let mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30];
+  for(const g of geoms)for(let i=0;i<g.pos.length;i+=3)for(let k=0;k<3;k++){const v=g.pos[i+k];if(v<mn[k])mn[k]=v;if(v>mx[k])mx[k]=v;}
+  const diag=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])||1;
+  const eps=diag*0.004;
+  const dirs=[];for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++)if(x||y||z){const l=Math.hypot(x,y,z);dirs.push([x/l,y/l,z/l]);}
+  for(const g of geoms){g._vis=new Uint8Array(g.tris.length/4);g._tr=g.materials.map(m=>!!isTransparent(m));}
+  const zb=new Float32Array(res*res);
+  const sx=new Float32Array(0);
+  for(const d of dirs){
+    // basis
+    let ux,uy,uz;if(Math.abs(d[2])<0.9){ux=-d[1];uy=d[0];uz=0;}else{ux=0;uy=-d[2];uz=d[1];}
+    let l=Math.hypot(ux,uy,uz);ux/=l;uy/=l;uz/=l;
+    const vx=d[1]*uz-d[2]*uy,vy=d[2]*ux-d[0]*uz,vz=d[0]*uy-d[1]*ux;
+    // bounds of projection
+    let a0=1e30,a1=-1e30,b0=1e30,b1=-1e30;
+    for(const c of [[0,0,0],[1,0,0],[0,1,0],[1,1,0],[0,0,1],[1,0,1],[0,1,1],[1,1,1]]){
+      const X=mn[0]+(mx[0]-mn[0])*c[0],Y=mn[1]+(mx[1]-mn[1])*c[1],Z=mn[2]+(mx[2]-mn[2])*c[2];
+      const a=X*ux+Y*uy+Z*uz,b=X*vx+Y*vy+Z*vz;if(a<a0)a0=a;if(a>a1)a1=a;if(b<b0)b0=b;if(b>b1)b1=b;}
+    const sc=(res-2)/Math.max(a1-a0,b1-b0,1e-9);
+    // project all vertices once
+    const proj=geoms.map(g=>{const n=g.pos.length/3,o=new Float32Array(n*3);
+      for(let i=0;i<n;i++){const X=g.pos[i*3],Y=g.pos[i*3+1],Z=g.pos[i*3+2];
+        o[i*3]=(X*ux+Y*uy+Z*uz-a0)*sc+1;o[i*3+1]=(X*vx+Y*vy+Z*vz-b0)*sc+1;o[i*3+2]=X*d[0]+Y*d[1]+Z*d[2];}return o;});
+    const raster=(pr,tris,t,fn)=>{
+      const i0=tris[t*4],i1=tris[t*4+1],i2=tris[t*4+2];
+      const x0=pr[i0*3],y0=pr[i0*3+1],z0=pr[i0*3+2],x1=pr[i1*3],y1=pr[i1*3+1],z1=pr[i1*3+2],x2=pr[i2*3],y2=pr[i2*3+1],z2=pr[i2*3+2];
+      const den=(y1-y2)*(x0-x2)+(x2-x1)*(y0-y2);
+      let minx=Math.floor(Math.min(x0,x1,x2)),maxx=Math.ceil(Math.max(x0,x1,x2)),miny=Math.floor(Math.min(y0,y1,y2)),maxy=Math.ceil(Math.max(y0,y1,y2));
+      if(minx<0)minx=0;if(miny<0)miny=0;if(maxx>res-1)maxx=res-1;if(maxy>res-1)maxy=res-1;
+      let hit=false;
+      if(Math.abs(den)>1e-9){
+        for(let y=miny;y<=maxy;y++)for(let x=minx;x<=maxx;x++){
+          const px=x+0.5,py=y+0.5;
+          const w0=((y1-y2)*(px-x2)+(x2-x1)*(py-y2))/den,w1=((y2-y0)*(px-x2)+(x0-x2)*(py-y2))/den,w2=1-w0-w1;
+          if(w0<-0.001||w1<-0.001||w2<-0.001)continue;
+          hit=true;if(fn(y*res+x,w0*z0+w1*z1+w2*z2))return true;
+        }
+      }
+      if(!hit){ // sub-pixel triangle: sample centroid
+        const cx=Math.floor((x0+x1+x2)/3),cy=Math.floor((y0+y1+y2)/3);
+        if(cx>=0&&cy>=0&&cx<res&&cy<res)return fn(cy*res+cx,(z0+z1+z2)/3);
+      }
+      return false;
+    };
+    zb.fill(1e30);
+    // pass 1: depth of opaque triangles (nearest to viewer along -d means smallest dot... viewer sits at +d side looking along -d -> nearest = largest dot)
+    zb.fill(-1e30);
+    geoms.forEach((g,gi)=>{const pr=proj[gi],tris=g.tris,nT=tris.length/4;
+      for(let t=0;t<nT;t++){if(g._tr[tris[t*4+3]])continue;
+        raster(pr,tris,t,(idx,z)=>{if(z>zb[idx])zb[idx]=z;return false;});}});
+    // pass 2: visible if within eps of the nearest depth
+    geoms.forEach((g,gi)=>{const pr=proj[gi],tris=g.tris,nT=tris.length/4,vis=g._vis;
+      for(let t=0;t<nT;t++){if(vis[t])continue;
+        if(raster(pr,tris,t,(idx,z)=>z>=zb[idx]-eps))vis[t]=1;}});
+  }
+  for(const g of geoms)delete g._tr;
+  let v=0,n=0;for(const g of geoms){n+=g._vis.length;for(const x of g._vis)v+=x;}
+  return{visible:v,total:n};
+}
+G.computeVisibility=computeVisibility;
 G.decimateSpec=decimateSpec;
 })(GV);
 
@@ -1515,18 +1594,26 @@ function convertToSA(model,texLookup,opts){
   if(opts.maxTris>0){
     const total=geoms.reduce((n,g)=>n+triCount(g),0);
     if(total>opts.maxTris){
-      const wheelCap=2000;let fixed=0,rest=0;
-      for(const g of geoms){if(g._k==='vlo')fixed+=triCount(g);else if(g._k==='wheel')fixed+=Math.min(triCount(g),wheelCap);else rest+=triCount(g);}
-      const ratio=Math.max(0.02,Math.min(1,(opts.maxTris-fixed)/Math.max(1,rest)));
-      const done=new Map();
+      const wheelCap=2000,HID=0.25;let fixed=0,wsum=0;
+      const body=geoms.filter(g=>g._k!=='wheel'&&g._k!=='vlo');
+      let vi={visible:0,total:0};
+      try{vi=G.computeVisibility(body,m=>m.color&&m.color[3]<250&&!m.tex);}catch(e){console.warn('visibility',e);body.forEach(g=>{g._vis=null;});}
+      for(const g of geoms){
+        if(g._k==='vlo'){fixed+=triCount(g);continue;}
+        if(g._k==='wheel'){fixed+=Math.min(triCount(g),wheelCap);continue;}
+        let v=0;const n=triCount(g);if(g._vis){for(let t=0;t<n;t++)v+=g._vis[t];}else v=n;
+        g._v=v;wsum+=v+HID*(n-v);
+      }
+      const rv=Math.max(0.01,(opts.maxTris-fixed)/Math.max(1,wsum));
       for(let i=0;i<geoms.length;i++){
         const g=geoms[i],n=triCount(g);let tgt;
         if(g._k==='vlo')continue;
         else if(g._k==='wheel')tgt=Math.min(n,wheelCap);
-        else tgt=Math.max(Math.min(n,150),Math.ceil(n*ratio));
-        if(tgt>=n)continue;
-        geoms[i]=G.decimateSpec(g,tgt);geoms[i]._k=g._k;
+        else tgt=Math.max(Math.min(n,150),Math.ceil(rv*(g._v+HID*(n-g._v))));
+        if(tgt>=n){continue;}
+        const k=g._k,out=G.decimateSpec(g,tgt);delete out._vis;delete out._v;out._k=k;geoms[i]=out;
       }
+      if(vi.total)report.info.push('Tashqaridan ko‘rinadigan poligonlar: '+vi.visible.toLocaleString()+' / '+vi.total.toLocaleString()+' (ular yaxshiroq saqlandi, ichki/yashirin qismlar ko‘proq soddalashtirildi).');
       const after=geoms.reduce((n,g)=>n+triCount(g),0);
       report.info.push('Poligon soni kamaytirildi: '+total.toLocaleString()+' → '+after.toLocaleString()+' (maks. '+opts.maxTris.toLocaleString()+'). Aks holda GTA SA qotib qoladi.');
       if(after>opts.maxTris*1.15)report.warnings.push('Poligonni '+opts.maxTris.toLocaleString()+' gacha tushirib bo‘lmadi (hozir '+after.toLocaleString()+') — geometriya tuzilishi to‘sqinlik qildi.');
