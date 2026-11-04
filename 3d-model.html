@@ -970,7 +970,7 @@ function createExactRectShape(x0, y0, x1, y1) {
     return shape;
 }
 
-function createExtrudeGeometriesFromShapes(shapes, depthVal, zOffset, rgbColor, allLayerGeoms, curveSegs = 6) {
+function createExtrudeGeometriesFromShapes(shapes, depthVal, zOffset, rgbColor, allLayerGeoms, curveSegs = 6, backColor = null) {
     if (!shapes || shapes.length === 0) return;
     shapes.forEach(sh => {
         const g = new THREE.ExtrudeGeometry(sh, {
@@ -999,14 +999,19 @@ function createExtrudeGeometriesFromShapes(shapes, depthVal, zOffset, rgbColor, 
             const len = Math.hypot(nx, ny, nz) || 1;
             nx /= len; ny /= len; nz /= len;
 
+            // Orqa qopqoq (z = zOffset tekisligi) — backColor berilgan bo'lsa shu rangda bo'yaladi
+            const isBackCap = !!backColor &&
+                Math.abs(az - zOffset) < 1e-4 && Math.abs(bz - zOffset) < 1e-4 && Math.abs(cz - zOffset) < 1e-4;
+            const tc = isBackCap ? backColor : rgbColor;
+
             for (let k = 0; k < 3; k++) {
                 const vi = (i + k) * 3;
                 normArr[vi]     = nx;
                 normArr[vi + 1] = ny;
                 normArr[vi + 2] = nz;
-                colArr[vi]      = rgbColor.r;
-                colArr[vi + 1]  = rgbColor.g;
-                colArr[vi + 2]  = rgbColor.b;
+                colArr[vi]      = tc.r;
+                colArr[vi + 1]  = tc.g;
+                colArr[vi + 2]  = tc.b;
             }
         }
 
@@ -1663,7 +1668,7 @@ function buildLicensePlate3D(img, fileName = 'NOMER.PNG') {
 
     // 1-QATLAM: NOMERNING HAQIQIY FON RANGIDAGI ASOS PLITASI
     const baseShapes = buildExactShapesFromField(silhouetteField, W, H, worldW, worldH, 40, 0.38, Infinity, smoothPasses, 1, true, 0.50);
-    createExtrudeGeometriesFromShapes(baseShapes, baseDepth, -baseDepth, new THREE.Color(plateBg.r / 255, plateBg.g / 255, plateBg.b / 255), allLayerGeoms);
+    createExtrudeGeometriesFromShapes(baseShapes, baseDepth, -baseDepth, new THREE.Color(plateBg.r / 255, plateBg.g / 255, plateBg.b / 255), allLayerGeoms, 6, new THREE.Color(0.04, 0.04, 0.04));   // old tomon — nomer rangi, orqa tomon — qora
 
     // 2-QATLAM: BARCHA HARFLAR ("SAMOA • APIA", "77777", "TREASURED ISLANDS"), STIKER FONLARI VA RAMKA
     colorClusters.forEach(cluster => {
