@@ -2506,6 +2506,40 @@ function parseDFFBuffer(arrayBuffer, fileName) {
     const dv = new DataView(arrayBuffer);
     let offset = 0;
     const geoms = [];
+    const frames = [];      // RenderWare Frame List (hierarchy: har bir detalning joyi va burilishi)
+    const atomics = [];     // Atomic: qaysi geometriya qaysi frame'ga bog'langan
+
+    function parseFrameList(start, end) {
+        // start = FrameList chunk body: [Struct header 12][numFrames u32][56 bytes * n][Extension * n]
+        const structSize = dv.getUint32(start + 4, true);
+        const n = dv.getUint32(start + 12, true);
+        if (n > 4096 || start + 16 + n * 56 > end) return;
+        for (let i = 0; i < n; i++) {
+            const o = start + 16 + i * 56;
+            const m = [];
+            for (let k = 0; k < 12; k++) m.push(dv.getFloat32(o + k * 4, true));
+            frames.push({ m, parent: dv.getInt32(o + 48, true), name: '' });
+        }
+        let p = start + 12 + structSize;
+        for (let i = 0; i < n && p + 12 <= end; i++) {
+            const t = dv.getUint32(p, true), sz = dv.getUint32(p + 4, true), nx = p + 12 + sz;
+            if (nx > end) break;
+            if (t === 0x0003) {
+                let q = p + 12;
+                while (q + 12 <= nx) {
+                    const et = dv.getUint32(q, true), es = dv.getUint32(q + 4, true), en = q + 12 + es;
+                    if (en > nx) break;
+                    if (et === 0x0253F2FE) {
+                        let name = '';
+                        for (let c = 0; c < es; c++) { const ch = dv.getUint8(q + 12 + c); if (!ch) break; name += String.fromCharCode(ch); }
+                        frames[frames.length - n + i].name = name;
+                    }
+                    q = en;
+                }
+            }
+            p = nx;
+        }
+    }
 
     function parseSection(endLimit) {
         while (offset + 12 <= endLimit) {
@@ -2519,7 +2553,15 @@ function parseDFFBuffer(arrayBuffer, fileName) {
                 parseSection(nextOffset);
             } else if (type === 0x000F) {
                 const g = readRWGeometrySection(dv, offset + 12, nextOffset);
-                if (g) geoms.push(g);
+                geoms.push(g || null);   // null ham saqlanadi — Atomic indekslari buzilmasligi uchun
+                offset = nextOffset;
+            } else if (type === 0x000E) {
+                parseFrameList(offset + 12, nextOffset);
+                offset = nextOffset;
+            } else if (type === 0x0014) {
+                if (size >= 28 && dv.getUint32(offset + 12, true) === 0x0001) {
+                    atomics.push({ frame: dv.getUint32(offset + 24, true), geom: dv.getUint32(offset + 28, true), flags: dv.getUint32(offset + 32, true) });
+                }
                 offset = nextOffset;
             } else {
                 offset = nextOffset;
@@ -2662,6 +2704,39 @@ function parseDFFBuffer(arrayBuffer, fileName) {
 
     parseSection(arrayBuffer.byteLength);
 
+    // ---- Frame hierarchy: har bir geometriyani o'z frame'ining dunyo matritsasi bilan joyiga qo'yamiz ----
+    let parts = geoms.filter(Boolean);
+    let skippedLod = 0, placedParts = 0;
+    if (frames.length && atomics.length) {
+        const world = new Array(frames.length);
+        const getWorld = (i, depth) => {
+            if (world[i]) return world[i];
+            const f = frames[i], m = f.m;
+            // RenderWare: right = m[0..2], up = m[3..5], at = m[6..8], pos = m[9..11]  (ustunlar sifatida)
+            const local = new THREE.Matrix4().set(
+                m[0], m[3], m[6], m[9],
+                m[1], m[4], m[7], m[10],
+                m[2], m[5], m[8], m[11],
+                0, 0, 0, 1);
+            if (f.parent >= 0 && f.parent < frames.length && f.parent !== i && depth < 64) {
+                world[i] = new THREE.Matrix4().multiplyMatrices(getWorld(f.parent, depth + 1), local);
+            } else world[i] = local;
+            return world[i];
+        };
+        const placed = [];
+        atomics.forEach(a => {
+            const g = geoms[a.geom];
+            if (!g || a.frame >= frames.length) return;
+            // GTA mashinalaridagi shikastlangan (_dam) va juda past sifatli (_vlo) nusxalar asl detal ustiga tushmasin
+            if (/_(dam|vlo)$/i.test(frames[a.frame].name || '')) { skippedLod++; return; }
+            const c = g.clone();
+            c.applyMatrix4(getWorld(a.frame, 0));
+            placed.push(c);
+        });
+        if (placed.length) { geoms.forEach(g => g && g.dispose()); parts = placed; placedParts = placed.length; }
+    }
+    geoms.length = 0; parts.forEach(g => geoms.push(g));
+
     if (geoms.length === 0) {
         setStatus('⚠ DFF fayl ichida standart RenderWare geometriya topilmadi.');
         return;
@@ -2691,6 +2766,7 @@ function parseDFFBuffer(arrayBuffer, fileName) {
 
     document.getElementById('hudFile').textContent = fileName.toUpperCase();
     document.getElementById('hudMode').textContent = '3D DFF';
+    if (placedParts) console.log(`DFF: ${frames.length} frame, ${placedParts} detal joyiga qo'yildi` + (skippedLod ? `, ${skippedLod} ta _dam/_vlo nusxa o'tkazib yuborildi` : ''));
     setStatus(`✓ DFF yuklandi! Uning haqiqiy o'lchami (${targetDffMaxSpan.toFixed(3)} birlik) barcha eksportlar uchun etalon qilib o'rnatildi.`);
 }
 
@@ -3230,4 +3306,4 @@ function animate() {
 animate();
 </script>
 </body>
-</html>
+</html>
