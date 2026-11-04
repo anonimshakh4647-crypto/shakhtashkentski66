@@ -238,7 +238,8 @@ function decodeFrames(fl){
     const pos=[dv.getFloat32(o+36,true),dv.getFloat32(o+40,true),dv.getFloat32(o+44,true)];
     let name='';const nm=exts[i]&&child(exts[i],T.FRAMENAME);
     if(nm)name=String.fromCharCode(...nm.data).replace(/\0.*$/,'');
-    frames.push({name,rot,pos,parent:dv.getInt32(o+48,true),flags:dv.getUint32(o+52,true)});
+    const ha=exts[i]&&child(exts[i],0x11E);
+    frames.push({name,rot,pos,parent:dv.getInt32(o+48,true),flags:dv.getUint32(o+52,true),hanim:ha?ha.data:null});
   }
   return frames;
 }
@@ -276,13 +277,13 @@ function decodeGeometry(g,rwv){
     const mst=child(ml,T.STRUCT).data,mdv=dvOf(mst),cnt=mdv.getUint32(0,true),mats=childs(ml,T.MATERIAL).map(decodeMaterial);
     let k=0;for(let i=0;i<cnt;i++){const idx=mdv.getInt32(4+i*4,true);materials.push(idx<0?(mats[k++]||{color:[255,255,255,255],tex:'',mask:'',textured:false}):materials[idx]);}
   }
-  const ext=child(g,T.EXT);let night=null,has2dfx=false,skin=false,fx2d=null,extra=[];
+  const ext=child(g,T.EXT);let night=null,has2dfx=false,skin=false,fx2d=null,extra=[],skinData=null;
   if(ext){
     const nc=child(ext,T.NIGHT);if(nc&&dvOf(nc.data).getUint32(0,true))night=nc.data.slice(4,4+nV*4);
-    const fx=child(ext,T.FX2D);has2dfx=!!fx;if(fx)fx2d=fx.data;skin=!!child(ext,T.SKIN);
+    const fx=child(ext,T.FX2D);has2dfx=!!fx;if(fx)fx2d=fx.data;const sk=child(ext,T.SKIN);skin=!!sk;if(sk)skinData=sk.data;
     extra=ext.children.filter(k=>k.type!==T.BINMESH&&k.type!==T.NIGHT&&k.type!==T.FX2D&&k.type!==T.SKIN);
   }
-  return{native:false,flags,nTri,nV,numUV,dayColors,uvs,tris,pos,nrm,materials,night,has2dfx,skin,fx2d,extra};
+  return{native:false,flags,nTri,nV,numUV,dayColors,uvs,tris,pos,nrm,materials,night,has2dfx,skin,fx2d,extra,skinData};
 }
 
 function parseDff(bytes){
@@ -336,7 +337,7 @@ function buildGeometry(g,ver){
   const bm=new BW(),used=per.map((p,i)=>({p,i})).filter(x=>x.p.length);
   bm.u32(0);bm.u32(used.length);bm.u32(used.reduce((s,x)=>s+x.p.length,0));
   for(const x of used){bm.u32(x.p.length);bm.u32(x.i);for(const v of x.p)bm.u32(v);}
-  const exts=[leaf(T.BINMESH,ver,bm.done())];
+  const exts=[];if(g.skinData)exts.push(leaf(T.SKIN,ver,g.skinData));exts.push(leaf(T.BINMESH,ver,bm.done()));
   if(g.night){const nw=new BW();nw.u32(1);nw.bytes(g.night);exts.push(leaf(T.NIGHT,ver,nw.done()));}
   if(g.fx2d)exts.push(leaf(T.FX2D,ver,g.fx2d));
   if(g.extra)for(const x of g.extra)exts.push(x);
@@ -361,7 +362,7 @@ function frameRecord(w,f){
   for(let i=0;i<9;i++)w.f32(rot[i]);for(let i=0;i<3;i++)w.f32(pos[i]);
   w.i32(f.parent==null?-1:f.parent);w.u32(0x20003);
 }
-const frameExt=(name,ver)=>extChunk(ver,name?[leaf(T.FRAMENAME,ver,(()=>{const d=new Uint8Array(name.length);for(let i=0;i<name.length;i++)d[i]=name.charCodeAt(i)&127;return d;})())]:[]);
+const frameExt=(name,ver,hanim)=>{const k=[];if(hanim)k.push(leaf(0x11E,ver,hanim));if(name)k.push(leaf(T.FRAMENAME,ver,(()=>{const d=new Uint8Array(name.length);for(let i=0;i<name.length;i++)d[i]=name.charCodeAt(i)&127;return d;})()));return extChunk(ver,k);};
 function atomicChunk(frame,geom,ver){
   const w=new BW();w.u32(frame);w.u32(geom);w.u32(5);w.u32(0);
   return{type:T.ATOMIC,ver,children:[leaf(T.STRUCT,ver,w.done()),extChunk(ver)],tail:null};
@@ -371,7 +372,7 @@ function buildClump(spec,ver){
   ver=ver||0x1803FFFF;
   const cw=new BW();cw.u32(spec.atomics.length);if(rwVersion(ver)>=0x33000){cw.u32(0);cw.u32(0);}
   const fw=new BW();fw.u32(spec.frames.length);spec.frames.forEach(f=>frameRecord(fw,f));
-  const frameList={type:T.FRAMELIST,ver,children:[leaf(T.STRUCT,ver,fw.done()),...spec.frames.map(f=>frameExt(f.name,ver))],tail:null};
+  const frameList={type:T.FRAMELIST,ver,children:[leaf(T.STRUCT,ver,fw.done()),...spec.frames.map(f=>frameExt(f.name,ver,f.hanim))],tail:null};
   const gw=new BW();gw.u32(spec.geoms.length);
   const geoList={type:T.GEOLIST,ver,children:[leaf(T.STRUCT,ver,gw.done()),...spec.geoms.map(g=>buildGeometry(g,ver))],tail:null};
   const clump={type:T.CLUMP,ver,children:[leaf(T.STRUCT,ver,cw.done()),frameList,geoList,...spec.atomics.map(a=>atomicChunk(a.frame,a.geom,ver)),extChunk(ver)],tail:null};
@@ -436,7 +437,7 @@ const svg=n=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 
 /* ================= HOLAT ================= */
 const S={insts:[],cur:null,sel:-1,nav:'orbit',tool:'nav',edit:false,level:'vertex',axes:{x:0,y:0,z:0},
-  selV:new Set(),selF:new Set(),wire:false,bounds:false,grid:true,double:true,lock:false,light:1,ptab:'tree',bg:0,idc:1,tex:new Map()};
+  set:{sens:1,pan:1,zoom:1,smooth:false,tips:true},selV:new Set(),selF:new Set(),wire:false,bounds:false,grid:true,double:true,lock:false,light:1,ptab:'tree',bg:0,idc:1,tex:new Map()};
 window.__ZM={S};
 const curInst=()=>S.cur;
 function newInst(name){
@@ -458,7 +459,8 @@ const key=new THREE.DirectionalLight(0xffffff,0.85);scene.add(key);scene.add(key
 const fill=new THREE.DirectionalLight(0x9db6ff,0.35);scene.add(fill);scene.add(fill.target);
 const world=new THREE.Group();world.rotation.x=-Math.PI/2;scene.add(world);   // GTA (Z yuqori) -> Three (Y yuqori)
 let gridObj=null;
-const CAM={az:2.45,el:0.38,dist:6,t:[0,0,0]};   // t: GTA koordinatalarida
+const CAM={az:2.45,el:0.38,dist:6,t:[0,0,0],vaz:0,vel:0};
+const Z_ANIM={fn:null};   // t: GTA koordinatalarida
 const g2t=p=>[p[0],p[2],-p[1]];
 let dirty=true;const redraw=()=>{dirty=true;};
 function applyCamera(){
@@ -549,7 +551,7 @@ function makeMesh(inst,ai){
   geo.computeBoundingSphere();geo.computeBoundingBox();
   const mats=(gm.materials.length?gm.materials:[{color:[200,200,200,255],tex:''}]).map(makeThreeMat);
   const mesh=new THREE.Mesh(geo,mats);mesh.userData={ai,triMap:map,gi:a.geom};
-  mesh.visible=!a.hidden;return mesh;
+  mesh.visible=!a.hidden;if(window.__ZM.vviewHook)window.__ZM.vviewHook(inst,ai,mesh,gm);return mesh;
 }
 function setFrameMatrix(o,f){
   const r=f.rot,m=new THREE.Matrix4().makeBasis(new THREE.Vector3(r[0],r[1],r[2]),new THREE.Vector3(r[3],r[4],r[5]),new THREE.Vector3(r[6],r[7],r[8]));
@@ -625,6 +627,8 @@ function updateSelBox(){
 }
 function loop(){
   requestAnimationFrame(loop);
+  if(CAM.vaz||CAM.vel){CAM.az-=CAM.vaz;CAM.el=clamp(CAM.el+CAM.vel,-1.5533,1.5533);CAM.vaz*=.9;CAM.vel*=.9;if(Math.abs(CAM.vaz)<1e-4)CAM.vaz=0;if(Math.abs(CAM.vel)<1e-4)CAM.vel=0;applyCamera();}
+  if(Z_ANIM.fn)Z_ANIM.fn(performance.now());
   if(!dirty)return;dirty=false;
   hemi.intensity=.9*S.light;key.intensity=.85*S.light;fill.intensity=.35*S.light;
   R.render(scene,cam);
@@ -632,7 +636,7 @@ function loop(){
 window.addEventListener('resize',resize);
 new ResizeObserver(resize).observe($('#vp'));
 
-Object.assign(window.__ZM,{$,$$,clamp,esc,toast,svg,IC,newInst,curInst,scene,world,cam,CAM,R,g2t,redraw,applyCamera,resize,setView,makeGrid,addTexture,loadImageFile,makeThreeMat,computeNormals,makeMesh,setFrameMatrix,buildScene,rebuildGeom,refreshMaterials,worldBox,isDesc,fitView,updateSelBox,loop,missingTex,canvasHasAlpha,BGS,getGrid:()=>gridObj});
+Object.assign(window.__ZM,{Z_ANIM,$,$$,clamp,esc,toast,svg,IC,newInst,curInst,scene,world,cam,CAM,R,g2t,redraw,applyCamera,resize,setView,makeGrid,addTexture,loadImageFile,makeThreeMat,computeNormals,makeMesh,setFrameMatrix,buildScene,rebuildGeom,refreshMaterials,worldBox,isDesc,fitView,updateSelBox,loop,missingTex,canvasHasAlpha,BGS,getGrid:()=>gridObj});
 })();
 
 (function(){
@@ -645,14 +649,14 @@ const IDENT=[1,0,0,0,1,0,0,0,1];
 function instFromDff(bytes,name){
   const d=D.parseDff(bytes);
   const inst=Z.newInst(name);inst.stamp=d.stamp||0x1803FFFF;
-  inst.frames=d.frames.map(f=>({name:f.name||'',pos:Array.from(f.pos),rot:Array.from(f.rot),parent:f.parent,flags:f.flags,hidden:false}));
+  inst.frames=d.frames.map(f=>({name:f.name||'',pos:Array.from(f.pos),rot:Array.from(f.rot),parent:f.parent,flags:f.flags,hidden:false,hanim:f.hanim?f.hanim.slice():null}));
   inst.geoms=d.geoms.map(g=>{
     if(g.native){inst.warn.push('Native (konsol) geometriya o‘tkazib yuborildi.');return{native:true,pos:null,tris:new Uint32Array(0),materials:[]};}
     if(g.skin)inst.warn.push('Skin (suyak) ma‘lumotli geometriya bor — vertex tahriri vaznlarni buzishi mumkin.');
     const tris=new Uint32Array(g.tris.length);tris.set(g.tris);
     return{pos:g.pos?new Float32Array(g.pos):new Float32Array(g.nV*3),nrm:g.nrm?new Float32Array(g.nrm):null,
       uv:g.uvs&&g.uvs[0]?new Float32Array(g.uvs[0]):null,day:g.dayColors||null,night:g.night||null,fx2d:g.fx2d||null,extra:g.extra||[],
-      tris,materials:(g.materials||[]).map(m=>Object.assign({},m)),skin:!!g.skin,numUV:g.numUV};
+      tris,materials:(g.materials||[]).map(m=>Object.assign({},m)),skin:!!g.skin,skinData:g.skinData?g.skinData.slice():null,numUV:g.numUV};
   });
   inst.atomics=d.atomics.map(a=>({frame:a.frame,geom:a.geom,flags:a.flags}));
   // bo'sh nomlarni to'ldirish
@@ -681,7 +685,7 @@ function splitGeom(g){   // 65535 cho'qqi chegarasi
   return out;
 }
 function exportDff(inst){
-  const frames=inst.frames.map(f=>({name:f.name,pos:f.pos,rot:f.rot,parent:f.parent}));
+  const frames=inst.frames.map(f=>({name:f.name,pos:f.pos,rot:f.rot,parent:f.parent,hanim:f.hanim||null}));
   const geoms=[],atomics=[];
   inst.atomics.forEach(a=>{
     const g=inst.geoms[a.geom];if(!g||g.native||!g.pos||!g.tris.length)return;
@@ -941,7 +945,7 @@ const IDENT=[1,0,0,0,1,0,0,0,1];
 const AX={x:[1,0,0],y:[0,0,-1],z:[0,1,0]};   // GTA o'qlari -> Three dunyo vektori
 const emit=(n)=>window.dispatchEvent(new CustomEvent('zm:'+n));
 /* ================= UNDO ================= */
-function cloneGeom(g){return g.native?g:Object.assign({},g,{pos:g.pos.slice(),nrm:g.nrm&&g.nrm.slice(),uv:g.uv&&g.uv.slice(),day:g.day&&g.day.slice(),night:g.night&&g.night.slice(),tris:g.tris.slice(),materials:g.materials.map(m=>Object.assign({},m,{color:m.color.slice()}))});}
+function cloneGeom(g){return g.native?g:Object.assign({},g,{pos:g.pos.slice(),nrm:g.nrm&&g.nrm.slice(),uv:g.uv&&g.uv.slice(),day:g.day&&g.day.slice(),night:g.night&&g.night.slice(),skinData:g.skinData&&g.skinData.slice(),tris:g.tris.slice(),materials:g.materials.map(m=>Object.assign({},m,{color:m.color.slice()}))});}
 function snap(inst){return{frames:inst.frames.map(f=>Object.assign({},f,{pos:f.pos.slice(),rot:f.rot.slice()})),geoms:inst.geoms.map(cloneGeom),atomics:inst.atomics.map(a=>Object.assign({},a)),sel:S.sel};}
 function snapSize(s){return s.geoms.reduce((n,g)=>n+(g.pos?g.pos.byteLength*3+g.tris.byteLength:0),0);}
 function pushUndo(inst){
@@ -1255,7 +1259,7 @@ function opCopyNode(){
   const inst=S.cur;if(!inst||S.sel<0)return;pushUndo(inst);
   const d=Array.from(descendants(inst,S.sel)).sort((a,b)=>a-b),map=new Map();
   const par=inst.frames[S.sel].parent;
-  d.forEach(i=>{const f=inst.frames[i];const nf=Object.assign({},f,{pos:f.pos.slice(),rot:f.rot.slice(),name:uniqueName(inst,f.name+'_c'),parent:i===S.sel?par:(map.get(f.parent)??-1)});inst.frames.push(nf);map.set(i,inst.frames.length-1);});
+  d.forEach(i=>{const f=inst.frames[i];const nf=Object.assign({},f,{pos:f.pos.slice(),rot:f.rot.slice(),hanim:null,name:uniqueName(inst,f.name+'_c'),parent:i===S.sel?par:(map.get(f.parent)??-1)});inst.frames.push(nf);map.set(i,inst.frames.length-1);});
   inst.atomics.slice().forEach(a=>{if(map.has(a.frame)){inst.geoms.push(cloneGeom(inst.geoms[a.geom]));inst.atomics.push({frame:map.get(a.frame),geom:inst.geoms.length-1,flags:a.flags});}});
   const ni=map.get(S.sel);S.sel=ni;Z.buildScene(inst);afterStructure();toast('Nusxa: '+inst.frames[ni].name);
 }
@@ -1483,10 +1487,11 @@ function saveDff(){
 }
 async function exportObj(){
   const inst=S.cur;if(!inst)return;
-  const o=await ask('OBJ eksport',[{k:'yup',type:'check',label:'Y yuqori o‘qli qilib saqlash (Blender / 3ds Max uchun)',val:false}],'Saqlash');if(!o)return;
+  const o=await ask('OBJ eksport',[{k:'yup',type:'check',label:'Y yuqori o‘qli qilib saqlash (Blender / 3ds Max uchun)',val:false},{k:'mt',type:'check',label:'Materiallarni qo‘shish (MTL fayl)',val:true},{k:'cr',label:'Muallif nomi (sarlavhaga yoziladi)',val:''}],'Saqlash');if(!o)return;
   const r=Z.exportObj(inst,{yup:o.yup}),b=baseName(inst.name).replace(/[^\w.\-]/g,'_');
-  Z.download(r.obj.replace(/^/,'mtllib '+b+'.mtl\n'),b+'.obj','text/plain');setTimeout(()=>Z.download(r.mtl,b+'.mtl','text/plain'),400);
-  toast('OBJ + MTL saqlandi');
+  const head=(o.cr?'# Muallif: '+o.cr.replace(/[\r\n]/g,' ')+'\n':'')+(o.mt?'mtllib '+b+'.mtl\n':'');
+  Z.download(head+r.obj,b+'.obj','text/plain');if(o.mt)setTimeout(()=>Z.download(r.mtl,b+'.mtl','text/plain'),400);
+  toast('OBJ'+(o.mt?' + MTL':'')+' saqlandi');
 }
 function exportStl(){const inst=S.cur;if(!inst)return;Z.download(Z.exportStl(inst),baseName(inst.name).replace(/[^\w.\-]/g,'_')+'.stl','text/plain');toast('STL saqlandi');}
 function screenshot(){Z.R.render(Z.scene,cam);Z.R.domElement.toBlob(b=>Z.download(b,'zmodeler-screenshot.png'),'image/png');}
@@ -1499,7 +1504,7 @@ async function importNode(){
 /* ================= MENU ================= */
 const MENU=[
   ['Yangi sahna',newScene],['Ochish (DFF · OBJ · 3DS · TXD · PNG)',()=>pickFiles('.dff,.obj,.mtl,.3ds,.txd,.png,.jpg,.jpeg,.bmp')],null,
-  ['DFF sifatida saqlash',saveDff],['OBJ eksport',exportObj],['STL eksport',exportStl],['Skrinshot (PNG)',screenshot],null,
+  ['DFF sifatida saqlash',saveDff],['OBJ eksport',exportObj],['3DS eksport',()=>{const i=S.cur;if(!i)return;try{Z.download(Z.export3ds(i),baseName(i.name).replace(/[^\w.\-]/g,'_')+'.3ds');toast('3DS saqlandi');}catch(e){toast(e.message,1);}}],['STL eksport',exportStl],['Skrinshot (PNG)',screenshot],null,
   ['Boshqa fayldan tugun import qilish',importNode],['DFF ni tuzatish (Repair)',async()=>{if(!S.cur)return;const l=Z.opRepair();dialog('Tuzatish natijasi','<div>'+(l.length?l.map(esc).join('<br>'):'Muammo topilmadi — DFF toza.')+'</div>');}],null,
   ['Yordam / haqida',()=>dialog('ZModeler Mobile — IT SHAKH','<div class="mut" style="line-height:1.6">Brauzerda ishlaydigan DFF / OBJ / 3DS muharriri. Barcha ishlar qurilmangizda bajariladi, fayllar serverga yuborilmaydi.<br><br><b>Boshqaruv:</b> bir barmoq — kamera (Orbit/Pan/Zoom tugmalari), ikki barmoq — masshtab va surish. Tahrir rejimida tegib nuqta/yuz tanlanadi, Move/Rotate/Scale bilan barmoqni sudrab o‘zgartiriladi (X/Y/Z tugmalari o‘qni qulflaydi).<br><br><b>Klaviatura:</b> Ctrl+Z/Y, Del, F (ramkaga olish), 1–6 ko‘rinishlar.</div>')]
 ];
@@ -1591,9 +1596,9 @@ vp.addEventListener('pointermove',e=>{
   if(tot>6)G.moved=true;
   if(!G.moved){return;}
   p.x=x;p.y=y;
-  if(G.mode==='orbit'){CAM.az-=dx*0.008;CAM.el=clamp(CAM.el+dy*0.008,-1.5533,1.5533);applyCamera();}
-  else if(G.mode==='pan'){panBy(dx,dy);applyCamera();}
-  else if(G.mode==='zoom'){CAM.dist=clamp(CAM.dist*Math.exp(dy*0.01),1e-3,1e6);applyCamera();}
+  if(G.mode==='orbit'){const k=0.008*S.set.sens;CAM.az-=dx*k;CAM.el=clamp(CAM.el+dy*k,-1.5533,1.5533);G.vx=dx*k;G.vy=dy*k;CAM.vaz=CAM.vel=0;applyCamera();}
+  else if(G.mode==='pan'){panBy(dx*S.set.pan,dy*S.set.pan);applyCamera();}
+  else if(G.mode==='zoom'){CAM.dist=clamp(CAM.dist*Math.exp(dy*0.01*S.set.zoom),1e-3,1e6);applyCamera();}
   else if(G.mode==='box'){
     G.box=G.box||{x0:p.sx,y0:p.sy};G.box.x1=x;G.box.y1=y;const b=$('#boxsel'),l=Math.min(G.box.x0,x),t=Math.min(G.box.y0,y);
     Object.assign(b.style,{display:'block',left:l+'px',top:t+'px',width:Math.abs(x-G.box.x0)+'px',height:Math.abs(y-G.box.y0)+'px'});
@@ -1616,12 +1621,13 @@ vp.addEventListener('pointerup',e=>{
   const[x,y]=vpXY(e);
   if(wasG.mode==='box'&&wasG.box){boxSelect(wasG.box);$('#boxsel').style.display='none';}
   else if(wasG.mode==='xf'&&wasG.started){Z.xfEnd();renderPanel();}
+  else if(wasG.mode==='orbit'&&wasG.moved&&S.set.smooth){CAM.vaz=wasG.vx||0;CAM.vel=wasG.vy||0;}
   if(!wasG.moved&&performance.now()-p.t<600&&p.btn!==2)tap(x,y);
   G=null;
 });
 vp.addEventListener('pointercancel',e=>{P.delete(e.pointerId);if(G&&G.started)Z.xfEnd();G=null;$('#boxsel').style.display='none';});
 vp.addEventListener('contextmenu',e=>e.preventDefault());
-vp.addEventListener('wheel',e=>{e.preventDefault();if(S.lock)return;CAM.dist=clamp(CAM.dist*Math.exp(e.deltaY*0.0012),1e-3,1e6);applyCamera();},{passive:false});
+vp.addEventListener('wheel',e=>{e.preventDefault();if(S.lock)return;CAM.dist=clamp(CAM.dist*Math.exp(e.deltaY*0.0012*S.set.zoom),1e-3,1e6);applyCamera();},{passive:false});
 function xfDrag(dx,dy){
   const XF=Z.getXF();if(!XF)return;
   const ax=S.axes,cnt=ax.x+ax.y+ax.z,a=camAxes(),piv=XF.pivot,k=upp(piv);
@@ -1701,7 +1707,7 @@ vp.addEventListener('drop',e=>{if(e.dataTransfer&&e.dataTransfer.files.length)op
 $('#empty').addEventListener('click',e=>{const a=e.target.dataset&&e.target.dataset.act;if(a==='open')pickFiles('.dff,.obj,.mtl,.3ds,.txd,.png,.jpg,.jpeg,.bmp');else if(a==='new')newScene();});
 
 /* ================= PANEL: TABLAR ================= */
-const PT=[['tree','Daraxt'],['edit','Tahrir'],['mat','Material'],['tex','Tekstura'],['prim','Primitiv'],['car','Mashina'],['view','Ko‘rinish']];
+const PT=[['tree','Daraxt'],['edit','Tahrir'],['mat','Material'],['uv','UV'],['split','Splits'],['tex','Tekstura'],['prim','Primitiv'],['pose','Pose'],['skin','Skin'],['car','Mashina'],['view','Ko‘rinish'],['set','Sozlamalar']];
 function renderPTabs(){
   const t=$('#ptabs');t.innerHTML='';
   PT.forEach(([k,n])=>{const b=document.createElement('button');b.textContent=n;b.className=S.ptab===k?'on':'';b.onclick=()=>{S.ptab=k;if($('#panel').classList.contains('peek'))setSheet('half');renderPTabs();renderPanel();};t.appendChild(b);});
@@ -1716,7 +1722,7 @@ function renderPanel(){
   const pane=$('#pane');if(!pane)return;
   const keepScroll=pane.scrollTop,active=document.activeElement;
   if(active&&/INPUT|SELECT/.test(active.tagName)&&pane.contains(active)&&window.__typing)return;
-  const fn={tree:panelTree,edit:panelEdit,mat:panelMat,tex:panelTex,prim:panelPrim,car:panelCar,view:panelView}[S.ptab];
+  const fn={tree:panelTree,edit:panelEdit,mat:panelMat,tex:panelTex,prim:panelPrim,car:panelCar,view:panelView}[S.ptab]||(Z.extraPanels&&Z.extraPanels[S.ptab])||panelTree;
   pane.innerHTML='';fn(pane);pane.scrollTop=keepScroll;
 }
 const H=(tag,cls,html)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;};
@@ -1736,6 +1742,7 @@ function panelTree(p){
     const nv=g.reduce((n,a)=>n+inst.geoms[a.geom].pos.length/3,0);
     r.innerHTML='<span class="ar">'+(ch.length?(inst.open.has(fi)?'▾':'▸'):'')+'</span><span class="'+(g.length?'gi':'fi')+'"></span><span class="nm">'+esc(f.name)+'</span><span class="ct">'+(nv?nv.toLocaleString():'')+'</span>';
     const ey=H('button','ey',svg(f.hidden?'eyeoff':'eye'));ey.querySelector('svg').style.cssText='width:16px;height:16px';ey.onclick=e=>{e.stopPropagation();Z.opToggleHide(fi);};r.appendChild(ey);
+    r.dataset.fi=fi;
     r.onclick=e=>{if(e.target.classList.contains('ar')&&ch.length){inst.open.has(fi)?inst.open.delete(fi):inst.open.add(fi);renderPanel();return;}selectNode(fi);};
     wrap.appendChild(r);if(inst.open.has(fi))ch.forEach(c=>draw(c,depth+1));
   };
@@ -1845,6 +1852,7 @@ function panelMat(p){
   const apply=()=>{const c=f.querySelector('#mc').value;Z.opMatSet(matIdx,{color:[parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16),+f.querySelector('#ma').value],tex:f.querySelector('#mt').value.trim(),mask:f.querySelector('#mk').value.trim()});};
   f.querySelector('#ma').oninput=e=>{f.querySelector('#mav').textContent=e.target.value;};
   f.querySelector('#mc').onchange=apply;f.querySelector('#ma').onchange=apply;f.querySelector('#mt').onchange=apply;f.querySelector('#mk').onchange=apply;
+  if(Z.matExtras)Z.matExtras(p,gm,m,matIdx);
   p.appendChild(rowOf(btn('Material qo‘shish',()=>{matIdx=Z.opMatAdd();},'sm'),btn('O‘chirish',()=>Z.opMatDel(matIdx),'dng sm'),btn('Yuzlarga berish',()=>{if(!S.edit){S.ptab='edit';toggleEdit();S.level='face';Z.buildEditOverlay();renderTools();renderPTabs();renderPanel();toast('Yuzlarni tanlab, “Berish” ni bosing');}else Z.opAssignMat(matIdx);},'sm')));
 }
 /* ---- Tekstura ---- */
@@ -1937,7 +1945,329 @@ function panelView(p){
 buildMenu();renderPTabs();renderTools();renderPanel();hud();emptyState();
 if(window.innerWidth<=900)setSheet('half');
 Z.resize();Z.applyCamera();Z.loop();
-Object.assign(Z,{openFiles,setCurrent,addInstance,renderPanel,renderTools,toggleEdit,setTool,hud,saveDff,renderTabs,bboxOf});
+Object.assign(Z,{renameDlg,propsDlg,reparentDlg,joinDlg,replaceDlg,attachDlg,delDlg,pickNodeDialog,nodeList,confirmBox,openFiles,setCurrent,addInstance,renderPanel,renderTools,toggleEdit,setTool,hud,saveDff,renderTabs,bboxOf});
+})();
+
+(function(){
+'use strict';
+const Z=window.__ZM,S=Z.S,{$,$$,esc,toast,svg,clamp,CAM,redraw}=Z;
+const H=(tag,cls,html)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;};
+const btn=(txt,fn,cls)=>{const b=H('button','btn '+(cls||''),txt);b.onclick=fn;return b;};
+const rowOf=(...k)=>{const r=H('div','row');k.forEach(x=>r.appendChild(x));return r;};
+const rp=()=>Z.renderPanel();
+const num=(id,v,st)=>'<input type="number" step="'+(st||'any')+'" id="'+id+'" value="'+v+'">';
+const noTarget=(p,msg)=>{p.appendChild(H('div','mut',msg||'Avval daraxtdan geometriyali obyektni tanlang.'));};
+Z.extraPanels={};
+/* ================= SOZLAMALAR (saqlanadi) ================= */
+try{const raw=localStorage.getItem('zmm_set');if(raw)Object.assign(S.set,JSON.parse(raw));}catch(e){}
+const saveSet=()=>{try{localStorage.setItem('zmm_set',JSON.stringify(S.set));}catch(e){}};
+Z.extraPanels.set=function(p){
+  p.appendChild(H('h4',null,'Kamera'));
+  const sl=(label,key,min,max,st)=>{const w=H('div','card');w.innerHTML='<div class="row" style="margin:0;justify-content:space-between"><span>'+label+'</span><b id="v_'+key+'">'+S.set[key].toFixed(1)+'×</b></div>';const r=H('input');r.type='range';r.min=min;r.max=max;r.step=st;r.value=S.set[key];r.oninput=()=>{S.set[key]=+r.value;w.querySelector('#v_'+key).textContent=S.set[key].toFixed(1)+'×';saveSet();};w.appendChild(r);p.appendChild(w);};
+  sl('Aylantirish sezgirligi','sens',.3,3,.1);sl('Surish sezgirligi','pan',.3,3,.1);sl('Masshtab sezgirligi','zoom',.3,3,.1);
+  const tg=(txt,key)=>btn(txt+(S.set[key]?' ✓':''),()=>{S.set[key]=!S.set[key];saveSet();rp();tip();},'sm '+(S.set[key]?'on':''));
+  p.appendChild(rowOf(tg('Silliq kamera (inersiya)','smooth'),tg('Yordam maslahatlari','tips')));
+  p.appendChild(H('h4',null,'Tezkor tugmalar (kompyuterda)'));
+  p.appendChild(H('div','card mut','Tab — tahrir rejimi · G/R/S — Move/Rotate/Scale · X/Y/Z — o‘q qulfi · F — ramkaga olish · 1–6 — ko‘rinishlar · Ctrl+Z / Ctrl+Y — ortga/qayta · Del — o‘chirish'));
+  p.appendChild(rowOf(btn('Sozlamalarni tiklash',()=>{Object.assign(S.set,{sens:1,pan:1,zoom:1,smooth:false,tips:true});saveSet();rp();tip();},'sm dng')));
+};
+/* ================= YORDAM MASLAHATI ================= */
+function tip(){
+  let t=$('#tip');if(!t){t=H('div');t.id='tip';t.style.cssText='position:absolute;left:58px;right:60px;top:8px;z-index:4;pointer-events:none;text-align:center;font-size:11px;color:#bfeaff;text-shadow:0 1px 4px #000';$('#vp').appendChild(t);}
+  const m={nav:{orbit:'Bir barmoq: aylantirish · ikki barmoq: masshtab va surish',pan:'Bir barmoq: ko‘rinishni surish',zoom:'Barmoqni yuqoriga/pastga sudrang: masshtab'},move:'Tanlangan narsani barmoq bilan sudrang (X/Y/Z — o‘q qulfi)',rotate:'Tanlanganni aylantirish uchun sudrang',scale:'Sudrang: kattalashtirish / kichraytirish',box:'Maydonni chizib, ichidagilarni tanlang'};
+  let s=S.tool==='nav'?m.nav[S.nav]:m[S.tool];
+  if(!S.cur)s='';else if(S.edit&&S.tool==='nav')s='Tegib '+(S.level==='vertex'?'nuqta':'yuz')+' tanlang · qayta tegsangiz bekor bo‘ladi';
+  t.textContent=S.set.tips?s||'':'';
+}
+setInterval(tip,700);
+/* ================= SKIN: tahlil ================= */
+function skinInfo(gm){
+  if(!gm||!gm.skinData)return null;const d=gm.skinData,nV=gm.pos.length/3;if(d.length<8)return null;
+  const nb=d[0],nu=d[1],mw=d[2],idxOff=4+nu,wOff=idxOff+nV*4,matOff=wOff+nV*16;
+  if(wOff+nV*16>d.length||nb===0)return null;
+  return{nb,nu,mw,used:Array.from(d.subarray(4,4+nu)),idxOff,wOff,dv:new DataView(d.buffer,d.byteOffset,d.byteLength),nV};
+}
+function boneFrames(inst){   // bone indeksi -> freym indeksi
+  const root=inst.frames.findIndex(f=>f.hanim&&f.hanim.length>=12&&new DataView(f.hanim.buffer,f.hanim.byteOffset,f.hanim.byteLength).getUint32(8,true)>0);
+  if(root<0)return[];const h=inst.frames[root].hanim,dv=new DataView(h.buffer,h.byteOffset,h.byteLength),n=dv.getUint32(8,true);
+  const byId=new Map();inst.frames.forEach((f,i)=>{if(f.hanim&&f.hanim.length>=8){byId.set(new DataView(f.hanim.buffer,f.hanim.byteOffset,f.hanim.byteLength).getInt32(4,true),i);}});
+  const out=[];for(let i=0;i<n;i++){const id=dv.getInt32(20+i*12,true);out.push(byId.has(id)?byId.get(id):-1);}return out;
+}
+Z.skinInfo=skinInfo;
+function skinWeightOf(gm,sk,bone){
+  const w=new Float32Array(sk.nV);for(let v=0;v<sk.nV;v++)for(let k=0;k<4;k++){if(gm.skinData[sk.idxOff+v*4+k]===bone){const x=sk.dv.getFloat32(sk.wOff+v*16+k*4,true);if(x>0)w[v]+=x;}}return w;
+}
+function skinPaint(gm,sk,ids,bone,mode,str){
+  for(const v of ids){
+    const idx=[0,1,2,3].map(k=>gm.skinData[sk.idxOff+v*4+k]),w=[0,1,2,3].map(k=>sk.dv.getFloat32(sk.wOff+v*16+k*4,true));
+    let slot=idx.findIndex((b,k)=>b===bone&&w[k]>0);
+    if(slot<0){let m=0;for(let k=1;k<4;k++)if(w[k]<w[m])m=k;slot=m;idx[slot]=bone;w[slot]=0;}
+    if(mode==='set')w[slot]=str;else if(mode==='add')w[slot]=Math.min(1,w[slot]+str);else w[slot]=Math.max(0,w[slot]-str);
+    const others=w.reduce((s,x,k)=>k===slot?s:s+x,0),rest=1-w[slot];
+    if(others>1e-6){const f=rest/others;for(let k=0;k<4;k++)if(k!==slot)w[k]*=f;}
+    else if(rest>1e-6){w[slot]=1;}
+    const sum=w.reduce((a,b)=>a+b,0)||1;for(let k=0;k<4;k++)w[k]/=sum;
+    for(let k=0;k<4;k++){gm.skinData[sk.idxOff+v*4+k]=idx[k];sk.dv.setFloat32(sk.wOff+v*16+k*4,w[k],true);}
+  }
+}
+/* ================= VERTEX RANG KO'RINISHI ================= */
+Z.vviewHook=function(inst,ai,mesh,gm){
+  if(!S.vview||!mesh.geometry)return;
+  const nV=gm.pos.length/3,col=new Float32Array(nV*3);
+  if(S.vview==='skin'){
+    const sk=skinInfo(gm);if(!sk)return;const w=skinWeightOf(gm,sk,S.vbone|0);
+    for(let i=0;i<nV;i++){const x=w[i];col[i*3]=Math.min(1,x*2);col[i*3+1]=x<.5?x*2:(1-x)*2;col[i*3+2]=Math.max(0,1-x*2);}
+  }else if(S.vview==='prelit'){
+    for(let i=0;i<nV;i++){if(gm.day){col[i*3]=gm.day[i*4]/255;col[i*3+1]=gm.day[i*4+1]/255;col[i*3+2]=gm.day[i*4+2]/255;}else col[i*3]=col[i*3+1]=col[i*3+2]=1;}
+  }else return;
+  mesh.geometry.setAttribute('color',new THREE.BufferAttribute(col,3));
+  (Array.isArray(mesh.material)?mesh.material:[mesh.material]).forEach(m=>{m.vertexColors=true;m.map=null;m.color.set(0xffffff);m.emissive&&m.emissive.set(0x000000);m.needsUpdate=true;});
+};
+function refreshVView(){const t=Z.editTarget();if(t){Z.rebuildGeom(t.inst,t.gi);Z.buildEditOverlay();}else Z.refreshMaterials();}
+/* ================= SKIN PANELI ================= */
+Z.extraPanels.skin=function(p){
+  const t=Z.editTarget();if(!t){noTarget(p,'Skin obyektini (masalan, ped/odam modeli) daraxtdan tanlang.');return;}
+  const sk=skinInfo(t.gm);
+  if(!sk){p.appendChild(H('div','card','Bu geometriyada skin (suyak vaznlari) yo‘q.'));return;}
+  const bones=boneFrames(t.inst);
+  p.appendChild(H('div','card','Suyaklar: <b>'+sk.nb+'</b> · ishlatilgan: <b>'+sk.nu+'</b> · bir nuqtaga ko‘pi bilan: <b>'+sk.mw+'</b> ta suyak'));
+  if(!(S.vbone>=0))S.vbone=0;
+  p.appendChild(H('h4',null,'Suyak tanlash'));
+  const sel=H('select');for(let i=0;i<sk.nb;i++){const o=H('option',null,'#'+i+' '+(bones[i]>=0?esc(t.inst.frames[bones[i]].name):'(nomsiz)')+(sk.used.includes(i)?'':' — ishlatilmaydi'));o.value=i;if(i===S.vbone)o.selected=true;sel.appendChild(o);}
+  sel.onchange=()=>{S.vbone=+sel.value;if(S.vview==='skin')refreshVView();};p.appendChild(sel);
+  p.appendChild(rowOf(btn(S.vview==='skin'?'Vazn xaritasi ✓':'Vazn xaritasini ko‘rsatish',()=>{S.vview=S.vview==='skin'?null:'skin';refreshVView();rp();},'sm '+(S.vview==='skin'?'on':'')),btn('Suyakka o‘tish',()=>{if(bones[S.vbone]>=0)Z.selectNode(bones[S.vbone]);},'sm')));
+  p.appendChild(H('div','mut','Qizil — vazn 1, ko‘k — 0. Ko‘rsatish uchun suyakni tanlang.'));
+  p.appendChild(H('h4',null,'Vaznni bo‘yash (tanlangan nuqtalarga)'));
+  const st=H('div','card');st.innerHTML='<div class="row" style="margin:0;justify-content:space-between"><span>Kuch (strength)</span><b id="sv">0.50</b></div><input type="range" id="ss" min="0.05" max="1" step="0.05" value="0.5">';p.appendChild(st);
+  st.querySelector('#ss').oninput=e=>st.querySelector('#sv').textContent=(+e.target.value).toFixed(2);
+  const act=mode=>()=>{
+    if(!S.edit||S.level!=='vertex'){toast('Tahrir rejimida “Nuqta” tanlab, nuqtalarni belgilang',1);return;}
+    const ids=Z.selVertexIds(t.gm);if(!ids.length){toast('Avval nuqta tanlang',1);return;}
+    if(!sk.used.includes(S.vbone)){toast('Bu suyak ushbu geometriyada ishlatilmaydi — o‘zgartirib bo‘lmaydi',1);return;}
+    Z.pushUndo(t.inst);skinPaint(t.gm,sk,ids,S.vbone,mode,+st.querySelector('#ss').value);if(S.vview==='skin')refreshVView();toast('Vazn o‘zgartirildi: '+ids.length+' nuqta');
+  };
+  p.appendChild(rowOf(btn('Belgilash (Set)',act('set'),'sm'),btn('Qo‘shish (+)',act('add'),'sm'),btn('Ayirish (−)',act('sub'),'sm')));
+  p.appendChild(H('div','mut','Skin geometriyada nuqta qo‘shish/o‘chirish, bo‘lish, birlashtirish o‘chirilgan (suyak vaznlari buzilmasligi uchun).'));
+};
+// skin geometriyada tuzilmani buzadigan amallarni bloklash
+['opDelete','opExtrude','opWeld','opSubdivide','opDetachFaces'].forEach(k=>{const f=Z[k];Z[k]=function(){const t=Z.editTarget();if(t&&t.gm.skinData){toast('Bu amal skin uchun qo‘llab-quvvatlanmaydi',1);return;}return f.apply(this,arguments);};});
+{const f=Z.opMirror;Z.opMirror=function(a,copy){const t=Z.editTarget();if(copy&&t&&t.gm.skinData){toast('Bu amal skin uchun qo‘llab-quvvatlanmaydi',1);return;}return f.apply(this,arguments);};}
+{const f=Z.opJoin;Z.opJoin=function(a,b){const i=Z.S.cur,sk=n=>i.atomics.some(x=>x.frame===n&&i.geoms[x.geom].skinData);if(sk(a)||sk(b)){toast('Bu amal skin uchun qo‘llab-quvvatlanmaydi',1);return;}return f.apply(this,arguments);};}
+/* ================= SPLITS ================= */
+Z.extraPanels.split=function(p){
+  const t=Z.editTarget();if(!t){noTarget(p);return;}const gm=t.gm,cnt=gm.materials.map(()=>0);
+  for(let i=3;i<gm.tris.length;i+=4)cnt[gm.tris[i]]=(cnt[gm.tris[i]]||0)+1;
+  p.appendChild(H('h4',null,'Splits — '+esc(Z.S.cur.frames[S.sel].name)));
+  p.appendChild(H('div','mut','Split — bitta materialga tegishli yuzlar to‘plami (DFF dagi Bin Mesh bo‘linmalari).'));
+  gm.materials.forEach((m,i)=>{
+    const d=H('div','mat');const sw=H('div','sw');sw.style.background='rgb('+m.color.slice(0,3).join(',')+')';const tx=m.tex?S.tex.get(m.tex.toLowerCase()):null;if(tx){sw.style.backgroundImage='url('+tx.canvas.toDataURL('image/png')+')';}
+    d.appendChild(sw);d.appendChild(H('div',null,'<b>Split #'+i+'</b> '+(m.tex?esc(m.tex):'<span class="mut">teksturasiz</span>')+'<div class="mut">'+(cnt[i]||0)+' uchburchak</div>'));
+    const col=H('div');col.style.cssText='display:flex;gap:5px;margin-left:auto';
+    col.appendChild(btn('Tanlash',e=>{e.stopPropagation();if(!S.edit){Z.toggleEdit();}S.level='face';Z.buildEditOverlay();Z.selectNone();for(let f=0;f<gm.tris.length/4;f++)if(gm.tris[f*4+3]===i)S.selF.add(f);Z.updateSelVisual();Z.renderTools();rp();},'sm'));
+    col.appendChild(btn('✕',async e=>{e.stopPropagation();if(gm.skinData){toast('Skin uchun qo‘llab-quvvatlanmaydi',1);return;}if(!(cnt[i]>0)){toast('Bu split bo‘sh');return;}if(await Z.confirmBox('Splitni o‘chirish','Split #'+i+' ('+cnt[i]+' uchburchak) o‘chirilsinmi?','O‘chirish')){Z.pushUndo(t.inst);const keep=new Uint8Array(gm.tris.length/4).fill(1);for(let f=0;f<keep.length;f++)if(gm.tris[f*4+3]===i)keep[f]=0;Z.keepTris(gm,keep);Z.pruneVerts(gm);Z.afterEdit(t);toast('Split o‘chirildi');}},'sm dng'));
+    d.appendChild(col);p.appendChild(d);
+  });
+  p.appendChild(H('h4',null,'Geometriya nomi'));
+  const f=H('input');f.type='text';f.value=Z.S.cur.frames[S.sel].name;f.onfocus=()=>window.__typing=1;f.onblur=()=>window.__typing=0;
+  p.appendChild(rowOf(f,btn('Saqlash',()=>{if(!f.value.trim()){toast('Nom bo‘sh bo‘lmasin',1);return;}Z.opRename(S.sel,f.value);},'sm')));
+  const dup=Z.S.cur.frames.filter(x=>x.name===Z.S.cur.frames[S.sel].name).length;if(dup>1)p.appendChild(H('div','card','<span class="chip w">!</span>Bu nom '+dup+' marta uchraydi — o‘yin buzilishi mumkin. “Tuzatish” (Fayl menyusi) ni bosing.'));
+};
+/* ================= UV EDITOR ================= */
+let uvMat=0,uvZoom=1,uvPan=[0,0],uvCv=null;
+function uvIds(gm){const ids=Z.selCount()?Z.selVertexIds(gm):null;return ids||Array.from({length:gm.pos.length/3},(_,i)=>i);}
+function uvBase(gm){return{nV:gm.pos.length/3};}
+function ensureUV(gm){if(!gm.uv||gm.uv.length!==gm.pos.length/3*2){gm.uv=new Float32Array(gm.pos.length/3*2);return true;}return false;}
+function uvOp(fn,msg){
+  const t=Z.editTarget();if(!t)return;Z.pushUndo(t.inst);ensureUV(t.gm);fn(t.gm,uvIds(t.gm));Z.afterEdit(t,true);toast(msg||'UV o‘zgartirildi');
+}
+function uvBounds(gm,ids){let a=1e9,b=1e9,c=-1e9,d=-1e9;ids.forEach(v=>{a=Math.min(a,gm.uv[v*2]);c=Math.max(c,gm.uv[v*2]);b=Math.min(b,gm.uv[v*2+1]);d=Math.max(d,gm.uv[v*2+1]);});return[a,b,c,d];}
+function project(gm,ids,kind){
+  const p=gm.pos;let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];ids.forEach(v=>{for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],p[v*3+k]);mx[k]=Math.max(mx[k],p[v*3+k]);}});
+  const sz=mx.map((m,k)=>Math.max(m-mn[k],1e-9)),c=mx.map((m,k)=>(m+mn[k])/2);
+  ids.forEach(v=>{const x=p[v*3],y=p[v*3+1],z=p[v*3+2];let u,w;
+    if(kind==='x'){u=(y-mn[1])/sz[1];w=1-(z-mn[2])/sz[2];}
+    else if(kind==='y'){u=(x-mn[0])/sz[0];w=1-(z-mn[2])/sz[2];}
+    else if(kind==='z'){u=(x-mn[0])/sz[0];w=1-(y-mn[1])/sz[1];}
+    else if(kind==='box'){const n=gm.nrm,ax=Math.abs(n[v*3]),ay=Math.abs(n[v*3+1]),az=Math.abs(n[v*3+2]);
+      if(ax>=ay&&ax>=az){u=(y-mn[1])/sz[1];w=1-(z-mn[2])/sz[2];}else if(ay>=az){u=(x-mn[0])/sz[0];w=1-(z-mn[2])/sz[2];}else{u=(x-mn[0])/sz[0];w=1-(y-mn[1])/sz[1];}}
+    else if(kind==='cyl'){u=Math.atan2(y-c[1],x-c[0])/(2*Math.PI)+.5;w=1-(z-mn[2])/sz[2];}
+    else{const dx=x-c[0],dy=y-c[1],dz=z-c[2],r=Math.hypot(dx,dy,dz)||1;u=Math.atan2(dy,dx)/(2*Math.PI)+.5;w=Math.acos(clamp(dz/r,-1,1))/Math.PI;}
+    gm.uv[v*2]=u;gm.uv[v*2+1]=w;});
+}
+function drawUV(){
+  const cv=uvCv;if(!cv)return;const t=Z.editTarget();const ctx=cv.getContext('2d'),W=cv.width,Hh=cv.height;
+  ctx.fillStyle='#0a1330';ctx.fillRect(0,0,W,Hh);
+  if(!t||!t.gm.uv)return;const gm=t.gm,m=gm.materials[uvMat];
+  const sc=W*.8*uvZoom,ox=W*.1+uvPan[0]*W,oy=Hh*.1+uvPan[1]*Hh;
+  const tx=m&&m.tex?S.tex.get(m.tex.toLowerCase()):null;
+  if(tx){ctx.globalAlpha=.9;ctx.drawImage(tx.canvas,ox,oy,sc,sc);ctx.globalAlpha=1;}
+  ctx.strokeStyle='#3a4c8f';ctx.lineWidth=1;ctx.strokeRect(ox,oy,sc,sc);
+  const selT=new Set(),selVs=new Set();
+  if(S.level==='face')S.selF.forEach(f=>selT.add(f));else S.selV.forEach(v=>selVs.add(v));
+  const tr=gm.tris,nT=Math.min(tr.length/4,80000);
+  ctx.beginPath();ctx.strokeStyle='rgba(31,214,245,.55)';
+  for(let f=0;f<nT;f++){if(tr[f*4+3]!==uvMat)continue;const a=tr[f*4],b=tr[f*4+1],c=tr[f*4+2];
+    ctx.moveTo(ox+gm.uv[a*2]*sc,oy+gm.uv[a*2+1]*sc);ctx.lineTo(ox+gm.uv[b*2]*sc,oy+gm.uv[b*2+1]*sc);ctx.lineTo(ox+gm.uv[c*2]*sc,oy+gm.uv[c*2+1]*sc);ctx.closePath();}
+  ctx.stroke();
+  ctx.fillStyle='#ffa31a';ctx.beginPath();
+  const mark=v=>{ctx.rect(ox+gm.uv[v*2]*sc-2.5,oy+gm.uv[v*2+1]*sc-2.5,5,5);};
+  if(S.level==='face')selT.forEach(f=>{for(let k=0;k<3;k++)mark(tr[f*4+k]);});else selVs.forEach(mark);
+  ctx.fill();
+}
+Z.extraPanels.uv=function(p){
+  const t=Z.editTarget();if(!t){noTarget(p);return;}const gm=t.gm;
+  if(uvMat>=gm.materials.length)uvMat=0;
+  p.appendChild(H('h4',null,'UV Editor — '+esc(Z.S.cur.frames[S.sel].name)));
+  if(!gm.uv){p.appendChild(H('div','card','Bu geometriyada UV yo‘q.'));p.appendChild(rowOf(btn('UV yaratish (quti proyeksiyasi)',()=>uvOp((g,ids)=>project(g,ids,'box'),'UV yaratildi'),'pri')));return;}
+  const sel=H('select');gm.materials.forEach((m,i)=>{const o=H('option',null,'Split #'+i+' · '+(m.tex||'teksturasiz'));o.value=i;if(i===uvMat)o.selected=true;sel.appendChild(o);});sel.onchange=()=>{uvMat=+sel.value;drawUV();};p.appendChild(sel);
+  const cv=document.createElement('canvas');cv.width=cv.height=640;cv.style.cssText='width:100%;aspect-ratio:1;border-radius:12px;border:1px solid var(--ln);margin-top:8px;touch-action:none;background:#0a1330';p.appendChild(cv);uvCv=cv;
+  let dr=null;cv.onpointerdown=e=>{cv.setPointerCapture(e.pointerId);dr={x:e.clientX,y:e.clientY,hist:false};};
+  cv.onpointermove=e=>{if(!dr)return;const r=cv.getBoundingClientRect(),dx=(e.clientX-dr.x)/r.width,dy=(e.clientY-dr.y)/r.height;dr.x=e.clientX;dr.y=e.clientY;
+    if(Z.selCount()){if(!dr.hist){Z.pushUndo(t.inst);dr.hist=true;}const ids=Z.selVertexIds(gm),k=1/(.8*uvZoom);ids.forEach(v=>{gm.uv[v*2]+=dx*k*1.0;gm.uv[v*2+1]+=dy*k*1.0;});if(t.mesh.geometry.attributes.uv)t.mesh.geometry.attributes.uv.needsUpdate=true;redraw();}
+    else{uvPan[0]+=dx;uvPan[1]+=dy;}drawUV();};
+  cv.onpointerup=()=>{dr=null;};
+  cv.onwheel=e=>{e.preventDefault();uvZoom=clamp(uvZoom*Math.exp(-e.deltaY*.001),.2,12);drawUV();};
+  const z=H('input');z.type='range';z.min=.3;z.max=8;z.step=.1;z.value=uvZoom;z.oninput=()=>{uvZoom=+z.value;drawUV();};p.appendChild(z);
+  p.appendChild(H('div','mut','Nuqta/yuz tanlang → UV maydonida sudrab suring. Hech narsa tanlanmasa — amallar butun geometriyaga qo‘llanadi, sudrash esa ko‘rinishni suradi.'));
+  p.appendChild(H('h4',null,'Aylantirish va aks ettirish'));
+  const mid=(g,ids)=>{const b=uvBounds(g,ids);return[(b[0]+b[2])/2,(b[1]+b[3])/2];};
+  p.appendChild(rowOf(btn('Flip U',()=>uvOp((g,ids)=>{const c=mid(g,ids);ids.forEach(v=>g.uv[v*2]=2*c[0]-g.uv[v*2]);}),'sm'),btn('Flip V',()=>uvOp((g,ids)=>{const c=mid(g,ids);ids.forEach(v=>g.uv[v*2+1]=2*c[1]-g.uv[v*2+1]);}),'sm'),btn('90° ↻',()=>uvOp((g,ids)=>{const c=mid(g,ids);ids.forEach(v=>{const u=g.uv[v*2]-c[0],w=g.uv[v*2+1]-c[1];g.uv[v*2]=c[0]-w;g.uv[v*2+1]=c[1]+u;});}),'sm'),btn('0..1 ga sig‘dirish',()=>uvOp((g,ids)=>{const b=uvBounds(g,ids),su=b[2]-b[0]||1,sv=b[3]-b[1]||1;ids.forEach(v=>{g.uv[v*2]=(g.uv[v*2]-b[0])/su;g.uv[v*2+1]=(g.uv[v*2+1]-b[1])/sv;});}),'sm')));
+  const box=H('div','card');box.innerHTML='<label class="f" style="margin-top:0">Surish (U, V)</label><div class="xyz" style="grid-template-columns:1fr 1fr">'+num('uu',0)+num('uv',0)+'</div><label class="f">Masshtab (U, V)</label><div class="xyz" style="grid-template-columns:1fr 1fr">'+num('su',1)+num('sv',1)+'</div><div class="row" style="margin-top:8px"><button class="btn sm" id="bm">Surish</button><button class="btn sm" id="bs">Masshtab</button></div>';
+  p.appendChild(box);box.querySelectorAll('input').forEach(i=>{i.onfocus=()=>window.__typing=1;i.onblur=()=>window.__typing=0;});
+  const gv=id=>parseFloat(box.querySelector('#'+id).value)||0;
+  box.querySelector('#bm').onclick=()=>uvOp((g,ids)=>{const du=gv('uu'),dv=gv('uv');ids.forEach(v=>{g.uv[v*2]+=du;g.uv[v*2+1]+=dv;});});
+  box.querySelector('#bs').onclick=()=>uvOp((g,ids)=>{const su=gv('su')||1,sv=gv('sv')||1,c=mid(g,ids);ids.forEach(v=>{g.uv[v*2]=c[0]+(g.uv[v*2]-c[0])*su;g.uv[v*2+1]=c[1]+(g.uv[v*2+1]-c[1])*sv;});});
+  p.appendChild(H('h4',null,'Avto-proyeksiya'));
+  const g2=H('div','grid3');[['Tekis X','x'],['Tekis Y','y'],['Tekis Z','z'],['Quti','box'],['Silindr','cyl'],['Shar','sph']].forEach(([n,k])=>g2.appendChild(btn(n,()=>uvOp((g,ids)=>project(g,ids,k),'Proyeksiya: '+n),'sm')));p.appendChild(g2);
+  requestAnimationFrame(drawUV);
+};
+window.addEventListener('zm:sel',()=>{if(S.ptab==='uv')drawUV();});
+/* ================= MATERIAL: qo'shimcha (yorug'lik, specular, prelit) ================= */
+const SPEC=0x253F2F6;
+function getSpec(m){const e=m.extChunk,c=e&&e.children&&e.children.find(k=>k.type===SPEC);if(!c||c.data.length<28)return null;const dv=new DataView(c.data.buffer,c.data.byteOffset,c.data.byteLength);let n='';for(let i=4;i<28&&c.data[i];i++)n+=String.fromCharCode(c.data[i]);return{level:dv.getFloat32(0,true),tex:n};}
+function setSpec(m,level,tex){
+  const e=m.extChunk||{type:3,ver:0x1803FFFF,children:[],tail:null},kids=(e.children||[]).filter(k=>k.type!==SPEC);
+  if(level!=null){const d=new Uint8Array(28),dv=new DataView(d.buffer);dv.setFloat32(0,level,true);for(let i=0;i<Math.min(23,(tex||'').length);i++)d[4+i]=tex.charCodeAt(i)&127;kids.push({type:SPEC,ver:e.ver,data:d});}
+  return Object.assign({},e,{children:kids});
+}
+Z.matExtras=function(p,gm,m,mi){
+  const sp=getSpec(m);
+  p.appendChild(H('h4',null,'Yorug‘lik (Lighting)'));
+  const c=H('div','card');
+  c.innerHTML='<label class="f" style="margin-top:0">Ambient</label><input type="range" id="la" min="0" max="2" step="0.05" value="'+(m.amb==null?1:m.amb)+'"><label class="f">Diffuse</label><input type="range" id="ld" min="0" max="2" step="0.05" value="'+(m.diff==null?1:m.diff)+'"><label class="f">Specular (RW)</label><input type="range" id="ls" min="0" max="2" step="0.05" value="'+(m.spec==null?0:m.spec)+'">';
+  p.appendChild(c);
+  const ap=()=>Z.opMatSet(mi,{amb:+c.querySelector('#la').value,diff:+c.querySelector('#ld').value,spec:+c.querySelector('#ls').value});
+  ['#la','#ld','#ls'].forEach(s=>c.querySelector(s).onchange=ap);
+  p.appendChild(H('h4',null,'Specular (yaltiroq nuqta, GTA SA)'));
+  const sc=H('div','card');sc.innerHTML='<div class="row" style="margin:0;justify-content:space-between"><span>Specular PLG</span><b>'+(sp?'bor':'yo‘q')+'</b></div><label class="f">Daraja</label><input type="range" id="sl" min="0" max="4" step="0.05" value="'+(sp?sp.level:1)+'"><label class="f">Tekstura nomi</label><input type="text" id="st" value="'+esc(sp?sp.tex:'vehiclespecdot64')+'">';
+  p.appendChild(sc);sc.querySelectorAll('input').forEach(i=>{i.onfocus=()=>window.__typing=1;i.onblur=()=>window.__typing=0;});
+  p.appendChild(rowOf(btn(sp?'Yangilash':'Specular qo‘shish',()=>Z.opMatSet(mi,{extChunk:setSpec(m,+sc.querySelector('#sl').value,sc.querySelector('#st').value.trim()||'vehiclespecdot64')}),'sm'),btn('Olib tashlash',()=>Z.opMatSet(mi,{extChunk:setSpec(m,null)}),'sm dng')));
+  p.appendChild(H('h4',null,'Nuqta ranglari (prelit / day colors)'));
+  const has=!!gm.day;
+  p.appendChild(H('div','mut',has?'Bu geometriyada nuqta ranglari bor.':'Nuqta ranglari yo‘q (oq).'));
+  const col=H('input');col.type='color';col.value='#ffffff';col.style.width='46px';
+  p.appendChild(rowOf(col,btn('Tanlanganga berish',()=>{const t=Z.editTarget();if(!t||!S.edit){toast('Tahrir rejimida nuqta/yuz tanlang',1);return;}const ids=Z.selVertexIds(t.gm);if(!ids.length){toast('Avval nuqta tanlang',1);return;}Z.pushUndo(t.inst);const g=t.gm;if(!g.day){g.day=new Uint8Array(g.pos.length/3*4).fill(255);}const r=parseInt(col.value.slice(1,3),16),gg=parseInt(col.value.slice(3,5),16),b=parseInt(col.value.slice(5,7),16);ids.forEach(v=>{g.day[v*4]=r;g.day[v*4+1]=gg;g.day[v*4+2]=b;g.day[v*4+3]=255;});if(S.vview==='prelit')refreshVView();toast('Rang berildi: '+ids.length+' nuqta');},'sm'),btn('Hammasini oq',()=>{const t=Z.editTarget();if(!t)return;Z.pushUndo(t.inst);t.gm.day=null;if(S.vview==='prelit')refreshVView();Z.emit('ui');},'sm dng'),btn(S.vview==='prelit'?'Ko‘rsatish ✓':'Ko‘rsatish',()=>{S.vview=S.vview==='prelit'?null:'prelit';refreshVView();rp();},'sm '+(S.vview==='prelit'?'on':''))));
+};
+/* ================= POSE REJIMI + PLAY PART ================= */
+let POSE=null,PLAY=null;
+function poseMat(f){const r=f.rot;return new THREE.Matrix4().makeBasis(new THREE.Vector3(r[0],r[1],r[2]),new THREE.Vector3(r[3],r[4],r[5]),new THREE.Vector3(r[6],r[7],r[8]));}
+function setRot(f,m){const e=m.elements;f.rot=[e[0],e[1],e[2],e[4],e[5],e[6],e[8],e[9],e[10]];}
+function applyPose(fi,rx,ry,rz,dx,dy,dz){
+  const inst=S.cur,b=POSE.base[fi],f=inst.frames[fi];
+  const R=new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx*Math.PI/180,ry*Math.PI/180,rz*Math.PI/180,'XYZ'));
+  const bm=new THREE.Matrix4().makeBasis(new THREE.Vector3(b.rot[0],b.rot[1],b.rot[2]),new THREE.Vector3(b.rot[3],b.rot[4],b.rot[5]),new THREE.Vector3(b.rot[6],b.rot[7],b.rot[8]));
+  setRot(f,bm.multiply(R));f.pos=[b.pos[0]+dx,b.pos[1]+dy,b.pos[2]+dz];
+  Z.setFrameMatrix(inst.fobj[fi],f);inst.group.updateMatrixWorld(true);Z.updateSelBox();redraw();
+}
+function stopPlay(){if(PLAY){Z.Z_ANIM.fn=null;if(PLAY.fi!=null&&POSE){const f=S.cur.frames[PLAY.fi],b=POSE.base[PLAY.fi];f.rot=b.rot.slice();f.pos=b.pos.slice();Z.setFrameMatrix(S.cur.fobj[PLAY.fi],f);S.cur.group.updateMatrixWorld(true);}PLAY=null;redraw();}}
+Z.extraPanels.pose=function(p){
+  if(!S.cur){p.appendChild(H('div','mut','Avval model oching.'));return;}
+  const inst=S.cur;
+  p.appendChild(H('h4',null,'Pose rejimi'));
+  p.appendChild(H('div','mut','Eshik, kapot, g‘ildirak kabi qismlarni joyida burib ko‘rish. Pose ni “Saqlash” desangiz freym holati o‘zgaradi, “Tiklash” bo‘lsa avvalgi holatga qaytadi.'));
+  if(!POSE||POSE.inst!==inst){p.appendChild(rowOf(btn('Pose rejimini yoqish',()=>{POSE={inst,base:inst.frames.map(f=>({pos:f.pos.slice(),rot:f.rot.slice()}))};rp();toast('Pose rejimi yoqildi');},'pri')));return;}
+  p.appendChild(rowOf(btn('Tiklash (hammasi)',()=>{stopPlay();Z.pushUndo(inst);inst.frames.forEach((f,i)=>{f.pos=POSE.base[i].pos.slice();f.rot=POSE.base[i].rot.slice();Z.setFrameMatrix(inst.fobj[i],f);});inst.group.updateMatrixWorld(true);Z.updateSelBox();redraw();rp();},'sm dng'),btn('Saqlash va chiqish',()=>{stopPlay();Z.pushUndo(inst);POSE=null;rp();toast('Pose saqlandi');},'sm pri'),btn('Chiqish (tiklab)',()=>{stopPlay();inst.frames.forEach((f,i)=>{f.pos=POSE.base[i].pos.slice();f.rot=POSE.base[i].rot.slice();Z.setFrameMatrix(inst.fobj[i],f);});inst.group.updateMatrixWorld(true);POSE=null;redraw();rp();},'sm')));
+  const fi=S.sel;if(fi<0){p.appendChild(H('div','card','Daraxtdan yoki ko‘rinishdan qismni tanlang.'));return;}
+  p.appendChild(H('h4',null,'Tanlangan: '+esc(inst.frames[fi].name)));
+  const box=H('div','card');box.innerHTML='<label class="f" style="margin-top:0">Burilish X (daraja)</label><input type="range" id="rx" min="-180" max="180" step="1" value="0"><label class="f">Burilish Y</label><input type="range" id="ry" min="-180" max="180" step="1" value="0"><label class="f">Burilish Z</label><input type="range" id="rz" min="-180" max="180" step="1" value="0"><label class="f">Siljish X / Y / Z</label><div class="xyz">'+num('dx',0,'0.01')+num('dy',0,'0.01')+num('dz',0,'0.01')+'</div>';
+  p.appendChild(box);box.querySelectorAll('input[type=number]').forEach(i=>{i.onfocus=()=>window.__typing=1;i.onblur=()=>window.__typing=0;});
+  const upd=()=>{if(PLAY)stopPlay();applyPose(fi,+box.querySelector('#rx').value,+box.querySelector('#ry').value,+box.querySelector('#rz').value,+box.querySelector('#dx').value||0,+box.querySelector('#dy').value||0,+box.querySelector('#dz').value||0);};
+  box.querySelectorAll('input').forEach(i=>i.oninput=upd);
+  p.appendChild(H('h4',null,'Play Part (ko‘rib chiqish animatsiyasi)'));
+  const pl=H('div','card');pl.innerHTML='<label class="f" style="margin-top:0">O‘q</label><select id="pax"><option value="0">X</option><option value="1">Y</option><option value="2" selected>Z</option></select><label class="f">Burchak (±daraja)</label><input type="range" id="pang" min="5" max="120" value="45"><label class="f">Tezlik</label><input type="range" id="pspd" min="0.2" max="4" step="0.1" value="1">';
+  p.appendChild(pl);
+  p.appendChild(rowOf(btn(PLAY?'■ To‘xtatish':'▶ Boshlash',()=>{
+    if(PLAY){stopPlay();rp();return;}
+    const ax=+pl.querySelector('#pax').value,ang=+pl.querySelector('#pang').value,spd=+pl.querySelector('#pspd').value;PLAY={fi};const t0=performance.now();
+    Z.Z_ANIM.fn=now=>{const a=Math.sin((now-t0)/1000*spd*Math.PI)*ang,v=[0,0,0];v[ax]=a;applyPose(fi,v[0],v[1],v[2],0,0,0);};rp();
+  },PLAY?'dng':'pri')));
+};
+window.addEventListener('zm:ui',()=>{if(PLAY&&(!S.cur||S.sel!==PLAY.fi))stopPlay();});
+/* ================= 3DS EKSPORT ================= */
+Z.export3ds=function(inst){
+  const M=Z.worldMats(inst),enc=new TextEncoder(),parts=[];
+  const c=(id,...kids)=>{let len=0;const bs=kids.map(k=>k instanceof Uint8Array?k:new Uint8Array(k));bs.forEach(b=>len+=b.length);const o=new Uint8Array(6+len),dv=new DataView(o.buffer);dv.setUint16(0,id,true);dv.setUint32(2,6+len,true);let p=6;bs.forEach(b=>{o.set(b,p);p+=b.length;});return o;};
+  const str=s=>{const b=new Uint8Array(s.length+1);for(let i=0;i<s.length;i++)b[i]=s.charCodeAt(i)&127;return b;};
+  const u16=v=>{const b=new Uint8Array(2);new DataView(b.buffer).setUint16(0,v,true);return b;};
+  const u32=v=>{const b=new Uint8Array(4);new DataView(b.buffer).setUint32(0,v,true);return b;};
+  const matNames=new Map(),matChunks=[],objs=[];
+  const mname=m=>{const k=(m.tex||'rang')+'_'+m.color.join('_');let n=matNames.get(k);if(!n){n='m'+matNames.size+'_'+(m.tex||'rang').slice(0,12);matNames.set(k,n);matChunks.push(c(0xAFFF,c(0xA000,str(n)),c(0xA020,c(0x0011,new Uint8Array(m.color.slice(0,3)))),m.tex?c(0xA200,c(0xA300,str(m.tex+'.png'))):new Uint8Array(0)));}return n;};
+  const v3=new THREE.Vector3();let skipped=0;
+  inst.atomics.forEach(a=>{
+    const g=inst.geoms[a.geom];if(!g||!g.pos)return;
+    Z.splitGeom(Object.assign({},g,{nrm:g.nrm||new Float32Array(g.pos.length)})).forEach((sg,si)=>{
+      const nV=sg.pos.length/3,nT=sg.tris.length/4;if(nT>65535||nV>65535){skipped++;return;}
+      const vb=new Uint8Array(2+nV*12),vd=new DataView(vb.buffer);vd.setUint16(0,nV,true);
+      for(let i=0;i<nV;i++){v3.set(sg.pos[i*3],sg.pos[i*3+1],sg.pos[i*3+2]).applyMatrix4(M[a.frame]);vd.setFloat32(2+i*12,v3.x,true);vd.setFloat32(6+i*12,v3.y,true);vd.setFloat32(10+i*12,v3.z,true);}
+      const fb=new Uint8Array(2+nT*8),fd=new DataView(fb.buffer);fd.setUint16(0,nT,true);
+      for(let f=0;f<nT;f++){fd.setUint16(2+f*8,sg.tris[f*4],true);fd.setUint16(4+f*8,sg.tris[f*4+1],true);fd.setUint16(6+f*8,sg.tris[f*4+2],true);fd.setUint16(8+f*8,7,true);}
+      const per=new Map();for(let f=0;f<nT;f++){const mi=sg.tris[f*4+3];(per.get(mi)||per.set(mi,[]).get(mi)).push(f);}
+      const mats=[];per.forEach((list,mi)=>{const m=sg.materials[mi]||{color:[200,200,200,255],tex:''},nb=new Uint8Array(2+list.length*2);new DataView(nb.buffer).setUint16(0,list.length,true);list.forEach((f,k)=>new DataView(nb.buffer).setUint16(2+k*2,f,true));mats.push(c(0x4130,str(mname(m)),nb));});
+      const parts2=[c(0x4110,vb),c(0x4120,fb,...mats)];
+      if(sg.uv){const ub=new Uint8Array(2+nV*8),ud=new DataView(ub.buffer);ud.setUint16(0,nV,true);for(let i=0;i<nV;i++){ud.setFloat32(2+i*8,sg.uv[i*2],true);ud.setFloat32(6+i*8,1-sg.uv[i*2+1],true);}parts2.push(c(0x4140,ub));}
+      objs.push(c(0x4000,str((inst.frames[a.frame].name+(si?'_'+si:'')).slice(0,60)),c(0x4100,...parts2)));
+    });
+  });
+  if(!objs.length)throw new Error('3DS ga yozish uchun geometriya yo‘q'+(skipped?' (65535 dan katta)':''));
+  const ed=c(0x3D3D,c(0x3D3E,u32(3)),...matChunks,...objs);
+  const out=c(0x4D4D,c(0x0002,u32(3)),ed);
+  if(skipped)toast(skipped+' ta qism 65535 chegarasidan katta bo‘lgani uchun tashlab ketildi',1);
+  return new Blob([out],{type:'application/octet-stream'});
+};
+/* ================= NODE: uzoq bosish menyusi + pivot ================= */
+function centerPivot(fi){
+  const inst=S.cur,ats=inst.atomics.filter(a=>a.frame===fi&&inst.geoms[a.geom].pos&&!inst.geoms[a.geom].skinData);if(!ats.length){toast('Pivot uchun skin bo‘lmagan geometriya kerak',1);return;}
+  Z.pushUndo(inst);const mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+  ats.forEach(a=>{const p=inst.geoms[a.geom].pos;for(let i=0;i<p.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],p[i+k]);mx[k]=Math.max(mx[k],p[i+k]);}});
+  const c=mx.map((m,k)=>(m+mn[k])/2);
+  ats.forEach(a=>{const p=inst.geoms[a.geom].pos;for(let i=0;i<p.length;i+=3){p[i]-=c[0];p[i+1]-=c[1];p[i+2]-=c[2];}});
+  const f=inst.frames[fi],R=poseMat(f),v=new THREE.Vector3(c[0],c[1],c[2]).applyMatrix4(new THREE.Matrix4().extractRotation(R));
+  f.pos=[f.pos[0]+v.x,f.pos[1]+v.y,f.pos[2]+v.z];
+  inst.children&&0;
+  // shu freymning bolalari joyini saqlash
+  inst.frames.forEach(ch=>{if(ch.parent===fi){const cv=new THREE.Vector3(ch.pos[0]-c[0],ch.pos[1]-c[1],ch.pos[2]-c[2]);ch.pos=[cv.x,cv.y,cv.z];}});
+  Z.buildScene(inst);Z.afterStructure();toast('Pivot markazga qo‘yildi');
+}
+Z.opCenterPivot=centerPivot;
+function flipNodeNormals(fi){const inst=S.cur;Z.pushUndo(inst);inst.atomics.forEach(a=>{if(a.frame!==fi)return;const g=inst.geoms[a.geom];if(!g.pos)return;for(let f=0;f<g.tris.length;f+=4){const b=g.tris[f+1];g.tris[f+1]=g.tris[f+2];g.tris[f+2]=b;}Z.computeNormals(g);});Z.buildScene(inst);Z.afterStructure();toast('Yuzlar teskarilandi');}
+Z.nodeMenu=function(fi){
+  const inst=S.cur;if(!inst||!inst.frames[fi])return;Z.selectNode(fi);
+  const w=H('div');w.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:6px';
+  const act=(t,fn,cls)=>w.appendChild(btn(t,()=>{$('#shade').classList.remove('on');setTimeout(fn,30);},'sm '+(cls||'')));
+  act('Nomini o‘zgartirish',()=>Z.renameDlg(fi));act('Xususiyatlar',()=>Z.propsDlg(fi));act('Nusxa',Z.opCopyNode);act('Ko‘chirish (ota)',()=>Z.reparentDlg(fi));
+  act('Birlashtirish (join)',()=>Z.joinDlg(fi));act('Almashtirish (replace)',()=>Z.replaceDlg(fi));act('Biriktirish (attach)',()=>Z.attachDlg(fi));act('Yakkalash',()=>Z.opIsolate(fi));
+  act('Pivot markazga',()=>centerPivot(fi));act('Yuzlarni teskari',()=>flipNodeNormals(fi));act('Yashirish/ko‘rsatish',()=>Z.opToggleHide(fi));act('O‘chirish',()=>Z.delDlg(),'dng');
+  Z.dialog('Tugun: '+inst.frames[fi].name,w,[{t:'Yopish',v:null}]);
+};
+(function(){
+  let tm=null,sx=0,sy=0,fi=-1;const pane=$('#pane');
+  pane.addEventListener('pointerdown',e=>{const r=e.target.closest('.tn');if(!r||r.dataset.fi==null||e.target.closest('.ey'))return;fi=+r.dataset.fi;sx=e.clientX;sy=e.clientY;clearTimeout(tm);tm=setTimeout(()=>{tm=null;pane.dataset.lp='1';Z.nodeMenu(fi);},550);});
+  pane.addEventListener('pointermove',e=>{if(tm&&Math.hypot(e.clientX-sx,e.clientY-sy)>8){clearTimeout(tm);tm=null;}});
+  ['pointerup','pointercancel','pointerleave'].forEach(ev=>pane.addEventListener(ev,()=>{clearTimeout(tm);tm=null;}));
+  pane.addEventListener('click',e=>{if(pane.dataset.lp){pane.dataset.lp='';e.stopPropagation();e.preventDefault();}},true);
+  pane.addEventListener('contextmenu',e=>{const r=e.target.closest('.tn');if(r&&r.dataset.fi!=null){e.preventDefault();Z.nodeMenu(+r.dataset.fi);}});
+})();
+Z.renderTools();Z.hud();tip();
 })();
 
 </script>
