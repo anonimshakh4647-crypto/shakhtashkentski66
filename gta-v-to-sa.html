@@ -1029,6 +1029,248 @@ function exportOBJ(model,lod,texNames){
 Object.assign(G,{modelFromFragment,modelFromDrawables,modelFromDff,modelStats,exportOBJ,FLIP_TAGS});
 })(GV);
 
+/* ===== Mesh decimation (quadric edge collapse, seam/material aware) ===== */
+(function(G){
+'use strict';
+/* spec: {pos:Float32Array, nrm:Float32Array, uv:Float32Array|null, tris:[a,b,c,mat,...], materials, ...}
+   returns a new spec with about `target` triangles (or as close as the topology allows). */
+function decimateSpec(spec,target){
+  const nT0=spec.tris.length/4;
+  if(nT0<=target)return spec;
+  const nV=spec.pos.length/3;
+  const P=new Float32Array(spec.pos);
+  // ---- triangles
+  const tv=new Int32Array(nT0*3),tm=new Int32Array(nT0),alive=new Uint8Array(nT0);
+  let nAlive=0;
+  for(let t=0;t<nT0;t++){
+    const a=spec.tris[t*4],b=spec.tris[t*4+1],c=spec.tris[t*4+2];
+    tv[t*3]=a;tv[t*3+1]=b;tv[t*3+2]=c;tm[t]=spec.tris[t*4+3];
+    alive[t]=(a!==b&&b!==c&&a!==c)?1:0;nAlive+=alive[t];
+  }
+  // ---- weld split vertices by position -> pv
+  const pvOf=new Int32Array(nV);let nPV=0;
+  const keyMap=new Map();
+  // quantise to 1e-5 relative to bbox
+  let mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30];
+  for(let i=0;i<nV;i++)for(let k=0;k<3;k++){const v=P[i*3+k];if(v<mn[k])mn[k]=v;if(v>mx[k])mx[k]=v;}
+  const diag=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])||1,q=1/(diag*1e-6);
+  for(let i=0;i<nV;i++){
+    const key=Math.round(P[i*3]*q)+','+Math.round(P[i*3+1]*q)+','+Math.round(P[i*3+2]*q);
+    let id=keyMap.get(key);if(id===undefined){id=nPV++;keyMap.set(key,id);}pvOf[i]=id;
+  }
+  keyMap.clear();
+  const PP=new Float64Array(nPV*3);          // pv positions
+  for(let i=0;i<nV;i++){const p=pvOf[i];PP[p*3]=P[i*3];PP[p*3+1]=P[i*3+1];PP[p*3+2]=P[i*3+2];}
+  const members=new Array(nPV);for(let p=0;p<nPV;p++)members[p]=null; // extra sv's moved onto this pv (unmapped)
+  // ---- pv -> triangle lists
+  const tl=new Array(nPV);for(let p=0;p<nPV;p++)tl[p]=[];
+  for(let t=0;t<nT0;t++){if(!alive[t])continue;for(let k=0;k<3;k++){const p=pvOf[tv[t*3+k]];const L=tl[p];if(L[L.length-1]!==t)L.push(t);}}
+  // ---- quadrics (10 floats / pv): a2 ab ac ad b2 bc bd c2 cd d2
+  const Q=new Float64Array(nPV*10);
+  const addPlane=(p,nx,ny,nz,d,w)=>{
+    const o=p*10;
+    Q[o]+=w*nx*nx;Q[o+1]+=w*nx*ny;Q[o+2]+=w*nx*nz;Q[o+3]+=w*nx*d;
+    Q[o+4]+=w*ny*ny;Q[o+5]+=w*ny*nz;Q[o+6]+=w*ny*d;
+    Q[o+7]+=w*nz*nz;Q[o+8]+=w*nz*d;Q[o+9]+=w*d*d;
+  };
+  const triNormal=(t,out)=>{
+    const a=pvOf[tv[t*3]],b=pvOf[tv[t*3+1]],c=pvOf[tv[t*3+2]];
+    const ux=PP[b*3]-PP[a*3],uy=PP[b*3+1]-PP[a*3+1],uz=PP[b*3+2]-PP[a*3+2];
+    const vx=PP[c*3]-PP[a*3],vy=PP[c*3+1]-PP[a*3+1],vz=PP[c*3+2]-PP[a*3+2];
+    out[0]=uy*vz-uz*vy;out[1]=uz*vx-ux*vz;out[2]=ux*vy-uy*vx;
+    return Math.hypot(out[0],out[1],out[2]);
+  };
+  const nrm=[0,0,0];
+  // edge usage at split-vertex level (seam / open / material borders)
+  const edgeInfo=new Map(); // key(sv min,max) -> [count, mat, mixed]
+  const ek=(a,b)=>a<b?a*nV+b:b*nV+a;
+  for(let t=0;t<nT0;t++){
+    if(!alive[t])continue;
+    for(let k=0;k<3;k++){
+      const a=tv[t*3+k],b=tv[t*3+(k+1)%3],key=ek(a,b);
+      const e=edgeInfo.get(key);
+      if(!e)edgeInfo.set(key,[1,tm[t],0]);else{e[0]++;if(e[1]!==tm[t])e[2]=1;}
+    }
+  }
+  for(let t=0;t<nT0;t++){
+    if(!alive[t])continue;
+    const area2=triNormal(t,nrm);if(area2<1e-18){continue;}
+    const nx=nrm[0]/area2,ny=nrm[1]/area2,nz=nrm[2]/area2;
+    const a=pvOf[tv[t*3]],b=pvOf[tv[t*3+1]],c=pvOf[tv[t*3+2]];
+    const d=-(nx*PP[a*3]+ny*PP[a*3+1]+nz*PP[a*3+2]);
+    const w=area2*0.5;
+    addPlane(a,nx,ny,nz,d,w);addPlane(b,nx,ny,nz,d,w);addPlane(c,nx,ny,nz,d,w);
+    // border constraint planes
+    for(let k=0;k<3;k++){
+      const sa=tv[t*3+k],sb=tv[t*3+(k+1)%3];
+      const e=edgeInfo.get(ek(sa,sb));
+      if(e[0]===2&&!e[2])continue;
+      const pa=pvOf[sa],pb=pvOf[sb];
+      const ex=PP[pb*3]-PP[pa*3],ey=PP[pb*3+1]-PP[pa*3+1],ez=PP[pb*3+2]-PP[pa*3+2];
+      const el=Math.hypot(ex,ey,ez);if(el<1e-12)continue;
+      let bx=ey*nz-ez*ny,by=ez*nx-ex*nz,bz=ex*ny-ey*nx;
+      const bl=Math.hypot(bx,by,bz);if(bl<1e-18)continue;bx/=bl;by/=bl;bz/=bl;
+      const bd=-(bx*PP[pa*3]+by*PP[pa*3+1]+bz*PP[pa*3+2]);
+      const bw=el*el*60;
+      addPlane(pa,bx,by,bz,bd,bw);addPlane(pb,bx,by,bz,bd,bw);
+    }
+  }
+  // ---- helpers
+  const costAt=(a,b,x,y,z)=>{ // error of (Qa+Qb) at point
+    const o=a*10,r=b*10;
+    const A=Q[o]+Q[r],B=Q[o+1]+Q[r+1],C=Q[o+2]+Q[r+2],D=Q[o+3]+Q[r+3],E=Q[o+4]+Q[r+4],F=Q[o+5]+Q[r+5],G2=Q[o+6]+Q[r+6],H=Q[o+7]+Q[r+7],I=Q[o+8]+Q[r+8],J=Q[o+9]+Q[r+9];
+    return A*x*x+2*B*x*y+2*C*x*z+2*D*x+E*y*y+2*F*y*z+2*G2*y+H*z*z+2*I*z+J;
+  };
+  const ver=new Int32Array(nPV),dead=new Uint8Array(nPV);
+  // binary min-heap on cost
+  const hc=[],ha=[],hb=[],hva=[],hvb=[];
+  const hpush=(c,a,b)=>{
+    let i=hc.length;hc.push(c);ha.push(a);hb.push(b);hva.push(ver[a]);hvb.push(ver[b]);
+    while(i>0){const p=(i-1)>>1;if(hc[p]<=hc[i])break;sw(i,p);i=p;}
+  };
+  const sw=(i,j)=>{let t=hc[i];hc[i]=hc[j];hc[j]=t;t=ha[i];ha[i]=ha[j];ha[j]=t;t=hb[i];hb[i]=hb[j];hb[j]=t;t=hva[i];hva[i]=hva[j];hva[j]=t;t=hvb[i];hvb[i]=hvb[j];hvb[j]=t;};
+  const hpop=()=>{
+    const n=hc.length-1;sw(0,n);const r=[hc.pop(),ha.pop(),hb.pop(),hva.pop(),hvb.pop()];
+    let i=0;const m=hc.length;
+    for(;;){const l=2*i+1,rr=l+1;let s=i;if(l<m&&hc[l]<hc[s])s=l;if(rr<m&&hc[rr]<hc[s])s=rr;if(s===i)break;sw(i,s);i=s;}
+    return r;
+  };
+  // neighbours of pv (alive)
+  const nbrs=(p)=>{
+    const out=new Set();const L=tl[p];let w=0;
+    for(let i=0;i<L.length;i++){
+      const t=L[i];if(!alive[t])continue;L[w++]=t;
+      for(let k=0;k<3;k++){const o=pvOf[tv[t*3+k]];if(o!==p)out.add(o);}
+    }
+    L.length=w;return out;
+  };
+  const pushEdgesOf=(p)=>{
+    const N=nbrs(p);
+    for(const o of N){
+      // a->b : move a onto b
+      hpush(costAt(p,o,PP[o*3],PP[o*3+1],PP[o*3+2]),p,o);
+      hpush(costAt(p,o,PP[p*3],PP[p*3+1],PP[p*3+2]),o,p);
+    }
+  };
+  for(let p=0;p<nPV;p++)if(tl[p].length)pushEdgesOf(p);
+  // dedupe: each undirected edge pushed from both ends -> fine (lazy)
+  // ---- collapse loop
+  const tn=[0,0,0];let flipMin=0.25;
+  const tryCollapse=(a,b)=>{
+    // a moves onto b. validity checks
+    const La=tl[a];
+    const shared=[];let apex=new Set();
+    const bx=PP[b*3],by=PP[b*3+1],bz=PP[b*3+2];
+    for(let i=0;i<La.length;i++){
+      const t=La[i];if(!alive[t])continue;
+      let hasB=false,third=-1;
+      for(let k=0;k<3;k++){const o=pvOf[tv[t*3+k]];if(o===b)hasB=true;else if(o!==a)third=o;}
+      if(hasB){shared.push(t);if(third>=0)apex.add(third);continue;}
+      // flip check: normal before/after
+      triNormal(t,tn);const l0=Math.hypot(tn[0],tn[1],tn[2]);
+      const ox=PP[a*3],oy=PP[a*3+1],oz=PP[a*3+2];
+      // temporarily compute with a replaced by b
+      let ids=[0,0,0];for(let k=0;k<3;k++){const o=pvOf[tv[t*3+k]];ids[k]=o===a?-1:o;}
+      const g=(id,c)=>id<0?(c===0?bx:c===1?by:bz):PP[id*3+c];
+      const ux=g(ids[1],0)-g(ids[0],0),uy=g(ids[1],1)-g(ids[0],1),uz=g(ids[1],2)-g(ids[0],2);
+      const vx=g(ids[2],0)-g(ids[0],0),vy=g(ids[2],1)-g(ids[0],1),vz=g(ids[2],2)-g(ids[0],2);
+      const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+      const l1=Math.hypot(nx,ny,nz);
+      if(l1<1e-14*Math.max(1,l0)&&l1<1e-12)return false;
+      if(l0>1e-18){const dot=(nx*tn[0]+ny*tn[1]+nz*tn[2])/(l0*l1||1);if(dot<flipMin)return false;}
+    }
+    if(!shared.length)return false;
+    // link condition
+    const Na=nbrs(a),Nb=nbrs(b);
+    for(const o of Na){if(o!==b&&Nb.has(o)&&!apex.has(o))return false;}
+    // ---- perform
+    const map=new Map();
+    for(const t of shared){
+      alive[t]=0;nAlive--;
+      let sa=-1,sb=-1;
+      for(let k=0;k<3;k++){const s=tv[t*3+k],o=pvOf[s];if(o===a)sa=s;else if(o===b)sb=s;}
+      if(sa>=0&&sb>=0&&!map.has(sa))map.set(sa,sb);
+    }
+    for(let i=0;i<La.length;i++){
+      const t=La[i];if(!alive[t])continue;
+      for(let k=0;k<3;k++){
+        const s=tv[t*3+k];
+        if(pvOf[s]!==a)continue;
+        const m=map.get(s);
+        if(m!==undefined)tv[t*3+k]=m;
+        else{ // keep own attributes, snap position onto b
+          pvOf[s]=b;
+          if(!members[b])members[b]=[];members[b].push(s);
+          P[s*3]=bx;P[s*3+1]=by;P[s*3+2]=bz;
+        }
+      }
+      tl[b].push(t);
+    }
+    // quadric accumulate
+    const o=a*10,r=b*10;for(let i=0;i<10;i++)Q[r+i]+=Q[o+i];
+    dead[a]=1;tl[a]=[];ver[a]++;ver[b]++;
+    pushEdgesOf(b);
+    return true;
+  };
+  const FLIPS=[0.25,0.0,-0.3,-0.6];
+  for(let pass=0;pass<FLIPS.length&&nAlive>target;pass++){
+    flipMin=FLIPS[pass];
+    if(pass>0){hc.length=ha.length=hb.length=hva.length=hvb.length=0;for(let p=0;p<nPV;p++)if(!dead[p]&&tl[p].length)pushEdgesOf(p);}
+    const before=nAlive;if(G.DEBUG)console.log("pass",pass,"alive",nAlive,"target",target);
+    while(nAlive>target&&hc.length){
+      const [c,a,b,va,vb]=hpop();
+      if(dead[a]||dead[b]||ver[a]!==va||ver[b]!==vb)continue;
+      tryCollapse(a,b);
+    }
+    if(pass>0&&before-nAlive<before*0.002)break;
+  }
+  // ---- rebuild
+  const remap=new Int32Array(nV).fill(-1);let nv2=0;
+  const keep=[];
+  for(let t=0;t<nT0;t++){
+    if(!alive[t])continue;
+    const a=tv[t*3],b=tv[t*3+1],c=tv[t*3+2];
+    if(a===b||b===c||a===c)continue;
+    if(pvOf[a]===pvOf[b]||pvOf[b]===pvOf[c]||pvOf[a]===pvOf[c])continue; // collapsed to a line
+    keep.push(t);
+  }
+  for(const t of keep)for(let k=0;k<3;k++){const s=tv[t*3+k];if(remap[s]<0)remap[s]=nv2++;}
+  const pos=new Float32Array(nv2*3),nr=new Float32Array(nv2*3),uv=spec.uv?new Float32Array(nv2*2):null;
+  for(let s=0;s<nV;s++){const r=remap[s];if(r<0)continue;
+    pos[r*3]=P[s*3];pos[r*3+1]=P[s*3+1];pos[r*3+2]=P[s*3+2];
+    nr[r*3]=spec.nrm[s*3];nr[r*3+1]=spec.nrm[s*3+1];nr[r*3+2]=spec.nrm[s*3+2];
+    if(uv){uv[r*2]=spec.uv[s*2];uv[r*2+1]=spec.uv[s*2+1];}}
+  const tris=new Array(keep.length*4);
+  keep.forEach((t,i)=>{tris[i*4]=remap[tv[t*3]];tris[i*4+1]=remap[tv[t*3+1]];tris[i*4+2]=remap[tv[t*3+2]];tris[i*4+3]=tm[t];});
+  // ---- re-smooth normals from the simplified geometry (respecting hard edges via the original normal)
+  {
+    const nK=keep.length,cnt=new Int32Array(nPV+1);
+    const fnx=new Float32Array(nK),fny=new Float32Array(nK),fnz=new Float32Array(nK);
+    for(let i=0;i<nK;i++){const t=keep[i];
+      const a=tv[t*3],b=tv[t*3+1],c=tv[t*3+2];
+      const ux=P[b*3]-P[a*3],uy=P[b*3+1]-P[a*3+1],uz=P[b*3+2]-P[a*3+2],vx=P[c*3]-P[a*3],vy=P[c*3+1]-P[a*3+1],vz=P[c*3+2]-P[a*3+2];
+      fnx[i]=uy*vz-uz*vy;fny[i]=uz*vx-ux*vz;fnz[i]=ux*vy-uy*vx;
+      for(let k=0;k<3;k++)cnt[pvOf[tv[t*3+k]]+1]++;}
+    for(let p=0;p<nPV;p++)cnt[p+1]+=cnt[p];
+    const fill=cnt.slice(0,nPV),lst=new Int32Array(cnt[nPV]);
+    for(let i=0;i<nK;i++){const t=keep[i];for(let k=0;k<3;k++){const p=pvOf[tv[t*3+k]];lst[fill[p]++]=i;}}
+    for(let s=0;s<nV;s++){
+      const r=remap[s];if(r<0)continue;
+      const p=pvOf[s],n0x=spec.nrm[s*3],n0y=spec.nrm[s*3+1],n0z=spec.nrm[s*3+2];
+      let sx=0,sy=0,sz=0;
+      for(let j=cnt[p];j<cnt[p+1];j++){const i=lst[j];const l=Math.hypot(fnx[i],fny[i],fnz[i]);if(l<1e-20)continue;
+        const d=(fnx[i]*n0x+fny[i]*n0y+fnz[i]*n0z)/l;
+        if(d>0.6){sx+=fnx[i];sy+=fny[i];sz+=fnz[i];}}
+      const l=Math.hypot(sx,sy,sz);
+      if(l>1e-20){nr[r*3]=sx/l;nr[r*3+1]=sy/l;nr[r*3+2]=sz/l;}
+    }
+  }
+  const out=Object.assign({},spec,{pos,nrm:nr,uv,tris});
+  return out;
+}
+G.decimateSpec=decimateSpec;
+})(GV);
+
 /* ===== GTA V vehicle -> GTA San Andreas (DFF + TXD) ===== */
 (function(G){
 'use strict';
@@ -1134,7 +1376,7 @@ class GeoAcc{
 function bboxOf(xms){let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];for(const xm of xms)for(let i=0;i<xm.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}return{mn,mx};}
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false,maxTris:40000},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -1221,7 +1463,7 @@ function convertToSA(model,texLookup,opts){
     const bb=bboxOf(xms);wheelDiam=Math.max(bb.mx[1]-bb.mn[1],bb.mx[2]-bb.mn[2]);
     report.info.push('G‘ildirak diametri ≈ '+wheelDiam.toFixed(2)+' m ('+w.p.name+' asos qilib olindi)');
   }
-  if(wheelSpecs){const wf=addFrame('wheel',0,[0,0,0]);addGeoms(wf,wheelSpecs);}
+  if(wheelSpecs){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',0,[0,0,0]);addGeoms(wf,wheelSpecs);}
   for(const sa of want){const wp=wheelPos[sa];if(!wp)continue;addFrame(sa+'_dummy',0,[wp.W[12],wp.W[13],wp.W[14]]);}
   if(!want.some(k=>wheelPos[k]))report.warnings.push('G‘ildirak (wheel_*) qismlari/suyaklari topilmadi — g‘ildirak dummylari yaratilmadi.');
   // 3. movable parts
@@ -1265,7 +1507,29 @@ function convertToSA(model,texLookup,opts){
       const acc=new GeoAcc();
       for(const p of lodSel){const c=classify(p.name);if(c.t==='wheel'||c.t==='mov'&&false)continue;for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,true),m,p.name);}
       const specs=acc.build(matResolver);
-      if(specs.length){const f=addFrame('chassis_vlo',0,[0,0,0]);addGeoms(f,specs);report.info.push('chassis_vlo (past LOD) qo‘shildi: '+specs.reduce((s,g)=>s+g.tris.length/4,0)+' poligon.');}
+      if(specs.length){specs.forEach(x=>{x._k='vlo';});const f=addFrame('chassis_vlo',0,[0,0,0]);addGeoms(f,specs);report.info.push('chassis_vlo (past LOD) qo‘shildi: '+specs.reduce((s,g)=>s+g.tris.length/4,0)+' poligon.');}
+    }
+  }
+  // 5b. polygon budget (GTA SA crashes on very heavy models)
+  const triCount=g=>g.tris.length/4;
+  if(opts.maxTris>0){
+    const total=geoms.reduce((n,g)=>n+triCount(g),0);
+    if(total>opts.maxTris){
+      const wheelCap=2000;let fixed=0,rest=0;
+      for(const g of geoms){if(g._k==='vlo')fixed+=triCount(g);else if(g._k==='wheel')fixed+=Math.min(triCount(g),wheelCap);else rest+=triCount(g);}
+      const ratio=Math.max(0.02,Math.min(1,(opts.maxTris-fixed)/Math.max(1,rest)));
+      const done=new Map();
+      for(let i=0;i<geoms.length;i++){
+        const g=geoms[i],n=triCount(g);let tgt;
+        if(g._k==='vlo')continue;
+        else if(g._k==='wheel')tgt=Math.min(n,wheelCap);
+        else tgt=Math.max(Math.min(n,150),Math.ceil(n*ratio));
+        if(tgt>=n)continue;
+        geoms[i]=G.decimateSpec(g,tgt);geoms[i]._k=g._k;
+      }
+      const after=geoms.reduce((n,g)=>n+triCount(g),0);
+      report.info.push('Poligon soni kamaytirildi: '+total.toLocaleString()+' → '+after.toLocaleString()+' (maks. '+opts.maxTris.toLocaleString()+'). Aks holda GTA SA qotib qoladi.');
+      if(after>opts.maxTris*1.15)report.warnings.push('Poligonni '+opts.maxTris.toLocaleString()+' gacha tushirib bo‘lmadi (hozir '+after.toLocaleString()+') — geometriya tuzilishi to‘sqinlik qildi.');
     }
   }
   // 6. textures
@@ -1286,7 +1550,7 @@ function convertToSA(model,texLookup,opts){
   // compact geoms (unused materials fine)
   const tris=geoms.reduce((s,g)=>s+g.tris.length/4,0),verts=geoms.reduce((s,g)=>s+g.pos.length/3,0);
   report.stats={frames:frames.length,geoms:geoms.length,tris,verts,textures:txdTexs.length};
-  if(tris>40000)report.warnings.push('Poligonlar soni juda ko‘p ('+tris+'). GTA SA uchun odatda 15–25 ming optimal; ZModeler’da soddalashtirish tavsiya etiladi.');
+  if(tris>60000)report.warnings.push('Poligonlar soni juda ko‘p ('+tris.toLocaleString()+'). GTA SA qotib qolishi mumkin — «Maks. poligon» ni kamaytiring.');
   const dff=DFF.serialize([DFF.buildClump({frames,geoms,atomics},DFF.VER_SA)]);
   const txd=G.buildTXD(txdTexs);
   const ws=Math.max(0.2,wheelDiam*opts.wheelScale);
@@ -1544,7 +1808,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,maxTex:1024,compress:'auto',mips:true,wheelScale:1,rot180:false}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,maxTex:1024,maxTris:40000,compress:'auto',mips:true,wheelScale:1,rot180:false}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -1745,6 +2009,7 @@ function paneConv(p){
   const lods=['high','med','low','vlow'].filter(l=>m.parts.some(x=>x.lod===l));
   p.appendChild(sel('Asosiy LOD','lod',lods.map(l=>[l,({high:'Yuqori (HD)',med:'O‘rta',low:'Past',vlow:'Juda past'})[l]])));
   if(car){p.appendChild(chk('Boshqa qismlar → chassis','mergeOther'));p.appendChild(chk('chassis_vlo (past LOD)','vlo'));p.appendChild(chk('_dam nusxalari (zarar)','damCopy'));p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));p.appendChild(inp('G‘ildirak o‘lchami ×','wheelScale','number',{step:'0.05',min:'0.3',max:'3'}));}
+  p.appendChild(sel('Maks. poligon (SA uchun)','maxTris',[[0,'Cheklovsiz (xavfli!)'],[20000,'20 000 (yengil)'],[40000,'40 000 (tavsiya)'],[60000,'60 000'],[100000,'100 000 (faqat limit adjuster bilan)']]));
   p.appendChild(sel('Maks. tekstura','maxTex',[[256,'256'],[512,'512'],[1024,'1024 (tavsiya)'],[2048,'2048']]));
   p.appendChild(sel('Siqish','compress',[['auto','Avto (DXT1/DXT3)'],['dxt1','Faqat DXT1'],['dxt3','Faqat DXT3'],['none','Siqilmagan 32-bit']]));
   p.appendChild(chk('Mipmap yaratish','mips'));
@@ -1756,7 +2021,7 @@ function paneConv(p){
 }
 async function runConvert(){
   const it=curItem();if(!it||busy)return;const m=it.model;
-  setBusy(true,'Konvertlanmoqda… (katta teksturalar bir necha soniya oladi)');await tick();await tick();
+  setBusy(true,'Konvertlanmoqda… (katta model va teksturalar 10–30 soniya olishi mumkin)');await tick();await tick();
   try{
     const res=G.convertToSA(m,n=>G.poolGet(n),Object.assign({},S.opts,{roles:it.roles||{}}));
     res.model=G.modelFromDff(res.dff,res.name+'.dff');S.result=res;
