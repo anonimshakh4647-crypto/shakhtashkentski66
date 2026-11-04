@@ -1045,7 +1045,7 @@ function decimateSpec(spec,target){
     tv[t*3]=a;tv[t*3+1]=b;tv[t*3+2]=c;tm[t]=spec.tris[t*4+3];
     alive[t]=(a!==b&&b!==c&&a!==c)?1:0;nAlive+=alive[t];
   }
-  const matTex=spec.materials.map(m=>!G.NOTEX&&!!(m&&m.tex));
+  const matTex=spec.materials.map(m=>!G.NOTEX&&!!(m&&m.tex&&!m.flat));
   // ---- weld split vertices by position -> pv
   const pvOf=new Int32Array(nV);let nPV=0;
   const keyMap=new Map();
@@ -1298,7 +1298,7 @@ function computeVisibility(geoms,isTransparent,res){
   let mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30];
   for(const g of geoms)for(let i=0;i<g.pos.length;i+=3)for(let k=0;k<3;k++){const v=g.pos[i+k];if(v<mn[k])mn[k]=v;if(v>mx[k])mx[k]=v;}
   const diag=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])||1;
-  const eps=diag*0.004;
+  const eps=diag*(G.VISEPS||0.0015);
   const dirs=[];for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++)if(x||y||z){const l=Math.hypot(x,y,z);dirs.push([x/l,y/l,z/l]);}
   for(const g of geoms){g._vis=new Uint8Array(g.tris.length/4);g._tr=g.materials.map(m=>!!isTransparent(m));}
   const zb=new Float32Array(res*res);
@@ -1480,7 +1480,7 @@ class GeoAcc{
 function bboxOf(xms){let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];for(const xm of xms)for(let i=0;i<xm.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}return{mn,mx};}
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false,maxTris:40000,hideHidden:true},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'orig',paintColor:[255,255,255,255]},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -1495,13 +1495,19 @@ function convertToSA(model,texLookup,opts){
   // part classes
   const objectMode=model.kind!=='yft';
   const cls=parts.map(p=>({p,c:objectMode?{t:'body',sa:'object'}:classify(p.name)}));
-  const roleFor=(mesh,partName)=>{const r=opts.roles[mesh.mat.shaderIndex]||'auto';return r==='auto'?(objectMode?'texture':autoRole(mesh.mat.shaderName,mesh.mat.tex,partName)):r;};
+  const roleFor=(mesh,partName)=>{const r=opts.roles[mesh.mat.shaderIndex]||'auto';
+    if(r!=='auto')return r;if(objectMode)return'texture';
+    const a=autoRole(mesh.mat.shaderName,mesh.mat.tex,partName);
+    // body painted with its own texture (e.g. plain white map): keep the original look
+    if(a==='paint1'&&opts.paintMode==='orig'&&mesh.mat.tex&&texLookup&&texLookup(mesh.mat.tex))return'texture';
+    return a;};
+  const paintCol=(role)=>(opts.paintMode==='fixed'||opts.paintMode==='orig')?(opts.paintColor||[255,255,255,255]).slice(0,3).concat(255):SA_COL[role];
   const lightByPos=(xm,a,b,c)=>{const x=(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3,y=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3;return'light_'+(y>=0?'f':'r')+(x<0?'l':'r');};
   const texFound=new Map(),fallbackPaint=new Set();
   const matResolver=(it,a,b,c,xm)=>{
     const role=roleFor(it.mesh,it.partName);
     if(role==='skip')return null;
-    if(role==='paint1'||role==='paint2'||role==='paint3'||role==='paint4')return{key:role,color:SA_COL[role]};
+    if(role==='paint1'||role==='paint2'||role==='paint3'||role==='paint4')return{key:role,color:paintCol(role)};
     if(role==='glass')return{key:'glass',color:SA_COL.glass};
     if(role==='black')return{key:'black',color:SA_COL.black};
     if(role==='light'){
@@ -1522,8 +1528,8 @@ function convertToSA(model,texLookup,opts){
     const dark=/tyre|tire|rubber|brake|disc/.test(((t||'')+' '+it.partName).toLowerCase());
     const bodyish=pc!=='wheel'&&pc!=='dummy'&&pc!=='steer';
     if(dark)return{key:'black',color:SA_COL.black};
-    if(opts.missTex==='paint'&&bodyish)return{key:'paint1',color:SA_COL.paint1};
-    if(opts.missTex==='auto'&&bodyish&&!objectMode&&isUnknownShader(sn)){fallbackPaint.add(sn||'?');return{key:'paint1',color:SA_COL.paint1};}
+    if(opts.missTex==='paint'&&bodyish)return{key:'paint1',color:paintCol('paint1')};
+    if(opts.missTex==='auto'&&bodyish&&!objectMode&&isUnknownShader(sn)){fallbackPaint.add(sn||'?');return{key:'paint1',color:paintCol('paint1')};}
     return{key:'plain',color:SA_COL.plain};
   };
   const frames=[{name:objectMode?name:'chassis_dummy',pos:[0,0,0],parent:-1}];
@@ -1615,6 +1621,15 @@ function convertToSA(model,texLookup,opts){
       if(specs.length){specs.forEach(x=>{x._k='vlo';});const f=addFrame('chassis_vlo',0,[0,0,0]);addGeoms(f,specs);report.info.push('chassis_vlo (past LOD) qo‘shildi: '+specs.reduce((s,g)=>s+g.tris.length/4,0)+' poligon.');}
     }
   }
+  // 5c. flag plain (uniform-colour) textures so the simplifier may treat them like flat colour
+  const flatCache=new Map();
+  const isFlatTex=tn=>{if(flatCache.has(tn))return flatCache.get(tn);let f=false;
+    const t=texLookup?texLookup(tn):null;
+    if(t&&t.rgba){const n=t.w*t.h,step=Math.max(1,Math.floor(n/2000));let s=[0,0,0],s2=[0,0,0],c=0;
+      for(let i=0;i<n;i+=step){for(let k=0;k<3;k++){const v=t.rgba[i*4+k];s[k]+=v;s2[k]+=v*v;}c++;}
+      let mx=0;for(let k=0;k<3;k++){const m=s[k]/c;mx=Math.max(mx,Math.sqrt(Math.max(0,s2[k]/c-m*m)));}f=mx<5;}
+    flatCache.set(tn,f);return f;};
+  for(const g of geoms)for(const m of g.materials)if(m.tex&&isFlatTex(m.tex))m.flat=true;
   if(opts.preset==='hq')report.warnings.push('SIFATLI nusxa: hech qanday poligon/tekstura kesilmagan. Faqat Blender/ZModeler uchun — GTA SA ga qo‘ymang (qotadi). O‘yin uchun «O‘yin uchun» maqsadida alohida konvertlang.');
   // 5b. polygon budget (GTA SA crashes on very heavy models)
   const triCount=g=>g.tris.length/4;
@@ -1656,6 +1671,37 @@ function convertToSA(model,texLookup,opts){
       report.info.push('Poligon soni kamaytirildi: '+total.toLocaleString()+' → '+after.toLocaleString()+' (maks. '+opts.maxTris.toLocaleString()+'). Aks holda GTA SA qotib qoladi.');
       if(after>opts.maxTris*1.15)report.warnings.push('Poligonni '+opts.maxTris.toLocaleString()+' gacha tushirib bo‘lmadi (hozir '+after.toLocaleString()+') — geometriya tuzilishi to‘sqinlik qildi.');
     }
+  }
+  // 5d. merge geometries that share one frame (one atomic per frame = how real SA cars are built; ZModeler needs it)
+  {
+    const ref=new Map();for(const a of atomics)ref.set(a.geom,(ref.get(a.geom)||0)+1);
+    const groups=new Map();atomics.forEach((a,i)=>{if(!groups.has(a.frame))groups.set(a.frame,[]);groups.get(a.frame).push(i);});
+    const ng=[],na=[];let merged=0;
+    const keyOf=m=>m.color.join(',')+'|'+(m.tex||'')+'|'+(m.mask||'');
+    const mergeList=list=>{
+      if(list.length===1)return list[0];
+      const mats=[],mk=new Map(),P=[],N=[],UV=[],tris=[];let base=0,anyUV=list.some(g=>g.uv);
+      for(const g of list){
+        const map=g.materials.map(m=>{const k=keyOf(m);let i=mk.get(k);if(i===undefined){i=mats.length;mats.push(m);mk.set(k,i);}return i;});
+        const nv=g.pos.length/3;
+        for(let i=0;i<g.pos.length;i++){P.push(g.pos[i]);N.push(g.nrm[i]);}
+        if(anyUV){if(g.uv)for(let i=0;i<nv*2;i++)UV.push(g.uv[i]);else for(let i=0;i<nv*2;i++)UV.push(0);}
+        for(let t=0;t<g.tris.length;t+=4)tris.push(g.tris[t]+base,g.tris[t+1]+base,g.tris[t+2]+base,map[g.tris[t+3]]);
+        base+=nv;
+      }
+      merged+=list.length-1;
+      return Object.assign({},list[0],{pos:new Float32Array(P),nrm:new Float32Array(N),uv:anyUV?new Float32Array(UV):null,tris,materials:mats});
+    };
+    for(const [frame,idxs] of groups){
+      const items=idxs.map(i=>atomics[i]);
+      const mergeable=items.length>1&&items.every(a=>ref.get(a.geom)===1);
+      if(!mergeable){for(const a of items){ng.push(geoms[a.geom]);na.push({frame,geom:ng.length-1});}continue;}
+      let cur=[],cv=0;
+      const flush=()=>{if(!cur.length)return;ng.push(mergeList(cur));na.push({frame,geom:ng.length-1});cur=[];cv=0;};
+      for(const a of items){const g=geoms[a.geom],nv=g.pos.length/3;if(cur.length&&cv+nv>65000)flush();cur.push(g);cv+=nv;}
+      flush();
+    }
+    if(merged){geoms.length=0;geoms.push(...ng);atomics.length=0;atomics.push(...na);report.info.push('Geometriyalar birlashtirildi: har bir qism endi bitta geometriya (ZModeler/SA uchun to‘g‘ri tuzilma).');}
   }
   // 6. textures
   const used=new Set();
@@ -1933,6 +1979,81 @@ function poolRemoveByOrigin(prefix){for(const [k,v] of [...POOL])if((v.origin||'
 Object.assign(G,{poolSuggest,loadFile,poolGet,poolList,poolClear,poolAdd,poolRemoveByOrigin,POOL});
 })(GV);
 
+/* ===== RPF7 archive reader (GTA V, unencrypted "OPEN"/none TOC; nested RPFs) ===== */
+(function(G){
+'use strict';
+const RPF7=0x37465052,ENC_OPEN=0x4E45504F,ENC_NONE=0,ENC_AES=0x0FFFFFF9;
+const memSrc=u8=>({size:u8.length,read:async(o,l)=>u8.subarray(o,Math.min(u8.length,o+l))});
+const fileSrc=f=>({size:f.size,read:async(o,l)=>new Uint8Array(await f.slice(o,Math.min(f.size,o+l)).arrayBuffer())});
+const rd32=(u,o)=>(u[o]|(u[o+1]<<8)|(u[o+2]<<16)|(u[o+3]<<24))>>>0;
+class RpfEncrypted extends Error{}
+async function readRpf(src,prefix,depth){
+  prefix=prefix||'';depth=depth||0;
+  const h=await src.read(0,16);
+  if(h.length<16||rd32(h,0)!==RPF7)throw new Error('Bu RPF7 (GTA V) arxivi emas'+(rd32(h,0)===0x32465052?' (RPF2 — GTA IV)':''));
+  const nE=rd32(h,4),nLen=rd32(h,8),enc=rd32(h,12);
+  if(enc!==ENC_OPEN&&enc!==ENC_NONE){
+    throw new RpfEncrypted('Bu RPF shifrlangan ('+(enc===ENC_AES?'AES':'NG')+') — o‘yinning o‘z arxivi. OpenIV/CodeWalker bilan ichidan .yft/.ytd fayllarni ajratib oling yoki modni OpenIV da «OPEN» (shifrsiz) RPF qilib saqlang.');
+  }
+  if(nE<1||nE>2000000||nLen>64e6)throw new Error('RPF sarlavhasi noto‘g‘ri');
+  const toc=await src.read(16,nE*16+nLen);
+  if(toc.length<nE*16+nLen)throw new Error('RPF fayli to‘liq emas');
+  const names=toc.subarray(nE*16);
+  const nameAt=o=>{let e=o;while(e<names.length&&names[e]!==0)e++;let s='';for(let i=o;i<e;i++)s+=String.fromCharCode(names[i]);return s;};
+  const E=[];
+  for(let i=0;i<nE;i++){
+    const c=toc.subarray(i*16,i*16+16),x=rd32(c,4);
+    if(x===0x7FFFFF00)E.push({dir:true,name:nameAt(rd32(c,0)),idx:rd32(c,8),cnt:rd32(c,12)});
+    else{
+      const size=c[2]|(c[3]<<8)|(c[4]<<16);let off=c[5]|(c[6]<<8)|(c[7]<<16);
+      const res=(x&0x80000000)!==0;
+      const e={dir:false,res,name:nameAt(c[0]|(c[1]<<8)),size};
+      if(res){e.off=off&0x7FFFFF;e.sys=rd32(c,8);e.gfx=rd32(c,12);}
+      else{e.off=off;e.unc=rd32(c,8);e.enc=rd32(c,12)===1;}
+      E.push(e);
+    }
+  }
+  const out=[];
+  const getData=async(e)=>{
+    const start=e.off*512;
+    if(e.res){
+      let size=e.size;
+      if(size===0xFFFFFF){const b=await src.read(start,16);size=(b[7]|(b[14]<<8)|(b[5]<<16)|(b[2]<<24))>>>0;}
+      const raw=await src.read(start,size);
+      const body=raw.subarray(16);
+      const ver=(((e.sys>>>28)&0xF)<<4)|((e.gfx>>>28)&0xF);
+      const o=new Uint8Array(16+body.length),dv=new DataView(o.buffer);
+      dv.setUint32(0,0x37435352,true);dv.setUint32(4,ver,true);dv.setUint32(8,e.sys,true);dv.setUint32(12,e.gfx,true);o.set(body,16);
+      return o;
+    }
+    if(e.enc)throw new RpfEncrypted('Bu fayl shifrlangan: '+e.name);
+    if(e.size===0)return await src.read(start,e.unc);
+    const comp=await src.read(start,e.size);
+    if(e.size<e.unc)return await G.inflateRaw(comp,e.unc);
+    return comp;
+  };
+  const walk=async(idx,path,d)=>{
+    const dir=E[idx];if(!dir||d>40)return;
+    for(let i=dir.idx;i<dir.idx+dir.cnt&&i<E.length;i++){
+      const e=E[i];
+      if(e.dir){await walk(i,path+e.name+'/',d+1);continue;}
+      const ext=(e.name.split('.').pop()||'').toLowerCase();
+      const item={path:prefix+path+e.name,name:e.name,ext,size:e.res?e.size:(e.unc||e.size),get:()=>getData(e)};
+      if(ext==='rpf'&&depth<3){
+        try{const inner=await readRpf(memSrc(await getData(e)),item.path+'/',depth+1);out.push(...inner);}
+        catch(err){if(err instanceof RpfEncrypted)out.encryptedInner=(out.encryptedInner||0)+1;}
+        continue;
+      }
+      out.push(item);
+    }
+  };
+  await walk(0,'',0);
+  return out;
+}
+async function listRpf(file){return readRpf(fileSrc(file),'',0);}
+Object.assign(G,{readRpf,listRpf,memSrc,fileSrc,RpfEncrypted});
+})(GV);
+
 /* ===== application UI ===== */
 (function(G){
 'use strict';
@@ -1941,7 +2062,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,preset:'game',maxTex:512,maxTris:40000,hideHidden:true,compress:'auto',mips:true,wheelScale:1,rot180:false}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'orig',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -1998,7 +2119,7 @@ function renderPane(){
 const ICON={yft:'YFT',ytd:'YTD',ydr:'YDR',ydd:'YDD',dff:'DFF',txd:'TXD',dds:'DDS',png:'IMG',jpg:'IMG',jpeg:'IMG',webp:'IMG',bmp:'IMG',gif:'IMG'};
 function paneFiles(p){
   p.appendChild(el('h3',{text:'Yuklangan fayllar'}));
-  if(!S.items.length)p.appendChild(el('div',{class:'card'},[el('div',{html:'<b>Mashinani konvertlash uchun:</b>'}),el('div',{class:'note',html:'1) <code>nom.yft</code> — mashina modeli<br>2) <code>nom.ytd</code> (va bo‘lsa <code>nom_hi.ytd</code>) — teksturalar<br>Fayllarni OpenIV yoki CodeWalker orqali RPF dan ajratib oling (Legacy/«eski» GTA V). Hammasini birdaniga sichqoncha bilan shu oynaga tashlang.'})]));
+  if(!S.items.length)p.appendChild(el('div',{class:'card'},[el('div',{html:'<b>Mashinani konvertlash uchun:</b>'}),el('div',{class:'note',html:'1) <code>nom.yft</code> — mashina modeli<br>2) <code>nom.ytd</code> (va bo‘lsa <code>nom_hi.ytd</code>) — teksturalar<br>Yoki mod <code>.rpf</code> faylini to‘g‘ridan-to‘g‘ri tashlang (shifrsiz «OPEN» RPF — ichidan YFT/YTD ni o‘zi topadi; o‘yinning shifrlangan RPF lari uchun OpenIV/CodeWalker kerak). Legacy («eski») GTA V. Hammasini birdaniga shu oynaga tashlang.'})]));
   S.items.forEach((it,i)=>{
     const isModel=!!it.model;
     p.appendChild(el('div',{class:'item'+(i===S.cur?' sel':''),onclick:()=>{if(isModel){S.cur=i;S.result=null;S.view='orig';S.hidden=new Set();S.hl=null;refresh();}}},[
@@ -2011,15 +2132,57 @@ function paneFiles(p){
   if(models.length>1)p.appendChild(el('div',{class:'note',text:'Bir nechta model bor: ko‘rish va konvertlash uchun ro‘yxatdan birini bosing.'}));
   p.appendChild(el('div',{class:'row'},[el('button',{class:'btn',type:'button',onclick:()=>$('#fileIn').click()},['📂 Fayl qo‘shish'])]));
   p.appendChild(el('h3',{text:'Qo‘llab-quvvatlanadigan formatlar'}));
-  p.appendChild(el('div',{class:'card',html:'<b>GTA V:</b> YFT (mashina/fragment), YDR (drawable), YDD (drawable lug‘ati), YTD (teksturalar)<br><b>GTA SA / VC / III:</b> DFF (model), TXD (teksturalar, PC)<br><b>Boshqa:</b> DDS, PNG, JPG, WEBP (tekstura sifatida)<br><span class="note">GTA V Enhanced (RSC8), shifrlangan RPF, YBN/YMAP/YCD hozircha yo‘q.</span>'}));
+  p.appendChild(el('div',{class:'card',html:'<b>GTA V:</b> RPF (shifrsiz/OPEN — ichidagi YFT/YTD ni tanlaysiz), YFT (mashina/fragment), YDR (drawable), YDD (drawable lug‘ati), YTD (teksturalar)<br><b>GTA SA / VC / III:</b> DFF (model), TXD (teksturalar, PC)<br><b>Boshqa:</b> DDS, PNG, JPG, WEBP (tekstura sifatida)<br><span class="note">GTA V Enhanced (RSC8), shifrlangan RPF, YBN/YMAP/YCD hozircha yo‘q.</span>'}));
 }
 function removeItem(i){
   const it=S.items[i];G.poolRemoveByOrigin(it.file);S.items.splice(i,1);
   if(S.cur===i||S.cur>=S.items.length)S.cur=S.items.findIndex(x=>x.model);
   S.result=null;S.view='orig';if(viewer)viewer.invalidateTextures();refresh();
 }
+/* ---------- RPF picker ---------- */
+const RPF_EXT=['yft','ytd','ydr','ydd'];
+function pseudoFile(item){return{name:item.name,get size(){return item.size;},arrayBuffer:async()=>{const u=await item.get();return u.buffer.slice(u.byteOffset,u.byteOffset+u.byteLength);}};}
+async function pickFromRpf(file){
+  setBusy(true,file.name+' (RPF) ochilmoqda…');await tick();
+  let list;
+  try{list=await G.listRpf(file);}
+  catch(e){setBusy(false);throw e;}
+  const rel=list.filter(x=>RPF_EXT.includes(x.ext)).sort((a,b)=>a.path.localeCompare(b.path));
+  setBusy(false);
+  if(!rel.length){throw new Error('RPF ichida .yft/.ytd/.ydr/.ydd topilmadi ('+list.length+' ta fayl'+(list.encryptedInner?', '+list.encryptedInner+' ta ichki shifrlangan RPF o‘tkazib yuborildi':'')+')');}
+  log(file.name+': '+list.length+' fayl, shundan model/tekstura: '+rel.length,'o');
+  if(rel.length<=6)return rel.map(pseudoFile);
+  return await new Promise(res=>{
+    const ov=el('div',{style:'position:fixed;inset:0;z-index:50;background:rgba(5,8,14,.78);display:flex;align-items:center;justify-content:center;padding:16px'});
+    const box=el('div',{class:'card',style:'width:min(720px,100%);max-height:86vh;display:flex;flex-direction:column;gap:8px;margin:0;padding:14px'});
+    box.appendChild(el('h3',{text:file.name+' — ichidan tanlang',style:'margin:0'}));
+    const q=el('input',{type:'text',placeholder:'Qidirish (masalan: adder)…',style:'background:var(--bg1);border:1px solid var(--line2);border-radius:7px;padding:7px 10px'});
+    box.appendChild(q);
+    const listEl=el('div',{style:'overflow:auto;flex:1;min-height:120px;border:1px solid var(--line);border-radius:8px;padding:4px 8px'});
+    const rows=rel.map(it=>{const cb=el('input',{type:'checkbox'});const lb=el('label',{style:'display:flex;gap:8px;align-items:center;padding:3px 0;cursor:pointer;font-size:12px'},[cb,el('span',{text:it.path,style:'flex:1;word-break:break-all'}),el('span',{text:G.fmtSize(it.size),style:'color:var(--dim)'})]);listEl.appendChild(lb);return{it,cb,lb};});
+    box.appendChild(listEl);
+    q.addEventListener('input',()=>{const k=q.value.toLowerCase().trim();rows.forEach(r=>{r.lb.style.display=!k||r.it.path.toLowerCase().includes(k)?'flex':'none';});});
+    const cnt=el('span',{class:'note',text:''});const upd=()=>{cnt.textContent=rows.filter(r=>r.cb.checked).length+' ta tanlandi';};rows.forEach(r=>r.cb.addEventListener('change',upd));upd();
+    const done=v=>{ov.remove();res(v);};
+    box.appendChild(el('div',{class:'row',style:'flex-wrap:wrap;gap:6px'},[
+      el('button',{class:'btn',type:'button',onclick:()=>{rows.forEach(r=>{if(r.lb.style.display!=='none')r.cb.checked=true;});upd();}},['Ko‘ringanlarni belgilash']),
+      el('button',{class:'btn',type:'button',onclick:()=>{rows.forEach(r=>r.cb.checked=false);upd();}},['Tozalash']),cnt,
+      el('span',{style:'flex:1'}),
+      el('button',{class:'btn',type:'button',onclick:()=>done([])},['Bekor']),
+      el('button',{class:'btn pri',type:'button',onclick:()=>done(rows.filter(r=>r.cb.checked).map(r=>pseudoFile(r.it)))},['Qo‘shish'])]));
+    ov.appendChild(box);document.body.appendChild(ov);q.focus();
+  });
+}
 async function addFiles(list){
-  const files=[...list];if(!files.length)return;
+  let files=[...list];if(!files.length)return;
+  { const ex=[];
+    for(const f of files){
+      if(/\.rpf$/i.test(f.name)){
+        try{ex.push(...await pickFromRpf(f));}catch(e){log(f.name+': '+e.message,'e');toast(f.name+': '+e.message);}
+      }else ex.push(f);
+    }
+    files=ex;if(!files.length){setBusy(false);return;}
+  }
   setBusy(true,'Fayllar o‘qilmoqda…');
   for(const f of files){
     await tick();
@@ -2146,14 +2309,23 @@ function paneConv(p){
   const sel=(label,key,opts)=>{const s=el('select',{},opts.map(([v,t])=>el('option',{value:v,text:t,selected:String(O[key])===String(v)})));s.addEventListener('change',()=>{O[key]=isNaN(+s.value)||s.value===''?s.value:+s.value;});return el('div',{class:'row'},[el('label',{text:label}),s]);};
   p.appendChild(inp('Model nomi','name','text',{maxlength:20,spellcheck:'false'}));
   {const ps=el('select',{},[['game','O‘yin uchun (yengil, GTA SA da ishlaydi)'],['hq','Sifatli — hech narsa kesilmaydi (faqat Blender/ZModeler)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.preset===v})));
-   ps.addEventListener('change',()=>{O.preset=ps.value;if(O.preset==='hq'){O.maxTris=0;O.hideHidden=false;O.maxTex=2048;}else{O.maxTris=40000;O.hideHidden=true;O.maxTex=512;}refresh(false);});
+   ps.addEventListener('change',()=>{O.preset=ps.value;if(O.preset==='hq'){O.maxTris=0;O.hideHidden=false;O.maxTex=2048;}else{O.maxTris=52000;O.hideHidden=true;O.maxTex=512;}refresh(false);});
    p.appendChild(el('div',{class:'row'},[el('label',{text:'Maqsad'}),ps]));
    if(O.preset==='hq')p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'⚠ Bu nusxada barcha poligonlar va teksturalar to‘liq saqlanadi (fayl nomiga _hq qo‘shiladi). U juda og‘ir — GTA SA ga QO‘YMANG, o‘yin qotadi. Faqat Blender/ZModeler da ko‘rish va tahrirlash uchun.'}));}
   const lods=['high','med','low','vlow'].filter(l=>m.parts.some(x=>x.lod===l));
   p.appendChild(sel('Asosiy LOD','lod',lods.map(l=>[l,({high:'Yuqori (HD)',med:'O‘rta',low:'Past',vlow:'Juda past'})[l]])));
   if(car){p.appendChild(chk('Boshqa qismlar → chassis','mergeOther'));p.appendChild(chk('chassis_vlo (past LOD)','vlo'));p.appendChild(chk('_dam nusxalari (zarar)','damCopy'));p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));p.appendChild(inp('G‘ildirak o‘lchami ×','wheelScale','number',{step:'0.05',min:'0.3',max:'3'}));}
+  if(car){
+    const pm=el('select',{},[['orig','Asl ko‘rinish (tekstura/oq rang saqlanadi)'],['fixed','Qat‘iy rang (quyidan)'],['game','O‘yin rangi belgisi (yashil, o‘yinda o‘zgaradi)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.paintMode===v})));
+    pm.addEventListener('change',()=>{O.paintMode=pm.value;});
+    p.appendChild(el('div',{class:'row'},[el('label',{text:'Kuzov rangi'}),pm]));
+    const hex=c=>'#'+c.slice(0,3).map(v=>('0'+(v|0).toString(16)).slice(-2)).join('');
+    const ci=el('input',{type:'color',value:hex(O.paintColor||[255,255,255])});
+    ci.addEventListener('input',()=>{const v=ci.value;O.paintColor=[parseInt(v.slice(1,3),16),parseInt(v.slice(3,5),16),parseInt(v.slice(5,7),16),255];});
+    p.appendChild(el('div',{class:'row'},[el('label',{text:'Qat‘iy rang tanlovi'}),ci]));
+  }
   p.appendChild(chk('Ko‘rinmaydigan ichki poligonlarni olib tashlash','hideHidden'));
-  p.appendChild(sel('Maks. poligon (SA uchun)','maxTris',[[0,'Cheklovsiz (xavfli!)'],[20000,'20 000 (yengil)'],[40000,'40 000 (tavsiya)'],[60000,'60 000'],[100000,'100 000 (faqat limit adjuster bilan)']]));
+  p.appendChild(sel('Maks. poligon (SA uchun)','maxTris',[[0,'Cheklovsiz (xavfli!)'],[30000,'30 000 (eng yengil)'],[40000,'40 000'],[52000,'52 000 (tavsiya, bitta geometriya)'],[100000,'100 000 (faqat limit adjuster bilan)']]));
   p.appendChild(sel('Maks. tekstura','maxTex',[[256,'256'],[512,'512 (SA uchun tavsiya)'],[1024,'1024 (chiroyli, og‘ir)'],[2048,'2048']]));
   p.appendChild(sel('Siqish','compress',[['auto','Avto (DXT1/DXT3)'],['dxt1','Faqat DXT1'],['dxt3','Faqat DXT3'],['none','Siqilmagan 32-bit']]));
   p.appendChild(chk('Mipmap yaratish','mips'));
@@ -2187,14 +2359,14 @@ function renderResult(p){
   c.appendChild(el('div',{class:'row',style:'flex-wrap:wrap'},[
     el('button',{class:'btn',type:'button',onclick:()=>save(r.name+'.dff',r.dff)},['⬇ DFF']),
     el('button',{class:'btn',type:'button',onclick:()=>save(r.name+'.txd',r.txd)},['⬇ TXD']),
-    el('button',{class:'btn',type:'button',title:'ZModeler .bmp teksturalarni qidiradi',onclick:()=>{const list=G.parseTXD(r.txd).filter(t=>t.rgba);save(r.name+'_bmp.zip',G.zipStore(list.map(t=>({name:t.name+'.bmp',data:rgbaToBMP(t.rgba,t.w,t.h)}))),'application/zip');}},['⬇ BMP (ZModeler)']),
+    el('button',{class:'btn',type:'button',title:'ZModeler .bmp teksturalarni qidiradi',onclick:()=>{const list=G.parseTXD(r.txd).filter(t=>t.rgba);save(r.name+'_zmodeler.zip',G.zipStore([{name:r.name+'.dff',data:r.dff}].concat(list.map(t=>({name:t.name+'.bmp',data:rgbaToBMP(t.rgba,t.w,t.h)})))),'application/zip');}},['⬇ ZModeler (DFF + BMP)']),
     el('button',{class:'btn pri',type:'button',onclick:async()=>{
       const files=[{name:r.name+'.dff',data:r.dff},{name:r.name+'.txd',data:r.txd},{name:'vehicles_ide_qator.txt',data:G.enc.encode(r.ide.replace('ID',' ID')+'\r\n')}];
       if(S.opts.pngCopies!==false){for(const n of (r.texNames||[])){const t=G.poolGet((r.texMap&&r.texMap[n])||n);if(t&&t.rgba)files.push({name:n+'.png',data:await rgbaToPNG(t.rgba,t.w,t.h)});}}
       save(r.name+'_SA.zip',G.zipStore(files),'application/zip');}},['⬇ ZIP (hammasi + PNG)'])]));
   c.appendChild(el('div',{class:'note',text:(r.model&&r.model.info?'':'')+'IDE (vehicles.ide) qatori — ID ni o‘zingiz yozing:'}));
   const ta=el('textarea',{class:'ide',readonly:true,rows:2});ta.value=r.ide;c.appendChild(ta);
-  c.appendChild(el('div',{class:'note',style:'border-left:3px solid #fbbf24;padding-left:10px;margin-bottom:6px',html:'<b>Blender (DragonFF):</b> Import oynasida <code>'+esc(r.name)+'.dff</code> va <code>'+esc(r.name)+'.txd</code> ni <b>birga</b> tanlang (Ctrl bosib). Faqat .dff ochilsa teksturalar yuklanmaydi. <b>ZModeler:</b> «⬇ BMP (ZModeler)» ZIP sini chiqarib, papkani Options → Textures (qidiruv ro‘yxati / search list) ga qo‘shing. TXD ochilmasa: ZIP ichidagi <code>.png</code> fayllarni DFF bilan <b>bitta papkaga</b> chiqaring — DragonFF ularni o‘zi topadi (Import oynasida «Load Images» yoqilgan, Extension = PNG). Tekstura yuklangan bo‘lsa ham oddiy Solid ko‘rinishda detallar oq/kulrang chiqadi — 3D oynada <b>Z → Material Preview</b> ni tanlang (yoki Solid rejimida Viewport Shading → Color: <b>Texture</b>).'}));
+  c.appendChild(el('div',{class:'note',style:'border-left:3px solid #fbbf24;padding-left:10px;margin-bottom:6px',html:'<b>Blender (DragonFF):</b> Import oynasida <code>'+esc(r.name)+'.dff</code> va <code>'+esc(r.name)+'.txd</code> ni <b>birga</b> tanlang (Ctrl bosib). Faqat .dff ochilsa teksturalar yuklanmaydi. <b>ZModeler:</b> «⬇ ZModeler (DFF + BMP)» ZIP sini bitta papkaga chiqaring, DFF ni shu papkadan oching va papkani Options → Textures (qidiruv ro‘yxati / search list) ga qo‘shing. TXD ochilmasa: ZIP ichidagi <code>.png</code> fayllarni DFF bilan <b>bitta papkaga</b> chiqaring — DragonFF ularni o‘zi topadi (Import oynasida «Load Images» yoqilgan, Extension = PNG). Tekstura yuklangan bo‘lsa ham oddiy Solid ko‘rinishda detallar oq/kulrang chiqadi — 3D oynada <b>Z → Material Preview</b> ni tanlang (yoki Solid rejimida Viewport Shading → Color: <b>Texture</b>).'}));
   c.appendChild(el('div',{class:'note',html:'Keyingi qadamlar: ZModeler/Blender (DragonFF) da oching → <code>vehicles.ide</code>, <code>handling.cfg</code>, <code>carcols.dat</code> ga yozing → IMG ga joylang. Rang materiallari: <span class="tag">60,255,0</span> asosiy, <span class="tag">255,0,175</span> ikkinchi.'}));
   p.appendChild(c);
 }
