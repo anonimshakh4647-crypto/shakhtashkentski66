@@ -452,8 +452,8 @@
             </div>
 
             <div class="ctrl-row">
-                <div class="ctrl-label"><span>Disk Obodi Chuqurligi (Barrel Width)</span><b id="barrelDepthVal">78 mm</b></div>
-                <input type="range" id="barrelDepthRange" min="0" max="140" value="78">
+                <div class="ctrl-label"><span>Disk Obodi Chuqurligi (Barrel Width)</span><b id="barrelDepthVal">58 mm</b></div>
+                <input type="range" id="barrelDepthRange" min="0" max="140" value="58">
             </div>
 
             <div class="ctrl-row">
@@ -476,6 +476,14 @@
                 <select id="lugHolesToggle">
                     <option value="on" selected>Ha (5 ta Bolt + Stupitsa Chuqurchasi)</option>
                     <option value="off">Yo‘q (Faqat rasmdagi teshiklar)</option>
+                </select>
+            </div>
+
+            <div class="ctrl-row">
+                <div class="ctrl-label"><span>Rezina Balon (Qora Tire)</span></div>
+                <select id="tireToggle">
+                    <option value="on" selected>Ha (qora rezina balon avtomatik, wheel.dff o‘lchamida)</option>
+                    <option value="off">Yo‘q (faqat disk)</option>
                 </select>
             </div>
         </div>
@@ -565,6 +573,8 @@
                 <div>Nuqtalar (Vertices): <span id="infoVerticesCount">0</span></div>
                 <div>Konturlar (Shapes): <span id="infoShapesCount">0</span></div>
                 <div>Teshiklar (Holes): <span id="infoHolesCount">Ochiq (Hollow)</span></div>
+                <div>Balon: <span id="infoTireInfo" style="color:var(--accent);">—</span></div>
+                <div>O‘lcham: <span id="infoSizeInfo" style="color:var(--accent);">—</span></div>
             </div>
         </div>
     </div>
@@ -619,7 +629,8 @@ function initThreeViewports() {
         scenes[vpId] = scene;
 
         // 3ds Max uslubidagi qora-kulrang setka
-        const grid = new THREE.GridHelper(340, 34, 0x4b5563, 0x262930);
+        const grid = new THREE.GridHelper(520, 52, 0x4b5563, 0x262930);
+        grid.name = 'studioGrid';
         grid.position.y = -95;
         scene.add(grid);
 
@@ -939,7 +950,7 @@ const PS3D = (function () {
             triU[t * 3 + k] = id;
         }
         const nU = upos.length / 3;
-        const fn = new Float32Array(nTri * 3), fa = new Float32Array(nTri), good = new Uint8Array(nTri);
+        const fn = new Float32Array(nTri * 3), fa = new Float32Array(nTri), good = new Uint8Array(nTri), ang = new Float32Array(nTri * 3);
         for (let t = 0; t < nTri; t++) {
             const a = triU[t * 3] * 3, b = triU[t * 3 + 1] * 3, c = triU[t * 3 + 2] * 3;
             const e1x = upos[b] - upos[a], e1y = upos[b + 1] - upos[a + 1], e1z = upos[b + 2] - upos[a + 2];
@@ -948,6 +959,13 @@ const PS3D = (function () {
             const l = Math.hypot(nx, ny, nz);
             if (l < 1e-9 || triU[t * 3] === triU[t * 3 + 1] || triU[t * 3 + 1] === triU[t * 3 + 2] || triU[t * 3] === triU[t * 3 + 2]) continue;
             good[t] = 1; fa[t] = l * 0.5; fn[t * 3] = nx / l; fn[t * 3 + 1] = ny / l; fn[t * 3 + 2] = nz / l;
+            // Burchak bo'yicha og'irlik: ingichka (sliver) uchburchaklar normallarni buzmasligi uchun
+            const e3x = upos[c] - upos[b], e3y = upos[c + 1] - upos[b + 1], e3z = upos[c + 2] - upos[b + 2];
+            const l1 = Math.hypot(e1x, e1y, e1z), l2 = Math.hypot(e2x, e2y, e2z), l3 = Math.hypot(e3x, e3y, e3z);
+            const cl = x => Math.max(-1, Math.min(1, x));
+            ang[t * 3] = Math.acos(cl((e1x * e2x + e1y * e2y + e1z * e2z) / (l1 * l2 || 1)));
+            ang[t * 3 + 1] = Math.acos(cl((-e1x * e3x - e1y * e3y - e1z * e3z) / (l1 * l3 || 1)));
+            ang[t * 3 + 2] = Math.PI - ang[t * 3] - ang[t * 3 + 1];
         }
         const head = new Int32Array(nU).fill(-1), nextC = new Int32Array(nTri * 3).fill(-1);
         for (let c = nTri * 3 - 1; c >= 0; c--) {
@@ -966,7 +984,8 @@ const PS3D = (function () {
                     if (G.rx * nx + G.ry * ny + G.rz * nz >= cosC) { g = G; break; }
                 }
                 if (!g) { g = { rx: nx, ry: ny, rz: nz, sx: 0, sy: 0, sz: 0, corners: [] }; groups.push(g); }
-                g.sx += nx * fa[t]; g.sy += ny * fa[t]; g.sz += nz * fa[t]; g.corners.push(c);
+                const wgt = ang[c] > 1e-6 ? ang[c] : 1e-6;
+                g.sx += nx * wgt; g.sy += ny * wgt; g.sz += nz * wgt; g.corners.push(c);
             }
             for (const g of groups) {
                 const l = Math.hypot(g.sx, g.sy, g.sz) || 1, vi = outPos.length / 3;
@@ -977,7 +996,39 @@ const PS3D = (function () {
         }
         const idx = [];
         for (let t = 0; t < nTri; t++) if (good[t]) idx.push(cornerOut[t * 3], cornerOut[t * 3 + 1], cornerOut[t * 3 + 2]);
-        return { positions: new Float32Array(outPos), normals: new Float32Array(outNrm), indices: idx, uniquePositions: nU };
+        const outNormals = smoothNormals(outNrm, idx, 3, 0.80);
+        return { positions: new Float32Array(outPos), normals: outNormals, indices: idx, uniquePositions: nU };
+    }
+
+    // ---- Normallarni qo'shni nuqtalar bo'yicha tekislash: tessellatsiya "narvon" va "g'ijim" shovqinini yo'qotadi.
+    // Qirralar (crease) nuqtalari alohida indeksga ega, shuning uchun o'tkir burchaklar tekislanmaydi.
+    function smoothNormals(nrm, idx, passes, cosT) {
+        const nV = nrm.length / 3, nT = idx.length / 3;
+        const deg = new Int32Array(nV + 1);
+        for (let t = 0; t < nT; t++) for (let k = 0; k < 3; k++) { deg[idx[t * 3 + k] + 1] += 2; }
+        for (let i = 0; i < nV; i++) deg[i + 1] += deg[i];
+        const adj = new Int32Array(deg[nV]), fill = deg.slice(0, nV);
+        for (let t = 0; t < nT; t++) {
+            const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
+            adj[fill[a]++] = b; adj[fill[a]++] = c;
+            adj[fill[b]++] = a; adj[fill[b]++] = c;
+            adj[fill[c]++] = a; adj[fill[c]++] = b;
+        }
+        let cur = Float32Array.from(nrm), nxt = new Float32Array(nrm.length);
+        for (let p = 0; p < passes; p++) {
+            for (let i = 0; i < nV; i++) {
+                const x = cur[i * 3], y = cur[i * 3 + 1], z = cur[i * 3 + 2];
+                let sx = x, sy = y, sz = z;
+                for (let e = deg[i]; e < deg[i + 1]; e++) {
+                    const j = adj[e] * 3, jx = cur[j], jy = cur[j + 1], jz = cur[j + 2];
+                    if (x * jx + y * jy + z * jz >= cosT) { sx += jx * 0.5; sy += jy * 0.5; sz += jz * 0.5; }
+                }
+                const l = Math.hypot(sx, sy, sz) || 1;
+                nxt[i * 3] = sx / l; nxt[i * 3 + 1] = sy / l; nxt[i * 3 + 2] = sz / l;
+            }
+            const tmp = cur; cur = nxt; nxt = tmp;
+        }
+        return cur;
     }
 
     return { drawFitted, blurField, dpSimplifyClosed, relaxClosed, estimateMinHalfWidth, tessellate, weld };
@@ -1545,6 +1596,7 @@ function readBuildSettings() {
         concaveDish: parseFloat(document.getElementById('concaveRange').value) || 14,
         bevelSize: parseFloat(document.getElementById('bevelRange').value) || 3.0,
         addLugHoles: document.getElementById('lugHolesToggle').value === 'on',
+        addTire: document.getElementById('tireToggle').value === 'on',
         maxLen: DENSITY_MAXLEN[dsel ? dsel.value : 'mid'] || 2.4
     };
 }
@@ -1555,7 +1607,7 @@ function positionsOf(g) {
 }
 
 // Konturlardan (field) to'liq geometriya yasaydi. coarse > 1 — DFF 65k nuqta chegarasi uchun soddaroq variant.
-function generateModelGeometry(ctx, coarse) {
+function generateModelGeometry(ctx, coarse, noTire) {
     contourEpsMul = coarse;
     const { shapes, maxRadius } = traceContoursAndHoles(ctx.field, ctx.w, ctx.h, ctx.threshold);
     contourEpsMul = 1;
@@ -1602,12 +1654,22 @@ function generateModelGeometry(ctx, coarse) {
         parts.push(pos);
     });
 
+    // Balon (tire) bilan birga bo'lganda disk obodi balon eniga sig'ishi kerak (wheel.dff o'lchamlari)
+    let barrelDepth = S.barrelDepth, barrelCapped = false, barrelOuterR = 0;
+    if (S.mode === 'wheel_rim' && S.addTire) {
+        const flangeEst = maxRadius * 1.01 * 1.015 + 1.5;
+        const kEst = flangeEst / GTA_WHEEL.rimR;
+        const cap = (GTA_WHEEL.tireW - GTA_WHEEL.rimInset - GTA_WHEEL.rimBackGap) * kEst - 6.0;
+        if (barrelDepth > cap) { barrelDepth = Math.max(6, cap); barrelCapped = true; }
+    }
+
     // 2-QISM: Avto disk rejimi — obod, lip va stupitsa
     if (S.mode === 'wheel_rim' && S.barrelDepth > 2) {
         const outerR = maxRadius * 1.01;
         const innerR = maxRadius * 0.93;
+        barrelOuterR = outerR + 1.8;
         const frontZ = spokeThick * 0.5 + bevelSize;
-        const backZ = frontZ - S.barrelDepth;
+        const backZ = frontZ - barrelDepth;
 
         const barrelShape = new THREE.Shape();
         barrelShape.absarc(0, 0, outerR, 0, Math.PI * 2, false);
@@ -1615,10 +1677,10 @@ function generateModelGeometry(ctx, coarse) {
         barrelHole.absarc(0, 0, innerR, 0, Math.PI * 2, true);
         barrelShape.holes.push(barrelHole);
         const barrelGeom = new THREE.ExtrudeGeometry(barrelShape, {
-            depth: S.barrelDepth, bevelEnabled: true, bevelThickness: 2.2, bevelSize: 1.8, bevelSegments: 4, curveSegments: 96
+            depth: barrelDepth, bevelEnabled: true, bevelThickness: 2.2, bevelSize: 1.8, bevelSegments: 4, curveSegments: 96
         });
         barrelGeom.translate(0, 0, backZ);
-        parts.push(positionsOf(barrelGeom)); barrelGeom.dispose();
+        parts.push(PS3D.tessellate(positionsOf(barrelGeom), maxLen * 2.4)); barrelGeom.dispose();
 
         const lipShape = new THREE.Shape();
         lipShape.absarc(0, 0, outerR * 1.015, 0, Math.PI * 2, false);
@@ -1629,7 +1691,7 @@ function generateModelGeometry(ctx, coarse) {
             depth: 6, bevelEnabled: true, bevelThickness: 1.8, bevelSize: 1.5, bevelSegments: 3, curveSegments: 96
         });
         lipGeom.translate(0, 0, frontZ - 4);
-        parts.push(positionsOf(lipGeom)); lipGeom.dispose();
+        parts.push(PS3D.tessellate(positionsOf(lipGeom), maxLen * 2.4)); lipGeom.dispose();
 
         if (S.addLugHoles) {
             const hubR = maxRadius * 0.28;
@@ -1641,7 +1703,7 @@ function generateModelGeometry(ctx, coarse) {
             hubShape.holes.push(boreHole);
             const boltCircleR = maxRadius * 0.185;
             const boltHoleR = maxRadius * 0.032;
-            const pinHoleR = maxRadius * 0.014;
+            const pinHoleR = Math.max(maxRadius * 0.016, 2.2);   // bevel (1.5) dan kattaroq bo'lmasa geometriya ichiga ag'darilib 'yulduz' nuqsonini beradi
             for (let b = 0; b < 5; b++) {
                 const ang = (b * 72) * (Math.PI / 180);
                 const bHole = new THREE.Path();
@@ -1654,14 +1716,122 @@ function generateModelGeometry(ctx, coarse) {
             }
             const hubDepth = spokeThick * 1.15;
             const hubGeom = new THREE.ExtrudeGeometry(hubShape, {
-                depth: hubDepth, bevelEnabled: true, bevelThickness: 2.0, bevelSize: 1.5, bevelSegments: 3, curveSegments: 64
+                depth: hubDepth, bevelEnabled: false, curveSegments: 64
             });
             hubGeom.translate(0, 0, -hubDepth * 0.65 - concaveDish);
-            parts.push(positionsOf(hubGeom)); hubGeom.dispose();
+            parts.push(PS3D.tessellate(positionsOf(hubGeom), maxLen * 1.8)); hubGeom.dispose();
         }
     }
 
-    return { geometry: buildUnifiedGeometry(parts), shapeCount: shapes.length };
+    const geometry = buildUnifiedGeometry(parts);
+    let tire = null, tireInfo = null;
+    if (S.mode === 'wheel_rim') {
+        // Disk haqiqiy o'lchamini o'lchab, balonni wheel.dff dagi o'lchamga moslaymiz va modelni balon markaziga keltiramiz
+        tireInfo = computeTireInfo(measureRim(geometry), barrelOuterR);
+        geometry.translate(0, 0, -tireInfo.zc);
+        tireInfo.zFront -= tireInfo.zc; tireInfo.zBack -= tireInfo.zc; tireInfo.zc = 0;
+        geometry.computeBoundingSphere(); geometry.computeBoundingBox();
+        if (S.addTire && !noTire) tire = buildTireGeometry(tireInfo);
+    }
+    return { geometry, shapeCount: shapes.length, tire, tireInfo, maxRadius, barrelCapped, barrelDepthUsed: barrelDepth };
+}
+
+// ==================== 3b. RUBBER TIRE (BALON): foydalanuvchi wheel.dff faylidan o'lchangan HAQIQIY o'lchamlar ====================
+// wheel.dff: balon tashqi diametri 0.6826 m (R = 0.3413), eni 0.2407 m, disk (rim) radiusi ~0.2385 m.
+// O'q = DFF da X: balon yuzi x = +0.1034, orqasi x = -0.1373. Har bir yaratilgan model shu o'lchamga moslanadi.
+const GTA_WHEEL = {
+    tireR: 0.3413, tireW: 0.2407, rimR: 0.2385,
+    frontX: 0.1034, backX: -0.1373,
+    rimInset: 0.005,      // disk yuzi balon yuzidan 5 mm ichkarida (DFF dagidek)
+    rimBackGap: 0.030     // disk orqasidan balon orqasigacha minimal masofa
+};
+const TIRE_COLUMNS = 256;  // aylana bo'ylab bo'laklar (4 ga bo'linadi: protektor bloklari uchun)
+
+// Balonning ko'ndalang kesimi (u = o'q bo'ylab, r = radius): orqa bortdan old bortgacha tashqi yo'l + ichki yo'l
+function tireProfile(P) {
+    const a = P.a, Rb = P.Rb, Rt = P.Rt, h = Rt - Rb;
+    // Yon devor: bort uchi -> himoya halqasi -> yon devor bo'rtmasi -> yelka -> protektor chekkasi
+    const back = [
+        [-0.86, 0], [-0.94, 0.035], [-0.995, 0.12], [-0.985, 0.22], [-0.935, 0.27], [-0.98, 0.36],
+        [-1.0, 0.55], [-0.965, 0.75], [-0.89, 0.90], [-0.78, 0.965], [-0.64, 1 - 0.034]
+    ].map(p => new THREE.Vector2(p[0] * a, Rb + p[1] * h));
+    const sp = new THREE.SplineCurve(back).getSpacedPoints(26);
+    let minU = 0; sp.forEach(p => { if (p.x < minU) minU = p.x; });
+    const sc = a / -minU;                      // eng keng nuqta aynan balon eniga teng bo'lsin
+    sp.forEach(p => { p.x *= sc; });
+    const uT = -sp[sp.length - 1].x, crown = 0.034 * h;
+    const grooves = [[-0.30 * a, 0.07 * a, 0.058 * h], [0.30 * a, 0.07 * a, 0.058 * h]];
+    const pts = [];
+    for (let i = 0; i < sp.length - 1; i++) pts.push({ u: sp[i].x, r: sp[i].y, t: 0 });
+    const NT = 41;
+    for (let m = 0; m < NT; m++) {
+        const t = -1 + 2 * m / (NT - 1), u = t * uT;
+        let r = Rt - crown * t * t;
+        grooves.forEach(g => { const d = Math.abs(u - g[0]); if (d < g[1]) r -= g[2] * 0.5 * (1 + Math.cos(Math.PI * d / g[1])); });
+        pts.push({ u, r, t: 1, au: Math.abs(u) / a, side: u < 0 ? 0 : 1 });
+    }
+    for (let i = sp.length - 2; i >= 0; i--) pts.push({ u: -sp[i].x, r: sp[i].y, t: 0 });
+    pts.push({ u: 0, r: Rb, t: 0 });           // ichki silindr (diskka tegib turadi)
+    return pts;
+}
+
+function buildTireGeometry(P) {
+    const NR = TIRE_COLUMNS, prof = tireProfile(P), NP = prof.length, h = P.Rt - P.Rb, a = P.a;
+    const pos = new Float32Array(NR * NP * 3), uv = new Float32Array(NR * NP * 2);
+    const smooth = (x, e0, e1) => { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+    for (let i = 0; i < NR; i++) {
+        const ph = 2 * Math.PI * i / NR, c = Math.cos(ph), s = Math.sin(ph);
+        for (let j = 0; j < NP; j++) {
+            const p = prof[j];
+            let r = p.r;
+            if (p.t === 1 && p.au > 0.36) {      // yelka bloklari: har 4-ustunda yengil kesik (o'ng/chap shaxmat tartibida)
+                const phase = (p.side === 0 ? 0 : 2);
+                if (i % 4 === phase) r -= 0.045 * h * smooth(p.au, 0.36, 0.42);
+            }
+            const o = (i * NP + j) * 3;
+            pos[o] = r * c; pos[o + 1] = r * s; pos[o + 2] = P.zc + p.u;
+            uv[(i * NP + j) * 2] = i / NR; uv[(i * NP + j) * 2 + 1] = j / NP;
+        }
+    }
+    const idx = new Uint32Array(NR * NP * 6);
+    let q = 0;
+    for (let i = 0; i < NR; i++) {
+        const i1 = (i + 1) % NR;
+        for (let j = 0; j < NP; j++) {
+            const j1 = (j + 1) % NP;
+            const A = i * NP + j, B = i1 * NP + j, C = i1 * NP + j1, D = i * NP + j1;
+            idx[q++] = A; idx[q++] = B; idx[q++] = C;
+            idx[q++] = A; idx[q++] = C; idx[q++] = D;
+        }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.computeVertexNormals();
+    g.computeBoundingSphere(); g.computeBoundingBox();
+    return g;
+}
+
+// Tayyor disk geometriyasining haqiqiy o'lchamlarini o'lchab, balon parametrlarini hisoblaydi (sahifa birligida)
+function measureRim(geom) {
+    const p = geom.attributes.position.array;
+    let rMax = 0, zMax = -1e9, zMin = 1e9;
+    for (let i = 0; i < p.length; i += 3) {
+        const r = Math.hypot(p[i], p[i + 1]);
+        if (r > rMax) rMax = r;
+        if (p[i + 2] > zMax) zMax = p[i + 2];
+        if (p[i + 2] < zMin) zMin = p[i + 2];
+    }
+    return { rMax, zMax, zMin };
+}
+function computeTireInfo(rim, barrelOuterR) {
+    const k = rim.rMax / GTA_WHEEL.rimR;           // sahifa birligi / metr
+    const Rt = GTA_WHEEL.tireR * k, W = GTA_WHEEL.tireW * k;
+    const zFront = rim.zMax + GTA_WHEEL.rimInset * k;
+    const zc = zFront - W / 2;
+    const Rb = (barrelOuterR || rim.rMax * 0.985) * 0.996;
+    return { k, Rt, a: W / 2, Rb, zc, zFront, zBack: zFront - W, W, rim };
 }
 
 // Barcha qismlarni payvandlab, burchak chegarali silliq normallar bilan 1 ta indekslangan mesh qilish
@@ -1688,20 +1858,26 @@ function buildUnifiedGeometry(parts) {
     return geom;
 }
 
-// DFF 16-bit indeks chegarasi (65 535 nuqta): kerak bo'lsa avtomatik soddaroq variant yasaydi
-function getExportGeometry(maxVerts) {
-    const mesh = masterModelGroup.children[0];
-    const cur = mesh.geometry;
-    if (cur.attributes.position.count <= maxVerts || !lastBuildCtx) return cur;
-    let coarse = 1.3;
-    for (let k = 0; k < 10; k++, coarse *= 1.3) {
-        const r = generateModelGeometry(lastBuildCtx, coarse);
-        if (r && r.geometry.attributes.position.count <= maxVerts) {
-            setStatus(`DFF uchun model soddalashtirildi (${r.geometry.attributes.position.count.toLocaleString()} nuqta, chegara ${maxVerts.toLocaleString()}).`);
-            return r.geometry;
+// Eksport uchun model: disk + balon. DFF 16-bit indeks chegarasi (65 535 nuqta): balon nuqtalari ajratib olinib, diskka qolgani beriladi
+let currentTire = null;   // { geom, info } — hozirgi balon
+let lastTireInfo = null;
+function getExportModel(maxTotalVerts) {
+    const cur = masterModelGroup.children[0].geometry;
+    const tireV = currentTire ? currentTire.geom.attributes.position.count : 0;
+    const budget = maxTotalVerts - tireV;
+    let rim = cur;
+    if (cur.attributes.position.count > budget && lastBuildCtx) {
+        let coarse = 1.3;
+        for (let k = 0; k < 12; k++, coarse *= 1.3) {
+            const r = generateModelGeometry(lastBuildCtx, coarse, true);
+            if (r && r.geometry.attributes.position.count <= budget) {
+                rim = r.geometry;
+                setStatus(`DFF uchun disk soddalashtirildi (${(r.geometry.attributes.position.count + tireV).toLocaleString()} nuqta, chegara ${maxTotalVerts.toLocaleString()}).`);
+                break;
+            }
         }
     }
-    return cur;
+    return { rim, tire: currentTire ? currentTire.geom : null, info: lastTireInfo };
 }
 
 function build3dsMaxObjectFromImage() {
@@ -1722,10 +1898,18 @@ function build3dsMaxObjectFromImage() {
                 setStatus('⚠ Rasmda obyekt konturlari topilmadi. Threshold slayderini surib ko‘ring.');
                 return;
             }
+            currentTire = res.tire ? { geom: res.tire, info: res.tireInfo } : null;
+            lastTireInfo = res.tireInfo || null;
             renderUnifiedMeshToViewports(res.geometry, res.shapeCount);
+            fitViewToModel(res.tireInfo ? res.tireInfo.Rt : res.maxRadius);
             setLoader(false);
-            const faces = Math.floor(res.geometry.index.count / 3);
-            setStatus(`3D obyekt tayyor: ${res.shapeCount} ta kontur, ${faces.toLocaleString()} uchburchak, ${w}x${h} px aniqlik, ${Math.round(performance.now() - t0)} ms.`);
+            const faces = Math.floor(res.geometry.index.count / 3) + (res.tire ? Math.floor(res.tire.index.count / 3) : 0);
+            let extra = '';
+            if (res.tireInfo) {
+                extra = res.tire ? ` Balon: Ø${Math.round(GTA_WHEEL.tireR * 2000)} × ${Math.round(GTA_WHEEL.tireW * 1000)} mm (wheel.dff o‘lchami).` : ` Disk radiusi ${Math.round(GTA_WHEEL.rimR * 1000)} mm.`;
+                if (res.barrelCapped) extra += ' Disk obodi balon eniga sig‘ishi uchun qisqartirildi.';
+            }
+            setStatus(`3D obyekt tayyor: ${res.shapeCount} ta kontur, ${faces.toLocaleString()} uchburchak, ${w}x${h} px aniqlik, ${Math.round(performance.now() - t0)} ms.${extra}`);
         } catch (err) {
             console.error(err);
             setLoader(false);
@@ -1781,6 +1965,27 @@ const MATERIAL_PALETTES = {
     wire_only:     { color: '#38bdf8', metal: 0.10, rough: 0.50, wire: true }
 };
 
+let tireMaterialInst = null;
+function getTireMaterial() {
+    if (!tireMaterialInst) tireMaterialInst = new THREE.MeshStandardMaterial({ color: 0x25262a, metalness: 0.02, roughness: 0.74 });
+    return tireMaterialInst;
+}
+
+// Model o'lchamiga qarab setka balandligi va kamerani moslash (balon qo'shilgach model kattaroq)
+let fittedViewR = 0;
+function fitViewToModel(R) {
+    viewportIds.forEach(id => {
+        const g = scenes[id] && scenes[id].getObjectByName('studioGrid');
+        if (g) g.position.y = -(R + 3);
+    });
+    if (!fittedViewR || R / fittedViewR > 1.2 || R / fittedViewR < 0.8) {
+        fittedViewR = R;
+        cameras['perspectiveView'].position.set(-1.58 * R, 0.48 * R, 3.2 * R);
+        controls['perspectiveView'].target.set(0, 0, 0);
+        controls['perspectiveView'].update();
+    }
+}
+
 function createActiveMaterial() {
     const hex = document.getElementById('customColorPicker').value || '#8ab892';
     const metalness = (parseFloat(document.getElementById('metalRange').value) || 25) / 100;
@@ -1809,6 +2014,13 @@ function renderUnifiedMeshToViewports(geom, shapeCount = 1) {
     mainMesh.name = '3DS_MAX_UNIFIED_OBJECT';
     masterModelGroup.add(mainMesh);
 
+    // Qora rezina balon (diskning materialidan mustaqil, har doim qora)
+    if (currentTire) {
+        const tireMesh = new THREE.Mesh(currentTire.geom, getTireMaterial());
+        tireMesh.name = '3DS_MAX_TIRE';
+        masterModelGroup.add(tireMesh);
+    }
+
     // Agar "Edged Faces (F4)" yoqilgan bo'lsa, ustidan nozik wireframe chiziqlarini qo'shamiz
     if (showEdgedFaces && currentMaterialPreset !== 'wire_only') {
         const wireMat = new THREE.MeshBasicMaterial({
@@ -1827,10 +2039,25 @@ function renderUnifiedMeshToViewports(geom, shapeCount = 1) {
         if (!cg) return;
         while (cg.children.length > 0) cg.remove(cg.children[0]);
         cg.add(new THREE.Mesh(geom, mat));
+        if (currentTire) cg.add(new THREE.Mesh(currentTire.geom, getTireMaterial()));
     });
 
-    const vCount = geom.attributes.position ? geom.attributes.position.count : 0;
-    const fCount = geom.index ? Math.floor(geom.index.count / 3) : Math.floor(vCount / 3);
+    let vCount = geom.attributes.position ? geom.attributes.position.count : 0;
+    let fCount = geom.index ? Math.floor(geom.index.count / 3) : Math.floor(vCount / 3);
+    if (currentTire) {
+        vCount += currentTire.geom.attributes.position.count;
+        fCount += Math.floor(currentTire.geom.index.count / 3);
+    }
+    const tInfoEl = document.getElementById('infoTireInfo'), sInfoEl = document.getElementById('infoSizeInfo');
+    if (tInfoEl) tInfoEl.textContent = currentTire ? `Qora rezina (${TIRE_COLUMNS} × ${currentTire.geom.attributes.position.count / TIRE_COLUMNS} setka)` : 'Yo‘q';
+    if (sInfoEl) {
+        if (lastTireInfo) {
+            const fmt = v => Math.round(v * 1000);
+            sInfoEl.textContent = currentTire
+                ? `Ø ${fmt(GTA_WHEEL.tireR * 2)} × ${fmt(GTA_WHEEL.tireW)} mm (balon)`
+                : `Disk Ø ${fmt(GTA_WHEEL.rimR * 2)} mm`;
+        } else sInfoEl.textContent = '—';
+    }
     document.getElementById('infoVerticesCount').textContent = vCount.toLocaleString();
     document.getElementById('infoFacesCount').textContent = fCount.toLocaleString();
     document.getElementById('infoShapesCount').textContent = shapeCount;
@@ -1912,72 +2139,93 @@ function exportAsOBJ() {
     const mesh = masterModelGroup.children[0];
     if (!mesh || !mesh.geometry) return;
 
-    const geom = mesh.geometry;
-    const pos = geom.attributes.position;
-    const norm = geom.attributes.normal;
-    const uv = geom.attributes.uv;
-    const index = geom.index;
-
-    let out = '# IT SHAKH 3DS MAX OBJECT STUDIO - UNIFIED OBJ\no IT_SHAKH_3DS_OBJECT\ns 1\n';
-    for (let i = 0; i < pos.count; i++) {
-        out += `v ${pos.getX(i).toFixed(4)} ${pos.getY(i).toFixed(4)} ${pos.getZ(i).toFixed(4)}\n`;
-    }
-    if (uv) {
-        for (let i = 0; i < uv.count; i++) {
-            out += `vt ${uv.getX(i).toFixed(4)} ${uv.getY(i).toFixed(4)}\n`;
+    const M = getExportModel(Infinity);
+    const s = M.info ? 1 / M.info.k : 1;          // sahifa birligi -> metr (wheel.dff bilan bir xil o'lchov)
+    let out = '# IT SHAKH 3DS MAX OBJECT STUDIO - UNIFIED OBJ\n' +
+        (M.info ? '# Birlik: metr. Balon Ø' + (GTA_WHEEL.tireR * 2).toFixed(4) + ' x ' + GTA_WHEEL.tireW.toFixed(4) + ' (wheel.dff bilan bir xil)\n' : '') +
+        'o IT_SHAKH_3DS_OBJECT\ns 1\n';
+    let base = 0;
+    const part = (g, group, mtl) => {
+        const pos = g.attributes.position, norm = g.attributes.normal, uv = g.attributes.uv, index = g.index;
+        out += `g ${group}\nusemtl ${mtl}\n`;
+        let v = '', vt = '', vn = '';
+        for (let i = 0; i < pos.count; i++) v += `v ${(pos.getX(i) * s).toFixed(5)} ${(pos.getY(i) * s).toFixed(5)} ${(pos.getZ(i) * s).toFixed(5)}\n`;
+        if (uv) for (let i = 0; i < uv.count; i++) vt += `vt ${uv.getX(i).toFixed(4)} ${uv.getY(i).toFixed(4)}\n`;
+        if (norm) for (let i = 0; i < norm.count; i++) vn += `vn ${norm.getX(i).toFixed(4)} ${norm.getY(i).toFixed(4)} ${norm.getZ(i).toFixed(4)}\n`;
+        let f = '';
+        const count = index ? index.count : pos.count;
+        for (let i = 0; i < count; i += 3) {
+            const a = (index ? index.getX(i) : i) + 1 + base;
+            const b = (index ? index.getX(i + 1) : i + 1) + 1 + base;
+            const c = (index ? index.getX(i + 2) : i + 2) + 1 + base;
+            f += `f ${a}/${a}/${a} ${b}/${b}/${b} ${c}/${c}/${c}\n`;
         }
-    }
-    if (norm) {
-        for (let i = 0; i < norm.count; i++) {
-            out += `vn ${norm.getX(i).toFixed(4)} ${norm.getY(i).toFixed(4)} ${norm.getZ(i).toFixed(4)}\n`;
-        }
-    }
-    const count = index ? index.count : pos.count;
-    for (let i = 0; i < count; i += 3) {
-        const a = (index ? index.getX(i) : i) + 1;
-        const b = (index ? index.getX(i + 1) : i + 1) + 1;
-        const c = (index ? index.getX(i + 2) : i + 2) + 1;
-        out += `f ${a}/${a}/${a} ${b}/${b}/${b} ${c}/${c}/${c}\n`;
-    }
+        out += v + vt + vn + f;
+        base += pos.count;
+    };
+    part(M.rim, 'RIM', 'RIM_METAL');
+    if (M.tire) part(M.tire, 'TIRE', 'TIRE_RUBBER_BLACK');
 
     downloadBlob(new Blob([out], { type: 'text/plain' }), 'IT_SHAKH_3DS_MAX_MODEL.obj');
-    setStatus('.OBJ fayl 1 ta yaxlit obyekt sifatida saqlandi!');
+    setStatus('.OBJ fayl saqlandi' + (M.tire ? ' (disk + qora balon, metr birligida, Ø683 × 241 mm)!' : '!'));
 }
 
 function exportAsSTL() {
     const mesh = masterModelGroup.children[0];
     if (!mesh || !mesh.geometry) return;
-    const geom = mesh.geometry;
-    const pos = geom.attributes.position;
-    const index = geom.index;
+    const M = getExportModel(Infinity);
+    const s = M.info ? 1000 / M.info.k : 1;       // STL: millimetr (haqiqiy o'lcham)
 
     let stl = 'solid IT_SHAKH_3DS_MODEL\n';
-    const count = index ? index.count : pos.count;
-    for (let i = 0; i < count; i += 3) {
-        const a = index ? index.getX(i) : i;
-        const b = index ? index.getX(i + 1) : i + 1;
-        const c = index ? index.getX(i + 2) : i + 2;
-        stl += `facet normal 0 0 0\n  outer loop\n`;
-        stl += `    vertex ${pos.getX(a).toFixed(4)} ${pos.getY(a).toFixed(4)} ${pos.getZ(a).toFixed(4)}\n`;
-        stl += `    vertex ${pos.getX(b).toFixed(4)} ${pos.getY(b).toFixed(4)} ${pos.getZ(b).toFixed(4)}\n`;
-        stl += `    vertex ${pos.getX(c).toFixed(4)} ${pos.getY(c).toFixed(4)} ${pos.getZ(c).toFixed(4)}\n`;
-        stl += `  endloop\nendfacet\n`;
-    }
+    [M.rim, M.tire].forEach(geom => {
+        if (!geom) return;
+        const pos = geom.attributes.position, index = geom.index;
+        const count = index ? index.count : pos.count;
+        for (let i = 0; i < count; i += 3) {
+            const a = index ? index.getX(i) : i;
+            const b = index ? index.getX(i + 1) : i + 1;
+            const c = index ? index.getX(i + 2) : i + 2;
+            stl += `facet normal 0 0 0\n  outer loop\n`;
+            stl += `    vertex ${(pos.getX(a) * s).toFixed(4)} ${(pos.getY(a) * s).toFixed(4)} ${(pos.getZ(a) * s).toFixed(4)}\n`;
+            stl += `    vertex ${(pos.getX(b) * s).toFixed(4)} ${(pos.getY(b) * s).toFixed(4)} ${(pos.getZ(b) * s).toFixed(4)}\n`;
+            stl += `    vertex ${(pos.getX(c) * s).toFixed(4)} ${(pos.getY(c) * s).toFixed(4)} ${(pos.getZ(c) * s).toFixed(4)}\n`;
+            stl += `  endloop\nendfacet\n`;
+        }
+    });
     stl += 'endsolid IT_SHAKH_3DS_MODEL\n';
     downloadBlob(new Blob([stl], { type: 'text/plain' }), 'IT_SHAKH_3DS_MAX_MODEL.stl');
-    setStatus('.STL 3D printer fayli saqlandi!');
+    setStatus('.STL 3D printer fayli saqlandi' + (M.info ? ' (millimetrda, haqiqiy o‘lcham)!' : '!'));
 }
 
 function exportAsDFF() {
     const mesh = masterModelGroup.children[0];
     if (!mesh || !mesh.geometry) return;
 
-    // To'g'ri payvandlangan, indekslangan geometriya (65 535 nuqtadan oshsa avtomatik soddalashtiriladi)
-    const expGeom = getExportGeometry(64000);
-    const uPos = Array.from(expGeom.attributes.position.array);
-    const uNorm = Array.from(expGeom.attributes.normal.array);
-    const uUV = Array.from(expGeom.attributes.uv.array);
-    const tris = Array.from(expGeom.index.array);
+    // Disk + balon: jami 65 535 nuqtadan oshmasligi uchun disk kerak bo'lsa avtomatik soddalashtiriladi
+    const M = getExportModel(64000);
+    const info = M.info;
+    // wheel.dff bilan bir xil o'qlar: o'q = X (old yuz +X), yuqori = Z; birlik = metr. (x,y,z) -> (z,x,y) — aylana almashtirish, yo'nalish saqlanadi
+    const sc = info ? 1 / info.k : 1;
+    const cx = info ? (GTA_WHEEL.frontX + GTA_WHEEL.backX) / 2 : 0;
+    const uPos = [], uNorm = [], uUV = [], tris = [], triMat = [];
+    function addGeom(g, matId) {
+        const pa = g.attributes.position.array, na = g.attributes.normal.array, ua = g.attributes.uv.array, ia = g.index.array;
+        const base = uPos.length / 3;
+        for (let i = 0; i < pa.length; i += 3) {
+            if (info) {
+                uPos.push(pa[i + 2] * sc + cx, pa[i] * sc, pa[i + 1] * sc);
+                uNorm.push(na[i + 2], na[i], na[i + 1]);
+            } else {
+                uPos.push(pa[i], pa[i + 1], pa[i + 2]);
+                uNorm.push(na[i], na[i + 1], na[i + 2]);
+            }
+        }
+        for (let i = 0; i < ua.length; i++) uUV.push(ua[i]);
+        for (let i = 0; i < ia.length; i += 3) { tris.push(ia[i] + base, ia[i + 1] + base, ia[i + 2] + base); triMat.push(matId); }
+    }
+    addGeom(M.rim, 0);
+    if (M.tire) addGeom(M.tire, 1);
+    const nMats = M.tire ? 2 : 1;
 
     const numVerts = uPos.length / 3;
     const numTris = tris.length / 3;
@@ -2008,22 +2256,33 @@ function exportAsDFF() {
     frDV.setUint32(0, 1, true);
     frDV.setFloat32(4, 1, true); frDV.setFloat32(20, 1, true); frDV.setFloat32(36, 1, true);
     frDV.setInt32(52, -1, true);
-    const nameExt = sec(0x0003, sec(0x0253F2FE, new TextEncoder().encode('wheel_rf_dummy')));
+    const nameExt = sec(0x0003, sec(0x0253F2FE, new TextEncoder().encode(info ? 'wheel' : 'wheel_rf_dummy')));
     const frameList = sec(0x000E, cat([sec(0x0001, new Uint8Array(frBuf)), nameExt]));
 
-    const mlBuf = new ArrayBuffer(8);
+    // Materiallar: 0 = disk (tanlangan rang), 1 = balon (qora rezina)
+    const mlBuf = new ArrayBuffer(4 + 4 * nMats);
     const mlDV = new DataView(mlBuf);
-    mlDV.setUint32(0, 1, true); mlDV.setInt32(4, -1, true);
-    const mBuf = new ArrayBuffer(28);
-    const mDV = new DataView(mBuf);
+    mlDV.setUint32(0, nMats, true);
+    for (let m = 0; m < nMats; m++) mlDV.setInt32(4 + 4 * m, -1, true);
     const hex = document.getElementById('customColorPicker').value.replace('#', '');
-    mDV.setUint8(4, parseInt(hex.slice(0,2), 16));
-    mDV.setUint8(5, parseInt(hex.slice(2,4), 16));
-    mDV.setUint8(6, parseInt(hex.slice(4,6), 16));
-    mDV.setUint8(7, 255);
-    mDV.setUint32(8, 1, true);
-    mDV.setFloat32(16, 1.0, true); mDV.setFloat32(20, 0.8, true); mDV.setFloat32(24, 1.0, true);
-    const matList = sec(0x0008, cat([sec(0x0001, new Uint8Array(mlBuf)), sec(0x0007, cat([sec(0x0001, new Uint8Array(mBuf)), sec(0x0003, new Uint8Array(0))]))]));
+    const colors = [[parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)], [12, 12, 12]];
+    const matSecs = [];
+    for (let m = 0; m < nMats; m++) {
+        const mBuf = new ArrayBuffer(28);
+        const mDV = new DataView(mBuf);
+        mDV.setUint8(4, colors[m][0]); mDV.setUint8(5, colors[m][1]); mDV.setUint8(6, colors[m][2]); mDV.setUint8(7, 255);
+        mDV.setUint32(8, 1, true);
+        mDV.setFloat32(16, 1.0, true); mDV.setFloat32(20, m === 1 ? 0.3 : 0.8, true); mDV.setFloat32(24, 1.0, true);
+        matSecs.push(sec(0x0007, cat([sec(0x0001, new Uint8Array(mBuf)), sec(0x0003, new Uint8Array(0))])));
+    }
+    const matList = sec(0x0008, cat([sec(0x0001, new Uint8Array(mlBuf))].concat(matSecs)));
+
+    // Chegaraviy shar (bounding sphere): haqiqiy markaz va radius
+    let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+    for (let i = 0; i < uPos.length; i += 3) for (let a = 0; a < 3; a++) { if (uPos[i + a] < mn[a]) mn[a] = uPos[i + a]; if (uPos[i + a] > mx[a]) mx[a] = uPos[i + a]; }
+    const bc = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+    let br = 0;
+    for (let i = 0; i < uPos.length; i += 3) br = Math.max(br, Math.hypot(uPos[i] - bc[0], uPos[i + 1] - bc[1], uPos[i + 2] - bc[2]));
 
     const gSize = 16 + numVerts * 8 + numTris * 8 + 24 + numVerts * 12 + numVerts * 12;
     const gBuf = new ArrayBuffer(gSize);
@@ -2037,11 +2296,12 @@ function exportAsDFF() {
     for (let i = 0; i < numTris; i++) {
         gDV.setUint16(p, tris[i * 3 + 1], true);
         gDV.setUint16(p + 2, tris[i * 3], true);
-        gDV.setUint16(p + 4, 0, true);
+        gDV.setUint16(p + 4, triMat[i], true);
         gDV.setUint16(p + 6, tris[i * 3 + 2], true);
         p += 8;
     }
-    gDV.setFloat32(p + 12, 120.0, true);
+    gDV.setFloat32(p, bc[0], true); gDV.setFloat32(p + 4, bc[1], true); gDV.setFloat32(p + 8, bc[2], true);
+    gDV.setFloat32(p + 12, br, true);
     gDV.setUint32(p + 16, 1, true); gDV.setUint32(p + 20, 1, true); p += 24;
     for (let i = 0; i < uPos.length; i++) { gDV.setFloat32(p, uPos[i], true); p += 4; }
     for (let i = 0; i < uNorm.length; i++) { gDV.setFloat32(p, uNorm[i], true); p += 4; }
@@ -2057,7 +2317,7 @@ function exportAsDFF() {
 
     const dff = sec(0x0010, cat([sec(0x0001, new Uint8Array(csBuf)), frameList, geomList, atomic, sec(0x0003, new Uint8Array(0))]));
     downloadBlob(new Blob([dff], { type: 'application/octet-stream' }), 'IT_SHAKH_3DS_WHEEL.dff');
-    setStatus(`1 ta yaxlit obyekt sifatida .DFF saqlandi (${numVerts.toLocaleString()} vertex)!`);
+    setStatus(`1 ta yaxlit obyekt sifatida .DFF saqlandi (${numVerts.toLocaleString()} vertex${M.tire ? ', disk + qora balon, wheel.dff o‘lchamida' : ''})!`);
 }
 
 function downloadBlob(blob, name) {
@@ -2079,6 +2339,7 @@ function scheduleRebuild() {
 
 document.getElementById('objectModeSelect').addEventListener('change', build3dsMaxObjectFromImage);
 document.getElementById('lugHolesToggle').addEventListener('change', build3dsMaxObjectFromImage);
+document.getElementById('tireToggle').addEventListener('change', build3dsMaxObjectFromImage);
 
 document.getElementById('threshRange').addEventListener('input', e => {
     document.getElementById('threshVal').textContent = e.target.value;
@@ -2194,7 +2455,8 @@ document.getElementById('spinToggleBtn').addEventListener('click', function () {
 
 document.getElementById('resetCamBtn').addEventListener('click', () => {
     masterModelGroup.rotation.set(0, 0, 0);
-    cameras['perspectiveView'].position.set(-115, 35, 235);
+    const R = fittedViewR || 73;
+    cameras['perspectiveView'].position.set(-1.58 * R, 0.48 * R, 3.2 * R);
     controls['perspectiveView'].target.set(0, 0, 0);
     controls['perspectiveView'].update();
 });
