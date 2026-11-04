@@ -1002,7 +1002,87 @@ body.file-modal-active{overflow:hidden;}
 
 <canvas id="matrixCanvas"></canvas>
 <div class="lion-bg"></div>
-<div id="datetime-bar"></div>
+<div id="datetime-bar" title="Vaqt: Toshkent (UTC+5)"></div>
+<script>
+/* ===== SHAKH TIME — qurilma soati noto‘g‘ri bo‘lsa ham to‘g‘ri vaqt (Toshkent, UTC+5) ===== */
+(function(){
+    'use strict';
+    var TZ_OFFSET = 5 * 3600000;                 // Asia/Tashkent: UTC+5, yozgi/qishki vaqt yo‘q
+    var anchorServer = Date.now(), anchorPerf = performance.now(), synced = false, syncing = false, fails = 0, lastSync = 0;
+    var listeners = [];
+
+    function now(){ return anchorServer + (performance.now() - anchorPerf); }   // qurilma soatiga bog‘liq emas (monoton)
+    function setAnchor(serverMs, perfAt){
+        anchorServer = serverMs; anchorPerf = perfAt; synced = true; fails = 0; lastSync = perfAt;
+        listeners.forEach(function(f){ try { f(); } catch(e) {} });
+    }
+    function timeout(ms){
+        if (window.AbortController) { var c = new AbortController(); setTimeout(function(){ c.abort(); }, ms); return c.signal; }
+        return undefined;
+    }
+    /* 1) shu saytning o‘z serveri: HTTP "Date" sarlavhasi */
+    function viaOwnServer(){
+        if (!/^https?:$/.test(location.protocol)) return Promise.reject();
+        var t0 = performance.now();
+        return fetch(location.pathname + '?_t=' + Date.now(), {method:'HEAD', cache:'no-store', signal: timeout(6000)}).then(function(r){
+            var t1 = performance.now(), d = r.headers.get('Date'), ms = d ? Date.parse(d) : NaN;
+            if (!isFinite(ms)) throw 0;
+            return {ms: ms + 500, t0: t0, t1: t1};          // sarlavha soniyaga qirqilgan — o‘rtacha +0.5 s
+        });
+    }
+    /* 2, 3) ochiq vaqt API lari (UTC) */
+    function viaApi(url, pick){
+        var t0 = performance.now();
+        return fetch(url, {cache:'no-store', signal: timeout(6000)}).then(function(r){ return r.json(); }).then(function(j){
+            var t1 = performance.now(), ms = pick(j);
+            if (!isFinite(ms)) throw 0;
+            return {ms: ms, t0: t0, t1: t1};
+        });
+    }
+    var SOURCES = [
+        viaOwnServer,
+        function(){ return viaApi('https://worldtimeapi.org/api/timezone/Etc/UTC', function(j){ return Date.parse(j.utc_datetime || j.datetime); }); },
+        function(){ return viaApi('https://timeapi.io/api/Time/current/zone?timeZone=UTC', function(j){ return Date.parse(String(j.dateTime).replace(/(\.\d{3})\d*$/, '$1') + 'Z'); }); }
+    ];
+    function sync(){
+        if (syncing) return; syncing = true;
+        var i = 0;
+        (function next(){
+            if (i >= SOURCES.length) { syncing = false; fails++; setTimeout(sync, Math.min(120000, 4000 * Math.pow(2, fails))); return; }
+            var src = SOURCES[i++];
+            var p; try { p = src(); } catch(e) { p = Promise.reject(e); }
+            p.then(function(s){
+                if (s.t1 - s.t0 > 5000) throw 0;                              // juda sekin javob — ishonchsiz
+                setAnchor(s.ms + (s.t1 - s.t0) / 2, s.t1);                    // tarmoq kechikishining yarmini hisobga olish
+                syncing = false;
+            }).catch(function(){ next(); });
+        })();
+    }
+    sync();
+    setInterval(function(){ if (performance.now() - lastSync > 600000) sync(); }, 30000);           // har 10 daqiqada qayta tekshirish
+    document.addEventListener('visibilitychange', function(){ if (!document.hidden && performance.now() - lastSync > 60000) sync(); });
+    window.addEventListener('online', sync);
+
+    var DAYS = ['Yakshanba','Dushanba','Seshanba','Chorshanba','Payshanba','Juma','Shanba'];
+    var MONTHS = ['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentabr','Oktabr','Noyabr','Dekabr'];
+    function p2(n){ return (n < 10 ? '0' : '') + n; }
+    function parts(){
+        var d = new Date(now() + TZ_OFFSET);                                   // UTC getterlari = Toshkent vaqti
+        return {y:d.getUTCFullYear(), mo:d.getUTCMonth(), d:d.getUTCDate(), wd:d.getUTCDay(), h:d.getUTCHours(), mi:d.getUTCMinutes(), s:d.getUTCSeconds()};
+    }
+    window.SHAKH_TIME = {
+        now: now,
+        parts: parts,
+        isSynced: function(){ return synced; },
+        onSync: function(f){ listeners.push(f); },
+        resync: sync,
+        long: function(){ var t = parts(); return DAYS[t.wd] + ', ' + t.d + ' ' + MONTHS[t.mo] + ' ' + t.y + '  |  ' + p2(t.h) + ':' + p2(t.mi) + ':' + p2(t.s); },
+        clock: function(){ var t = parts(); return p2(t.h) + ':' + p2(t.mi) + ':' + p2(t.s); },
+        dateShort: function(){ var t = parts(); return p2(t.d) + '.' + p2(t.mo + 1) + '.' + t.y; },
+        full: function(){ var t = parts(); return p2(t.d) + '.' + p2(t.mo + 1) + '.' + t.y + ', ' + p2(t.h) + ':' + p2(t.mi) + ':' + p2(t.s); }
+    };
+})();
+</script>
 
 <header>
     <div class="logo-text">SHAKH TASHKENTSKI</div>
@@ -1544,18 +1624,17 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     });
 
     // VAQT VA SANA
+    // Qurilma soati noto‘g‘ri bo‘lsa ham to‘g‘ri vaqt: SHAKH_TIME (server vaqti bilan sinxronlanadi)
+    let lastDT = '';
     function updateDateTime() {
-        const now = new Date();
-        const days = ['Yakshanba','Dushanba','Seshanba','Chorshanba','Payshanba','Juma','Shanba'];
-        const months = ['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentabr','Oktabr','Noyabr','Dekabr'];
-        const h = String(now.getHours()).padStart(2,'0');
-        const m = String(now.getMinutes()).padStart(2,'0');
-        const s = String(now.getSeconds()).padStart(2,'0');
-        document.getElementById('datetime-bar').textContent =
-            `${days[now.getDay()]}, ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}  |  ${h}:${m}:${s}`;
+        const txt = SHAKH_TIME.long();
+        if (txt === lastDT) return;
+        lastDT = txt;
+        document.getElementById('datetime-bar').textContent = txt;
     }
     updateDateTime();
-    setInterval(updateDateTime, 1000);
+    setInterval(updateDateTime, 250);
+    SHAKH_TIME.onSync(updateDateTime);
 
     // TERMINAL
     const commands = {
@@ -1576,7 +1655,7 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
         contact: () => `<div class="t-info">Aloqa:</div>
 <div>▸ Telegram: @The_Only_One_Shakh</div>
 <div>▸ Instagram: @anonimshakh66</div>`,
-        date: () => `<div>${new Date().toLocaleString('uz-UZ')}</div>`,
+        date: () => `<div>${SHAKH_TIME.full()} (Toshkent, UTC+5)</div>`,
         clear: () => null
     };
 
@@ -2632,13 +2711,10 @@ document.getElementById('lb-refresh').addEventListener('click',loadLeaderboard);
     const editorEl = document.getElementById('live-status-editor');
 
     function localTime(){
-        const d = new Date();
-        const date = d.toLocaleDateString('uz-UZ',{day:'2-digit',month:'2-digit',year:'numeric'});
-        const time = d.toLocaleTimeString('uz-UZ',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-        timeEl.textContent = time + '  •  ' + date;
+        timeEl.textContent = SHAKH_TIME.clock() + '  •  ' + SHAKH_TIME.dateShort();
     }
     localTime();
-    setInterval(localTime,1000);
+    setInterval(localTime,250);
 
     function getUser(){
         try{
