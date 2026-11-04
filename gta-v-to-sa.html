@@ -1347,6 +1347,23 @@ function computeVisibility(geoms,isTransparent,res){
   return{visible:v,total:n};
 }
 G.computeVisibility=computeVisibility;
+/* keep only triangles where mask[t]!==0; compacts vertices */
+function subsetSpec(spec,mask){
+  const nV=spec.pos.length/3,remap=new Int32Array(nV).fill(-1);let n=0;const tris=[];
+  for(let t=0;t<spec.tris.length/4;t++){
+    if(!mask[t])continue;
+    for(let k=0;k<3;k++){const v=spec.tris[t*4+k];if(remap[v]<0)remap[v]=n++;}
+    tris.push(remap[spec.tris[t*4]],remap[spec.tris[t*4+1]],remap[spec.tris[t*4+2]],spec.tris[t*4+3]);
+  }
+  const pos=new Float32Array(n*3),nrm=new Float32Array(n*3),uv=spec.uv?new Float32Array(n*2):null;
+  for(let v=0;v<nV;v++){const r=remap[v];if(r<0)continue;
+    pos[r*3]=spec.pos[v*3];pos[r*3+1]=spec.pos[v*3+1];pos[r*3+2]=spec.pos[v*3+2];
+    nrm[r*3]=spec.nrm[v*3];nrm[r*3+1]=spec.nrm[v*3+1];nrm[r*3+2]=spec.nrm[v*3+2];
+    if(uv){uv[r*2]=spec.uv[v*2];uv[r*2+1]=spec.uv[v*2+1];}}
+  const out=Object.assign({},spec,{pos,nrm,uv,tris});delete out._vis;return out;
+}
+G.subsetSpec=subsetSpec;
+
 G.decimateSpec=decimateSpec;
 })(GV);
 
@@ -1455,7 +1472,7 @@ class GeoAcc{
 function bboxOf(xms){let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];for(const xm of xms)for(let i=0;i<xm.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}return{mn,mx};}
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false,maxTris:40000},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false,maxTris:40000,hideHidden:true},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -1604,6 +1621,17 @@ function convertToSA(model,texLookup,opts){
         let v=0;const n=triCount(g);if(g._vis){for(let t=0;t<n;t++)v+=g._vis[t];}else v=n;
         g._v=v;wsum+=v+HID*(n-v);
       }
+      if(opts.hideHidden&&vi.total){ // drop triangles that cannot be seen from outside at all
+        let removed=0;
+        for(let i=0;i<geoms.length;i++){const g=geoms[i];if(!g._vis)continue;
+          const n=triCount(g);let cnt=0;for(let t=0;t<n;t++)cnt+=g._vis[t];
+          if(cnt===n||cnt===0)continue; // nothing to drop (or keep whole part if detection failed)
+          const k=g._k,ng=G.subsetSpec(g,g._vis);ng._k=k;ng._vis=new Uint8Array(triCount(ng)).fill(1);removed+=n-triCount(ng);geoms[i]=ng;
+        }
+        if(removed)report.info.push('Tashqaridan umuman ko‘rinmaydigan ichki poligonlar olib tashlandi: '+removed.toLocaleString()+'.');
+      }
+      wsum=0;
+      for(const g of geoms){if(g._k==='vlo'||g._k==='wheel')continue;const n=triCount(g);let v=0;if(g._vis){for(let t=0;t<n;t++)v+=g._vis[t];}else v=n;g._v=v;wsum+=v+HID*(n-v);}
       const rv=Math.max(0.01,(opts.maxTris-fixed)/Math.max(1,wsum));
       for(let i=0;i<geoms.length;i++){
         const g=geoms[i],n=triCount(g);let tgt;
@@ -1623,10 +1651,17 @@ function convertToSA(model,texLookup,opts){
   const used=new Set();
   for(const g of geoms)for(const m of g.materials)if(m.tex)used.add(m.tex);
   report.requiredTex=[...used].length+report.missingTex.length;
-  const txdTexs=[];
+  const txdTexs=[],texMap={},usedSafe=new Set(),renamed=[];
+  const safeTexName=n=>{let r=String(n).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'').slice(0,23);return r||'tex';};
   for(const tn of used){
     const t=texLookup?texLookup(tn):null;
-    if(t&&t.rgba){txdTexs.push(G.makeTxdTexture(tn,t.rgba,t.w,t.h,{maxSize:opts.maxTex,compress:opts.compress,mips:opts.mips}));report.usedTex.push(tn);}
+    if(t&&t.rgba){
+      let safe=safeTexName(tn);if(usedSafe.has(safe)){let i=2;while(usedSafe.has(safe.slice(0,21)+'_'+i))i++;safe=safe.slice(0,21)+'_'+i;}
+      usedSafe.add(safe);texMap[safe]=tn;
+      if(safe!==tn){for(const g of geoms)for(const m of g.materials)if(m.tex===tn)m.tex=safe;}
+      txdTexs.push(G.makeTxdTexture(safe,t.rgba,t.w,t.h,{maxSize:opts.maxTex,compress:opts.compress,mips:opts.mips}));report.usedTex.push(safe);
+      if(safe!==tn)renamed.push(tn+' → '+safe);
+    }
     else{report.missingTex.push(tn);for(const g of geoms)for(const m of g.materials)if(m.tex===tn){m.tex='';m.color=SA_COL.plain.slice();}}
   }
   report.shaders=(model.shaders||[]).map((sh,i)=>{const r=opts.roles[i]||'auto';return{i,name:sh.name,hash:sh.nameHash,fileHash:sh.fileHash,role:r==='auto'?autoRole(sh.name,sh.diffuse,''):r,textures:(sh.textures||[]).map(t=>({kind:t.kind,hash:t.hash,name:t.name,found:!!(t.name&&texLookup&&texLookup(t.name)&&texLookup(t.name).rgba)}))};});
@@ -1642,7 +1677,8 @@ function convertToSA(model,texLookup,opts){
   const txd=G.buildTXD(txdTexs);
   const ws=Math.max(0.2,wheelDiam*opts.wheelScale);
   const ide=objectMode?'ID, '+name+', '+name+', 299, 0':'ID, '+name+', '+name+', car, '+name.toUpperCase()+', '+name.toUpperCase()+', null, richfolk, 10, 0, 0, -1, '+ws.toFixed(2)+', '+ws.toFixed(2)+', 0';
-  return{dff,txd,ide,report,name,texNames:txdTexs.map(t=>t.name)};
+  if(renamed.length)report.info.push('Tekstura nomlari SA uchun moslandi (bo‘sh joy/maxsus belgisiz, ≤23 belgi): '+renamed.slice(0,6).join(', ')+(renamed.length>6?'…':''));
+  return{dff,txd,ide,report,name,texNames:txdTexs.map(t=>t.name),texMap};
 }
 Object.assign(G,{isUnknownShader,convertToSA,classify,autoRole,ROLES,SA_COL,defaultRoles});
 })(GV);
@@ -1895,7 +1931,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,maxTex:1024,maxTris:40000,compress:'auto',mips:true,wheelScale:1,rot180:false}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,maxTex:512,maxTris:40000,hideHidden:true,compress:'auto',mips:true,wheelScale:1,rot180:false}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -2096,8 +2132,9 @@ function paneConv(p){
   const lods=['high','med','low','vlow'].filter(l=>m.parts.some(x=>x.lod===l));
   p.appendChild(sel('Asosiy LOD','lod',lods.map(l=>[l,({high:'Yuqori (HD)',med:'O‘rta',low:'Past',vlow:'Juda past'})[l]])));
   if(car){p.appendChild(chk('Boshqa qismlar → chassis','mergeOther'));p.appendChild(chk('chassis_vlo (past LOD)','vlo'));p.appendChild(chk('_dam nusxalari (zarar)','damCopy'));p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));p.appendChild(inp('G‘ildirak o‘lchami ×','wheelScale','number',{step:'0.05',min:'0.3',max:'3'}));}
+  p.appendChild(chk('Ko‘rinmaydigan ichki poligonlarni olib tashlash','hideHidden'));
   p.appendChild(sel('Maks. poligon (SA uchun)','maxTris',[[0,'Cheklovsiz (xavfli!)'],[20000,'20 000 (yengil)'],[40000,'40 000 (tavsiya)'],[60000,'60 000'],[100000,'100 000 (faqat limit adjuster bilan)']]));
-  p.appendChild(sel('Maks. tekstura','maxTex',[[256,'256'],[512,'512'],[1024,'1024 (tavsiya)'],[2048,'2048']]));
+  p.appendChild(sel('Maks. tekstura','maxTex',[[256,'256'],[512,'512 (SA uchun tavsiya)'],[1024,'1024 (chiroyli, og‘ir)'],[2048,'2048']]));
   p.appendChild(sel('Siqish','compress',[['auto','Avto (DXT1/DXT3)'],['dxt1','Faqat DXT1'],['dxt3','Faqat DXT3'],['none','Siqilmagan 32-bit']]));
   p.appendChild(chk('Mipmap yaratish','mips'));
   if(car)p.appendChild(sel('Tekstura topilmasa','missTex',[['auto','Avto (noma’lum shader → asosiy rang)'],['paint','Hammasi → asosiy rang'],['plain','Kulrang']]));
@@ -2132,7 +2169,7 @@ function renderResult(p){
     el('button',{class:'btn',type:'button',onclick:()=>save(r.name+'.txd',r.txd)},['⬇ TXD']),
     el('button',{class:'btn pri',type:'button',onclick:async()=>{
       const files=[{name:r.name+'.dff',data:r.dff},{name:r.name+'.txd',data:r.txd},{name:'vehicles_ide_qator.txt',data:G.enc.encode(r.ide.replace('ID',' ID')+'\r\n')}];
-      if(S.opts.pngCopies!==false){for(const n of (r.texNames||[])){const t=G.poolGet(n);if(t&&t.rgba)files.push({name:n+'.png',data:await rgbaToPNG(t.rgba,t.w,t.h)});}}
+      if(S.opts.pngCopies!==false){for(const n of (r.texNames||[])){const t=G.poolGet((r.texMap&&r.texMap[n])||n);if(t&&t.rgba)files.push({name:n+'.png',data:await rgbaToPNG(t.rgba,t.w,t.h)});}}
       save(r.name+'_SA.zip',G.zipStore(files),'application/zip');}},['⬇ ZIP (hammasi + PNG)'])]));
   c.appendChild(el('div',{class:'note',text:(r.model&&r.model.info?'':'')+'IDE (vehicles.ide) qatori — ID ni o‘zingiz yozing:'}));
   const ta=el('textarea',{class:'ide',readonly:true,rows:2});ta.value=r.ide;c.appendChild(ta);
