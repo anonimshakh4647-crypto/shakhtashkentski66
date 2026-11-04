@@ -1252,6 +1252,14 @@ function decimateSpec(spec,target){
     if(pvOf[a]===pvOf[b]||pvOf[b]===pvOf[c]||pvOf[a]===pvOf[c])continue;
     keep.push(t);
   }
+  // fix winding: a face must agree with the original (outward) vertex normals
+  const wflip=new Uint8Array(keep.length);
+  for(let i=0;i<keep.length;i++){const t=keep[i];
+    const a=tv[t*3],b=tv[t*3+1],c=tv[t*3+2];
+    const ux=P[b*3]-P[a*3],uy=P[b*3+1]-P[a*3+1],uz=P[b*3+2]-P[a*3+2],vx=P[c*3]-P[a*3],vy=P[c*3+1]-P[a*3+1],vz=P[c*3+2]-P[a*3+2];
+    const x=uy*vz-uz*vy,y=uz*vx-ux*vz,z=ux*vy-uy*vx;
+    const N=spec.nrm,nx=N[a*3]+N[b*3]+N[c*3],ny=N[a*3+1]+N[b*3+1]+N[c*3+1],nz=N[a*3+2]+N[b*3+2]+N[c*3+2];
+    if(x*nx+y*ny+z*nz<0)wflip[i]=1;}
   for(const t of keep)for(let k=0;k<3;k++){const s=tv[t*3+k];if(remap[s]<0)remap[s]=nv2++;}
   const pos=new Float32Array(nv2*3),nr=new Float32Array(nv2*3),uv=spec.uv?new Float32Array(nv2*2):null;
   for(let s=0;s<nV;s++){const r=remap[s];if(r<0)continue;
@@ -1264,7 +1272,7 @@ function decimateSpec(spec,target){
     for(let i=0;i<nK;i++){const t=keep[i];
       const a=tv[t*3],b=tv[t*3+1],c=tv[t*3+2];
       const ux=P[b*3]-P[a*3],uy=P[b*3+1]-P[a*3+1],uz=P[b*3+2]-P[a*3+2],vx=P[c*3]-P[a*3],vy=P[c*3+1]-P[a*3+1],vz=P[c*3+2]-P[a*3+2];
-      fnx[i]=uy*vz-uz*vy;fny[i]=uz*vx-ux*vz;fnz[i]=ux*vy-uy*vx;
+      const sg=wflip[i]?-1:1;fnx[i]=sg*(uy*vz-uz*vy);fny[i]=sg*(uz*vx-ux*vz);fnz[i]=sg*(ux*vy-uy*vx);
       for(let k=0;k<3;k++)cnt[pvOf[tv[t*3+k]]+1]++;}
     for(let p=0;p<nPV;p++)cnt[p+1]+=cnt[p];
     const fill=cnt.slice(0,nPV),lst=new Int32Array(cnt[nPV]);
@@ -1281,7 +1289,7 @@ function decimateSpec(spec,target){
     }
   }
   const tris=new Array(keep.length*4);
-  keep.forEach((t,i)=>{tris[i*4]=remap[tv[t*3]];tris[i*4+1]=remap[tv[t*3+1]];tris[i*4+2]=remap[tv[t*3+2]];tris[i*4+3]=tm[t];});
+  keep.forEach((t,i)=>{const f=wflip[i];tris[i*4]=remap[tv[t*3]];tris[i*4+1]=remap[tv[t*3+(f?2:1)]];tris[i*4+2]=remap[tv[t*3+(f?1:2)]];tris[i*4+3]=tm[t];});
   return Object.assign({},spec,{pos,nrm:nr,uv,tris});
 }
 /* Which triangles can be seen from outside? (software z-buffer from 26 directions; glass does not occlude) */
@@ -1937,6 +1945,12 @@ const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
 let toastT=0;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('on'),3200);}
 function save(name,data,type){const b=data instanceof Blob?data:new Blob([data],{type:type||'application/octet-stream'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},4000);}
+function rgbaToBMP(rgba,w,h){ // 24-bit BMP, alpha composited over mid-grey
+  const row=(w*3+3)&~3,size=54+row*h,o=new Uint8Array(size),dv=new DataView(o.buffer);
+  o[0]=66;o[1]=77;dv.setUint32(2,size,true);dv.setUint32(10,54,true);dv.setUint32(14,40,true);dv.setInt32(18,w,true);dv.setInt32(22,h,true);dv.setUint16(26,1,true);dv.setUint16(28,24,true);dv.setUint32(34,row*h,true);
+  for(let y=0;y<h;y++){let p=54+(h-1-y)*row;for(let x=0;x<w;x++){const i=(y*w+x)*4,a=rgba[i+3]/255;o[p++]=Math.round(rgba[i+2]*a+128*(1-a));o[p++]=Math.round(rgba[i+1]*a+128*(1-a));o[p++]=Math.round(rgba[i]*a+128*(1-a));}}
+  return o;
+}
 async function rgbaToPNG(rgba,w,h){const cv=document.createElement('canvas');cv.width=w;cv.height=h;const cx=cv.getContext('2d');const id=cx.createImageData(w,h);id.data.set(rgba);cx.putImageData(id,0,0);const b=await new Promise(r=>cv.toBlob(r,'image/png'));return new Uint8Array(await b.arrayBuffer());}
 function drawThumb(cv,t,size){
   size=size||96;const r=t&&G.poolGet(t.name||t);if(!r){cv.width=cv.height=size;return false;}
@@ -2167,13 +2181,14 @@ function renderResult(p){
   c.appendChild(el('div',{class:'row',style:'flex-wrap:wrap'},[
     el('button',{class:'btn',type:'button',onclick:()=>save(r.name+'.dff',r.dff)},['⬇ DFF']),
     el('button',{class:'btn',type:'button',onclick:()=>save(r.name+'.txd',r.txd)},['⬇ TXD']),
+    el('button',{class:'btn',type:'button',title:'ZModeler .bmp teksturalarni qidiradi',onclick:()=>{const list=G.parseTXD(r.txd).filter(t=>t.rgba);save(r.name+'_bmp.zip',G.zipStore(list.map(t=>({name:t.name+'.bmp',data:rgbaToBMP(t.rgba,t.w,t.h)}))),'application/zip');}},['⬇ BMP (ZModeler)']),
     el('button',{class:'btn pri',type:'button',onclick:async()=>{
       const files=[{name:r.name+'.dff',data:r.dff},{name:r.name+'.txd',data:r.txd},{name:'vehicles_ide_qator.txt',data:G.enc.encode(r.ide.replace('ID',' ID')+'\r\n')}];
       if(S.opts.pngCopies!==false){for(const n of (r.texNames||[])){const t=G.poolGet((r.texMap&&r.texMap[n])||n);if(t&&t.rgba)files.push({name:n+'.png',data:await rgbaToPNG(t.rgba,t.w,t.h)});}}
       save(r.name+'_SA.zip',G.zipStore(files),'application/zip');}},['⬇ ZIP (hammasi + PNG)'])]));
   c.appendChild(el('div',{class:'note',text:(r.model&&r.model.info?'':'')+'IDE (vehicles.ide) qatori — ID ni o‘zingiz yozing:'}));
   const ta=el('textarea',{class:'ide',readonly:true,rows:2});ta.value=r.ide;c.appendChild(ta);
-  c.appendChild(el('div',{class:'note',style:'border-left:3px solid #fbbf24;padding-left:10px;margin-bottom:6px',html:'<b>Blender (DragonFF):</b> Import oynasida <code>'+esc(r.name)+'.dff</code> va <code>'+esc(r.name)+'.txd</code> ni <b>birga</b> tanlang (Ctrl bosib). Faqat .dff ochilsa teksturalar yuklanmaydi. TXD ochilmasa: ZIP ichidagi <code>.png</code> fayllarni DFF bilan <b>bitta papkaga</b> chiqaring — DragonFF ularni o‘zi topadi (Import oynasida «Load Images» yoqilgan, Extension = PNG). Tekstura yuklangan bo‘lsa ham oddiy Solid ko‘rinishda detallar oq/kulrang chiqadi — 3D oynada <b>Z → Material Preview</b> ni tanlang (yoki Solid rejimida Viewport Shading → Color: <b>Texture</b>).'}));
+  c.appendChild(el('div',{class:'note',style:'border-left:3px solid #fbbf24;padding-left:10px;margin-bottom:6px',html:'<b>Blender (DragonFF):</b> Import oynasida <code>'+esc(r.name)+'.dff</code> va <code>'+esc(r.name)+'.txd</code> ni <b>birga</b> tanlang (Ctrl bosib). Faqat .dff ochilsa teksturalar yuklanmaydi. <b>ZModeler:</b> «⬇ BMP (ZModeler)» ZIP sini chiqarib, papkani Options → Textures (qidiruv ro‘yxati / search list) ga qo‘shing. TXD ochilmasa: ZIP ichidagi <code>.png</code> fayllarni DFF bilan <b>bitta papkaga</b> chiqaring — DragonFF ularni o‘zi topadi (Import oynasida «Load Images» yoqilgan, Extension = PNG). Tekstura yuklangan bo‘lsa ham oddiy Solid ko‘rinishda detallar oq/kulrang chiqadi — 3D oynada <b>Z → Material Preview</b> ni tanlang (yoki Solid rejimida Viewport Shading → Color: <b>Texture</b>).'}));
   c.appendChild(el('div',{class:'note',html:'Keyingi qadamlar: ZModeler/Blender (DragonFF) da oching → <code>vehicles.ide</code>, <code>handling.cfg</code>, <code>carcols.dat</code> ga yozing → IMG ga joylang. Rang materiallari: <span class="tag">60,255,0</span> asosiy, <span class="tag">255,0,175</span> ikkinchi.'}));
   p.appendChild(c);
 }
