@@ -1979,6 +1979,91 @@ function poolRemoveByOrigin(prefix){for(const [k,v] of [...POOL])if((v.origin||'
 Object.assign(G,{poolSuggest,loadFile,poolGet,poolList,poolClear,poolAdd,poolRemoveByOrigin,POOL});
 })(GV);
 
+/* ===== AES-256 (ECB, decrypt only) as used by GTA V RPF archives: the block is decrypted 16 times in a row ===== */
+(function(G){
+'use strict';
+let T=null;
+function tables(){
+  if(T)return T;
+  const sbox=new Uint8Array(256),inv=new Uint8Array(256);
+  let p=1,q=1;
+  do{
+    p=(p^(p<<1)^((p&0x80)?0x11B:0))&0xFF;
+    q^=q<<1;q^=q<<2;q^=q<<4;q&=0xFF;if(q&0x80)q^=0x09;
+    const rot=(v,n)=>((v<<n)|(v>>(8-n)))&0xFF;
+    const x=q^rot(q,1)^rot(q,2)^rot(q,3)^rot(q,4);
+    sbox[p]=(x^0x63)&0xFF;inv[sbox[p]]=p;
+  }while(p!==1);
+  sbox[0]=0x63;inv[0x63]=0;
+  const xt=a=>((a<<1)^((a&0x80)?0x1B:0))&0xFF;
+  const mul=(a,b)=>{let r=0;while(b){if(b&1)r^=a;a=xt(a);b>>=1;}return r;};
+  const Td=[new Int32Array(256),new Int32Array(256),new Int32Array(256),new Int32Array(256)];
+  for(let i=0;i<256;i++){
+    const s=inv[i];
+    const w=((mul(s,14)<<24)|(mul(s,9)<<16)|(mul(s,13)<<8)|mul(s,11))>>>0;
+    Td[0][i]=w;Td[1][i]=((w>>>8)|(w<<24))>>>0|0;Td[2][i]=((w>>>16)|(w<<16))>>>0|0;Td[3][i]=((w>>>24)|(w<<8))>>>0|0;
+    Td[0][i]|=0;
+  }
+  T={sbox,inv,Td};return T;
+}
+function expandKey(key){
+  const {sbox}=tables();
+  const Nk=8,Nr=14,w=new Int32Array(4*(Nr+1));
+  for(let i=0;i<Nk;i++)w[i]=(key[4*i]<<24)|(key[4*i+1]<<16)|(key[4*i+2]<<8)|key[4*i+3];
+  let rcon=1;
+  const sub=x=>((sbox[x>>>24]<<24)|(sbox[(x>>>16)&255]<<16)|(sbox[(x>>>8)&255]<<8)|sbox[x&255]);
+  for(let i=Nk;i<w.length;i++){
+    let t=w[i-1];
+    if(i%Nk===0){t=sub((t<<8)|(t>>>24))^(rcon<<24);rcon=((rcon<<1)^((rcon&0x80)?0x1B:0))&0xFF;}
+    else if(i%Nk===4)t=sub(t);
+    w[i]=w[i-Nk]^t;
+  }
+  return w;
+}
+function makeDecryptor(key){
+  if(!key||key.length!==32)throw new Error('AES kaliti 32 bayt bo‘lishi kerak');
+  const {inv,sbox,Td}=tables(),Nr=14,ek=expandKey(key),dk=new Int32Array(ek.length);
+  for(let i=0;i<=Nr;i++)for(let j=0;j<4;j++){
+    let v=ek[4*(Nr-i)+j];
+    if(i>0&&i<Nr)v=Td[0][sbox[v>>>24]]^Td[1][sbox[(v>>>16)&255]]^Td[2][sbox[(v>>>8)&255]]^Td[3][sbox[v&255]];
+    dk[4*i+j]=v;
+  }
+  const T0=Td[0],T1=Td[1],T2=Td[2],T3=Td[3];
+  // decrypt in place `passes` times over whole 16-byte blocks
+  return function(buf,passes){
+    passes=passes||1;
+    const n=buf.length&~15;
+    for(let o=0;o<n;o+=16){
+      let s0=((buf[o]<<24)|(buf[o+1]<<16)|(buf[o+2]<<8)|buf[o+3]),s1=((buf[o+4]<<24)|(buf[o+5]<<16)|(buf[o+6]<<8)|buf[o+7]),
+          s2=((buf[o+8]<<24)|(buf[o+9]<<16)|(buf[o+10]<<8)|buf[o+11]),s3=((buf[o+12]<<24)|(buf[o+13]<<16)|(buf[o+14]<<8)|buf[o+15]);
+      for(let pass=0;pass<passes;pass++){
+        s0^=dk[0];s1^=dk[1];s2^=dk[2];s3^=dk[3];
+        for(let r=1;r<Nr;r++){
+          const k=4*r;
+          const t0=T0[s0>>>24]^T1[(s3>>>16)&255]^T2[(s2>>>8)&255]^T3[s1&255]^dk[k];
+          const t1=T0[s1>>>24]^T1[(s0>>>16)&255]^T2[(s3>>>8)&255]^T3[s2&255]^dk[k+1];
+          const t2=T0[s2>>>24]^T1[(s1>>>16)&255]^T2[(s0>>>8)&255]^T3[s3&255]^dk[k+2];
+          const t3=T0[s3>>>24]^T1[(s2>>>16)&255]^T2[(s1>>>8)&255]^T3[s0&255]^dk[k+3];
+          s0=t0;s1=t1;s2=t2;s3=t3;
+        }
+        const k=4*Nr;
+        const o0=((inv[s0>>>24]<<24)|(inv[(s3>>>16)&255]<<16)|(inv[(s2>>>8)&255]<<8)|inv[s1&255])^dk[k];
+        const o1=((inv[s1>>>24]<<24)|(inv[(s0>>>16)&255]<<16)|(inv[(s3>>>8)&255]<<8)|inv[s2&255])^dk[k+1];
+        const o2=((inv[s2>>>24]<<24)|(inv[(s1>>>16)&255]<<16)|(inv[(s0>>>8)&255]<<8)|inv[s3&255])^dk[k+2];
+        const o3=((inv[s3>>>24]<<24)|(inv[(s2>>>16)&255]<<16)|(inv[(s1>>>8)&255]<<8)|inv[s0&255])^dk[k+3];
+        s0=o0;s1=o1;s2=o2;s3=o3;
+      }
+      buf[o]=s0>>>24;buf[o+1]=(s0>>>16)&255;buf[o+2]=(s0>>>8)&255;buf[o+3]=s0&255;
+      buf[o+4]=s1>>>24;buf[o+5]=(s1>>>16)&255;buf[o+6]=(s1>>>8)&255;buf[o+7]=s1&255;
+      buf[o+8]=s2>>>24;buf[o+9]=(s2>>>16)&255;buf[o+10]=(s2>>>8)&255;buf[o+11]=s2&255;
+      buf[o+12]=s3>>>24;buf[o+13]=(s3>>>16)&255;buf[o+14]=(s3>>>8)&255;buf[o+15]=s3&255;
+    }
+    return buf;
+  };
+}
+G.makeAesDecryptor=makeDecryptor;
+})(GV);
+
 /* ===== RPF7 archive reader (GTA V, unencrypted "OPEN"/none TOC; nested RPFs) ===== */
 (function(G){
 'use strict';
@@ -1986,18 +2071,21 @@ const RPF7=0x37465052,ENC_OPEN=0x4E45504F,ENC_NONE=0,ENC_AES=0x0FFFFFF9;
 const memSrc=u8=>({size:u8.length,read:async(o,l)=>u8.subarray(o,Math.min(u8.length,o+l))});
 const fileSrc=f=>({size:f.size,read:async(o,l)=>new Uint8Array(await f.slice(o,Math.min(f.size,o+l)).arrayBuffer())});
 const rd32=(u,o)=>(u[o]|(u[o+1]<<8)|(u[o+2]<<16)|(u[o+3]<<24))>>>0;
-class RpfEncrypted extends Error{}
-async function readRpf(src,prefix,depth){
+class RpfEncrypted extends Error{constructor(m,aes){super(m);this.aes=!!aes;}}
+class RpfBadKey extends Error{}
+async function readRpf(src,prefix,depth,key){
   prefix=prefix||'';depth=depth||0;
+  const dec=key?G.makeAesDecryptor(key):null;
   const h=await src.read(0,16);
-  if(h.length<16||rd32(h,0)!==RPF7)throw new Error('Bu RPF7 (GTA V) arxivi emas'+(rd32(h,0)===0x32465052?' (RPF2 — GTA IV)':''));
+  if(h.length<16||rd32(h,0)!==RPF7){const m=rd32(h,0),a=String.fromCharCode(...[...h.subarray(0,4)].map(c=>c>31&&c<127?c:63));throw new Error('Bu RPF7 (GTA V) arxivi emas — fayl sarlavhasi «'+a+'» (0x'+m.toString(16)+')'+(m===0x32465052?': RPF2 (GTA IV)':m===0x30465052||m===0x33465052||m===0x34465052||m===0x36465052?': eski RPF ('+a+') — GTA V ning RPF7 emas':'')+'. Fayl .rpf bo‘lsa ham buzilgan yoki boshqa format bo‘lishi mumkin.');}
   const nE=rd32(h,4),nLen=rd32(h,8),enc=rd32(h,12);
-  if(enc!==ENC_OPEN&&enc!==ENC_NONE){
-    throw new RpfEncrypted('Bu RPF shifrlangan ('+(enc===ENC_AES?'AES':'NG')+') — o‘yinning o‘z arxivi. OpenIV/CodeWalker bilan ichidan .yft/.ytd fayllarni ajratib oling yoki modni OpenIV da «OPEN» (shifrsiz) RPF qilib saqlang.');
+  if(enc!==ENC_OPEN&&enc!==ENC_NONE&&!(enc===ENC_AES&&dec)){
+    throw new RpfEncrypted('Bu RPF shifrlangan ('+(enc===ENC_AES?'AES':'NG / 0x'+enc.toString(16))+')'+(enc===ENC_AES?' — AES kaliti kerak.':' — bu shifrlash turi qo‘llab-quvvatlanmaydi.'),enc===ENC_AES);
   }
   if(nE<1||nE>2000000||nLen>64e6)throw new Error('RPF sarlavhasi noto‘g‘ri');
-  const toc=await src.read(16,nE*16+nLen);
+  let toc=await src.read(16,nE*16+nLen);
   if(toc.length<nE*16+nLen)throw new Error('RPF fayli to‘liq emas');
+  if(enc===ENC_AES){toc=new Uint8Array(toc);dec(toc,16);if(rd32(toc,4)!==0x7FFFFF00)throw new RpfBadKey('AES kaliti noto‘g‘ri (arxiv ochilmadi)');}
   const names=toc.subarray(nE*16);
   const nameAt=o=>{let e=o;while(e<names.length&&names[e]!==0)e++;let s='';for(let i=o;i<e;i++)s+=String.fromCharCode(names[i]);return s;};
   const E=[];
@@ -2026,9 +2114,10 @@ async function readRpf(src,prefix,depth){
       dv.setUint32(0,0x37435352,true);dv.setUint32(4,ver,true);dv.setUint32(8,e.sys,true);dv.setUint32(12,e.gfx,true);o.set(body,16);
       return o;
     }
-    if(e.enc)throw new RpfEncrypted('Bu fayl shifrlangan: '+e.name);
-    if(e.size===0)return await src.read(start,e.unc);
-    const comp=await src.read(start,e.size);
+    if(e.enc&&!dec)throw new RpfEncrypted('Bu fayl shifrlangan: '+e.name+' — AES kaliti kerak.',true);
+    if(e.size===0){const raw=await src.read(start,e.unc);if(e.enc){const c=new Uint8Array(raw);dec(c,16);return c;}return raw;}
+    let comp=await src.read(start,e.size);
+    if(e.enc){comp=new Uint8Array(comp);dec(comp,16);}
     if(e.size<e.unc)return await G.inflateRaw(comp,e.unc);
     return comp;
   };
@@ -2040,8 +2129,8 @@ async function readRpf(src,prefix,depth){
       const ext=(e.name.split('.').pop()||'').toLowerCase();
       const item={path:prefix+path+e.name,name:e.name,ext,size:e.res?e.size:(e.unc||e.size),get:()=>getData(e)};
       if(ext==='rpf'&&depth<3){
-        try{const inner=await readRpf(memSrc(await getData(e)),item.path+'/',depth+1);out.push(...inner);}
-        catch(err){if(err instanceof RpfEncrypted)out.encryptedInner=(out.encryptedInner||0)+1;}
+        try{const inner=await readRpf(memSrc(await getData(e)),item.path+'/',depth+1,key);out.push(...inner);}
+        catch(err){if(err instanceof RpfEncrypted||err instanceof RpfBadKey)out.encryptedInner=(out.encryptedInner||0)+1;}
         continue;
       }
       out.push(item);
@@ -2050,8 +2139,8 @@ async function readRpf(src,prefix,depth){
   await walk(0,'',0);
   return out;
 }
-async function listRpf(file){return readRpf(fileSrc(file),'',0);}
-Object.assign(G,{readRpf,listRpf,memSrc,fileSrc,RpfEncrypted});
+async function listRpf(file,key){return readRpf(fileSrc(file),'',0,key);}
+Object.assign(G,{readRpf,listRpf,memSrc,fileSrc,RpfEncrypted,RpfBadKey});
 })(GV);
 
 /* ===== application UI ===== */
@@ -2119,7 +2208,7 @@ function renderPane(){
 const ICON={yft:'YFT',ytd:'YTD',ydr:'YDR',ydd:'YDD',dff:'DFF',txd:'TXD',dds:'DDS',png:'IMG',jpg:'IMG',jpeg:'IMG',webp:'IMG',bmp:'IMG',gif:'IMG'};
 function paneFiles(p){
   p.appendChild(el('h3',{text:'Yuklangan fayllar'}));
-  if(!S.items.length)p.appendChild(el('div',{class:'card'},[el('div',{html:'<b>Mashinani konvertlash uchun:</b>'}),el('div',{class:'note',html:'1) <code>nom.yft</code> — mashina modeli<br>2) <code>nom.ytd</code> (va bo‘lsa <code>nom_hi.ytd</code>) — teksturalar<br>Yoki mod <code>.rpf</code> faylini to‘g‘ridan-to‘g‘ri tashlang (shifrsiz «OPEN» RPF — ichidan YFT/YTD ni o‘zi topadi; o‘yinning shifrlangan RPF lari uchun OpenIV/CodeWalker kerak). Legacy («eski») GTA V. Hammasini birdaniga shu oynaga tashlang.'})]));
+  if(!S.items.length)p.appendChild(el('div',{class:'card'},[el('div',{html:'<b>Mashinani konvertlash uchun:</b>'}),el('div',{class:'note',html:'1) <code>nom.yft</code> — mashina modeli<br>2) <code>nom.ytd</code> (va bo‘lsa <code>nom_hi.ytd</code>) — teksturalar<br>Yoki mod <code>.rpf</code> faylini to‘g‘ridan-to‘g‘ri tashlang (shifrsiz «OPEN» RPF — ichidan YFT/YTD ni o‘zi topadi; shifrlangan RPF uchun o‘zingizning AES kalitingizni so‘raydi). Legacy («eski») GTA V. Hammasini birdaniga shu oynaga tashlang.'})]));
   S.items.forEach((it,i)=>{
     const isModel=!!it.model;
     p.appendChild(el('div',{class:'item'+(i===S.cur?' sel':''),onclick:()=>{if(isModel){S.cur=i;S.result=null;S.view='orig';S.hidden=new Set();S.hl=null;refresh();}}},[
@@ -2132,21 +2221,63 @@ function paneFiles(p){
   if(models.length>1)p.appendChild(el('div',{class:'note',text:'Bir nechta model bor: ko‘rish va konvertlash uchun ro‘yxatdan birini bosing.'}));
   p.appendChild(el('div',{class:'row'},[el('button',{class:'btn',type:'button',onclick:()=>$('#fileIn').click()},['📂 Fayl qo‘shish'])]));
   p.appendChild(el('h3',{text:'Qo‘llab-quvvatlanadigan formatlar'}));
-  p.appendChild(el('div',{class:'card',html:'<b>GTA V:</b> RPF (shifrsiz/OPEN — ichidagi YFT/YTD ni tanlaysiz), YFT (mashina/fragment), YDR (drawable), YDD (drawable lug‘ati), YTD (teksturalar)<br><b>GTA SA / VC / III:</b> DFF (model), TXD (teksturalar, PC)<br><b>Boshqa:</b> DDS, PNG, JPG, WEBP (tekstura sifatida)<br><span class="note">GTA V Enhanced (RSC8), shifrlangan RPF, YBN/YMAP/YCD hozircha yo‘q.</span>'}));
+  p.appendChild(el('div',{class:'card',html:'<b>GTA V:</b> RPF (shifrsiz yoki AES — kalit sizdan so‘raladi; ichidagi YFT/YTD ni tanlaysiz), YFT (mashina/fragment), YDR (drawable), YDD (drawable lug‘ati), YTD (teksturalar)<br><b>GTA SA / VC / III:</b> DFF (model), TXD (teksturalar, PC)<br><b>Boshqa:</b> DDS, PNG, JPG, WEBP (tekstura sifatida)<br><span class="note">GTA V Enhanced (RSC8), shifrlangan RPF, YBN/YMAP/YCD hozircha yo‘q.</span>'}));
 }
 function removeItem(i){
   const it=S.items[i];G.poolRemoveByOrigin(it.file);S.items.splice(i,1);
   if(S.cur===i||S.cur>=S.items.length)S.cur=S.items.findIndex(x=>x.model);
   S.result=null;S.view='orig';if(viewer)viewer.invalidateTextures();refresh();
 }
+/* ---------- AES key for encrypted RPF ---------- */
+const KEYSTORE='gv_rpf_aes_key';
+function loadKey(){try{const h=localStorage.getItem(KEYSTORE);if(h&&/^[0-9a-f]{64}$/i.test(h))return Uint8Array.from(h.match(/../g).map(x=>parseInt(x,16)));}catch(e){}return null;}
+function saveKey(k){try{localStorage.setItem(KEYSTORE,[...k].map(b=>('0'+b.toString(16)).slice(-2)).join(''));}catch(e){}}
+function forgetKey(){try{localStorage.removeItem(KEYSTORE);}catch(e){}}
+function parseKeyBytes(u8){
+  if(u8.length===32)return u8;
+  const t=new TextDecoder().decode(u8).replace(/0x/gi,'').replace(/[^0-9a-f]/gi,'');
+  if(t.length===64)return Uint8Array.from(t.match(/../g).map(x=>parseInt(x,16)));
+  throw new Error('Kalit fayli 32 bayt (yoki 64 belgili hex matn) bo‘lishi kerak — bu fayl '+u8.length+' bayt');
+}
+function askKey(msg){
+  return new Promise(res=>{
+    const ov=el('div',{style:'position:fixed;inset:0;z-index:60;background:rgba(5,8,14,.8);display:flex;align-items:center;justify-content:center;padding:16px'});
+    const box=el('div',{class:'card',style:'width:min(560px,100%);margin:0;padding:16px;display:flex;flex-direction:column;gap:10px'});
+    box.appendChild(el('h3',{text:'Shifrlangan RPF — AES kaliti kerak',style:'margin:0'}));
+    box.appendChild(el('div',{class:'note',style:'color:var(--text);font-size:12.5px',html:(msg?'<b style="color:#fb7185">'+esc(msg)+'</b><br>':'')+'Bu arxiv GTA V ning AES kaliti bilan shifrlangan. Kalitni <b>o‘zingizning GTA V nusxangizdan</b> CodeWalker / OpenIV chiqaradi (odatda <code>gtav_aes_key.dat</code>, 32 bayt). Men kalit bermayman. Kalit faqat shu brauzerda ishlatiladi, hech qayerga yuborilmaydi.'}));
+    const fi=el('input',{type:'file'});
+    const ta=el('textarea',{rows:2,placeholder:'yoki 64 belgili hex kalitni shu yerga yopishtiring',style:'background:var(--bg1);border:1px solid var(--line2);border-radius:7px;padding:7px 10px;font-family:monospace;font-size:12px'});
+    const rem=el('input',{type:'checkbox',checked:true});
+    const err=el('div',{class:'note',style:'color:#fb7185'});
+    box.appendChild(el('div',{class:'row'},[el('label',{text:'Kalit fayli'}),fi]));box.appendChild(ta);
+    box.appendChild(el('label',{style:'display:flex;gap:8px;align-items:center;font-size:12px'},[rem,el('span',{text:'Shu brauzerda eslab qolish'})]));box.appendChild(err);
+    const done=v=>{ov.remove();res(v);};
+    box.appendChild(el('div',{class:'row',style:'justify-content:flex-end;gap:6px'},[
+      el('button',{class:'btn',type:'button',onclick:()=>done(null)},['Bekor']),
+      el('button',{class:'btn pri',type:'button',onclick:async()=>{
+        try{let k;if(fi.files[0])k=parseKeyBytes(new Uint8Array(await fi.files[0].arrayBuffer()));else if(ta.value.trim())k=parseKeyBytes(new TextEncoder().encode(ta.value));else throw new Error('Kalit fayli yoki hex matn kiriting');
+          if(rem.checked)saveKey(k);done(k);}catch(e){err.textContent=e.message;}}},['Davom etish'])]));
+    ov.appendChild(box);document.body.appendChild(ov);
+  });
+}
 /* ---------- RPF picker ---------- */
 const RPF_EXT=['yft','ytd','ydr','ydd'];
 function pseudoFile(item){return{name:item.name,get size(){return item.size;},arrayBuffer:async()=>{const u=await item.get();return u.buffer.slice(u.byteOffset,u.byteOffset+u.byteLength);}};}
 async function pickFromRpf(file){
   setBusy(true,file.name+' (RPF) ochilmoqda…');await tick();
-  let list;
-  try{list=await G.listRpf(file);}
-  catch(e){setBusy(false);throw e;}
+  let list,key=loadKey(),tries=0;
+  for(;;){
+    try{list=await G.listRpf(file,key);break;}
+    catch(e){
+      setBusy(false);
+      const needKey=(e instanceof G.RpfEncrypted&&e.aes)||e instanceof G.RpfBadKey;
+      if(!needKey||++tries>3)throw e;
+      if(e instanceof G.RpfBadKey){forgetKey();key=null;}
+      key=await askKey(e instanceof G.RpfBadKey?'Kalit noto‘g‘ri — boshqasini kiriting.':'');
+      if(!key)throw new Error('AES kaliti kiritilmadi — shifrlangan RPF ochilmadi');
+      setBusy(true,file.name+' (RPF) shifri ochilmoqda…');await tick();
+    }
+  }
   const rel=list.filter(x=>RPF_EXT.includes(x.ext)).sort((a,b)=>a.path.localeCompare(b.path));
   setBusy(false);
   if(!rel.length){throw new Error('RPF ichida .yft/.ytd/.ydr/.ydd topilmadi ('+list.length+' ta fayl'+(list.encryptedInner?', '+list.encryptedInner+' ta ichki shifrlangan RPF o‘tkazib yuborildi':'')+')');}
