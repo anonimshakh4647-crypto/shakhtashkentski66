@@ -1490,7 +1490,8 @@ function convertToSA(model,texLookup,opts){
   if(!parts.length){const alt=['high','med','low','vlow'].find(l=>model.parts.some(p=>p.lod===l));parts=model.parts.filter(p=>p.lod===alt);opts._lodFallback=alt;}
   const report={warnings:[],info:[],parts:[],missingTex:[],usedTex:[]};
   if(opts._lodFallback)report.warnings.push('"'+opts.lod+'" LOD topilmadi, "'+opts._lodFallback+'" ishlatildi.');
-  const name=(opts.name||model.name||'car').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20)||'car';
+  let name=(opts.name||model.name||'car').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20)||'car';
+  if(opts.preset==='hq')name=name.slice(0,17)+'_hq';
   // part classes
   const objectMode=model.kind!=='yft';
   const cls=parts.map(p=>({p,c:objectMode?{t:'body',sa:'object'}:classify(p.name)}));
@@ -1614,6 +1615,7 @@ function convertToSA(model,texLookup,opts){
       if(specs.length){specs.forEach(x=>{x._k='vlo';});const f=addFrame('chassis_vlo',0,[0,0,0]);addGeoms(f,specs);report.info.push('chassis_vlo (past LOD) qo‘shildi: '+specs.reduce((s,g)=>s+g.tris.length/4,0)+' poligon.');}
     }
   }
+  if(opts.preset==='hq')report.warnings.push('SIFATLI nusxa: hech qanday poligon/tekstura kesilmagan. Faqat Blender/ZModeler uchun — GTA SA ga qo‘ymang (qotadi). O‘yin uchun «O‘yin uchun» maqsadida alohida konvertlang.');
   // 5b. polygon budget (GTA SA crashes on very heavy models)
   const triCount=g=>g.tris.length/4;
   if(opts.maxTris>0){
@@ -1680,7 +1682,7 @@ function convertToSA(model,texLookup,opts){
   // compact geoms (unused materials fine)
   const tris=geoms.reduce((s,g)=>s+g.tris.length/4,0),verts=geoms.reduce((s,g)=>s+g.pos.length/3,0);
   report.stats={frames:frames.length,geoms:geoms.length,tris,verts,textures:txdTexs.length};
-  if(tris>60000)report.warnings.push('Poligonlar soni juda ko‘p ('+tris.toLocaleString()+'). GTA SA qotib qolishi mumkin — «Maks. poligon» ni kamaytiring.');
+  if(tris>60000&&opts.preset!=='hq')report.warnings.push('Poligonlar soni juda ko‘p ('+tris.toLocaleString()+'). GTA SA qotib qolishi mumkin — «Maks. poligon» ni kamaytiring.');
   const dff=DFF.serialize([DFF.buildClump({frames,geoms,atomics},DFF.VER_SA)]);
   const txd=G.buildTXD(txdTexs);
   const ws=Math.max(0.2,wheelDiam*opts.wheelScale);
@@ -1939,7 +1941,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,maxTex:512,maxTris:40000,hideHidden:true,compress:'auto',mips:true,wheelScale:1,rot180:false}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,preset:'game',maxTex:512,maxTris:40000,hideHidden:true,compress:'auto',mips:true,wheelScale:1,rot180:false}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -2143,6 +2145,10 @@ function paneConv(p){
   const chk=(label,key)=>{const i=el('input',{type:'checkbox',checked:!!O[key]});i.addEventListener('change',()=>{O[key]=i.checked;});return el('div',{class:'row'},[el('label',{text:label}),i]);};
   const sel=(label,key,opts)=>{const s=el('select',{},opts.map(([v,t])=>el('option',{value:v,text:t,selected:String(O[key])===String(v)})));s.addEventListener('change',()=>{O[key]=isNaN(+s.value)||s.value===''?s.value:+s.value;});return el('div',{class:'row'},[el('label',{text:label}),s]);};
   p.appendChild(inp('Model nomi','name','text',{maxlength:20,spellcheck:'false'}));
+  {const ps=el('select',{},[['game','O‘yin uchun (yengil, GTA SA da ishlaydi)'],['hq','Sifatli — hech narsa kesilmaydi (faqat Blender/ZModeler)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.preset===v})));
+   ps.addEventListener('change',()=>{O.preset=ps.value;if(O.preset==='hq'){O.maxTris=0;O.hideHidden=false;O.maxTex=2048;}else{O.maxTris=40000;O.hideHidden=true;O.maxTex=512;}refresh(false);});
+   p.appendChild(el('div',{class:'row'},[el('label',{text:'Maqsad'}),ps]));
+   if(O.preset==='hq')p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'⚠ Bu nusxada barcha poligonlar va teksturalar to‘liq saqlanadi (fayl nomiga _hq qo‘shiladi). U juda og‘ir — GTA SA ga QO‘YMANG, o‘yin qotadi. Faqat Blender/ZModeler da ko‘rish va tahrirlash uchun.'}));}
   const lods=['high','med','low','vlow'].filter(l=>m.parts.some(x=>x.lod===l));
   p.appendChild(sel('Asosiy LOD','lod',lods.map(l=>[l,({high:'Yuqori (HD)',med:'O‘rta',low:'Past',vlow:'Juda past'})[l]])));
   if(car){p.appendChild(chk('Boshqa qismlar → chassis','mergeOther'));p.appendChild(chk('chassis_vlo (past LOD)','vlo'));p.appendChild(chk('_dam nusxalari (zarar)','damCopy'));p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));p.appendChild(inp('G‘ildirak o‘lchami ×','wheelScale','number',{step:'0.05',min:'0.3',max:'3'}));}
