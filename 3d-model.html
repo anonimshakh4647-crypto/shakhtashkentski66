@@ -2969,6 +2969,19 @@ function buildDFFBinary(src, opt) {
         cur.mats.push(tM[t]);
     }
 
+    // ---------- 4b) ko'p bo'lakli modelda barcha bo'laklar BIR XIL material ro'yxatiga ega bo'lsin ----------
+    // Blender (DragonFF) bo'laklarni birlashtirganda material slotlarini tartib raqami bo'yicha moslashtirishi mumkin;
+    // shuning uchun har bir bo'lakda butun palitra bir xil tartibda turadi. Bo'lakda ishlatilmagan rang uchun
+    // yuzasiz (degenerat) uchburchak qo'shiladi — u ko'rinmaydi, lekin material ro'yxatida o'z o'rnini egallaydi.
+    const sharedMats = chunks.length > 1;
+    if (sharedMats) {
+        for (const ch of chunks) {
+            const have = new Uint8Array(palette.length);
+            for (const m of ch.mats) have[m] = 1;
+            for (let m = 0; m < palette.length; m++) if (!have[m]) { ch.tris.push(0, 0, 0); ch.mats.push(m); }
+        }
+    }
+
     // ---------- 5) RenderWare bo'limlari ----------
     const RW_VERSION = 0x1803FFFF;
     function sec(type, payload) {
@@ -2989,7 +3002,8 @@ function buildDFFBinary(src, opt) {
         const nv = ch.verts.length, nt = ch.mats.length;
         // lokal material ro'yxati
         const matMap = new Map(), localMats = [];
-        for (const m of ch.mats) if (!matMap.has(m)) { matMap.set(m, localMats.length); localMats.push(m); }
+        if (sharedMats) { for (let m = 0; m < palette.length; m++) { matMap.set(m, m); localMats.push(m); } }
+        else for (const m of ch.mats) if (!matMap.has(m)) { matMap.set(m, localMats.length); localMats.push(m); }
         const nm = localMats.length;
 
         const matStruct = new Uint8Array(4 + nm * 4), msv = new DataView(matStruct.buffer);
