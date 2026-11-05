@@ -442,6 +442,9 @@
         #cvCard .cv-maprow .btn { flex: 1 1 160px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
         #cvCard .cv-mappanel { display: flex; flex-direction: column; gap: 6px; }
         #cvCard #cvMapCv { width: 100%; aspect-ratio: 1 / 1; height: auto; border: 1px solid var(--border-strong); border-radius: 12px; cursor: crosshair; background: #070d1c; touch-action: none; }
+        #cvCard .cv-gmwrap { position: relative; width: 100%; height: 380px; border: 1px solid var(--border-strong); border-radius: 12px; overflow: hidden; background: #86b4e6; }
+        #cvCard .cv-gmwrap:fullscreen { height: 100vh; border-radius: 0; border: 0; }
+        #cvCard #gmCv { width: 100%; height: 100%; display: block; touch-action: none; }
         body.cv-busy #cvCard .cv-exports .btn, body.cv-busy #cvCard #cvDrop { opacity: 0.6; pointer-events: none; }
         @media (max-width: 420px) { #cvCard .cv-grid { grid-template-columns: 1fr; } }
     </style>
@@ -673,6 +676,31 @@
                     <button class="btn btn-export cv-ex" data-k="map" type="button" disabled title="DFF + TXD + COL + IDE + IPL + qo‘llanma — bitta ZIP">GTA xarita paketi (.ZIP)</button>
                 </div>
                 <p class="note">To‘liq to‘plam uchun <b>GTA xarita paketi</b> ni bosing: ichida DFF, TXD, COL, IDE, IPL va <code>gta.dat</code> ga qo‘shiladigan qatorlar yozilgan qo‘llanma bor. COL bo‘lmasa uy “arvoh” bo‘ladi.</p>
+            </details>
+            <details class="cv-det" id="gmBox">
+                <summary>🗺 GTA SA 3D xarita (o‘yin fayllaridan)</summary>
+                <p class="note">GTA SA xaritasi bu sahifaga qo‘shilmagan (Rockstar mulki) — o‘zingizdagi o‘yin fayllaridan <b>brauzerning o‘zida</b> o‘qiladi, hech qayerga yuklanmaydi. Faqat <b>GTA San Andreas (PC)</b> papkasi: <code>models\gta3.img</code> va <code>data\maps\*.ide / *.ipl</code> kerak.</p>
+                <div class="cv-maprow">
+                    <label class="btn cv-filebtn">📁 GTA SA papkasini tanlash<input type="file" id="gmDir" webkitdirectory multiple hidden></label>
+                    <label class="btn cv-filebtn" title="gta3.img + kerakli .ide/.ipl fayllarni alohida tanlash">Alohida fayllar<input type="file" id="gmFiles" multiple hidden accept=".img,.ide,.ipl"></label>
+                </div>
+                <div class="cv-info" id="gmStatus">O‘yin fayllari tanlanmagan.</div>
+                <div class="cv-grid">
+                    <label class="cv-f"><span>Radius (markaz = Joy X/Y)</span><select id="gmRadius"><option value="150">150 m (juda batafsil)</option><option value="300" selected>300 m</option><option value="600">600 m</option><option value="1000">1000 m</option><option value="2000">2000 m (og‘ir)</option></select></label>
+                    <label class="cv-f"><span>Tafsilot</span><select id="gmDetail"><option value="near">Batafsil (oddiy modellar)</option><option value="lod">LOD (uzoq ko‘rinish, yengil)</option></select></label>
+                </div>
+                <div class="opt-row">
+                    <label class="chk"><input type="checkbox" id="gmShowHouse" checked> Uyimni xaritada ko‘rsat</label>
+                    <label class="chk" title="Xaritani bossangiz Joy X/Y/Z yer balandligi bilan yoziladi (sudrab aylantirishda bosilmaydi)"><input type="checkbox" id="gmPick" checked> Bosib uyni qo‘yish</label>
+                </div>
+                <div class="cv-maprow">
+                    <button class="btn btn-export" id="gmDraw" type="button" disabled>🗺 3D xaritani chizish</button>
+                    <button class="btn" id="gmGround" type="button" title="Joy X/Y ostidagi yer balandligini o‘lchab Z ga yozadi">⬇ Z ni yerdan o‘lchash</button>
+                    <button class="btn" id="gmFull" type="button">⛶ To‘liq ekran</button>
+                    <button class="btn" id="gmClear" type="button" title="Yuklangan modellar keshini tozalash">Keshni tozalash</button>
+                </div>
+                <div class="cv-gmwrap" id="gmWrap"><canvas id="gmCv"></canvas></div>
+                <p class="note">Aylantirish: sichqoncha chap tugma · zoom: g‘ildirak · siljitish: o‘ng tugma. Havo-rang kub/halqa va vertikal chiziq — uyingiz qo‘yiladigan nuqta.</p>
             </details>
             <button class="btn" id="cvClear" type="button">Konvertorni tozalash (1–5 ga qaytish)</button>
             <p class="note"><b>.BLEND:</b> brauzer haqiqiy .blend yoza olmaydi, shuning uchun model ichiga joylangan <code>.py</code> skript beriladi — Blenderda ishga tushirsangiz o‘sha model <code>.blend</code> bo‘lib saqlanadi.</p>
@@ -5543,6 +5571,246 @@ function mapReadme(o) {
     ].join('\r\n');
 }
 
+/* ---------- GTA SA 3D xarita (foydalanuvchining o'z o'yin fayllaridan) ---------- */
+const GM = { imgFile: null, dir: new Map(), ide: new Map(), txdp: new Map(), inst: [], ready: false, indexing: false, geo: new Map(), txd: new Map(), mats: new Map(), texCache: new WeakMap(), view: null, busy: false, stats: {} };
+const gmEl = id => document.getElementById(id);
+function gmMsg(t, bad) { const e = gmEl('gmStatus'); if (!e) return; e.textContent = t; e.classList.toggle('cv-bad', !!bad); }
+const gmNum = (id, d) => { const v = parseFloat(gmEl(id).value); return isFinite(v) ? v : d; };
+
+/* --- IDE / IPL matn --- */
+function gmParseIde(text) {
+    let sec = '', n = 0;
+    for (let line of text.split(/\r?\n/)) {
+        line = line.replace(/#.*$/, '').trim(); if (!line) continue;
+        const low = line.toLowerCase();
+        if (!sec) { if (/^(objs|tobj|anim|txdp|2dfx|cars|peds|weap|hier)$/.test(low)) sec = low; continue; }
+        if (low === 'end') { sec = ''; continue; }
+        const f = line.split(',').map(s => s.trim());
+        if (sec === 'objs' || sec === 'tobj' || sec === 'anim') {
+            const id = parseInt(f[0], 10); if (!(id >= 0) || f.length < 4) continue;
+            let dist = parseFloat(f[3]); if (f.length >= 6 && /^\d+$/.test(f[3]) && parseInt(f[3], 10) <= 3) dist = parseFloat(f[4]);
+            GM.ide.set(id, { dff: f[1].toLowerCase(), txd: f[2].toLowerCase(), dist: isFinite(dist) ? dist : 0 }); n++;
+        } else if (sec === 'txdp' && f.length >= 2) GM.txdp.set(f[0].toLowerCase(), f[1].toLowerCase());
+    }
+    return n;
+}
+function gmParseIplText(text) {
+    let sec = '', n = 0;
+    for (let line of text.split(/\r?\n/)) {
+        line = line.replace(/#.*$/, '').trim(); if (!line) continue;
+        const low = line.toLowerCase();
+        if (!sec) { if (/^(inst|zone|cull|occl|grge|enex|pick|cars|jump|tcyc|auzo|mult|path)$/.test(low)) sec = low; continue; }
+        if (low === 'end') { sec = ''; continue; }
+        if (sec !== 'inst') continue;
+        const f = line.split(',').map(s => s.trim()); if (f.length < 10) continue;
+        const id = parseInt(f[0], 10), intr = parseInt(f[2], 10) || 0; if (!(id >= 0) || intr !== 0) continue;
+        GM.inst.push({ id, x: +f[3], y: +f[4], z: +f[5], qx: +f[6], qy: +f[7], qz: +f[8], qw: +f[9] }); n++;
+    }
+    return n;
+}
+/* --- IPL binar (gta3.img ichidagi *_stream*.ipl) --- */
+function gmParseIplBin(buf) {
+    const dv = new DataView(buf); if (buf.byteLength < 32 || dv.getUint32(0, true) !== 0x79726E62) return 0;
+    const cnt = dv.getUint32(4, true); let off = dv.getUint32(28, true);
+    if (!(off >= 32 && off + cnt * 40 <= buf.byteLength)) off = 76;
+    if (off + cnt * 40 > buf.byteLength) return 0;
+    let n = 0;
+    for (let i = 0; i < cnt; i++) {
+        const p = off + i * 40, id = dv.getInt32(p + 28, true), intr = dv.getInt32(p + 32, true);
+        if (id < 0 || (intr & 0xFF) !== 0) continue;
+        GM.inst.push({ id, x: dv.getFloat32(p, true), y: dv.getFloat32(p + 4, true), z: dv.getFloat32(p + 8, true), qx: dv.getFloat32(p + 12, true), qy: dv.getFloat32(p + 16, true), qz: dv.getFloat32(p + 20, true), qw: dv.getFloat32(p + 24, true) }); n++;
+    }
+    return n;
+}
+/* --- IMG v2 --- */
+async function gmReadImg(file) {
+    const head = new DataView(await file.slice(0, 8).arrayBuffer());
+    if (head.getUint32(0, true) !== 0x32524556) throw new Error('gta3.img "VER2" formatida emas (faqat GTA San Andreas PC qo\'llanadi).');
+    const cnt = head.getUint32(4, true), d = new Uint8Array(await file.slice(8, 8 + cnt * 32).arrayBuffer()), dv = new DataView(d.buffer);
+    const dir = new Map();
+    for (let i = 0; i < cnt; i++) {
+        const p = i * 32; let s = ''; for (let k = 0; k < 24 && d[p + 8 + k]; k++) s += String.fromCharCode(d[p + 8 + k]);
+        dir.set(s.toLowerCase(), { off: dv.getUint32(p, true) * 2048, size: (dv.getUint16(p + 4, true) || dv.getUint16(p + 6, true)) * 2048 });
+    }
+    return dir;
+}
+async function gmIndex(fileList) {
+    if (GM.indexing) return; GM.indexing = true; GM.ready = false;
+    try {
+        const files = Array.from(fileList); let img = null; const texts = [];
+        for (const f of files) {
+            const n = f.name.toLowerCase();
+            if (n === 'gta3.img') { if (!img || /models/i.test(f.webkitRelativePath || '')) img = f; }
+            else if (n.endsWith('.ide') || n.endsWith('.ipl')) texts.push(f);
+        }
+        if (!img) throw new Error('gta3.img topilmadi — GTA SA papkasini (ichida models\\gta3.img bor) yoki gta3.img faylini tanlang.');
+        gmMsg('⏳ gta3.img katalogi o\'qilmoqda…');
+        GM.imgFile = img; GM.dir = await gmReadImg(img); GM.ide = new Map(); GM.txdp = new Map(); GM.inst = []; GM.geo.clear(); GM.txd.clear(); GM.mats.clear();
+        let nIde = 0, nIplT = 0, nIplB = 0, nFiles = 0;
+        for (const f of texts) { const t = await f.text(); nFiles++; if (/\.ide$/i.test(f.name)) nIde += gmParseIde(t); else nIplT += gmParseIplText(t); if (nFiles % 20 === 0) { gmMsg('⏳ IDE/IPL o\'qilmoqda… ' + nFiles + '/' + texts.length); await new Promise(r => setTimeout(r, 0)); } }
+        const bins = Array.from(GM.dir).filter(([n]) => n.endsWith('.ipl'));
+        for (let i = 0; i < bins.length; i += 12) {
+            const part = bins.slice(i, i + 12), bufs = await Promise.all(part.map(([, e]) => GM.imgFile.slice(e.off, e.off + e.size).arrayBuffer()));
+            for (const b of bufs) nIplB += gmParseIplBin(b);
+            gmMsg('⏳ Binar IPL (stream) o\'qilmoqda… ' + Math.min(i + 12, bins.length) + '/' + bins.length); await new Promise(r => setTimeout(r, 0));
+        }
+        GM.stats = { entries: GM.dir.size, ide: GM.ide.size, text: nIplT, bin: nIplB, binFiles: bins.length };
+        if (!GM.ide.size) throw new Error('IDE fayllar topilmadi — papkani to\'liq tanlang (data\\maps\\ ichidagi .ide/.ipl fayllar kerak).');
+        if (!GM.inst.length) throw new Error('IPL joylashuvlar topilmadi — data\\maps\\ ichidagi .ipl fayllar kerak.');
+        GM.ready = true;
+        gmMsg('✓ O\'yin fayllari tayyor: gta3.img ' + GM.dir.size.toLocaleString() + ' yozuv · IDE ' + GM.ide.size.toLocaleString() + ' obyekt · IPL ' + (nIplT + nIplB).toLocaleString() + ' joylashuv (matn ' + nIplT.toLocaleString() + ', binar ' + nIplB.toLocaleString() + '). Endi "3D xaritani chizish" ni bosing.');
+        gmEl('gmDraw').disabled = false;
+    } catch (e) { gmMsg(e.message || String(e), true); console.error(e); }
+    finally { GM.indexing = false; }
+}
+
+/* --- teksturalar va modellar --- */
+async function gmTxd(name) {
+    if (GM.txd.has(name)) return GM.txd.get(name);
+    const e = GM.dir.get(name + '.txd'), map = new Map();
+    if (e) { try { const buf = await GM.imgFile.slice(e.off, e.off + e.size).arrayBuffer(); for (const t of parseTxdBuf(new Uint8Array(buf))) map.set(texKey(t.name), { canvas: t.canvas, alpha: t.alpha || hasAlphaPixels(t.canvas) }); } catch (_) { } }
+    GM.txd.set(name, map); return map;
+}
+async function gmChain(txd) { const out = []; let n = txd, g = 0; while (n && g++ < 6) { out.push(await gmTxd(n)); n = GM.txdp.get(n); } return out; }
+function gmTexture(canvas) {
+    let t = GM.texCache.get(canvas); if (t) return t;
+    t = new THREE.CanvasTexture(canvas); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; GM.texCache.set(canvas, t); return t;
+}
+function gmMaterial(md, chain, chainKey, hasCol) {
+    const key = chainKey + '|' + (md.tex || '') + '|' + md.color.join(',') + '|' + hasCol;
+    let m = GM.mats.get(key); if (m) return m;
+    let tx = null; if (md.tex) for (const mp of chain) { if (mp.has(md.tex)) { tx = mp.get(md.tex); break; } }
+    const tr = md.color[3] < 255 || (tx && tx.alpha), white = md.color[0] > 245 && md.color[1] > 245 && md.color[2] > 245;
+    m = new THREE.MeshBasicMaterial({ map: tx ? gmTexture(tx.canvas) : null, color: tx && white ? 0xffffff : tx ? new THREE.Color(md.color[0] / 255, md.color[1] / 255, md.color[2] / 255) : (md.tex ? 0xb4b4b4 : new THREE.Color(md.color[0] / 255, md.color[1] / 255, md.color[2] / 255)), vertexColors: !!hasCol, transparent: !!tr, alphaTest: tx && tx.alpha ? 0.4 : 0, side: tr ? THREE.DoubleSide : THREE.FrontSide });
+    GM.mats.set(key, m); return m;
+}
+async function gmModel(id) {
+    if (GM.geo.has(id)) return GM.geo.get(id);
+    let res = null; const e = GM.ide.get(id), ent = e && GM.dir.get(e.dff + '.dff');
+    if (ent) {
+        try {
+            const buf = await GM.imgFile.slice(ent.off, ent.off + ent.size).arrayBuffer(), r = importDff(buf, e.dff), chain = await gmChain(e.txd), ck = e.txd;
+            const parts = r.meshes.map(me => {
+                const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(me.pos, 3));
+                if (me.uv) g.setAttribute('uv', new THREE.BufferAttribute(me.uv, 2));
+                const hasCol = !!me.col; if (hasCol) { const n = me.pos.length / 3, c = new Uint8Array(n * 3); for (let i = 0; i < n; i++) { c[i * 3] = me.col[i * 4]; c[i * 3 + 1] = me.col[i * 4 + 1]; c[i * 3 + 2] = me.col[i * 4 + 2]; } g.setAttribute('color', new THREE.BufferAttribute(c, 3, true)); }
+                const groups = groupByMat(me), index = new Uint32Array(me.idx.length), mats = []; let p = 0;
+                groups.forEach((gr, gi) => { const s = p; for (const t of gr.tris) { index[p++] = me.idx[t * 3]; index[p++] = me.idx[t * 3 + 1]; index[p++] = me.idx[t * 3 + 2]; } g.addGroup(s, p - s, gi); mats.push(gmMaterial(r.mats[gr.mat], chain, ck, hasCol)); });
+                g.setIndex(new THREE.BufferAttribute(index, 1)); return { g, mats };
+            });
+            res = parts;
+        } catch (err) { res = null; }
+    }
+    GM.geo.set(id, res); return res;
+}
+
+/* --- ko'rinish --- */
+function gmInitView() {
+    if (GM.view) return GM.view;
+    const canvas = gmEl('gmCv'), wrap = gmEl('gmWrap');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    const scene = new THREE.Scene(); scene.background = new THREE.Color(0x86b4e6); scene.fog = new THREE.Fog(0x86b4e6, 600, 5000);
+    const camera = new THREE.PerspectiveCamera(55, 1, 0.5, 9000), controls = new THREE.OrbitControls(camera, canvas); controls.enableDamping = true; controls.dampingFactor = 0.1; controls.maxPolarAngle = Math.PI * 0.499;
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x556677, 0.9)); const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(300, 500, 200); scene.add(dl);
+    const world = new THREE.Group(); world.rotation.x = -Math.PI / 2; scene.add(world); // GTA: Z yuqori → Three: Y yuqori
+    const sea = new THREE.Mesh(new THREE.PlaneGeometry(14000, 14000), new THREE.MeshBasicMaterial({ color: 0x2f6f9f })); sea.position.z = -0.4; world.add(sea);
+    const area = new THREE.Group(), house = new THREE.Group(), marker = new THREE.Group(); world.add(area); world.add(house); world.add(marker);
+    const v = { renderer, scene, camera, controls, world, area, house, marker, sea, raf: 0, size: [0, 0] };
+    const resize = () => { const w = wrap.clientWidth, h = wrap.clientHeight; if (!w || !h || (w === v.size[0] && h === v.size[1])) return; v.size = [w, h]; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+    if (window.ResizeObserver) new ResizeObserver(resize).observe(wrap); window.addEventListener('resize', resize); v.resize = resize;
+    const loop = () => { v.raf = requestAnimationFrame(loop); if (document.hidden || !wrap.getClientRects().length) return; resize(); controls.update(); renderer.render(scene, camera); };
+    loop();
+    // bosib joy tanlash
+    let down = null; canvas.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+    canvas.addEventListener('pointerup', e => { if (!down) return; const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]); down = null; if (moved < 5 && gmEl('gmPick').checked) gmPickAt(e); });
+    GM.view = v; return v;
+}
+const gmToGta = p => ({ x: p.x, y: -p.z, z: p.y }); // Three (Y yuqori) → GTA (Z yuqori)
+function gmGround(x, y) {
+    const v = GM.view; if (!v) return null; v.world.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster(new THREE.Vector3(x, 1500, -y), new THREE.Vector3(0, -1, 0), 0, 3000), hit = ray.intersectObjects([v.area, v.sea], true).filter(h => !(h.object === v.sea));
+    return hit.length ? hit[0].point.y : null;
+}
+function gmPickAt(e) {
+    const v = GM.view, r = gmEl('gmCv').getBoundingClientRect(), m = new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    v.world.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(m, v.camera);
+    const hits = ray.intersectObjects([v.area, v.sea], true); if (!hits.length) return;
+    const g = gmToGta(hits[0].point); gmSetPos(g.x, g.y, g.z, true);
+}
+function gmSetPos(x, y, z, fromPick) {
+    const r1 = n => Math.round(n * 10) / 10; gmEl('cvMapX').value = r1(x); gmEl('cvMapY').value = r1(y); gmEl('cvMapZ').value = r1(z);
+    ['cvMapX', 'cvMapY', 'cvMapZ'].forEach(id => gmEl(id).dispatchEvent(new Event('input', { bubbles: true })));
+    gmPlaceHouse(); if (fromPick) gmMsg('Tanlandi: X ' + r1(x) + ', Y ' + r1(y) + ', Z ' + r1(z) + ' (3D xaritadan, yer balandligi bilan).');
+}
+function gmClearGroup(gr) { while (gr.children.length) { const c = gr.children[0]; gr.remove(c); if (c.dispose) c.dispose(); } }
+function gmPlaceHouse() {
+    const v = GM.view; if (!v) return; gmClearGroup(v.house); gmClearGroup(v.marker);
+    const x = gmNum('cvMapX', 0), y = gmNum('cvMapY', 0), z = gmNum('cvMapZ', 0);
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, y, z), new THREE.Vector3(x, y, z + 120)]), new THREE.LineBasicMaterial({ color: 0x1fd6f5 })); v.marker.add(line);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(3, 4, 32), new THREE.MeshBasicMaterial({ color: 0x1fd6f5, side: THREE.DoubleSide })); ring.position.set(x, y, z + 0.3); v.marker.add(ring);
+    const m = S.model; if (!m || !gmEl('gmShowHouse').checked) return;
+    const c = centeredCopy(m), texC = new Map(), mats = c.mats.map(mt => {
+        let map = null; if (mt.tex && m.tex.has(mt.tex)) { map = texC.get(mt.tex); if (!map) { map = new THREE.CanvasTexture(m.tex.get(mt.tex).canvas); map.wrapS = map.wrapT = THREE.RepeatWrapping; map.anisotropy = 4; texC.set(mt.tex, map); } }
+        return new THREE.MeshLambertMaterial({ map, color: map ? 0xffffff : new THREE.Color(mt.color[0] / 255, mt.color[1] / 255, mt.color[2] / 255), side: THREE.DoubleSide, transparent: mt.color[3] < 255, opacity: mt.color[3] / 255 });
+    });
+    const root = new THREE.Group(); root.position.set(x, y, z);
+    for (const me of c.meshes) {
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(me.pos, 3)); if (me.nrm) g.setAttribute('normal', new THREE.BufferAttribute(me.nrm, 3)); if (me.uv) g.setAttribute('uv', new THREE.BufferAttribute(me.uv, 2));
+        const groups = groupByMat(me), index = new Uint32Array(me.idx.length); let p = 0;
+        for (const gr of groups) { const s = p; for (const t of gr.tris) { index[p++] = me.idx[t * 3]; index[p++] = me.idx[t * 3 + 1]; index[p++] = me.idx[t * 3 + 2]; } g.addGroup(s, p - s, gr.mat); }
+        g.setIndex(new THREE.BufferAttribute(index, 1)); root.add(new THREE.Mesh(g, mats));
+    }
+    v.house.add(root);
+}
+async function gmDraw() {
+    if (GM.busy) return; if (!GM.ready) { gmMsg('Avval GTA SA fayllarini tanlang.', true); return; }
+    GM.busy = true; gmEl('gmDraw').disabled = true;
+    try {
+        const v = gmInitView(), cx = gmNum('cvMapX', 0), cy = gmNum('cvMapY', 0), R = gmNum('gmRadius', 300), lodMode = gmEl('gmDetail').value === 'lod';
+        const sel = new Map(); let nInst = 0;
+        for (const it of GM.inst) {
+            if (Math.abs(it.x - cx) > R || Math.abs(it.y - cy) > R) continue;
+            const e = GM.ide.get(it.id); if (!e) continue; const isLod = /^lod/.test(e.dff); if (isLod !== lodMode) continue;
+            let a = sel.get(it.id); if (!a) sel.set(it.id, a = []); a.push(it); nInst++;
+        }
+        if (!nInst) { gmMsg('Bu hududda (' + R + ' m) ' + (lodMode ? 'LOD' : 'batafsil') + ' obyekt topilmadi. Markaz (Joy X/Y) yoki radiusni o\'zgartiring.', true); return; }
+        gmClearGroup(v.area);
+        const ids = Array.from(sel.keys()); let done = 0, loaded = 0, miss = 0;
+        const bump = () => gmMsg('⏳ Modellar yuklanmoqda: ' + done + '/' + ids.length + ' · ' + nInst.toLocaleString() + ' obyekt…');
+        for (let i = 0; i < ids.length; i += 8) {
+            const part = ids.slice(i, i + 8), res = await Promise.all(part.map(id => gmModel(id)));
+            res.forEach((parts, k) => {
+                done++; if (!parts) { miss++; return; } loaded++;
+                const arr = sel.get(part[k]), q = new THREE.Quaternion(), pos = new THREE.Vector3(), sc = new THREE.Vector3(1, 1, 1), mat = new THREE.Matrix4();
+                for (const pt of parts) {
+                    const im = new THREE.InstancedMesh(pt.g, pt.mats, arr.length); im.frustumCulled = false;
+                    arr.forEach((it, j) => { q.set(-it.qx, -it.qy, -it.qz, it.qw).normalize(); pos.set(it.x, it.y, it.z); mat.compose(pos, q, sc); im.setMatrixAt(j, mat); });
+                    im.instanceMatrix.needsUpdate = true; im.dispose = () => { }; v.area.add(im);
+                }
+            }); bump(); await new Promise(r => setTimeout(r, 0));
+        }
+        const gz = gmGround(cx, cy);
+        gmPlaceHouse();
+        const d = Math.max(60, Math.min(R * 0.6, 900)), tz = gz != null ? gz : gmNum('cvMapZ', 0);
+        v.controls.target.set(cx, tz, -cy); v.camera.position.set(cx + d * 0.7, tz + d * 0.55, -cy + d * 0.7); v.controls.update(); v.scene.fog.far = Math.max(1500, R * 3); v.camera.far = Math.max(3000, R * 6); v.camera.updateProjectionMatrix();
+        gmMsg('✓ 3D xarita chizildi: ' + nInst.toLocaleString() + ' obyekt · ' + loaded + ' model' + (miss ? ' (' + miss + ' tasi gta3.img da topilmadi)' : '') + ' · markaz ' + cx + ', ' + cy + ' · radius ' + R + ' m.' + (gz != null ? ' Shu nuqtada yer balandligi ≈ ' + gz.toFixed(1) + '.' : ''));
+    } catch (e) { gmMsg(e.message || String(e), true); console.error(e); }
+    finally { GM.busy = false; gmEl('gmDraw').disabled = !GM.ready; }
+}
+function initGtaMap() {
+    const dir = gmEl('gmDir'), fl = gmEl('gmFiles'); if (!dir) return;
+    dir.addEventListener('change', e => { if (e.target.files.length) gmIndex(e.target.files); });
+    fl.addEventListener('change', e => { if (e.target.files.length) gmIndex(e.target.files); });
+    gmEl('gmDraw').addEventListener('click', gmDraw);
+    gmEl('gmGround').addEventListener('click', () => { if (!GM.view) { gmMsg('Avval 3D xaritani chizing.', true); return; } const x = gmNum('cvMapX', 0), y = gmNum('cvMapY', 0), z = gmGround(x, y); if (z == null) { gmMsg('Bu nuqtada qattiq sirt topilmadi (suv, bo\'sh joy yoki chizilgan hududdan tashqari). Joy X/Y ni xarita ichida tanlang.', true); return; } gmSetPos(x, y, z, false); gmMsg('Yer balandligi o\'lchandi: Z ≈ ' + z.toFixed(1)); });
+    gmEl('gmShowHouse').addEventListener('change', gmPlaceHouse);
+    ['cvMapX', 'cvMapY', 'cvMapZ'].forEach(id => gmEl(id).addEventListener('change', () => { if (GM.view) gmPlaceHouse(); }));
+    gmEl('gmFull').addEventListener('click', () => { const w = gmEl('gmWrap'); if (document.fullscreenElement) document.exitFullscreen(); else if (w.requestFullscreen) w.requestFullscreen(); });
+    gmEl('gmClear').addEventListener('click', () => { GM.geo.clear(); GM.txd.clear(); GM.mats.clear(); if (GM.view) gmClearGroup(GM.view.area); gmMsg('Kesh tozalandi.'); });
+    document.addEventListener('cv-model-changed', () => { if (GM.view) gmPlaceHouse(); });
+    window.CVGM = { GM, gmIndex, gmDraw, gmParseIde, gmParseIplText, gmParseIplBin, gmReadImg, gmGround, gmPlaceHouse };
+}
+
 /* ===== Konvertor: yuklash, qayta ishlash, ko'rsatish, eksport tugmalari ===== */
 const $ = id => document.getElementById(id);
 const S = { raw: [], tex: new Map(), model: null, names: [], warn: [], pivot: null, saved: null, busy: false };
@@ -5683,7 +5951,7 @@ function bounds(meshes) {
 function rebuild() {
     if (!S.raw.length) return;
     try {
-        S.model = buildModel(); showModel(S.model); updateInfo();
+        S.model = buildModel(); showModel(S.model); updateInfo(); document.dispatchEvent(new Event('cv-model-changed'));
         const m = S.model; if (m.missing.length) S.warn.push('Tekstura topilmadi: ' + m.missing.slice(0, 6).join(', ') + (m.missing.length > 6 ? '…' : '') + ' — rasm/TXD ni ham tanlang (model rangli ko\'rsatildi).');
         setMsg('Konvertor: ' + m.meshes.length + ' ta obyekt, ' + m.nV.toLocaleString() + ' vertex, ' + m.nT.toLocaleString() + ' uchburchak, ' + m.mats.length + ' material · o\'lcham ' + m.size.map(v => v.toFixed(3)).join(' × ') + ' m');
     } catch (e) { setMsg(e.message, true); S.warn.push(e.message); }
@@ -5874,6 +6142,7 @@ function initMapPicker() {
     document.querySelectorAll('#cvCard .cv-ex').forEach(b => b.addEventListener('click', () => doExport(b.dataset.k)));
     $('cvClear').addEventListener('click', clearAll);
     initMapPicker();
+    initGtaMap();
     ['cvUp', 'cvUnit', 'cvFit', 'cvCrease', 'cvRecalc', 'cvHideDam', 'cvCenter', 'cvDouble'].forEach(id => $(id).addEventListener('change', () => { if (S.raw.length && !S.busy) { S.warn = S.warn.filter(w => !/^Tekstura topilmadi/.test(w)); rebuild(); } }));
     // eski funksiyalar (1–5) yangi fayl yuklasa — konvertor ko'rinishi yashiriladi
     const oldIn = document.getElementById('fileInput'), oldDz = document.getElementById('dropZone');
