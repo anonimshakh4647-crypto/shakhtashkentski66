@@ -5558,6 +5558,19 @@ function splitModel(model, maxV, baseName) {
     });
     return { parts, tooBig };
 }
+/* IMG v2 (GTA SA) arxivi: files = [{name, data(Uint8Array)}] */
+function buildImg(files) {
+    const n = files.length, dirEnd = 8 + n * 32, start = Math.ceil(dirEnd / 2048) * 2048;
+    let total = start; const secs = files.map(f => Math.ceil(f.data.length / 2048)); secs.forEach(s => total += s * 2048);
+    const out = new Uint8Array(total), dv = new DataView(out.buffer); out.set(TE.encode('VER2'), 0); dv.setUint32(4, n, true);
+    let pos = start;
+    files.forEach((f, k) => {
+        const p = 8 + k * 32; dv.setUint32(p, pos / 2048, true); dv.setUint16(p + 4, secs[k], true); dv.setUint16(p + 6, 0, true);
+        const nm = f.name.slice(0, 23); for (let i = 0; i < nm.length; i++) out[p + 8 + i] = nm.charCodeAt(i);
+        out.set(f.data, pos); pos += secs[k] * 2048;
+    });
+    return out;
+}
 function mapReadme(o) {
     const d = 'DATA\\MAPS', P = gtaParts(o), last = P.length > 1;
     const L = [
@@ -5568,16 +5581,21 @@ function mapReadme(o) {
         '  ' + o.name + '.col  - tokinish (shu bolmasa uy "arvoh" boladi)',
         '  ' + o.name + '.ide  - obyekt tarifi',
         '  ' + o.name + '.ipl  - xaritadagi joyi: X ' + o.x + '  Y ' + o.y + '  Z ' + o.z, '',
-        last ? 'DIQQAT: uy GTA cheklovi sababli ' + P.length + ' ta qismga bolindi. Hammasi bir xil nuqtada turadi; barcha .dff fayllarni gta3.img ga qoshing.' : '',
+        last ? 'DIQQAT: uy GTA cheklovi sababli ' + P.length + ' ta qismga bolindi. Hammasi bir xil nuqtada turadi; hamma qismlar ' + o.name + '.img ichida.' : '',
         '',
         'ORNATISH (PC, GTA SA):',
-        '1) ' + o.name + '.ide, .ipl, .col fayllarini ' + d + '\\ papkasiga qoying.',
-        '2) data\\gta.dat oxiriga (boshqa IPL qatorlaridan keyin) shu TARTIBDA qoshing:',
-        '     IDE ' + d + '\\' + o.name + '.ide',
-        '     COLFILE 0 ' + d + '\\' + o.name + '.col',
-        '     IPL ' + d + '\\' + o.name + '.ipl',
-        '3) ' + (last ? 'Barcha .dff fayllarni va ' : '') + o.name + (last ? '' : '.dff va ' + o.name) + '.txd ni models\\gta3.img ichiga IMG Tool bilan qoshing.',
-        '   MUHIM: gta3.img ichida bir xil nomli eski fayl bolsa, avval uni ochiring (Delete), keyin yangisini qoshing.', '',
+        'gta3.img GA TEGMANG - IMG Tool kerak emas. Model va tekstura tayyor ' + o.name + '.img arxivida.',
+        '1) ' + o.name + '.img ni o\'yin papkasidagi models\\ ga qoying (gta3.img yoniga).',
+        '2) ' + o.name + '.ide, .ipl, .col fayllarini ' + d + '\\ papkasiga qoying.',
+        '3) data\\gta.dat faylida:',
+        '   a) YUQORIDA, "IMG MODELS\\GTA_INT.IMG" qatoridan keyin, qoshing:',
+        '        IMG MODELS\\' + o.name.toUpperCase() + '.IMG',
+        '   b) OXIRIDA (boshqa IPL qatorlaridan keyin) shu TARTIBDA qoshing:',
+        '        IDE ' + d + '\\' + o.name + '.ide',
+        '        COLFILE 0 ' + d + '\\' + o.name + '.col',
+        '        IPL ' + d + '\\' + o.name + '.ipl',
+        'Agar oyin qotsa: gta.dat dagi yuqoridagi 4 qatorni # bilan ochirib sinang; hammasini # qilganda ham qotsa, muammo boshqa joyda (gta3.img zaxira nusxasini qaytaring).',
+        '(alohida/ papkada dff va txd alohida ham berilgan - boshqa dasturlar uchun.)', '',
         'ESLATMALAR:',
         '- ID ' + P.map(p => p.id).join(', ') + ' boshqa mod bilan tolqnashmasin (SA chegarasi: 20000 dan kichik).',
         '- Uyning pastki orta nuqtasi IPL dagi koordinataga qoyiladi; Z = yer balandligi.',
@@ -6103,24 +6121,26 @@ async function doGta(kind, m) {
     const sp = splitModel(mm, 55000, o.name), parts = sp.parts; // GTA obyekti: bitta atomik, <= 65535 vertex
     const po = Object.assign({}, o, { parts: parts.map((q, k) => ({ name: q.name, id: Math.min(19999, o.id + k) })) });
     const files = [], keys = new Set(); let dffBytes = 0, multiAtomic = 0;
-    for (const q of parts) { const d = exportDff(q, { single: true, prelit: $('cvDffPrelit').checked }); files.push({ name: q.name + '.dff', data: d.bytes }); dffBytes += d.bytes.length; d.keys.forEach(k => keys.add(k)); if (d.parts > 1) multiAtomic++; }
+    for (const q of parts) { const d = exportDff(q, { single: true, prelit: $('cvDffPrelit').checked }); files.push({ name: 'alohida/' + q.name + '.dff', data: d.bytes }); dffBytes += d.bytes.length; d.keys.forEach(k => keys.add(k)); if (d.parts > 1) multiAtomic++; }
     const colParts = parts.map((q, k) => colOf(Object.assign({}, q, { name: q.name }), q.name, po.parts[k].id));
     let colLen = 0; colParts.forEach(c => colLen += c.bytes.length); const colAll = new Uint8Array(colLen); { let p0 = 0; for (const c of colParts) { colAll.set(c.bytes, p0); p0 += c.bytes.length; } }
     const have = Array.from(keys).filter(k => S.tex.has(k)); let txdMsg = '', txdInfo = 'Tekstura yo\'q.';
     if (have.length) {
         const fmt = $('cvTxdFmt').value === 'argb' ? 'auto' : $('cvTxdFmt').value, mx = Math.min(1024, parseInt($('cvTxdMax').value, 10) || 1024);
-        const t = buildTxd({ tex: S.tex }, have, { fmt, pot: true, maxSize: mx }); files.push({ name: o.name + '.txd', data: t.bytes });
+        const t = buildTxd({ tex: S.tex }, have, { fmt, pot: true, maxSize: mx }); files.push({ name: 'alohida/' + o.name + '.txd', data: t.bytes });
         const mb = t.bytes.length / 1048576; txdMsg = have.length + ' tekstura (TXD ' + mb.toFixed(2) + ' MB, DXT, ≤' + mx + ' px)';
         txdInfo = 'TXD ' + mb.toFixed(2) + ' MB (GTA uchun DXT format, tekstura ≤' + mx + ' px).' + (mb > 8 ? ' DIQQAT: TXD katta - o\'yin qotishi mumkin, teksturalarni kichraytiring.' : '');
         if (mb > 8) txdMsg += ' ⚠ JUDA KATTA';
     } else if (keys.size) txdMsg = 'TEKSTURA RASMLARI YO\'Q — TXD qo\'shilmadi'; else txdMsg = 'modelda tekstura yo\'q — TXD kerak emas';
     files.push({ name: o.name + '.col', data: colAll });
+    const imgFiles = files.filter(f => f.name.startsWith('alohida/')).map(f => ({ name: f.name.slice(8), data: f.data })), img = buildImg(imgFiles);
+    files.unshift({ name: o.name + '.img', data: img });
     files.push({ name: o.name + '.ide', data: TE.encode(exportIde(po)) }, { name: o.name + '.ipl', data: TE.encode(exportIpl(po)) });
     files.push({ name: 'README.txt', data: TE.encode(mapReadme(Object.assign({ colInfo: colParts.map(c => c.info).join('; '), txdInfo }, po))) });
     const z = zipStore(files); dl(z, o.name + '_gta_xarita.zip');
     const miss = keys.size - have.length, nTri = colParts.reduce((a, c) => a + c.nFaces, 0);
     const warn = (sp.tooBig ? ' ⚠ ' + sp.tooBig + ' qism hali 65000 vertexdan katta (bitta obyekt juda og\'ir).' : '') + (multiAtomic ? ' ⚠ ' + multiAtomic + ' qism bir nechta atomikka bo\'lindi.' : '') + (miss > 0 && have.length ? ' ' + miss + ' ta tekstura rasmi topilmadi.' : '');
-    setMsg('GTA xarita paketi saqlandi (' + (z.size / 1048576).toFixed(2) + ' MB): ' + parts.length + ' ta model (DFF ' + (dffBytes / 1048576).toFixed(2) + ' MB) · ' + txdMsg + ' · COL (' + colParts[0].mode + ', ' + nTri.toLocaleString() + ' uchburchak, ' + (colLen / 1024).toFixed(0) + ' KB) · IDE · IPL · README. ID ' + po.parts.map(q => q.id).join(', ') + ', joy ' + o.x + ', ' + o.y + ', ' + o.z + '.' + warn, miss > 0 && !have.length);
+    setMsg('GTA xarita paketi saqlandi (' + (z.size / 1048576).toFixed(2) + ' MB): ' + parts.length + ' ta model (DFF ' + (dffBytes / 1048576).toFixed(2) + ' MB, ' + o.name + '.img arxivi tayyor) · ' + txdMsg + ' · COL (' + colParts[0].mode + ', ' + nTri.toLocaleString() + ' uchburchak, ' + (colLen / 1024).toFixed(0) + ' KB) · IDE · IPL · README. ID ' + po.parts.map(q => q.id).join(', ') + ', joy ' + o.x + ', ' + o.y + ', ' + o.z + '.' + warn, miss > 0 && !have.length);
 }
 
 /* ---------- xaritadan joy tanlash ---------- */
