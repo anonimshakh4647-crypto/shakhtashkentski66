@@ -1,1 +1,1256 @@
-<!doctype html><html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Translate | IT SHAKH</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="tools.css"><style>.upload{display:block;border:1px dashed var(--accent);border-radius:14px;padding:34px 18px;text-align:center;cursor:pointer;background:rgba(3,10,19,.55)}.upload input{display:none}.upload:hover{box-shadow:var(--glow)}.pick{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0}.pick button{color:var(--text);background:transparent;border:1px solid rgba(56,189,248,.5);font-size:11px}.pick .on{color:#021018;background:var(--accent)}#name{margin:14px 0;color:var(--accent);font:13px monospace}</style></head><body><header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="javascript:history.back()">← ORQAGA</a></header><main><div class="eyebrow">// FORMAT SAFE CONVERTER</div><h1>TRANSLATE</h1><p class="intro">Word va Excel hujjatlaridagi faqat harflarni o‘giradi. Chiziqlar, jadval, rasm, joylashuv va format saqlanadi.</p><section class="panel"><label class="upload"><input id="file" type="file" accept=".docx,.xlsx,.xls,.txt"><b>FAYLNI TANLANG</b><br><span class="notice">DOCX, XLSX, XLS yoki TXT</span></label><div id="name">Fayl tanlanmagan</div><div class="label">YO‘NALISH</div><div class="pick"><button class="on" data-m="auto">AVTOMATIK</button><button data-m="c2l">KIRILL → LOTIN</button><button data-m="l2c">LOTIN → KIRILL</button></div><button id="go">O‘GIRISH VA YUKLASH</button><p class="notice" id="status">Fayl faqat sizning brauzeringizda qayta ishlanadi.</p></section></main><script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script><script>const f=document.getElementById('file'),n=document.getElementById('name'),s=document.getElementById('status');let mode='auto';const cm={'А':'A','а':'a','Б':'B','б':'b','В':'V','в':'v','Г':'G','г':'g','Ғ':'Gʻ','ғ':'gʻ','Д':'D','д':'d','Е':'E','е':'e','Ё':'Yo','ё':'yo','Ж':'J','ж':'j','З':'Z','з':'z','И':'I','и':'i','Й':'Y','й':'y','К':'K','к':'k','Л':'L','л':'l','М':'M','м':'m','Н':'N','н':'n','О':'O','о':'o','П':'P','п':'p','Қ':'Q','қ':'q','Р':'R','р':'r','С':'S','с':'s','Т':'T','т':'t','У':'U','у':'u','Ф':'F','ф':'f','Х':'X','х':'x','Ҳ':'H','ҳ':'h','Ц':'Ts','ц':'ts','Ч':'Ch','ч':'ch','Ш':'Sh','ш':'sh','Ъ':'','ъ':'','Ь':'','ь':'','Э':'E','э':'e','Ю':'Yu','ю':'yu','Я':'Ya','я':'ya','Ў':'Oʻ','ў':'oʻ'};const lm=[['o[ʻ’‘\']','ў'],['g[ʻ’‘\']','ғ'],['sh','ш'],['ch','ч'],['yo','ё'],['yu','ю'],['ya','я'],['ts','ц'],['a','а'],['b','б'],['v','в'],['g','г'],['d','д'],['e','е'],['j','ж'],['z','з'],['i','и'],['y','й'],['k','к'],['l','л'],['m','м'],['n','н'],['o','о'],['p','п'],['q','қ'],['r','р'],['s','с'],['t','т'],['u','у'],['f','ф'],['x','х'],['h','ҳ']];const cap=(x,y)=>x===x.toUpperCase()?y.toUpperCase():x[0]===x[0].toUpperCase()?y[0].toUpperCase()+y.slice(1):y;function cl(x){return String(x).replace(/[А-Яа-яЎўҚқҒғҲҳ]/g,k=>cm[k]||k)}function lc(x){let y=String(x);lm.forEach(([a,b])=>y=y.replace(new RegExp(a,'gi'),z=>cap(z,b)));return y}function tr(x){if(mode==='c2l')return cl(x);if(mode==='l2c')return lc(x);return((String(x).match(/[А-Яа-яЎўҚқҒғҲҳ]/g)||[]).length>=(String(x).match(/[A-Za-zʻ’‘']/g)||[]).length)?cl(x):lc(x)}function save(b,name){const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500)}f.onchange=()=>n.textContent=f.files[0]?f.files[0].name:'Fayl tanlanmagan';document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{mode=b.dataset.m;document.querySelectorAll('[data-m]').forEach(x=>x.classList.toggle('on',x===b))});document.getElementById('go').onclick=async()=>{const file=f.files[0];if(!file){s.textContent='Avval faylni tanlang.';return}const ext=file.name.split('.').pop().toLowerCase(),base=file.name.replace(/\.[^.]+$/,'');s.textContent='Faqat harflar o‘girilmoqda…';try{const data=await file.arrayBuffer();if(ext==='docx'){if(!window.JSZip)throw Error('Kutubxona yuklanmadi. Internetni tekshiring.');const zip=await JSZip.loadAsync(data);const paths=Object.keys(zip.files).filter(p=>/^word\/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$/i.test(p));await Promise.all(paths.map(async p=>{const xml=await zip.file(p).async('string');zip.file(p,xml.replace(/(<w:t(?:\s[^>]*)?>)([\s\S]*?)(<\/w:t>)/g,(_,a,text,b)=>a+tr(text)+b))}));save(await zip.generateAsync({type:'blob',compression:'DEFLATE'}),base+'-translated.docx')}else if(ext==='xlsx'||ext==='xls'){const wb=XLSX.read(data,{type:'array'});wb.SheetNames.forEach(k=>Object.keys(wb.Sheets[k]).forEach(c=>{const cell=wb.Sheets[k][c];if(cell&&cell.t==='s'){cell.v=tr(cell.v);cell.w=cell.v}}));save(new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),base+'-translated.xlsx')}else if(ext==='txt')save(new Blob([tr(new TextDecoder().decode(data))],{type:'text/plain;charset=utf-8'}),base+'-translated.txt');else throw Error('Faqat DOCX, XLSX, XLS yoki TXT tanlang.');s.textContent='✓ Tayyor. Chiziq va format saqlangan yangi fayl yuklandi.'}catch(e){s.textContent='✕ Xatolik: '+e.message}};</script></body></html>
+<!doctype html><html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Translate | IT SHAKH</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="tools.css"><style>
+.upload{display:block;border:1px dashed var(--accent,#1fd6f5);border-radius:14px;padding:30px 18px;text-align:center;cursor:pointer;background:rgba(3,10,19,.55)}
+.upload input{display:none}.upload:hover,.upload.hot{box-shadow:var(--glow,0 0 24px rgba(56,189,248,.45))}
+.pick{display:flex;gap:9px;flex-wrap:wrap;margin:10px 0 14px}.pick button{color:var(--text,#e6f4ff);background:transparent;border:1px solid rgba(56,189,248,.5);font-size:11px}.pick .on{color:#021018;background:var(--accent,#1fd6f5)}
+#name{margin:12px 0 4px;color:var(--accent,#1fd6f5);font:13px monospace}
+.tr-file{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;margin:6px 0;border:1px solid rgba(56,189,248,.25);border-radius:9px;background:rgba(3,10,19,.5);font-size:13px}
+.tr-file.bad{border-color:rgba(255,120,120,.6)}.tr-fn{flex:1 1 180px;word-break:break-all}.tr-fs{opacity:.6;font-size:12px}.tr-fe{flex:1 1 100%;color:#ff9a9a;font-size:12px}
+.tr-x{background:transparent!important;color:var(--text,#e6f4ff)!important;border:1px solid rgba(56,189,248,.4)!important;border-radius:7px;padding:2px 8px!important;font-size:12px!important;cursor:pointer}
+.row2{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:end;margin:6px 0 12px}
+.row2 select,#prov,.tr-in{width:100%;background:#050b14;color:var(--text,#e6f4ff);border:1px solid rgba(56,189,248,.42);border-radius:10px;padding:12px;font:14px Inter,system-ui,sans-serif;outline:none;box-sizing:border-box}
+.row2 select:focus,#prov:focus,.tr-in:focus{border-color:var(--accent,#1fd6f5);box-shadow:var(--glow,0 0 14px rgba(56,189,248,.4))}
+#swap{padding:11px 14px;background:transparent;color:var(--accent,#1fd6f5);border:1px solid rgba(56,189,248,.6);border-radius:10px;font-size:16px;cursor:pointer}
+#adv{margin:4px 0 14px;border:1px solid rgba(56,189,248,.25);border-radius:10px;padding:8px 12px}#adv summary{cursor:pointer;color:var(--accent,#1fd6f5);font-size:12px;font-weight:800;letter-spacing:.06em}
+#adv .tr-row{margin-top:10px}
+.acts{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}.acts .sec{background:transparent;color:var(--accent,#1fd6f5);border:1px solid rgba(56,189,248,.6)}
+.tr-prog{height:6px;background:rgba(56,189,248,.15);border-radius:99px;overflow:hidden;margin:16px 0 4px}.tr-prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent,#1fd6f5),#8b6cff);transition:width .25s}
+#log{margin-top:8px;font-size:13px;line-height:1.5}#log .ok{color:#7ff0b4}#log .err{color:#ff9a9a}#log .warn{color:#ffd37a}#log .dim,.dim{opacity:.65}
+.notice.ok{color:#7ff0b4}.notice.err{color:#ff9a9a}
+.tr-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.tr-dl{background:transparent;color:var(--accent,#1fd6f5);border:1px solid rgba(56,189,248,.6);border-radius:9px;padding:8px 12px;font-size:12px;cursor:pointer;word-break:break-all}
+.fmts{margin-top:18px;font-size:12px;opacity:.7;line-height:1.6}
+@media(max-width:620px){.row2{grid-template-columns:1fr}#swap{justify-self:start}}
+</style></head><body><header><a class="brand" href="index.html">IT SHAKH</a><a class="back" href="javascript:history.back()">← ORQAGA</a></header><main>
+<div class="eyebrow">// DOCUMENT TRANSLATOR</div><h1>TRANSLATE</h1>
+<p class="intro">Hujjatni istalgan tildan istalgan tilga tarjima qiladi (130 dan ortiq til, o‘zbekcha — lotin va kirill — ham). Chiziq, jadval, rasm, shrift, rang va joylashuv saqlanadi.</p>
+<section class="panel">
+<label class="upload" id="drop"><input id="file" type="file" multiple accept=".docx,.docm,.xlsx,.xlsm,.xls,.pptx,.pptm,.odt,.ods,.odp,.odg,.pdf,.html,.htm,.xhtml,.txt,.md,.markdown,.csv,.tsv,.srt,.vtt,.rtf,.epub,.fb2,.doc,.ppt"><b>FAYLNI TANLANG YOKI SHU YERGA TASHLANG</b><br><span class="notice">Word, Excel, PowerPoint, PDF, ODF, HTML, TXT, Markdown, CSV, SRT/VTT, RTF, EPUB, FB2 — bir nechta fayl ham mumkin</span></label>
+<div id="name">Fayl tanlanmagan</div><div id="flist"></div>
+<div class="label">REJIM</div>
+<div class="pick"><button type="button" class="on" data-mode="tr">TARJIMA (til → til)</button><button type="button" data-mode="script">YOZUV: KIRILL ⇄ LOTIN</button></div>
+<div id="trBox">
+ <div class="row2"><div><div class="label">QAYSI TILDAN</div><select id="src" aria-label="Manba tili"></select></div><button type="button" id="swap" title="Almashtirish">⇄</button><div><div class="label">QAYSI TILGA</div><select id="tgt" aria-label="Maqsad tili"></select></div></div>
+ <details id="adv"><summary>TARJIMA XIZMATI (ixtiyoriy)</summary>
+  <div class="tr-row"><div class="label">XIZMAT</div><select id="prov"><option value="gtx">Google Translate — bepul, kalitsiz</option><option value="cloud">Google Cloud Translation — API kaliti bilan (barqaror)</option><option value="libre">LibreTranslate — o‘z serveringiz</option></select></div>
+  <div class="tr-row" id="keyRow" hidden><div class="label" id="keyLbl">API KALIT</div><input class="tr-in" id="key" type="password" autocomplete="off" placeholder="kalit"><div class="notice">Kalit faqat shu brauzerda saqlanadi.</div></div>
+  <div class="tr-row" id="urlRow" hidden><div class="label">SERVER MANZILI</div><input class="tr-in" id="url" type="url" placeholder="https://sizning-server.uz"></div>
+ </details>
+</div>
+<div id="scBox" hidden><div class="label">YO‘NALISH</div><div class="pick"><button type="button" class="on" data-dir="auto">AVTOMATIK</button><button type="button" data-dir="c2l">KIRILL → LOTIN</button><button type="button" data-dir="l2c">LOTIN → KIRILL</button></div></div>
+<div class="acts"><button id="go" type="button">TARJIMA QILISH VA YUKLASH</button><button id="cancel" type="button" class="sec" hidden>BEKOR QILISH</button></div>
+<div class="tr-prog"><i id="bar"></i></div>
+<p class="notice" id="status">Fayl tanlang, tillarni belgilang va tugmani bosing.</p>
+<div id="log"></div>
+<p class="notice" id="privacy"></p>
+<p class="fmts">Eski <b>.doc</b> / <b>.ppt</b> formatlari uchun avval Word/PowerPoint’da <b>.docx</b> / <b>.pptx</b> qilib saqlang. Skanerlangan (rasm) PDF’larda matnni tanish (OCR) yo‘q.</p>
+</section></main>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+'use strict';
+/* ============ CORE: yordamchilar, tillar, Kirill<->Lotin, tarjima motori ============ */
+const $ = s => document.querySelector(s);
+const LETTER = /\p{L}/u;
+const hasLetter = s => LETTER.test(s);
+class Cancel extends Error { }
+const sleep = (ms, sig) => new Promise((res, rej) => {
+  if (sig && sig.aborted) return rej(new Cancel('Bekor qilindi'));
+  const t = setTimeout(res, ms);
+  if (sig) sig.addEventListener('abort', () => { clearTimeout(t); rej(new Cancel('Bekor qilindi')); }, { once: true });
+});
+/* tarjima kerak bo'lgan matnmi (harf bor, havola/email emas) */
+function needsTr(s) {
+  s = s.trim();
+  if (!s || !LETTER.test(s)) return false;
+  if (/^(https?:\/\/|ftp:\/\/|www\.)\S+$/i.test(s)) return false;
+  if (/^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(s)) return false;
+  return true;
+}
+
+/* ---------------- Tillar ---------------- */
+const RTL = new Set(['ar', 'he', 'fa', 'ur', 'ps', 'sd', 'ug', 'yi', 'dv', 'ckb']);
+const LANG_CODES = ('af sq am ar hy as ay az bm eu be bn bho bs bg ca ceb zh-CN zh-TW co hr cs da dv doi nl en eo et ee fi fr fy gl ka de el gn gu ht ha haw he hi hmn hu is ig ilo id ga it ja jv kn kk km rw gom ko kri ku ckb ky lo la lv ln lt lg lb mk mai mg ms ml mt mi mr mni-Mtei lus mn my ne no nso ny or om ps fa pl pt pa qu ro ru sm sa gd sr st sn sd si sk sl so es su sw sv tl tg ta tt te th ti ts tr tk ak uk ur ug uz vi cy xh yi yo zu').split(' ');
+const POPULAR = ['uz', 'uz-Cyrl', 'ru', 'en', 'tr', 'kk', 'ky', 'tg', 'tk', 'az', 'ar', 'fa', 'zh-CN', 'ja', 'ko', 'de', 'fr', 'es', 'it', 'pt', 'hi', 'uk'];
+const NAME_OVR = {
+  'zh-CN': 'Xitoy (soddalashtirilgan) · 简体中文', 'zh-TW': 'Xitoy (an’anaviy) · 繁體中文',
+  'uz': 'O‘zbek (lotin) · Oʻzbekcha', 'uz-Cyrl': 'O‘zbek (kirill) · Ўзбекча',
+  'mni-Mtei': 'Meitei (Manipuri)', 'hmn': 'Hmong', 'lus': 'Mizo', 'gom': 'Konkani', 'doi': 'Dogri', 'bho': 'Bxojpuri',
+  'mai': 'Maythili', 'nso': 'Shimoliy Soto (Sepedi)', 'kri': 'Krio', 'ilo': 'Ilokano', 'ak': 'Akan (Tvi)', 'ay': 'Aymara',
+  'bm': 'Bambara', 'ee': 'Eve', 'gn': 'Guarani', 'ln': 'Lingala', 'lg': 'Luganda', 'om': 'Oromo', 'qu': 'Kechua',
+  'sa': 'Sanskrit', 'ti': 'Tigrinya', 'ts': 'Tsonga', 'ckb': 'Kurd (Sorani)', 'ku': 'Kurd (Kurmanji)', 'tl': 'Filipin (Tagalog)'
+};
+function langName(code) {
+  if (NAME_OVR[code]) return NAME_OVR[code];
+  let uz = '', nat = '';
+  try { uz = new Intl.DisplayNames(['uz'], { type: 'language' }).of(code); } catch (e) { }
+  if (!uz || uz === code) { try { uz = new Intl.DisplayNames(['en'], { type: 'language' }).of(code); } catch (e) { } }
+  try { nat = new Intl.DisplayNames([code], { type: 'language' }).of(code); } catch (e) { }
+  uz = uz && uz !== code ? uz : code;
+  if (uz) uz = uz[0].toUpperCase() + uz.slice(1);
+  return nat && nat !== code && nat.toLowerCase() !== uz.toLowerCase() ? uz + ' · ' + nat : uz;
+}
+const baseLang = c => c === 'uz-Cyrl' ? 'uz' : c;
+
+/* ---------------- O'zbek yozuvi: Kirill <-> Lotin ---------------- */
+const C2L = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', ж: 'j', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'x', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sh', ъ: 'ʼ', ы: 'i', ь: '', э: 'e', ю: 'yu', я: 'ya', ў: 'oʻ', қ: 'q', ғ: 'gʻ', ҳ: 'h', ё: 'yo' };
+const CYR_VOWEL = /[аеёиоуэюяўъь]/i;
+function cyr2lat(s) {
+  const a = Array.from(s);
+  let out = '';
+  for (let i = 0; i < a.length; i++) {
+    const ch = a[i], lo = ch.toLowerCase();
+    if (lo !== 'е' && !(lo in C2L)) { out += ch; continue; }
+    const up = ch !== lo;
+    let m;
+    if (lo === 'е') { const p = a[i - 1]; m = (!p || !LETTER.test(p) || CYR_VOWEL.test(p)) ? 'ye' : 'e'; }
+    else m = C2L[lo];
+    if (m === '') continue;
+    if (up) {
+      if (m.length > 1) {
+        const n = a[i + 1], p = a[i - 1];
+        const caps = (n && /\p{Lu}/u.test(n)) || (p && /\p{Lu}/u.test(p));
+        m = caps ? m.toUpperCase() : m[0].toUpperCase() + m.slice(1);
+      } else m = m.toUpperCase();
+    }
+    out += m;
+  }
+  return out;
+}
+const APOS = 'ʻʼ‘’\'`´ʹ′';
+const isApos = c => !!c && APOS.includes(c);
+const L2C = { a: 'а', b: 'б', v: 'в', g: 'г', d: 'д', j: 'ж', z: 'з', i: 'и', k: 'к', l: 'л', m: 'м', n: 'н', o: 'о', p: 'п', r: 'р', s: 'с', t: 'т', u: 'у', f: 'ф', x: 'х', h: 'ҳ', q: 'қ', y: 'й' };
+function lat2cyr(s) {
+  const a = Array.from(s);
+  let out = '', i = 0;
+  const put = (cyr, upper) => { out += upper ? cyr.toUpperCase() : cyr; };
+  while (i < a.length) {
+    const c = a[i], l = c.toLowerCase(), n = a[i + 1], nl = n ? n.toLowerCase() : '';
+    const up = c !== l;
+    if ((l === 'o' || l === 'g') && isApos(n)) { put(l === 'o' ? 'ў' : 'ғ', up); i += 2; continue; }
+    if (l === 's' && nl === 'h') { put('ш', up); i += 2; continue; }
+    if (l === 'c' && nl === 'h') { put('ч', up); i += 2; continue; }
+    if (l === 't' && nl === 's') { put('ц', up); i += 2; continue; }
+    if (l === 'y' && (nl === 'o' || nl === 'u' || nl === 'a' || nl === 'e')) {
+      if (nl === 'o' && isApos(a[i + 2])) { put('й', up); i += 1; continue; } /* yo‘l = йўл */
+      put({ o: 'ё', u: 'ю', a: 'я', e: 'е' }[nl], up); i += 2; continue;
+    }
+    if (isApos(c)) {
+      if (i > 0 && LETTER.test(a[i - 1]) && n && LETTER.test(n)) out += 'ъ'; else out += c;
+      i++; continue;
+    }
+    if (l === 'e') { put((i === 0 || !LETTER.test(a[i - 1])) ? 'э' : 'е', up); i++; continue; }
+    if (L2C[l]) { put(L2C[l], up); i++; continue; }
+    out += c; i++;
+  }
+  return out;
+}
+const countCyr = s => (s.match(/[Ѐ-ӿ]/g) || []).length;
+const countLat = s => (s.match(/[A-Za-zʻʼ]/g) || []).length;
+const detectScript = texts => { let c = 0, l = 0; for (const t of texts) { c += countCyr(t); l += countLat(t); if (c + l > 20000) break; } return c >= l ? 'c2l' : 'l2c'; };
+
+/* ---------------- Matn birligi (format ichidan olingan bo'lak) ---------------- */
+/* nodes: [{get(), set(s)}]  -- bitta jumla/abzatsga tegishli ketma-ket matn bo'laklari.
+   Tarjima butun abzats bo'yicha qilinadi, so'ng so'zlar bo'laklarga (run) mutanosib taqsimlanadi,
+   shuning uchun qalin/qiya/rang kabi formatlar o'z joyida qoladi. */
+function nodesUnit(nodes) {
+  const orig = nodes.map(n => n.get());
+  let first = -1, last = -1;
+  orig.forEach((t, i) => { if (t.trim() !== '') { if (first < 0) first = i; last = i; } });
+  if (first < 0) return null;
+  const seqIdx = []; for (let i = first; i <= last; i++) seqIdx.push(i);
+  const full = seqIdx.map(i => orig[i]).join('');
+  const core = full.trim();
+  if (!needsTr(core)) return null;
+  const lead = full.match(/^\s*/)[0], trail = full.match(/\s*$/)[0];
+  const act = seqIdx.filter(i => orig[i].trim() !== '');
+  return {
+    text: core, nodes: act.length,
+    set(T) {
+      T = String(T).trim();
+      if (act.length === 1) { nodes[act[0]].set(lead + T + trail); return; }
+      let tok = T.match(/\S+\s*/g) || [];
+      if (tok.length < act.length && !/\s/.test(T)) tok = Array.from(T);
+      const w = act.map(i => Math.max(1, orig[i].trim().length));
+      const tw = w.reduce((a, b) => a + b, 0);
+      const tl = T.length;
+      let pos = 0, cum = 0, ti = 0;
+      const pieces = [];
+      act.forEach((idx, k) => {
+        let piece = '';
+        if (k === act.length - 1) { piece = tok.slice(ti).join(''); }
+        else {
+          cum += w[k];
+          const bound = tl * cum / tw;
+          while (ti < tok.length && pos + tok[ti].length / 2 <= bound) { piece += tok[ti]; pos += tok[ti].length; ti++; }
+        }
+        pieces.push(piece);
+      });
+      /* bo'laklar chegarasidagi bo'shliqni asl joyiga qaytarish (masalan <a>havola </a> emas, <a>havola</a> ) */
+      for (let k = 0; k < act.length - 1; k++) {
+        const a = act[k], b = act[k + 1];
+        if (b - a !== 1) continue;
+        if (!(/\s$/.test(pieces[k]) || /^\s/.test(pieces[k + 1]))) continue;
+        const endA = /\s$/.test(orig[a]), startB = /^\s/.test(orig[b]);
+        if (!endA && !startB) continue;
+        pieces[k] = pieces[k].replace(/\s+$/, ''); pieces[k + 1] = pieces[k + 1].replace(/^\s+/, '');
+        if (endA) pieces[k] += ' '; else pieces[k + 1] = ' ' + pieces[k + 1];
+      }
+      act.forEach((idx, k) => {
+        let piece = pieces[k];
+        const prevSep = k > 0 && idx - act[k - 1] > 1;
+        const nextSep = k < act.length - 1 && act[k + 1] - idx > 1;
+        if (nextSep) piece = piece.replace(/\s+$/, '');
+        if (prevSep) piece = piece.replace(/^\s+/, '');
+        if (k === 0) piece = lead + piece.replace(/^\s+/, '');
+        if (k === act.length - 1) piece = piece.replace(/\s+$/, '') + trail;
+        nodes[idx].set(piece);
+      });
+    }
+  };
+}
+/* bitta tugun (atribut, katak, alohida element) */
+const oneUnit = (get, set) => nodesUnit([{ get, set }]);
+/* matn tugunlari ro'yxatidan ketma-ket guruhlovchi */
+class Grouper {
+  constructor(out) { this.out = out; this.g = []; }
+  add(node) { this.g.push(node); }
+  flush() { if (this.g.length) { const u = nodesUnit(this.g); if (u) this.out.push(u); this.g = []; } }
+}
+const textNodeW = tn => ({ get: () => tn.nodeValue, set: s => { tn.nodeValue = s; } });
+
+/* ---------------- Tarjima xizmatlari ---------------- */
+const MISMATCH = new Error('mismatch');
+class HttpErr extends Error { constructor(st, m) { super(m || ('HTTP ' + st)); this.status = st; } }
+const GCODE = { he: 'iw', jv: 'jw' };
+const gcode = c => GCODE[c] || baseLang(c);
+const LCODE = { 'zh-CN': 'zh', 'zh-TW': 'zt', 'uz-Cyrl': 'uz' };
+const lcode = c => LCODE[c] || c;
+
+async function provGtx(lines, src, tgt, o, sig) {
+  const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=' + (src === 'auto' ? 'auto' : gcode(src)) + '&tl=' + gcode(tgt);
+  const q = lines.join('\n');
+  let r;
+  try { r = await fetch(url, { method: 'POST', body: new URLSearchParams({ q }), signal: sig }); }
+  catch (e) {
+    if (e && e.name === 'AbortError') throw e;
+    /* ba'zi tarmoqlarda POST to'silishi mumkin — GET bilan qayta urinib ko'ramiz */
+    const gu = url + '&q=' + encodeURIComponent(q);
+    if (gu.length > 7500) throw e;
+    r = await fetch(gu, { signal: sig });
+  }
+  if (!r.ok) throw new HttpErr(r.status);
+  const j = await r.json();
+  if (!j || !Array.isArray(j[0])) throw new Error('Kutilmagan javob');
+  const text = j[0].map(x => (x && x[0]) || '').join('');
+  const out = text.split('\n');
+  if (out.length === lines.length + 1 && out[out.length - 1] === '') out.pop();
+  if (out.length !== lines.length) throw MISMATCH;
+  return { out, det: j[2] };
+}
+async function provCloud(lines, src, tgt, o, sig) {
+  if (!o.key) throw new Error('Google Cloud API kaliti kiritilmagan');
+  const body = { q: lines, target: gcode(tgt), format: 'text' };
+  if (src !== 'auto') body.source = gcode(src);
+  const r = await fetch('https://translation.googleapis.com/language/translate/v2?key=' + encodeURIComponent(o.key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: sig });
+  if (!r.ok) { let m = ''; try { m = (await r.json()).error.message; } catch (e) { } throw new HttpErr(r.status, m || undefined); }
+  const j = await r.json();
+  const tr = j && j.data && j.data.translations;
+  if (!tr || tr.length !== lines.length) throw MISMATCH;
+  return { out: tr.map(x => x.translatedText), det: tr[0] && tr[0].detectedSourceLanguage };
+}
+async function provLibre(lines, src, tgt, o, sig) {
+  const base = (o.url || '').replace(/\/+$/, '');
+  if (!base) throw new Error('LibreTranslate manzili kiritilmagan');
+  const body = { q: lines, source: src === 'auto' ? 'auto' : lcode(src), target: lcode(tgt), format: 'text' };
+  if (o.key) body.api_key = o.key;
+  const r = await fetch(base + '/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: sig });
+  if (!r.ok) { let m = ''; try { m = (await r.json()).error; } catch (e) { } throw new HttpErr(r.status, m || undefined); }
+  const j = await r.json();
+  const t = j.translatedText;
+  if (Array.isArray(t)) { if (t.length !== lines.length) throw MISMATCH; return { out: t, det: j.detectedLanguage && (Array.isArray(j.detectedLanguage) ? j.detectedLanguage[0].language : j.detectedLanguage.language) }; }
+  if (lines.length === 1 && typeof t === 'string') return { out: [t] };
+  throw MISMATCH;
+}
+const PROVIDERS = {
+  gtx: { fn: provGtx, maxChars: 1200, maxLines: 25, conc: 3, label: 'Google Translate (bepul, kalitsiz)' },
+  cloud: { fn: provCloud, maxChars: 5000, maxLines: 100, conc: 4, label: 'Google Cloud Translation (API kaliti bilan)' },
+  libre: { fn: provLibre, maxChars: 2500, maxLines: 40, conc: 2, label: 'LibreTranslate (o‘z serveringiz)' }
+};
+
+const TCACHE = new Map();
+function splitLong(s, max) {
+  if (s.length <= max) return [s];
+  const parts = [];
+  let cur = '';
+  const sentences = s.split(/(?<=[.!?。！？…؟])\s+/);
+  const push = x => { if (x) parts.push(x); };
+  for (const sn of sentences) {
+    if (sn.length > max) {
+      push(cur); cur = '';
+      const words = sn.split(/(?<=\s)/);
+      let w = '';
+      for (const x of words) { if ((w + x).length > max && w) { push(w.trim()); w = ''; } w += x; }
+      if (w.length > max) { for (let i = 0; i < w.length; i += max) push(w.slice(i, i + max)); } else push(w.trim());
+    } else if ((cur + ' ' + sn).length > max) { push(cur); cur = sn; }
+    else cur = cur ? cur + ' ' + sn : sn;
+  }
+  push(cur);
+  return parts;
+}
+
+/* units: [{text, set(T)}]  -> tarjima qilib set() ni chaqiradi.  Qaytaradi {done, failed, err, det} */
+async function translateUnits(units, o, sig, prog) {
+  const P = PROVIDERS[o.prov] || PROVIDERS.gtx;
+  const src = o.src, tgt = baseLang(o.tgt);
+  const srcCyr = src === 'uz-Cyrl', tgtCyr = o.tgt === 'uz-Cyrl';
+  const csrc = srcCyr ? 'uz' : src;
+  const ck = (t) => [o.prov, csrc, tgt, t].join('\u0001');
+  const atoms = []; const amap = new Map();
+  const plans = units.map(u => {
+    let txt = u.text; if (srcCyr) txt = cyr2lat(txt);
+    return txt.split(/\r\n|\r|\n/).map(line => {
+      const lead = line.match(/^\s*/)[0], trail = line.match(/\s*$/)[0], core = line.trim();
+      if (!needsTr(core)) return { lead, trail, raw: core };
+      const segs = splitLong(core, P.maxChars - 100).map(sg => {
+        if (!needsTr(sg)) return { raw: sg };
+        const key = ck(sg);
+        let ix = amap.get(key);
+        if (ix === undefined) { ix = atoms.length; amap.set(key, ix); atoms.push({ t: sg, r: TCACHE.has(key) ? TCACHE.get(key) : null, key }); }
+        return { ix };
+      });
+      return { lead, trail, segs };
+    });
+  });
+  const todo = atoms.filter(a => a.r === null);
+  const totalChars = todo.reduce((s, a) => s + a.t.length, 0) || 1;
+  let doneChars = 0, failed = 0, err = '', det = '';
+  /* paketlash */
+  const chunks = []; let cur = [], cc = 0;
+  for (const a of todo) {
+    if (cur.length && (cc + a.t.length > P.maxChars || cur.length >= P.maxLines)) { chunks.push(cur); cur = []; cc = 0; }
+    cur.push(a); cc += a.t.length + 1;
+  }
+  if (cur.length) chunks.push(cur);
+  const bump = ch => { doneChars += ch.reduce((s, a) => s + a.t.length, 0); prog && prog(Math.min(1, doneChars / totalChars)); };
+  async function doChunk(ch, depth) {
+    if (sig && sig.aborted) throw new Cancel('Bekor qilindi');
+    let lastE;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const res = await P.fn(ch.map(a => a.t), src === 'auto' ? 'auto' : csrc, tgt, o, sig);
+        ch.forEach((a, i) => { a.r = res.out[i]; TCACHE.set(a.key, a.r); });
+        if (res.det && !det) det = res.det;
+        bump(ch); return;
+      } catch (e) {
+        if (e instanceof Cancel || (e && e.name === 'AbortError')) throw new Cancel('Bekor qilindi');
+        if (e === MISMATCH) {
+          if (ch.length > 1) { const h = ch.length >> 1; await doChunk(ch.slice(0, h), depth + 1); await doChunk(ch.slice(h), depth + 1); return; }
+          lastE = new Error('Tarjima xizmati javobi mos kelmadi'); break;
+        }
+        lastE = e;
+        if (e instanceof HttpErr && [400, 401, 403, 404].includes(e.status)) break;
+        await sleep(600 * Math.pow(2, attempt) + Math.random() * 300, sig);
+      }
+    }
+    failed += ch.length; err = err || (lastE && lastE.message) || 'noma’lum xato';
+    bump(ch);
+  }
+  let qi = 0;
+  const workers = Array.from({ length: Math.min(P.conc, chunks.length) }, async () => {
+    while (qi < chunks.length) { const ch = chunks[qi++]; await doChunk(ch, 0); }
+  });
+  await Promise.all(workers);
+  /* yig'ish */
+  units.forEach((u, k) => {
+    const lines = plans[k].map(L => {
+      if (L.raw !== undefined) return L.lead + L.raw + L.trail;
+      const body = L.segs.map(sg => sg.raw !== undefined ? sg.raw : (atoms[sg.ix].r !== null ? atoms[sg.ix].r : atoms[sg.ix].t)).join(' ');
+      return L.lead + body.trim() + L.trail;
+    });
+    let T = lines.join('\n');
+    if (tgtCyr) T = lat2cyr(T);
+    else if (srcCyr && !tgtCyr && tgt === 'uz') { /* Kirill -> Lotin: tarjima emas, faqat yozuv */ }
+    u.set(T);
+  });
+  return { failed, err, det, total: atoms.length };
+}
+
+/* faqat yozuv almashtirish (internetsiz) */
+function scriptUnits(units, dir) {
+  if (dir === 'auto') dir = detectScript(units.map(u => u.text));
+  const f = dir === 'c2l' ? cyr2lat : lat2cyr;
+  units.forEach(u => u.set(f(u.text)));
+  return { dir };
+}
+
+/* ============ FORMATLAR: har biri {units, notes, build()} qaytaradi ============ */
+const NS = {
+  w: 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+  a: 'http://schemas.openxmlformats.org/drawingml/2006/main',
+  s: 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+  c: 'http://schemas.openxmlformats.org/drawingml/2006/chart',
+  p: 'http://schemas.openxmlformats.org/presentationml/2006/main',
+  text: 'urn:oasis:names:tc:opendocument:xmlns:text:1.0',
+  dc: 'http://purl.org/dc/elements/1.1/',
+  xml: 'http://www.w3.org/XML/1998/namespace'
+};
+const MIME = {
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', docm: 'application/vnd.ms-word.document.macroEnabled.12',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', pptm: 'application/vnd.ms-powerpoint.presentation.macroEnabled.12',
+  odt: 'application/vnd.oasis.opendocument.text', ods: 'application/vnd.oasis.opendocument.spreadsheet', odp: 'application/vnd.oasis.opendocument.presentation', odg: 'application/vnd.oasis.opendocument.graphics',
+  html: 'text/html;charset=utf-8', htm: 'text/html;charset=utf-8', xhtml: 'application/xhtml+xml', txt: 'text/plain;charset=utf-8', md: 'text/markdown;charset=utf-8', markdown: 'text/markdown;charset=utf-8',
+  csv: 'text/csv;charset=utf-8', tsv: 'text/tab-separated-values;charset=utf-8', srt: 'application/x-subrip;charset=utf-8', vtt: 'text/vtt;charset=utf-8',
+  rtf: 'application/rtf', epub: 'application/epub+zip', fb2: 'application/x-fictionbook+xml', pdf: 'application/pdf'
+};
+const need = (name, v) => { if (!v) throw new Error(name + ' kutubxonasi yuklanmadi. Internetni tekshirib, sahifani yangilang.'); };
+
+/* ---- XML yordamchilar ---- */
+function parseXml(str, type) {
+  const d = new DOMParser().parseFromString(str, type || 'application/xml');
+  if (d.getElementsByTagName('parsererror').length) throw new Error('XML o‘qilmadi');
+  return d;
+}
+function serXml(doc, src) {
+  let s = new XMLSerializer().serializeToString(doc);
+  if (!/^<\?xml/.test(s)) {
+    const m = src && src.match(/^﻿?\s*(<\?xml[^>]*\?>)/);
+    s = (m ? m[1] : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>') + '\n' + s;
+  }
+  return s;
+}
+const elNode = el => ({
+  get: () => el.textContent,
+  set: s => { el.textContent = s; if (el.namespaceURI !== NS.dc) el.setAttributeNS(NS.xml, 'xml:space', 'preserve'); }
+});
+const attrNode = (el, n) => ({ get: () => el.getAttribute(n) || '', set: s => el.setAttribute(n, s) });
+const kids = (el, ln) => Array.from(el.children).filter(c => c.localName === ln);
+
+/* OOXML abzatslari: P - abzats, T - matn elementi (w:t / a:t) */
+function ooxmlParas(doc, ns, P, T, breaks, skip, out) {
+  for (const p of Array.from(doc.getElementsByTagNameNS(ns, P))) {
+    const g = new Grouper(out);
+    (function walk(el) {
+      for (let c = el.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType !== 1) continue;
+        const ln = c.localName;
+        if (ln === P && c.namespaceURI === ns) { g.flush(); continue; }
+        if (ln === T && c.namespaceURI === ns) { g.add(elNode(c)); continue; }
+        if (breaks.has(ln)) { g.flush(); continue; }
+        if (skip.has(ln)) continue;
+        walk(c);
+      }
+    })(p);
+    g.flush();
+  }
+}
+const W_BREAK = new Set(['tab', 'br', 'cr', 'ptab']);
+const W_SKIP = new Set(['pPr', 'rPr', 'instrText', 'delText', 'drawing', 'pict', 'object', 'sectPr']);
+const A_BREAK = new Set(['br']);
+const A_SKIP = new Set(['fld', 'pPr', 'rPr', 'endParaRPr']);
+const wParas = (doc, out) => ooxmlParas(doc, NS.w, 'p', 't', W_BREAK, W_SKIP, out);
+const aParas = (doc, out) => ooxmlParas(doc, NS.a, 'p', 't', A_BREAK, A_SKIP, out);
+function chartCache(doc, out) {
+  for (const v of Array.from(doc.getElementsByTagNameNS(NS.c, 'v'))) {
+    const pt = v.parentNode;
+    if (pt && pt.localName === 'pt' && pt.parentNode && pt.parentNode.localName === 'strCache') { const u = nodesUnit([elNode(v)]); if (u) out.push(u); }
+  }
+}
+function strItem(si, out) { /* <si>/<is>/<text>: t yoki r/t */
+  const nodes = [];
+  for (const c of Array.from(si.children)) {
+    if (c.localName === 't') nodes.push(elNode(c));
+    else if (c.localName === 'r') for (const t of Array.from(c.children)) if (t.localName === 't') nodes.push(elNode(t));
+  }
+  const u = nodesUnit(nodes); if (u) out.push(u);
+}
+
+/* ---- ZIP asosidagi hujjatlar ---- */
+async function zipDoc(buf, ext, hooks) {
+  need('JSZip', window.JSZip);
+  const zip = await JSZip.loadAsync(buf);
+  const names = Object.keys(zip.files).filter(n => !zip.files[n].dir);
+  const units = [], notes = [], dirty = [];
+  const ctx = { zip, names, units, notes };
+  async function handle(path, fn) {
+    const src = await zip.file(path).async('string');
+    let doc; try { doc = parseXml(src); } catch (e) { notes.push(path + ' o‘qilmadi — o‘zgarishsiz qoldi.'); return; }
+    const before = units.length;
+    fn(doc);
+    if (units.length > before) dirty.push({ path, doc, src });
+  }
+  await hooks.collect(ctx, handle);
+  return {
+    units, notes,
+    async build() {
+      for (const d of dirty) zip.file(d.path, serXml(d.doc, d.src));
+      for (const keep of ['mimetype']) if (zip.file(keep)) zip.file(keep, await zip.file(keep).async('string'), { compression: 'STORE' });
+      return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: MIME[ext] || 'application/zip' });
+    }
+  };
+}
+const docxHandler = (buf, ext) => zipDoc(buf, ext, {
+  async collect({ names, units }, handle) {
+    for (const n of names.filter(n => /^word\/(document|header\d*|footer\d*|footnotes|endnotes|comments\w*)\.xml$/i.test(n))) await handle(n, d => wParas(d, units));
+    for (const n of names.filter(n => /^word\/(charts|diagrams)\/[^/]+\.xml$/i.test(n))) await handle(n, d => { aParas(d, units); chartCache(d, units); });
+  }
+});
+const pptxHandler = (buf, ext) => zipDoc(buf, ext, {
+  async collect({ names, units }, handle) {
+    const grp = n => /^ppt\/(slides\/slide|notesSlides\/notesSlide)\d+\.xml$/i.test(n) || /^ppt\/(charts\/chart|diagrams\/(data|drawing))\d+\.xml$/i.test(n);
+    const sorted = names.filter(grp).sort((a, b) => (a.match(/\d+/g) || [0]).pop() - (b.match(/\d+/g) || [0]).pop());
+    for (const n of sorted) await handle(n, d => { aParas(d, units); if (/charts\//.test(n)) chartCache(d, units); });
+    for (const n of names.filter(n => /^ppt\/comments\/[^/]+\.xml$/i.test(n))) await handle(n, d => { for (const t of Array.from(d.getElementsByTagNameNS(NS.p, 'text'))) { const u = nodesUnit([elNode(t)]); if (u) units.push(u); } });
+  }
+});
+const xlsxHandler = (buf, ext) => zipDoc(buf, ext, {
+  async collect(ctx, handle) {
+    const { names, units, notes, zip } = ctx;
+    /* Jadval (Table) sarlavhalarini o'zgartirish Excel faylini buzadi — ularni o'zgarishsiz qoldiramiz */
+    const protectedNames = new Set();
+    for (const n of names.filter(n => /^xl\/tables\/[^/]+\.xml$/i.test(n))) {
+      try { const d = parseXml(await zip.file(n).async('string')); for (const tc of Array.from(d.getElementsByTagNameNS(NS.s, 'tableColumn'))) protectedNames.add((tc.getAttribute('name') || '').trim()); } catch (e) { }
+    }
+    if (protectedNames.size) notes.push('Excel «Jadval» (Table) sarlavhalari o‘zgarishsiz qoldirildi (aks holda formulalar buziladi).');
+    const filt = list => { for (let i = list.length - 1; i >= 0; i--) if (protectedNames.has(list[i].text)) list.splice(i, 1); };
+    if (zip.file('xl/sharedStrings.xml')) await handle('xl/sharedStrings.xml', d => { const tmp = []; for (const si of Array.from(d.getElementsByTagNameNS(NS.s, 'si'))) strItem(si, tmp); filt(tmp); units.push(...tmp); });
+    for (const n of names.filter(n => /^xl\/worksheets\/[^/]+\.xml$/i.test(n))) {
+      const src = await zip.file(n).async('string');
+      if (src.includes('inlineStr')) await handle(n, d => { const tmp = []; for (const is of Array.from(d.getElementsByTagNameNS(NS.s, 'is'))) strItem(is, tmp); filt(tmp); units.push(...tmp); });
+    }
+    for (const n of names.filter(n => /^xl\/comments[^/]*\.xml$/i.test(n))) await handle(n, d => { for (const t of Array.from(d.getElementsByTagNameNS(NS.s, 'text'))) strItem(t, units); });
+    for (const n of names.filter(n => /^xl\/threadedComments\/[^/]+\.xml$/i.test(n))) await handle(n, d => { for (const t of Array.from(d.getElementsByTagName('text'))) { const u = nodesUnit([elNode(t)]); if (u) units.push(u); } });
+    for (const n of names.filter(n => /^xl\/(drawings\/drawing|charts\/chart)\d+\.xml$/i.test(n))) await handle(n, d => aParas(d, units));
+  }
+});
+
+/* ---- ODF (odt/ods/odp/odg) ---- */
+const ODF_BREAK = new Set(['tab', 'line-break', 's']);
+const ODF_SKIP = new Set(['page-number', 'page-count', 'date', 'time', 'file-name', 'note-citation', 'sheet-name', 'initial-creator', 'creator']);
+function odfParas(doc, out) {
+  const list = [...Array.from(doc.getElementsByTagNameNS(NS.text, 'p')), ...Array.from(doc.getElementsByTagNameNS(NS.text, 'h'))];
+  for (const p of list) {
+    const g = new Grouper(out);
+    (function walk(el) {
+      for (let c = el.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) { g.add(textNodeW(c)); continue; }
+        if (c.nodeType !== 1) continue;
+        const ln = c.localName;
+        if ((ln === 'p' || ln === 'h') && c.namespaceURI === NS.text) { g.flush(); continue; }
+        if (c.namespaceURI === NS.text && ODF_BREAK.has(ln)) { g.flush(); continue; }
+        if (c.namespaceURI === NS.text && ODF_SKIP.has(ln)) continue;
+        walk(c);
+      }
+    })(p);
+    g.flush();
+  }
+}
+const odfHandler = (buf, ext) => zipDoc(buf, ext, {
+  async collect({ names, units }, handle) {
+    for (const n of names.filter(n => /(^|\/)(content|styles)\.xml$/i.test(n) && !/^META-INF/.test(n))) await handle(n, d => odfParas(d, units));
+  }
+});
+
+/* ---- matn kodirovkasi ---- */
+function decodeText(buf, hint) {
+  const u8 = new Uint8Array(buf);
+  if (u8[0] === 0xEF && u8[1] === 0xBB && u8[2] === 0xBF) return { text: new TextDecoder('utf-8').decode(u8.subarray(3)), bom: true };
+  if (u8[0] === 0xFF && u8[1] === 0xFE) return { text: new TextDecoder('utf-16le').decode(u8.subarray(2)), bom: true };
+  if (u8[0] === 0xFE && u8[1] === 0xFF) return { text: new TextDecoder('utf-16be').decode(u8.subarray(2)), bom: true };
+  try { return { text: new TextDecoder('utf-8', { fatal: true }).decode(u8), bom: false }; } catch (e) { }
+  for (const lab of [hint, 'windows-1251']) { if (!lab) continue; try { return { text: new TextDecoder(lab).decode(u8), bom: false, legacy: lab }; } catch (e) { } }
+  return { text: new TextDecoder('windows-1252').decode(u8), bom: false, legacy: 'windows-1252' };
+}
+const txtBlob = (s, bom, type) => new Blob([bom ? '﻿' : '', s], { type });
+
+/* ---- HTML / XHTML ---- */
+const H_BLOCK = new Set('html body div p li ul ol dl dt dd h1 h2 h3 h4 h5 h6 td th tr table thead tbody tfoot caption section article aside header footer nav main blockquote figure figcaption form fieldset legend button option select details summary address title center hr pre dialog menu'.split(' '));
+const H_SKIP = new Set('script style noscript code kbd samp svg math textarea template pre iframe object canvas'.split(' '));
+const META_TR = new Set(['description', 'keywords', 'og:title', 'og:description', 'og:site_name', 'twitter:title', 'twitter:description', 'og:image:alt', 'twitter:image:alt']);
+function htmlUnits(doc, out) {
+  const g = new Grouper(out);
+  (function visit(el) {
+    for (let c = el.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) { g.add(textNodeW(c)); continue; }
+      if (c.nodeType !== 1) continue;
+      const ln = c.localName.toLowerCase();
+      if (H_SKIP.has(ln)) { g.flush(); continue; }
+      if (ln === 'br') { g.flush(); continue; }
+      if (H_BLOCK.has(ln)) { g.flush(); visit(c); g.flush(); } else visit(c);
+    }
+  })(doc.documentElement);
+  g.flush();
+  const push = (get, set) => { const u = oneUnit(get, set); if (u) out.push(u); };
+  for (const el of Array.from(doc.querySelectorAll('*'))) {
+    for (const at of ['title', 'alt', 'placeholder', 'aria-label']) if (el.hasAttribute(at)) push(() => el.getAttribute(at), s => el.setAttribute(at, s));
+    const ln = el.localName.toLowerCase();
+    if (ln === 'input' && /^(button|submit|reset)$/i.test(el.getAttribute('type') || '') && el.hasAttribute('value')) push(() => el.getAttribute('value'), s => el.setAttribute('value', s));
+    if (ln === 'meta' && el.hasAttribute('content')) { const nm = (el.getAttribute('name') || el.getAttribute('property') || '').toLowerCase(); if (META_TR.has(nm)) push(() => el.getAttribute('content'), s => el.setAttribute('content', s)); }
+  }
+}
+function htmlHandler(buf, ext, name, o) {
+  const m = /charset\s*=\s*["']?([\w-]+)/i.exec(new TextDecoder('latin1').decode(new Uint8Array(buf).subarray(0, 3000)));
+  const dec = decodeText(buf, m && m[1]);
+  const doc = new DOMParser().parseFromString(dec.text, 'text/html');
+  const units = []; htmlUnits(doc, units);
+  return {
+    units, notes: [],
+    async build() {
+      const root = doc.documentElement;
+      if (o.tgt) { root.setAttribute('lang', baseLang(o.tgt) === 'uz' && o.tgt === 'uz-Cyrl' ? 'uz-Cyrl' : baseLang(o.tgt)); if (RTL.has(o.tgt)) root.setAttribute('dir', 'rtl'); else if (root.getAttribute('dir') === 'rtl') root.setAttribute('dir', 'ltr'); }
+      const head = doc.head; let done = false;
+      doc.querySelectorAll('meta[charset]').forEach(x => { x.setAttribute('charset', 'utf-8'); done = true; });
+      doc.querySelectorAll('meta[http-equiv]').forEach(x => { if (/content-type/i.test(x.getAttribute('http-equiv'))) { x.setAttribute('content', 'text/html; charset=utf-8'); done = true; } });
+      if (!done && head) { const mm = doc.createElement('meta'); mm.setAttribute('charset', 'utf-8'); head.insertBefore(mm, head.firstChild); }
+      const dt = doc.doctype ? '<!DOCTYPE ' + doc.doctype.name + (doc.doctype.publicId ? ' PUBLIC "' + doc.doctype.publicId + '"' : '') + (doc.doctype.systemId ? ' "' + doc.doctype.systemId + '"' : '') + '>\n' : '';
+      return txtBlob(dt + root.outerHTML, dec.bom, MIME[ext]);
+    }
+  };
+}
+
+/* ---- EPUB ---- */
+async function epubHandler(buf, ext, name, o) {
+  need('JSZip', window.JSZip);
+  const zip = await JSZip.loadAsync(buf);
+  const names = Object.keys(zip.files).filter(n => !zip.files[n].dir);
+  const units = [], notes = [], dirty = [];
+  for (const n of names) {
+    const isX = /\.(xhtml|html|htm)$/i.test(n), isOpf = /\.opf$/i.test(n), isNcx = /\.ncx$/i.test(n);
+    if (!isX && !isOpf && !isNcx) continue;
+    const dec = decodeText(await zip.file(n).async('arraybuffer'));
+    const before = units.length;
+    try {
+      if (isX) {
+        let doc, xml = true;
+        try { doc = parseXml(dec.text, 'application/xhtml+xml'); } catch (e) { doc = new DOMParser().parseFromString(dec.text, 'text/html'); xml = false; }
+        htmlUnits(doc, units);
+        if (units.length > before) dirty.push({ n, ser: () => { const r = doc.documentElement; if (o.tgt) { r.setAttribute('lang', baseLang(o.tgt)); if (xml) r.setAttributeNS(NS.xml, 'xml:lang', baseLang(o.tgt)); } return xml ? serXml(doc, dec.text) : '<!DOCTYPE html>\n' + r.outerHTML; } });
+      } else {
+        const doc = parseXml(dec.text);
+        if (isOpf) {
+          for (const t of ['title', 'description', 'subject']) for (const e of Array.from(doc.getElementsByTagNameNS(NS.dc, t))) { const u = nodesUnit([elNode(e)]); if (u) units.push(u); }
+          for (const e of Array.from(doc.getElementsByTagNameNS(NS.dc, 'language'))) if (o.tgt) e.textContent = baseLang(o.tgt);
+          dirty.push({ n, ser: () => serXml(doc, dec.text) });
+        } else {
+          for (const e of Array.from(doc.getElementsByTagName('text'))) { const u = nodesUnit([elNode(e)]); if (u) units.push(u); }
+          if (units.length > before) dirty.push({ n, ser: () => serXml(doc, dec.text) });
+        }
+      }
+    } catch (e) { notes.push(n + ' o‘qilmadi — o‘zgarishsiz qoldi.'); }
+  }
+  return {
+    units, notes,
+    async build() {
+      for (const d of dirty) zip.file(d.n, d.ser());
+      if (zip.file('mimetype')) zip.file('mimetype', await zip.file('mimetype').async('string'), { compression: 'STORE' });
+      return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: MIME.epub });
+    }
+  };
+}
+
+/* ---- FB2 ---- */
+async function fb2Handler(buf, ext, name, o) {
+  const head = new TextDecoder('latin1').decode(new Uint8Array(buf).subarray(0, 200));
+  const m = /encoding\s*=\s*["']([\w-]+)/i.exec(head);
+  const dec = decodeText(buf, m && m[1]);
+  const doc = parseXml(dec.text);
+  const units = [];
+  const PN = new Set(['p', 'v', 'subtitle', 'text-author', 'th', 'td', 'book-title', 'keywords', 'genre-skip']);
+  const INL = new Set(['strong', 'emphasis', 'style', 'a', 'sub', 'sup', 'strikethrough', 'code']);
+  for (const el of Array.from(doc.getElementsByTagName('*'))) {
+    if (!PN.has(el.localName)) continue;
+    const g = new Grouper(units);
+    (function walk(e) { for (let c = e.firstChild; c; c = c.nextSibling) { if (c.nodeType === 3) g.add(textNodeW(c)); else if (c.nodeType === 1 && INL.has(c.localName)) walk(c); } })(el);
+    g.flush();
+  }
+  return {
+    units, notes: [],
+    async build() {
+      if (o.tgt) for (const l of Array.from(doc.getElementsByTagName('lang'))) l.textContent = baseLang(o.tgt);
+      let s = serXml(doc, dec.text).replace(/^(<\?xml[^>]*?)encoding\s*=\s*["'][^"']*["']/i, '$1encoding="UTF-8"');
+      return txtBlob(s, false, MIME.fb2);
+    }
+  };
+}
+
+/* ---- TXT ---- */
+function txtHandler(buf, ext) {
+  const dec = decodeText(buf);
+  const lines = dec.text.split(/\r\n|\n|\r/);
+  const eol = dec.text.includes('\r\n') ? '\r\n' : (dec.text.includes('\n') ? '\n' : (dec.text.includes('\r') ? '\r' : '\n'));
+  const units = [];
+  lines.forEach((ln, i) => { const u = oneUnit(() => lines[i], s => { lines[i] = s; }); if (u) units.push(u); });
+  return { units, notes: dec.legacy ? ['Fayl ' + dec.legacy + ' kodirovkasida edi — natija UTF-8 da saqlandi.'] : [], async build() { return txtBlob(lines.join(eol), dec.bom, MIME[ext]); } };
+}
+
+/* ---- Markdown ---- */
+const MD_PROT = /`[^`]*`|!?\[(?=[^\]]*\]\()|\]\([^)]*\)|<\/?[A-Za-z][^>]*>|<[^>\s]+@[^>\s]+>|https?:\/\/[^\s)>\]]+|\*\*\*|\*\*|__|~~|(?<![\w\\])[*_](?=\S)|(?<=\S)[*_](?![\w])/g;
+function mdHandler(buf, ext) {
+  const dec = decodeText(buf);
+  const lines = dec.text.split(/\r\n|\n|\r/);
+  const eol = dec.text.includes('\r\n') ? '\r\n' : '\n';
+  const units = [];
+  const lineTokens = new Array(lines.length).fill(null);
+  let fence = null, i = 0;
+  if (lines[0] && /^---\s*$/.test(lines[0])) { const e = lines.findIndex((l, k) => k > 0 && /^(---|\.\.\.)\s*$/.test(l)); if (e > 0) i = e + 1; }
+  for (; i < lines.length; i++) {
+    const L = lines[i];
+    const fm = /^\s*(```+|~~~+)/.exec(L);
+    if (fence) { if (fm && fm[1][0] === fence[0] && fm[1].length >= fence.length) fence = null; continue; }
+    if (fm) { fence = fm[1]; continue; }
+    if (/^( {4}|\t)/.test(L) && (i === 0 || lines[i - 1].trim() === '') && !/^\s*([-*+]|\d+[.)])\s/.test(L)) continue; /* ichki kod bloki */
+    if (/^\s*\[[^\]]+\]:\s+\S+/.test(L)) continue;
+    const isTable = /^\s*\|/.test(L);
+    const pre = isTable ? '' : /^(\s*(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)?)/.exec(L)[0];
+    const tokens = [{ s: pre }];
+    const segs = isTable ? L.split(/(?<!\\)\|/) : [L.slice(pre.length)];
+    segs.forEach((seg, si) => {
+      if (si > 0) tokens.push({ s: '|' });
+      let last = 0, m; MD_PROT.lastIndex = 0;
+      const text = s => { if (!s) return; const t = { s }; tokens.push(t); const u = nodesUnit([{ get: () => t.s, set: v => { t.s = v; } }]); if (u) units.push(u); };
+      while ((m = MD_PROT.exec(seg))) { text(seg.slice(last, m.index)); tokens.push({ s: m[0] }); last = m.index + m[0].length; }
+      text(seg.slice(last));
+    });
+    lineTokens[i] = tokens;
+  }
+  return {
+    units, notes: [],
+    async build() {
+      const out = lines.map((L, k) => lineTokens[k] ? lineTokens[k].map(t => t.s).join('') : L);
+      return txtBlob(out.join(eol), dec.bom, MIME[ext]);
+    }
+  };
+}
+
+/* ---- CSV / TSV ---- */
+function parseCsv(t, d) {
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) { if (c === '"') { if (t[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"' && cell === '') q = true;
+    else if (c === d) { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+function csvHandler(buf, ext) {
+  const dec = decodeText(buf);
+  const first = dec.text.split(/\r?\n/)[0] || '';
+  let d = ext === 'tsv' ? '\t' : ','; if (ext === 'csv') { const cnt = c => first.split(c).length; if (cnt(';') > cnt(',') && cnt(';') >= cnt('\t')) d = ';'; else if (cnt('\t') > cnt(',')) d = '\t'; }
+  const rows = parseCsv(dec.text, d);
+  const eol = dec.text.includes('\r\n') ? '\r\n' : '\n';
+  const units = [];
+  rows.forEach((r, ri) => r.forEach((c, ci) => { const u = oneUnit(() => rows[ri][ci], s => { rows[ri][ci] = s; }); if (u) units.push(u); }));
+  const esc = c => (c.includes(d) || c.includes('"') || c.includes('\n') || c.includes('\r') || /^\s|\s$/.test(c)) ? '"' + c.replace(/"/g, '""') + '"' : c;
+  return { units, notes: [], async build() { return txtBlob(rows.map(r => r.map(esc).join(d)).join(eol) + eol, true, MIME[ext]); } };
+}
+
+/* ---- SRT / VTT ---- */
+const SUB_TAG = /(<[^>]+>|\{\\[^}]*\})/;
+function subHandler(buf, ext) {
+  const dec = decodeText(buf);
+  const eol = dec.text.includes('\r\n') ? '\r\n' : '\n';
+  const blocks = dec.text.replace(/^﻿/, '').split(/\r?\n\r?\n/).map(b => b.split(/\r?\n/));
+  const units = [];
+  blocks.forEach(lines => {
+    const ti = lines.findIndex(l => l.includes('-->'));
+    if (ti < 0) return; /* NOTE, WEBVTT sarlavha */
+    const tl = []; for (let i = ti + 1; i < lines.length; i++) tl.push(i);
+    if (!tl.length) return;
+    const tagged = tl.some(i => SUB_TAG.test(lines[i]));
+    if (!tagged && tl.length > 1) {
+      const u = nodesUnit([{ get: () => tl.map(i => lines[i].trim()).join(' '), set: s => { const re = rewrap(s, tl.length); tl.forEach((i, k) => { lines[i] = re[k]; }); } }]);
+      if (u) units.push(u);
+    } else {
+      for (const i of tl) {
+        const parts = lines[i].split(SUB_TAG); const g = new Grouper(units);
+        parts.forEach((p, k) => { if (k % 2 === 0) g.add({ get: () => parts[k], set: s => { parts[k] = s; } }); });
+        g.flush(); lines[i] = { parts };
+      }
+    }
+  });
+  return {
+    units, notes: [],
+    async build() { return txtBlob(blocks.map(b => b.map(l => typeof l === 'string' ? l : l.parts.join('')).join(eol)).join(eol + eol), dec.bom, MIME[ext]); }
+  };
+}
+function rewrap(s, n) {
+  const w = s.trim().split(/\s+/); if (n <= 1) return [w.join(' ')];
+  const total = w.join(' ').length, target = Math.ceil(total / n);
+  const out = []; let cur = '';
+  for (const x of w) { if (cur && (cur + ' ' + x).length > target && out.length < n - 1) { out.push(cur); cur = x; } else cur = cur ? cur + ' ' + x : x; }
+  out.push(cur); while (out.length < n) out.push('');
+  return out;
+}
+
+/* ---- RTF ---- */
+const RTF_DEST = new Set(['fonttbl', 'colortbl', 'stylesheet', 'info', 'pict', 'fldinst', 'themedata', 'colorschememapping', 'datastore', 'latentstyles', 'listtable', 'listoverridetable', 'rsidtbl', 'generator', 'xmlnstbl', 'bkmkstart', 'bkmkend', 'sp', 'pntext', 'pntxta', 'pntxtb', 'listtext', 'object', 'objdata', 'private', 'userprops', 'revtbl', 'header_skip', 'filetbl', 'mmathPr', 'wgrffmtfilter', 'nonshppict', 'blipuid']);
+const RTF_BREAK = new Set(['par', 'line', 'tab', 'cell', 'row', 'sect', 'page', 'column', 'nestcell', 'nestrow', 'pard_skip', 'lbr']);
+const CP_LABEL = cp => ({ 932: 'shift_jis', 936: 'gbk', 949: 'euc-kr', 950: 'big5', 65001: 'utf-8', 10000: 'macintosh', 874: 'windows-874' }[cp] || ((cp >= 1250 && cp <= 1258) ? 'windows-' + cp : 'windows-1252'));
+function rtfHandler(buf) {
+  const bytes = new Uint8Array(buf);
+  let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  if (!s.startsWith('{\\rtf')) throw new Error('Bu RTF fayl emas');
+  const pieces = []; const units = []; const grouper = new Grouper(units);
+  let cp = 1252; const m0 = /\\ansicpg(\d+)/.exec(s.slice(0, 2000)); if (m0) cp = +m0[1];
+  const stack = [{ skip: false, uc: 1 }]; let st = stack[0];
+  let cur = null, byteBuf = [], firstTok = false, skipN = 0;
+  const flushBytes = () => { if (byteBuf.length && cur) { cur.text += new TextDecoder(CP_LABEL(cp)).decode(new Uint8Array(byteBuf)); } byteBuf = []; };
+  const flushNode = () => { if (!cur) return; flushBytes(); const nd = cur; cur = null; nd.cur = undefined; pieces.push({ node: nd }); grouper.add({ get: () => nd.text, set: v => { nd.cur = v; } }); };
+  const startNode = () => { if (!cur) cur = { text: '', raw: '', uc: st.uc }; };
+  const raw = r => pieces.push({ raw: r });
+  let i = 0; const n = s.length;
+  while (i < n) {
+    const ch = s[i];
+    if (ch === '{') { flushNode(); stack.push({ skip: st.skip, uc: st.uc }); st = stack[stack.length - 1]; firstTok = true; raw('{'); i++; skipN = 0; continue; }
+    if (ch === '}') { flushNode(); if (stack.length > 1) stack.pop(); st = stack[stack.length - 1]; raw('}'); i++; firstTok = false; skipN = 0; continue; }
+    if (ch === '\r' || ch === '\n') { if (cur) cur.raw += ch; else raw(ch); i++; continue; }
+    if (ch === '\\') {
+      const nx = s[i + 1];
+      if (nx === "'") {
+        const hex = s.substr(i + 2, 2); const tok = s.substr(i, 4); i += 4; firstTok = false;
+        if (skipN > 0) { skipN--; if (cur) cur.raw += tok; else raw(tok); continue; }
+        if (st.skip) { raw(tok); continue; }
+        startNode(); cur.raw += tok; byteBuf.push(parseInt(hex, 16)); continue;
+      }
+      if (nx === '\\' || nx === '{' || nx === '}') {
+        const tok = s.substr(i, 2); i += 2; firstTok = false;
+        if (skipN > 0) { skipN--; if (cur) cur.raw += tok; else raw(tok); continue; }
+        if (st.skip) { raw(tok); continue; }
+        startNode(); flushBytes(); cur.text += nx; cur.raw += tok; continue;
+      }
+      if (nx === '*') { flushNode(); raw('\\*'); i += 2; st.skip = true; continue; }
+      if (nx === '\n' || nx === '\r') { flushNode(); grouper.flush(); raw('\\' + nx); i += 2; continue; }
+      if (!/[a-zA-Z]/.test(nx || '')) { flushNode(); raw('\\' + (nx || '')); i += 2; firstTok = false; continue; } /* \~ \- \_ va h.k. */
+      const m = /^\\([a-zA-Z]+)(-?\d+)?( ?)/.exec(s.substr(i, 40));
+      const word = m[1], par = m[2] === undefined ? null : +m[2]; const tok = m[0]; i += tok.length;
+      if (firstTok) { if (RTF_DEST.has(word)) st.skip = true; firstTok = false; }
+      if (word === 'ansicpg' && par !== null) cp = par;
+      if (word === 'uc' && par !== null) st.uc = par;
+      if (word === 'u' && par !== null && !st.skip) {
+        startNode(); flushBytes(); cur.text += String.fromCharCode(par < 0 ? par + 65536 : par); cur.raw += tok; skipN = st.uc; continue;
+      }
+      flushNode();
+      if (RTF_BREAK.has(word)) grouper.flush();
+      raw(tok); continue;
+    }
+    /* oddiy belgi */
+    i++; firstTok = false;
+    if (skipN > 0) { skipN--; if (cur) cur.raw += ch; else raw(ch); continue; }
+    if (st.skip) { raw(ch); continue; }
+    startNode(); flushBytes(); cur.text += ch; cur.raw += ch;
+  }
+  flushNode(); grouper.flush();
+  /* hosildan keyin: matn yo'q tugunlar */
+  const enc = (t, uc) => {
+    let o = '';
+    for (let k = 0; k < t.length; k++) {
+      const c = t.charCodeAt(k);
+      if (c >= 0x20 && c < 0x7F && c !== 0x5C && c !== 0x7B && c !== 0x7D) o += t[k];
+      else if (c === 10 || c === 13) o += ' ';
+      else o += '\\u' + (c > 32767 ? c - 65536 : c) + (uc === 0 ? ' ' : '?'.repeat(uc));
+    }
+    return o;
+  };
+  return {
+    units, notes: [],
+    async build() {
+      let out = '';
+      for (const p of pieces) {
+        if (p.raw !== undefined) { out += p.raw; continue; }
+        const nd = p.node;
+        if (nd.cur === undefined) { out += nd.raw; continue; }
+        let e = enc(nd.cur, nd.uc);
+        if (/\\[a-zA-Z]+-?\d*$/.test(out) && /^[A-Za-z0-9]/.test(e)) e = ' ' + e;
+        out += e;
+      }
+      const u8 = new Uint8Array(out.length); for (let k = 0; k < out.length; k++) u8[k] = out.charCodeAt(k) & 255;
+      return new Blob([u8], { type: MIME.rtf });
+    }
+  };
+}
+
+/* ---- eski XLS (SheetJS orqali; formatning bir qismi saqlanmaydi) ---- */
+let sheetjsP = null;
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Kutubxona yuklanmadi: ' + src)); document.head.appendChild(s); }); }
+async function xlsHandler(buf) {
+  if (!window.XLSX) await (sheetjsP = sheetjsP || loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'));
+  const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
+  const units = [];
+  wb.SheetNames.forEach(k => { const sh = wb.Sheets[k]; Object.keys(sh).forEach(c => { if (c[0] === '!') return; const cell = sh[c]; if (cell && cell.t === 's') { const u = oneUnit(() => cell.v, s => { cell.v = s; if ('w' in cell) cell.w = s; if (cell.h) delete cell.h; if (cell.r) delete cell.r; }); if (u) units.push(u); } }); });
+  return { units, notes: ['Eski .xls formati: matn va jadval saqlandi, lekin ranglar/shriftlar to‘liq saqlanmasligi mumkin. Ideal natija uchun faylni avval .xlsx qilib saqlang.'], outExt: 'xlsx', async build() { return new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true })], { type: MIME.xlsx }); } };
+}
+
+const HANDLERS = {
+  docx: docxHandler, docm: docxHandler, pptx: pptxHandler, pptm: pptxHandler, xlsx: xlsxHandler, xlsm: xlsxHandler,
+  odt: odfHandler, ods: odfHandler, odp: odfHandler, odg: odfHandler,
+  html: htmlHandler, htm: htmlHandler, xhtml: htmlHandler, txt: txtHandler, md: mdHandler, markdown: mdHandler, csv: csvHandler, tsv: csvHandler,
+  srt: subHandler, vtt: subHandler, rtf: rtfHandler, epub: epubHandler, fb2: fb2Handler, xls: xlsHandler
+  /* pdf: pdf.js ichida qo'shiladi */
+};
+const UNSUPPORTED = {
+  doc: 'Eski .doc formatini brauzerda xavfsiz o‘zgartirib bo‘lmaydi. Word’da «Fayl → Saqlash → .docx» qilib, qayta yuklang.',
+  ppt: 'Eski .ppt formatini brauzerda xavfsiz o‘zgartirib bo‘lmaydi. PowerPoint’da .pptx qilib saqlab, qayta yuklang.',
+  pages: 'Apple Pages formati qo‘llab-quvvatlanmaydi. Pages’da «Eksport → Word (.docx)» qiling.',
+  numbers: 'Apple Numbers formati qo‘llab-quvvatlanmaydi. «Eksport → Excel» qiling.', key: 'Apple Keynote formati qo‘llab-quvvatlanmaydi. «Eksport → PowerPoint» qiling.'
+};
+
+/* ============ PDF: asl sahifa saqlanadi, matn bloklari tarjimasi ustiga qo'yiladi ============ */
+const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108';
+let pdfjsP = null, pdflibP = null;
+function loadPdfjs() {
+  return pdfjsP || (pdfjsP = (async () => {
+    const m = await import(PDFJS_BASE + '/build/pdf.min.mjs');
+    const code = await (await fetch(PDFJS_BASE + '/build/pdf.worker.min.mjs')).text();
+    m.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    return m;
+  })().catch(e => { pdfjsP = null; throw new Error('PDF kutubxonasi yuklanmadi. Internetni tekshiring.'); }));
+}
+function loadPdfLib() {
+  if (window.PDFLib) return Promise.resolve();
+  return pdflibP || (pdflibP = loadScript('https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js').catch(e => { pdflibP = null; throw e; }));
+}
+const FONT_STACK = '"Noto Sans","Segoe UI","Helvetica Neue",Arial,"Noto Sans Arabic","Noto Sans Hebrew","Noto Sans Devanagari","Noto Sans Thai","Noto Sans CJK SC","Noto Sans CJK JP","Microsoft YaHei","PingFang SC","Hiragino Sans","Malgun Gothic",sans-serif';
+
+/* sahifadan rang namunasi: fon va matn rangi */
+function sampleColors(ctx, x, y, w, h) {
+  x = Math.max(0, Math.floor(x)); y = Math.max(0, Math.floor(y));
+  w = Math.max(1, Math.min(ctx.canvas.width - x, Math.ceil(w))); h = Math.max(1, Math.min(ctx.canvas.height - y, Math.ceil(h)));
+  if (w < 1 || h < 1) return { bg: [255, 255, 255], fg: [0, 0, 0] };
+  const d = ctx.getImageData(x, y, w, h).data, hist = new Map();
+  for (let i = 0; i < d.length; i += 4) { const k = ((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3); const e = hist.get(k); if (e) { e.n++; e.r += d[i]; e.g += d[i + 1]; e.b += d[i + 2]; } else hist.set(k, { n: 1, r: d[i], g: d[i + 1], b: d[i + 2] }); }
+  let best = null; hist.forEach(e => { if (!best || e.n > best.n) best = e; });
+  const bg = [Math.round(best.r / best.n), Math.round(best.g / best.n), Math.round(best.b / best.n)];
+  const far = [];
+  for (let i = 0; i < d.length; i += 4) { const dist = Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]); if (dist > 150) far.push([dist, d[i], d[i + 1], d[i + 2]]); }
+  let fg;
+  if (far.length) { far.sort((a, b) => b[0] - a[0]); const top = far.slice(0, Math.max(1, Math.ceil(far.length * 0.3))); fg = [0, 1, 2].map(k => Math.round(top.reduce((s, p) => s + p[k + 1], 0) / top.length)); }
+  else fg = (bg[0] + bg[1] + bg[2]) / 3 < 128 ? [255, 255, 255] : [0, 0, 0];
+  return { bg, fg };
+}
+const rgb = c => 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+
+/* matn bo'laklaridan satr va bloklar yasash (PDF koordinatalari, y yuqoriga) */
+function buildBlocks(items, boldOf) {
+  const its = items.map(it => {
+    const t = it.transform, fs = Math.hypot(t[0], t[1]) || it.height || 10;
+    return { s: it.str, x: t[4], y: t[5], w: it.width, fs, rot: Math.abs(t[1]) > 0.25 * fs, bold: boldOf(it.fontName) };
+  }).filter(i => !i.rot && i.fs > 1);
+  its.sort((a, b) => (b.y - a.y) || (a.x - b.x));
+  const rows = [];
+  for (const it of its) {
+    let row = null;
+    for (let k = rows.length - 1; k >= Math.max(0, rows.length - 6); k--) { const r = rows[k]; if (Math.abs(r.y - it.y) <= 0.32 * Math.max(r.fs, it.fs)) { row = r; break; } }
+    if (!row) { row = { y: it.y, fs: it.fs, items: [] }; rows.push(row); }
+    row.items.push(it);
+  }
+  const segs = [];
+  for (const r of rows) {
+    r.items.sort((a, b) => a.x - b.x);
+    let seg = null;
+    for (const it of r.items) {
+      if (!it.s.trim()) { if (seg) seg.sp = true; continue; } /* pdf.js bo'shliq elementlari kengligi ustun bo'lishi mumkin — e'tiborsiz */
+      if (seg) {
+        const prev = seg.items[seg.items.length - 1], gap = it.x - (prev.x + prev.w);
+        if (gap > 2.2 * Math.max(prev.fs, it.fs)) { segs.push(seg); seg = null; }
+        else { if ((gap > 0.16 * it.fs || seg.sp) && !/\s$/.test(prev.s) && !/^\s/.test(it.s)) seg.text += ' '; seg.sp = false; }
+      }
+      if (!seg) seg = { items: [], text: '', y: r.y, fs: it.fs };
+      seg.items.push(it); seg.text += it.s;
+    }
+    if (seg) segs.push(seg);
+  }
+  const lines = [];
+  for (const sg of segs) {
+    const text = sg.text.replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const x0 = Math.min(...sg.items.map(i => i.x)), x1 = Math.max(...sg.items.map(i => i.x + i.w));
+    const fs = sg.items.reduce((s, i) => s + i.fs * Math.max(1, i.s.length), 0) / sg.items.reduce((s, i) => s + Math.max(1, i.s.length), 0);
+    const boldN = sg.items.filter(i => i.bold).reduce((s, i) => s + i.s.length, 0), tot = sg.items.reduce((s, i) => s + i.s.length, 0) || 1;
+    lines.push({ text, x0, x1, y: sg.y, fs, bold: boldN / tot > 0.5 });
+  }
+  lines.sort((a, b) => (b.y - a.y) || (a.x0 - b.x0));
+  const blocks = [];
+  const BUL = /^([•◦▪●■□▫○◆◇\-–—*·]|\d{1,3}[.)]|[a-zA-Zа-яА-Я][.)])\s/;
+  for (const ln of lines) {
+    let best = null, bestGap = 1e9;
+    for (let k = blocks.length - 1; k >= Math.max(0, blocks.length - 40); k--) {
+      const b = blocks[k], last = b.lines[b.lines.length - 1];
+      const gap = last.y - ln.y;
+      if (Math.abs(ln.fs - b.fs) > 0.15 * b.fs) continue;
+      if (gap < 0.7 * ln.fs || gap > 2.0 * ln.fs) continue;
+      if (Math.abs(ln.x0 - last.x0) > 2.2 * ln.fs && Math.abs((ln.x0 + ln.x1) - (last.x0 + last.x1)) > 3 * ln.fs) continue;
+      if (ln.x0 > b.x1 || ln.x1 < b.x0) continue;
+      if (BUL.test(ln.text)) continue;
+      if (b.lines.length >= 2 && (last.x1 - last.x0) < 0.55 * (b.x1 - b.x0)) continue;
+      if (gap < bestGap) { best = b; bestGap = gap; }
+    }
+    if (best) { best.lines.push(ln); best.x0 = Math.min(best.x0, ln.x0); best.x1 = Math.max(best.x1, ln.x1); }
+    else blocks.push({ lines: [ln], x0: ln.x0, x1: ln.x1, fs: ln.fs });
+  }
+  for (const b of blocks) {
+    b.fs = b.lines.reduce((s, l) => s + l.fs, 0) / b.lines.length;
+    b.bold = b.lines.filter(l => l.bold).length > b.lines.length / 2;
+    let t = '';
+    b.lines.forEach((l, i) => { if (i === 0) t = l.text; else if (/[a-zа-яёўқғҳ]-$/i.test(t) && /^[a-zа-яёўқғҳ]/.test(l.text)) t = t.slice(0, -1) + l.text; else t += ' ' + l.text; });
+    b.text = t;
+    b.top = b.lines[0].y + 0.8 * b.lines[0].fs;
+    b.bottom = b.lines[b.lines.length - 1].y - 0.22 * b.lines[b.lines.length - 1].fs;
+    b.lh = b.lines.length > 1 ? (b.lines[0].y - b.lines[b.lines.length - 1].y) / (b.lines.length - 1) : 1.2 * b.fs;
+    /* tekislash */
+    if (b.lines.length > 1) {
+      const lefts = b.lines.map(l => l.x0), cents = b.lines.map(l => (l.x0 + l.x1) / 2);
+      const spread = a => Math.max(...a) - Math.min(...a);
+      b.align = spread(lefts) < 0.6 * b.fs ? 'left' : (spread(cents) < 0.6 * b.fs ? 'center' : (spread(b.lines.map(l => l.x1)) < 0.6 * b.fs ? 'right' : 'left'));
+    } else b.align = 'left';
+  }
+  return blocks;
+}
+
+function wrapText(ctx, text, maxW, seg) {
+  const toks = seg ? Array.from(seg.segment(text), s => s.segment) : text.split(/(?<=\s)/);
+  const lines = []; let cur = '';
+  for (const t of toks) {
+    const test = cur + t;
+    if (cur && ctx.measureText(test.trimEnd()).width > maxW) { lines.push(cur.trimEnd()); cur = t.trimStart(); } else cur = test;
+  }
+  if (cur.trim()) lines.push(cur.trimEnd());
+  return lines.length ? lines : [''];
+}
+
+async function pdfHandler(buf, ext, name, o) {
+  const pdfjs = await loadPdfjs(); await loadPdfLib();
+  const bytes = new Uint8Array(buf);
+  const pdf = await pdfjs.getDocument({ data: bytes.slice(), cMapUrl: PDFJS_BASE + '/cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS_BASE + '/standard_fonts/', wasmUrl: PDFJS_BASE + '/wasm/', iccUrl: PDFJS_BASE + '/iccs/' }).promise;
+  const units = [], notes = [], pages = [];
+  for (let pn = 1; pn <= pdf.numPages; pn++) {
+    const page = await pdf.getPage(pn);
+    if (page.rotate % 360 !== 0) { notes.push(pn + '-sahifa burilgan (rotate) — o‘zgarishsiz qoldi.'); continue; }
+    const vp = page.getViewport({ scale: 1 }), view = page.view;
+    const SS = 1.5, vps = page.getViewport({ scale: SS });
+    const cv = document.createElement('canvas'); cv.width = Math.ceil(vps.width); cv.height = Math.ceil(vps.height);
+    const cx = cv.getContext('2d', { willReadFrequently: true });
+    cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+    await page.render({ canvasContext: cx, canvas: cv, viewport: vps }).promise;
+    const tc = await page.getTextContent();
+    const fontBold = {};
+    const boldOf = fn => {
+      if (fn in fontBold) return fontBold[fn];
+      let nm = '';
+      try { if (page.commonObjs.has(fn)) nm = (page.commonObjs.get(fn) || {}).name || ''; } catch (e) { }
+      return (fontBold[fn] = /bold|black|heavy|semibold|demi/i.test(nm));
+    };
+    const blocks = buildBlocks(tc.items.filter(i => typeof i.str === 'string' && i.str.length), boldOf);
+    const pg = { pn, view, w: view[2] - view[0], h: view[3] - view[1], blocks: [] };
+    for (const b of blocks) {
+      if (!needsTr(b.text)) continue;
+      const px = (b.x0 - 1 - view[0]) * SS, py = (view[3] - b.top) * SS, pw = (b.x1 - b.x0 + 2) * SS, ph = (b.top - b.bottom) * SS;
+      b.col = sampleColors(cx, px, py, pw, ph);
+      pg.blocks.push(b);
+      units.push({ text: b.text, set(T) { b.tr = T; } });
+    }
+    pages.push(pg);
+    cv.width = cv.height = 0;
+    page.cleanup();
+  }
+  if (!units.length) throw new Error('Bu PDF da matn qatlami topilmadi — u skanerlangan (rasm) PDF bo‘lishi mumkin. Matnni tanish (OCR) hozircha yo‘q.');
+  const rtl = RTL.has(o.tgt);
+  return {
+    units, notes: ['PDF: asl sahifa (rasm, chiziq, jadval) saqlanadi; matn bloklari tarjimasi ustiga rasm ko‘rinishida qo‘yiladi — shuning uchun yangi matnni belgilab/nusxalab bo‘lmaydi.'].concat(notes),
+    async build() {
+      const out = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+      const seg = (typeof Intl !== 'undefined' && Intl.Segmenter) ? new Intl.Segmenter(baseLang(o.tgt) || undefined, { granularity: 'word' }) : null;
+      const mc = document.createElement('canvas').getContext('2d');
+      for (const pg of pages) {
+        const done = pg.blocks.filter(b => b.tr !== undefined);
+        if (!done.length) continue;
+        const SC = Math.min(3, 4096 / Math.max(pg.w, pg.h));
+        for (const b of done) {
+          const W = b.x1 - b.x0, H = b.top - b.bottom;
+          let usedS = 1, lines = [], lh = b.lh;
+          for (let s = 1; s >= 0.5; s -= 0.05) {
+            usedS = s; mc.font = (b.bold ? '700 ' : '400 ') + (b.fs * s * SC) + 'px ' + FONT_STACK;
+            lines = wrapText(mc, b.tr, W * SC, seg);
+            lh = Math.max(b.lh * s, b.fs * s * 1.12);
+            const need = (lines.length - 1) * lh + b.fs * s * 1.05;
+            if (need <= H * 1.12 + b.fs * 0.3) break;
+          }
+          const fsz = b.fs * usedS;
+          const needH = (lines.length - 1) * lh + fsz * 1.05;
+          const bottom = Math.min(b.bottom, b.top - needH - 0.1 * fsz);
+          /* har bir blok uchun alohida shaffofsiz rasm (shaffof chekka qora hoshiya bermasligi uchun) */
+          const left = b.x0 - 1.2, right = b.x1 + 1.2, top = b.top + 0.4, bot = bottom - 0.4;
+          const cw = Math.max(2, Math.ceil((right - left) * SC)), ch = Math.max(2, Math.ceil((top - bot) * SC));
+          const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+          const cx = cv.getContext('2d');
+          cx.fillStyle = rgb(b.col.bg); cx.fillRect(0, 0, cw, ch);
+          cx.font = mc.font; cx.fillStyle = rgb(b.col.fg); cx.textBaseline = 'alphabetic';
+          const X = x => (x - left) * SC, Y = y => (top - y) * SC;
+          const firstBase = b.lines[0].y;
+          let ax = X(b.x0), al = 'left', dir = 'ltr';
+          if (rtl) { ax = X(b.x1); al = 'right'; dir = 'rtl'; }
+          else if (b.align === 'center') { ax = X((b.x0 + b.x1) / 2); al = 'center'; }
+          else if (b.align === 'right') { ax = X(b.x1); al = 'right'; }
+          cx.textAlign = al; cx.direction = dir;
+          lines.forEach((ln, k) => cx.fillText(ln, ax, Y(firstBase - k * lh)));
+          const png = await new Promise(r => cv.toBlob(r, 'image/png'));
+          const img = await out.embedPng(new Uint8Array(await png.arrayBuffer()));
+          out.getPage(pg.pn - 1).drawImage(img, { x: left, y: bot, width: cw / SC, height: ch / SC });
+          cv.width = cv.height = 0;
+        }
+      }
+      return new Blob([await out.save()], { type: 'application/pdf' });
+    }
+  };
+}
+HANDLERS.pdf = pdfHandler;
+
+/* ============ INTERFEYS ============ */
+const CFG_KEY = 'itshakh_translate_v2';
+let cfg = {};
+try { cfg = JSON.parse(localStorage.getItem(CFG_KEY) || '{}') || {}; } catch (e) { }
+const saveCfg = () => { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) { } };
+const S = { files: [], mode: cfg.mode || 'tr', dir: 'auto', ctl: null, busy: false };
+const el = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function fillLangs(sel, withAuto, def) {
+  const frag = document.createDocumentFragment();
+  if (withAuto) { const o = document.createElement('option'); o.value = 'auto'; o.textContent = 'Avtomatik aniqlash'; frag.appendChild(o); }
+  const g1 = document.createElement('optgroup'); g1.label = 'Mashhur tillar';
+  POPULAR.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = langName(c); g1.appendChild(o); });
+  const g2 = document.createElement('optgroup'); g2.label = 'Barcha tillar (A–Z)';
+  const rest = LANG_CODES.filter(c => !POPULAR.includes(c)).map(c => ({ c, n: langName(c) }));
+  rest.sort((a, b) => a.n.localeCompare(b.n, 'uz'));
+  rest.forEach(x => { const o = document.createElement('option'); o.value = x.c; o.textContent = x.n; g2.appendChild(o); });
+  frag.append(g1, g2); sel.innerHTML = ''; sel.appendChild(frag);
+  sel.value = [...sel.options].some(o => o.value === def) ? def : (withAuto ? 'auto' : 'uz');
+}
+fillLangs(el('src'), true, cfg.src || 'auto');
+fillLangs(el('tgt'), false, cfg.tgt || 'uz');
+el('prov').value = cfg.prov || 'gtx';
+el('key').value = cfg.key || '';
+el('url').value = cfg.url || '';
+
+const extOf = n => (n.split('.').pop() || '').toLowerCase();
+const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
+function renderFiles() {
+  const box = el('flist'); box.innerHTML = '';
+  S.files.forEach((f, i) => {
+    const ext = extOf(f.name), ok = !!HANDLERS[ext];
+    const d = document.createElement('div'); d.className = 'tr-file' + (ok ? '' : ' bad');
+    d.innerHTML = '<span class="tr-fn">' + esc(f.name) + '</span><span class="tr-fs">' + fmtSize(f.size) + '</span>' + (ok ? '' : '<span class="tr-fe">' + esc(UNSUPPORTED[ext] || 'Bu format qo‘llab-quvvatlanmaydi.') + '</span>') + '<button type="button" class="tr-x" title="Olib tashlash">✕</button>';
+    d.querySelector('.tr-x').onclick = () => { if (S.busy) return; S.files.splice(i, 1); renderFiles(); };
+    box.appendChild(d);
+  });
+  el('name').textContent = S.files.length ? S.files.length + ' ta fayl tanlandi' : 'Fayl tanlanmagan';
+}
+function addFiles(list) { for (const f of list) if (!S.files.some(x => x.name === f.name && x.size === f.size)) S.files.push(f); renderFiles(); el('log').innerHTML = ''; }
+el('file').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+const drop = el('drop');
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('hot'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('hot'); }));
+drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+
+function setMode(m) {
+  S.mode = m; cfg.mode = m; saveCfg();
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  el('trBox').hidden = m !== 'tr'; el('scBox').hidden = m !== 'script';
+  el('go').textContent = m === 'tr' ? 'TARJIMA QILISH VA YUKLASH' : 'O‘GIRISH VA YUKLASH';
+  el('privacy').innerHTML = m === 'tr'
+    ? 'Fayl brauzeringizda ochiladi. Faqat <b>matn bo‘laklari</b> tarjima xizmatiga (tanlangan xizmat serveriga) yuboriladi — shaxsiy/maxfiy hujjatlar uchun «Yozuv» rejimidan yoki o‘z LibreTranslate serveringizdan foydalaning.'
+    : 'Bu rejim <b>to‘liq brauzeringizda</b> ishlaydi, internetga hech narsa yuborilmaydi.';
+}
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { if (!S.busy) setMode(b.dataset.mode); });
+document.querySelectorAll('[data-dir]').forEach(b => b.onclick = () => { S.dir = b.dataset.dir; document.querySelectorAll('[data-dir]').forEach(x => x.classList.toggle('on', x === b)); });
+function setProv() {
+  const p = el('prov').value;
+  el('keyRow').hidden = !(p === 'cloud' || p === 'libre'); el('urlRow').hidden = p !== 'libre';
+  el('keyLbl').textContent = p === 'cloud' ? 'GOOGLE CLOUD API KALITI' : 'API KALIT (agar serverda kerak bo‘lsa)';
+}
+el('prov').onchange = setProv; setProv();
+el('swap').onclick = () => {
+  const a = el('src').value, b = el('tgt').value; if (a === 'auto') return;
+  el('src').value = b; el('tgt').value = a;
+};
+function persist() { cfg.src = el('src').value; cfg.tgt = el('tgt').value; cfg.prov = el('prov').value; cfg.key = el('key').value.trim(); cfg.url = el('url').value.trim(); saveCfg(); }
+setMode(S.mode);
+
+function say(msg, kind) { const s = el('status'); s.textContent = msg; s.className = 'notice' + (kind ? ' ' + kind : ''); }
+function bar(p) { el('bar').style.width = Math.round(Math.max(0, Math.min(1, p)) * 100) + '%'; }
+function save(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(a.href); }, 4000);
+}
+const tag = c => c === 'uz-Cyrl' ? 'uz-kirill' : c.toLowerCase();
+
+async function run() {
+  if (S.busy) return;
+  persist();
+  const good = S.files.filter(f => HANDLERS[extOf(f.name)]);
+  if (!good.length) { say(S.files.length ? 'Tanlangan fayllar formati qo‘llab-quvvatlanmaydi.' : 'Avval faylni tanlang.', 'err'); return; }
+  const o = { prov: el('prov').value, key: el('key').value.trim(), url: el('url').value.trim(), src: el('src').value, tgt: el('tgt').value };
+  let scriptOnly = S.mode === 'script', dir = S.dir;
+  if (!scriptOnly && o.src !== 'auto' && o.src === o.tgt) { say('Manba va maqsad tili bir xil. Boshqa til tanlang.', 'err'); return; }
+  if (!scriptOnly && o.src !== 'auto' && baseLang(o.src) === baseLang(o.tgt)) { scriptOnly = true; dir = o.tgt === 'uz-Cyrl' ? 'l2c' : 'c2l'; }
+  if (!scriptOnly && o.tgt === 'uz-Cyrl' && o.src === 'auto') { /* tarjima + lotin->kirill */ }
+  if (!scriptOnly && o.prov === 'cloud' && !o.key) { say('Google Cloud rejimi uchun API kalitini kiriting (yoki bepul xizmatni tanlang).', 'err'); el('adv').open = true; return; }
+  if (!scriptOnly && o.prov === 'libre' && !o.url) { say('LibreTranslate server manzilini kiriting.', 'err'); el('adv').open = true; return; }
+  S.busy = true; S.ctl = new AbortController(); const sig = S.ctl.signal;
+  el('go').disabled = true; el('cancel').hidden = false; el('log').innerHTML = ''; bar(0);
+  const results = []; const logLines = [];
+  const log = (t, c) => { logLines.push('<div class="' + (c || '') + '">' + t + '</div>'); el('log').innerHTML = logLines.join(''); };
+  try {
+    for (let i = 0; i < good.length; i++) {
+      const f = good[i], ext = extOf(f.name), base = f.name.replace(/\.[^.]+$/, '');
+      const pre = (good.length > 1 ? '[' + (i + 1) + '/' + good.length + '] ' : '') + f.name + ': ';
+      const seg = p => bar((i + p) / good.length);
+      try {
+        say(pre + 'fayl o‘qilmoqda…'); seg(0.02);
+        const buf = await f.arrayBuffer();
+        const h = await HANDLERS[ext](buf, ext, f.name, scriptOnly ? { tgt: '' } : o);
+        if (!h.units.length) throw new Error('tarjima qilinadigan matn topilmadi');
+        let outInfo = '';
+        if (scriptOnly) {
+          say(pre + 'yozuv o‘girilmoqda…'); const r = scriptUnits(h.units, dir === 'auto' && S.mode !== 'script' ? 'auto' : dir);
+          outInfo = r.dir === 'c2l' ? 'Kirill → Lotin' : 'Lotin → Kirill';
+        } else {
+          say(pre + h.units.length + ' ta matn bo‘lagi tarjima qilinmoqda…'); seg(0.1);
+          const r = await translateUnits(h.units, o, sig, p => { seg(0.1 + 0.8 * p); say(pre + 'tarjima qilinmoqda… ' + Math.round(p * 100) + '%'); });
+          if (r.failed) log('⚠ ' + esc(f.name) + ': ' + r.failed + ' ta matn bo‘lagi tarjima bo‘lmadi (' + esc(r.err) + ') — ular asl holida qoldi.', 'warn');
+          if (r.failed && r.failed >= r.total) throw new Error('tarjima xizmati javob bermadi: ' + r.err);
+          outInfo = (r.det ? 'aniqlangan til: ' + r.det + ' → ' : '') + langName(o.tgt).split(' · ')[0];
+        }
+        say(pre + 'fayl yig‘ilmoqda…'); seg(0.92);
+        const blob = await h.build();
+        const outName = base + '-' + (scriptOnly ? (dir === 'auto' ? (outInfo.startsWith('Kirill') ? 'lotin' : 'kirill') : (dir === 'c2l' ? 'lotin' : 'kirill')) : tag(o.tgt)) + '.' + (h.outExt || ext);
+        results.push({ name: outName, blob });
+        log('✓ ' + esc(f.name) + ' → <b>' + esc(outName) + '</b> <span class="dim">(' + h.units.length + ' bo‘lak · ' + esc(outInfo) + ')</span>', 'ok');
+        (h.notes || []).forEach(n => log('ℹ ' + esc(n), 'dim'));
+        seg(1);
+      } catch (e) {
+        if (e instanceof Cancel) throw e;
+        log('✕ ' + esc(f.name) + ': ' + esc(e.message || e), 'err');
+      }
+    }
+    S.files.filter(f => !HANDLERS[extOf(f.name)]).forEach(f => log('✕ ' + esc(f.name) + ': ' + esc(UNSUPPORTED[extOf(f.name)] || 'format qo‘llab-quvvatlanmaydi'), 'err'));
+    if (!results.length) { say('Hech bir fayl tayyor bo‘lmadi. Xatolarni pastda ko‘ring.', 'err'); return; }
+    if (results.length === 1) save(results[0].blob, results[0].name);
+    else { say('ZIP tayyorlanmoqda…'); const z = new JSZip(); results.forEach(r => z.file(r.name, r.blob)); save(await z.generateAsync({ type: 'blob', compression: 'DEFLATE' }), 'it-shakh-translate.zip'); }
+    bar(1); say('✓ Tayyor. ' + (results.length === 1 ? 'Fayl yuklab olindi.' : results.length + ' ta fayl ZIP ichida yuklab olindi.'), 'ok');
+    const box = el('log'); const links = document.createElement('div'); links.className = 'tr-links';
+    results.forEach(r => { const b = document.createElement('button'); b.type = 'button'; b.className = 'tr-dl'; b.textContent = '↓ ' + r.name; b.onclick = () => save(r.blob, r.name); links.appendChild(b); });
+    box.appendChild(links);
+  } catch (e) {
+    if (e instanceof Cancel) { say('Bekor qilindi.', 'err'); bar(0); } else { say('Xatolik: ' + (e.message || e), 'err'); }
+  } finally { S.busy = false; el('go').disabled = false; el('cancel').hidden = true; S.ctl = null; }
+}
+el('go').onclick = run;
+el('cancel').onclick = () => { if (S.ctl) S.ctl.abort(); };
+renderFiles();
+window.__tr = { run, S, TCACHE };
+
+
+</script></body></html>
