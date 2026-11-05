@@ -3584,7 +3584,10 @@ function modScaleCtl(parent, m, get, set) {
     const pr = el('div', 'acts'); pr.style.marginTop = '6px'; const ps = [['¼×', 0.25], ['½×', 0.5], ['1×', 1], ['2×', 2]]; if (m.def.realH) ps.push(['Haqiqiy ' + m.def.realH + ' m', m.def.realH / m.size[2]]);
     for (const [t, k] of ps) pr.appendChild(mk(t, () => apply(k))); wrap.append(top, pr, info); parent.appendChild(wrap); upd(); return wrap;
 }
-function modAdd(id) {
+let modLast = 0;
+function modAdd(id, again) {
+    const now = performance.now(); if (now - modLast < 700) return; modLast = now; // ikki marta bosilishdan himoya
+    const has = modInst().find(i => i.id === id); if (has && !again) { modFocus(has); renderMods(); toast('Bu mod loyihada allaqachon bor — unga qaraldi. Yana bitta kerak bo‘lsa, “＋ Yana bitta” ni bosing.'); return; }
     const m = modLoad(id), hb = modHouseBox(), cxh = (hb.min[0] + hb.max[0]) / 2, hw = (hb.max[0] - hb.min[0]) / 2, mw = Math.max(m.size[0], m.size[1]) / 2;
     const k = MODSC[id] > 0 ? MODSC[id] : 1, it = { id, x: Math.round(cxh + hw + mw * k + 60), y: Math.round((hb.min[1] + hb.max[1]) / 2), z: +(-m.mn[2] * k).toFixed(2), rz: 0, on: true, sc: k }; modInst().push(it); commit(); updateMods(); renderMods(); modFocus(it); toast('Mod loyihaga qo‘shildi: ' + m.def.name + ' (uyning yonida). X, Y, Z ni o‘zgartirishingiz mumkin; GTA paketiga uy bilan birga eksport bo‘ladi.');
 }
@@ -3598,7 +3601,7 @@ function renderMods() {
         card.appendChild(el('b', '', esc(def.name))); card.appendChild(el('div', 'note', esc(def.desc)));
         if (m) card.appendChild(el('div', 'stat', m.r.meshes.length + ' qism · ' + m.tris.toLocaleString() + ' △ · ' + m.texs.size + ' tekstura · o‘lcham ' + m.size.map(v => v.toFixed(0)).join(' × ') + ' m · DFF ' + (m.dff.length / 1024).toFixed(0) + ' KB, TXD ' + (m.txd.length / 1024).toFixed(0) + ' KB'));
         if (m) modScaleCtl(card, m, () => MODSC[def.id] > 0 ? MODSC[def.id] : 1, k => { MODSC[def.id] = k; });
-        const a = el('div', 'acts'); card.appendChild(a); const add = btn(a, '＋ Loyihaga qo‘shish', () => modAdd(def.id), 'pri'); add.style.flex = '1 1 100%';
+        const a = el('div', 'acts'); card.appendChild(a); const have = modInst().some(i => i.id === def.id), add = btn(a, have ? '👁 Loyihada bor — ko‘rish' : '＋ Loyihaga qo‘shish', () => modAdd(def.id), 'pri'); add.style.flex = '1 1 100%'; if (have) btn(a, '＋ Yana bitta', () => modAdd(def.id, true));
         btn(a, 'GTA paketi (alohida)', () => exportModPack(def.id, MODSC[def.id] > 0 ? MODSC[def.id] : 1)); btn(a, 'DFF', () => dlFile(m.dff, def.file + '.dff')); btn(a, 'TXD', () => dlFile(m.txd, def.file + '.txd')); box.appendChild(card);
     }
     box.appendChild(el('div', 'h', 'Loyihadagi modlar'));
