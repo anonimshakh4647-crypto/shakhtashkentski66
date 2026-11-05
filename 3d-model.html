@@ -686,8 +686,8 @@
                 </div>
                 <div class="cv-info" id="gmStatus">O‘yin fayllari tanlanmagan.</div>
                 <div class="cv-grid">
-                    <label class="cv-f"><span>Radius (markaz = Joy X/Y)</span><select id="gmRadius"><option value="150">150 m (juda batafsil)</option><option value="300" selected>300 m</option><option value="600">600 m</option><option value="1000">1000 m</option><option value="2000">2000 m (og‘ir)</option></select></label>
-                    <label class="cv-f"><span>Tafsilot</span><select id="gmDetail"><option value="near">Batafsil (oddiy modellar)</option><option value="lod">LOD (uzoq ko‘rinish, yengil)</option></select></label>
+                    <label class="cv-f"><span>Radius (markaz = Joy X/Y)</span><select id="gmRadius"><option value="150">150 m (juda batafsil)</option><option value="300" selected>300 m</option><option value="600">600 m</option><option value="1000">1000 m</option><option value="2000">2000 m (og‘ir)</option><option value="all">Butun xarita (6000×6000, juda og‘ir)</option></select></label>
+                    <label class="cv-f"><span>Tafsilot</span><select id="gmDetail"><option value="near">Batafsil (oddiy modellar)</option><option value="mix">Aralash: uy atrofi 400 m batafsil + uzoqda LOD</option><option value="lod">Faqat LOD (uzoq ko‘rinish, yengil)</option></select></label>
                 </div>
                 <div class="opt-row">
                     <label class="chk"><input type="checkbox" id="gmShowHouse" checked> Uyimni xaritada ko‘rsat</label>
@@ -5668,7 +5668,7 @@ async function gmIndex(fileList) {
 async function gmTxd(name) {
     if (GM.txd.has(name)) return GM.txd.get(name);
     const e = GM.dir.get(name + '.txd'), map = new Map();
-    if (e) { try { const buf = await GM.imgFile.slice(e.off, e.off + e.size).arrayBuffer(); for (const t of parseTxdBuf(new Uint8Array(buf))) map.set(texKey(t.name), { canvas: t.canvas, alpha: t.alpha || hasAlphaPixels(t.canvas) }); } catch (_) { } }
+    if (e) { try { const buf = await GM.imgFile.slice(e.off, e.off + e.size).arrayBuffer(); for (const t of parseTxdBuf(new Uint8Array(buf))) { let cv = t.canvas; const mx = GM.texMax || 0; if (mx && Math.max(cv.width, cv.height) > mx) { const k = mx / Math.max(cv.width, cv.height), c2 = document.createElement('canvas'); c2.width = Math.max(1, Math.round(cv.width * k)); c2.height = Math.max(1, Math.round(cv.height * k)); const cx2 = c2.getContext('2d'); cx2.imageSmoothingQuality = 'high'; cx2.drawImage(cv, 0, 0, c2.width, c2.height); cv = c2; } map.set(texKey(t.name), { canvas: cv, alpha: t.alpha || hasAlphaPixels(t.canvas) }); } } catch (_) { } }
     GM.txd.set(name, map); return map;
 }
 async function gmChain(txd) { const out = []; let n = txd, g = 0; while (n && g++ < 6) { out.push(await gmTxd(n)); n = GM.txdp.get(n); } return out; }
@@ -5766,14 +5766,21 @@ async function gmDraw() {
     if (GM.busy) return; if (!GM.ready) { gmMsg('Avval GTA SA fayllarini tanlang.', true); return; }
     GM.busy = true; gmEl('gmDraw').disabled = true;
     try {
-        const v = gmInitView(), cx = gmNum('cvMapX', 0), cy = gmNum('cvMapY', 0), R = gmNum('gmRadius', 300), lodMode = gmEl('gmDetail').value === 'lod';
+        const v = gmInitView(), hx = gmNum('cvMapX', 0), hy = gmNum('cvMapY', 0), all = gmEl('gmRadius').value === 'all';
+        const R = all ? 3000 : gmNum('gmRadius', 300), cx = all ? 0 : hx, cy = all ? 0 : hy; let detail = gmEl('gmDetail').value, note = '';
+        if ((all || R > 1000) && detail === 'near') { detail = 'mix'; note = ' (katta hudud uchun "Aralash" rejimi tanlandi)'; }
+        const NEAR = 400, nx = all ? hx : cx, ny = all ? hy : cy; // aralash rejimda batafsil hudud uy (Joy X/Y) atrofida
+        const texMax = R >= 2000 ? 128 : R >= 1000 ? 256 : 0;
+        if ((GM.texMax || 0) !== texMax) { GM.texMax = texMax; GM.txd.clear(); GM.mats.clear(); GM.geo.clear(); }
         const sel = new Map(); let nInst = 0;
         for (const it of GM.inst) {
             if (Math.abs(it.x - cx) > R || Math.abs(it.y - cy) > R) continue;
-            const e = GM.ide.get(it.id); if (!e) continue; const isLod = /^lod/.test(e.dff); if (isLod !== lodMode) continue;
+            const e = GM.ide.get(it.id); if (!e) continue; const isLod = /^lod/.test(e.dff), inNear = Math.abs(it.x - nx) <= NEAR && Math.abs(it.y - ny) <= NEAR;
+            const keep = detail === 'lod' ? isLod : detail === 'mix' ? (isLod ? !inNear : inNear) : !isLod;
+            if (!keep) continue;
             let a = sel.get(it.id); if (!a) sel.set(it.id, a = []); a.push(it); nInst++;
         }
-        if (!nInst) { gmMsg('Bu hududda (' + R + ' m) ' + (lodMode ? 'LOD' : 'batafsil') + ' obyekt topilmadi. Markaz (Joy X/Y) yoki radiusni o\'zgartiring.', true); return; }
+        if (!nInst) { gmMsg('Bu hududda (' + R + ' m) obyekt topilmadi. Markaz (Joy X/Y) yoki radiusni o\'zgartiring.', true); return; }
         gmClearGroup(v.area);
         const ids = Array.from(sel.keys()); let done = 0, loaded = 0, miss = 0;
         const bump = () => gmMsg('⏳ Modellar yuklanmoqda: ' + done + '/' + ids.length + ' · ' + nInst.toLocaleString() + ' obyekt…');
@@ -5789,11 +5796,11 @@ async function gmDraw() {
                 }
             }); bump(); await new Promise(r => setTimeout(r, 0));
         }
-        const gz = gmGround(cx, cy);
+        const gz = gmGround(hx, hy);
         gmPlaceHouse();
-        const d = Math.max(60, Math.min(R * 0.6, 900)), tz = gz != null ? gz : gmNum('cvMapZ', 0);
-        v.controls.target.set(cx, tz, -cy); v.camera.position.set(cx + d * 0.7, tz + d * 0.55, -cy + d * 0.7); v.controls.update(); v.scene.fog.far = Math.max(1500, R * 3); v.camera.far = Math.max(3000, R * 6); v.camera.updateProjectionMatrix();
-        gmMsg('✓ 3D xarita chizildi: ' + nInst.toLocaleString() + ' obyekt · ' + loaded + ' model' + (miss ? ' (' + miss + ' tasi gta3.img da topilmadi)' : '') + ' · markaz ' + cx + ', ' + cy + ' · radius ' + R + ' m.' + (gz != null ? ' Shu nuqtada yer balandligi ≈ ' + gz.toFixed(1) + '.' : ''));
+        const d = all ? 500 : Math.max(60, Math.min(R * 0.6, 900)), tz = gz != null ? gz : gmNum('cvMapZ', 0);
+        v.controls.target.set(hx, tz, -hy); v.camera.position.set(hx + d * 0.7, tz + d * 0.55, -hy + d * 0.7); v.controls.update(); v.scene.fog.far = Math.max(2500, R * 4); v.camera.far = Math.max(6000, R * 8); v.camera.updateProjectionMatrix();
+        gmMsg('✓ 3D xarita chizildi: ' + nInst.toLocaleString() + ' obyekt · ' + loaded + ' model' + (miss ? ' (' + miss + ' tasi gta3.img da topilmadi)' : '') + ' · ' + (all ? 'butun xarita' : 'markaz ' + cx + ', ' + cy + ' · radius ' + R + ' m') + note + '.' + (gz != null ? ' Shu nuqtada yer balandligi ≈ ' + gz.toFixed(1) + '.' : ''));
     } catch (e) { gmMsg(e.message || String(e), true); console.error(e); }
     finally { GM.busy = false; gmEl('gmDraw').disabled = !GM.ready; }
 }
