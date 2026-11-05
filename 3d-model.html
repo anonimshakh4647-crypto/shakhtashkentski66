@@ -5535,40 +5535,57 @@ function exportCol(model, o) {
     return { bytes: u8, mode, info, nBoxes: nB, nFaces: nF, nVerts: nV, name };
 }
 
-function exportIde(o) {
-    const L = ['# IT SHAKH 3D Model Studio — GTA SA IDE', 'objs', [o.id, o.name, o.txd, o.draw, o.flags].join(', '), 'end', ''];
-    return L.join('\r\n');
+/* o.parts = [{name, id}] — bir nechta bitta-qismli model bo'lsa; aks holda bitta */
+const gtaParts = o => (o.parts && o.parts.length) ? o.parts : [{ name: o.name, id: o.id }];
+function exportIde(o) { // ASCII, izohsiz (eski o'yin tahlilchisi uchun xavfsiz)
+    return ['objs'].concat(gtaParts(o).map(p => [p.id, p.name, o.txd, o.draw, o.flags].join(', ')), ['end', '']).join('\r\n');
 }
 function exportIpl(o) {
     const f = v => String(Math.round(v * 10000) / 10000);
-    const L = ['# IT SHAKH 3D Model Studio — GTA SA IPL', 'inst', [o.id, o.name, o.interior || 0, f(o.x), f(o.y), f(o.z), 0, 0, 0, 1, -1].join(', '), 'end', ''];
-    return L.join('\r\n');
+    return ['inst'].concat(gtaParts(o).map(p => [p.id, p.name, o.interior || 0, f(o.x), f(o.y), f(o.z), 0, 0, 0, 1, -1].join(', ')), ['end', '']).join('\r\n');
+}
+/* modelni meshlar bo'yicha qismlarga bo'ladi: har qism <= maxV vertex (GTA: bir qism 65535 dan oshmasin) */
+function splitModel(model, maxV, baseName) {
+    const groups = []; let cur = [], nv = 0;
+    for (const m of model.meshes) { const v = m.pos.length / 3; if (cur.length && nv + v > maxV) { groups.push(cur); cur = []; nv = 0; } cur.push(m); nv += v; }
+    if (cur.length) groups.push(cur);
+    let tooBig = 0;
+    const parts = groups.map((g, k) => {
+        const name = k === 0 ? baseName : (baseName.slice(0, 17) + '_' + String.fromCharCode(97 + k)).slice(0, 20);
+        let n = 0; g.forEach(m => n += m.pos.length / 3); if (n > 65000) tooBig++;
+        const bb = bounds(g), size = [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]];
+        return Object.assign({}, model, { name, meshes: g, bb, size, L: Math.max(size[0], size[1], size[2]) });
+    });
+    return { parts, tooBig };
 }
 function mapReadme(o) {
-    const d = 'DATA\\MAPS\\' + o.name;
-    return [
-        'GTA San Andreas — xarita paketi: ' + o.name, '',
+    const d = 'DATA\\MAPS', P = gtaParts(o), last = P.length > 1;
+    const L = [
+        'GTA San Andreas - xarita paketi: ' + o.name, '',
         'Fayllar:',
-        '  ' + o.name + '.dff  — model',
-        '  ' + o.name + '.txd  — teksturalar (nomi IDE dagi TXD nomi bilan bir xil)',
-        '  ' + o.name + '.col  — to\'qnashuv (shu bo\'lmasa uy "arvoh" bo\'ladi: odam va mashina ichidan o\'tib ketadi)',
-        '  ' + o.name + '.ide  — obyekt ta\'rifi (ID ' + o.id + ')',
-        '  ' + o.name + '.ipl  — xaritadagi joyi: X ' + o.x + '  Y ' + o.y + '  Z ' + o.z, '',
-        'O\'rnatish (PC, GTA SA):',
-        '1) ' + o.name + '.ide, .ipl, .col fayllarini ' + d + '\\ papkasiga qo\'ying (papkani o\'zingiz yarating).',
-        '2) data\\gta.dat faylining oxiriga (boshqa IDE/IPL/COLFILE qatorlari yoniga) shularni qo\'shing:',
+        ...P.map(p => '  ' + p.name + '.dff  - model (ID ' + p.id + ')'),
+        '  ' + o.name + '.txd  - teksturalar (hamma qismlar shuni ishlatadi)',
+        '  ' + o.name + '.col  - tokinish (shu bolmasa uy "arvoh" boladi)',
+        '  ' + o.name + '.ide  - obyekt tarifi',
+        '  ' + o.name + '.ipl  - xaritadagi joyi: X ' + o.x + '  Y ' + o.y + '  Z ' + o.z, '',
+        last ? 'DIQQAT: uy GTA cheklovi sababli ' + P.length + ' ta qismga bolindi. Hammasi bir xil nuqtada turadi; barcha .dff fayllarni gta3.img ga qoshing.' : '',
+        '',
+        'ORNATISH (PC, GTA SA):',
+        '1) ' + o.name + '.ide, .ipl, .col fayllarini ' + d + '\\ papkasiga qoying.',
+        '2) data\\gta.dat oxiriga (boshqa IPL qatorlaridan keyin) shu TARTIBDA qoshing:',
         '     IDE ' + d + '\\' + o.name + '.ide',
-        '     IPL ' + d + '\\' + o.name + '.ipl',
         '     COLFILE 0 ' + d + '\\' + o.name + '.col',
-        '3) ' + o.name + '.dff va ' + o.name + '.txd ni models\\gta3.img ichiga IMG Tool bilan qo\'shing',
-        '   (yoki modloader ishlatsangiz, ularni modloader papkasiga tashlash kifoya).', '',
-        'Eslatmalar:',
-        '- ID ' + o.id + ' boshqa moddagi ID bilan to\'qnashmasligi kerak (SA chegarasi: 20000 dan kichik).',
-        '- Uyning pastki o\'rta nuqtasi IPL dagi koordinataga qo\'yiladi; Z — yer balandligi.',
-        '- IPL dagi X/Y/Z ni o\'yindagi koordinataga moslab o\'zgartiring (matn muharririda).',
+        '     IPL ' + d + '\\' + o.name + '.ipl',
+        '3) ' + (last ? 'Barcha .dff fayllarni va ' : '') + o.name + (last ? '' : '.dff va ' + o.name) + '.txd ni models\\gta3.img ichiga IMG Tool bilan qoshing.',
+        '   MUHIM: gta3.img ichida bir xil nomli eski fayl bolsa, avval uni ochiring (Delete), keyin yangisini qoshing.', '',
+        'ESLATMALAR:',
+        '- ID ' + P.map(p => p.id).join(', ') + ' boshqa mod bilan tolqnashmasin (SA chegarasi: 20000 dan kichik).',
+        '- Uyning pastki orta nuqtasi IPL dagi koordinataga qoyiladi; Z = yer balandligi.',
+        '- ' + o.txdInfo,
         '- COL: ' + o.colInfo,
-        '- Bu paket brauzerda yig\'ildi; o\'yinning o\'zida sinab ko\'rilmagan — kamchilik chiqsa xabar bering.', ''
-    ].join('\r\n');
+        '- Bu paket brauzerda yigildi; oyinning ozida sinab korilmagan.', ''
+    ];
+    return L.join('\r\n');
 }
 
 /* ---------- GTA SA 3D xarita (foydalanuvchining o'z o'yin fayllaridan) ---------- */
@@ -6076,26 +6093,34 @@ function mapOpts(m) {
 }
 async function doGta(kind, m) {
     const o = mapOpts(m);
-    const colOf = mm => exportCol(mm, { name: o.name, id: o.id, mode: o.colMode, minSize: o.minSize, maxTris: o.maxTris, surface: o.surface });
+    const colOf = (mm, nm, id) => exportCol(mm, { name: nm || o.name, id: id != null ? id : o.id, mode: o.colMode, minSize: o.minSize, maxTris: o.maxTris, surface: o.surface });
     const colMsg = c => 'COL (' + c.info + (c.nFaces ? ', ' + c.nFaces.toLocaleString() + ' uchburchak' : '') + (c.nBoxes ? ', ' + c.nBoxes + ' quti' : '') + ', ' + (c.bytes.length / 1024).toFixed(1) + ' KB)';
     if (kind === 'col') { const c = colOf(m); dl(toBlob(c.bytes), o.name + '.col'); setMsg('COL saqlandi: ' + colMsg(c) + '. DFF ham xuddi shu modeldan eksport qilingan bo\'lishi kerak.'); return; }
     if (kind === 'ide') { dl(toBlob(TE.encode(exportIde(o)), 'text/plain'), o.name + '.ide'); setMsg('IDE saqlandi: ' + o.id + ', ' + o.name + ', ' + o.txd + ', ' + o.draw + ', ' + o.flags); return; }
     if (kind === 'ipl') { dl(toBlob(TE.encode(exportIpl(o)), 'text/plain'), o.name + '.ipl'); setMsg('IPL saqlandi: joy ' + o.x + ', ' + o.y + ', ' + o.z + ' (ID ' + o.id + ').'); return; }
     // to'liq paket
     const mm = $('cvMapCenter').checked ? centeredCopy(m, o.name) : Object.assign({}, m, { name: o.name });
-    const dff = exportDff(mm, { single: $('cvDffMode').value === 'single', prelit: $('cvDffPrelit').checked });
-    const col = colOf(mm), files = [];
-    files.push({ name: o.name + '.dff', data: dff.bytes });
-    const have = dff.keys.filter(k => S.tex.has(k)); let txdMsg = '';
-    if (have.length) { const t = buildTxd({ tex: S.tex }, have, { fmt: $('cvTxdFmt').value, pot: $('cvTxdPot').checked, maxSize: parseInt($('cvTxdMax').value, 10) || 2048 }); files.push({ name: o.name + '.txd', data: t.bytes }); txdMsg = have.length + ' tekstura (TXD)'; }
-    else if (dff.keys.length) txdMsg = 'TEKSTURA RASMLARI YO\'Q — TXD qo\'shilmadi';
-    else txdMsg = 'modelda tekstura yo\'q — TXD kerak emas';
-    files.push({ name: o.name + '.col', data: col.bytes });
-    files.push({ name: o.name + '.ide', data: TE.encode(exportIde(o)) }, { name: o.name + '.ipl', data: TE.encode(exportIpl(o)) });
-    files.push({ name: 'README.txt', data: TE.encode(mapReadme(Object.assign({ colInfo: col.info }, o))) });
+    const sp = splitModel(mm, 55000, o.name), parts = sp.parts; // GTA obyekti: bitta atomik, <= 65535 vertex
+    const po = Object.assign({}, o, { parts: parts.map((q, k) => ({ name: q.name, id: Math.min(19999, o.id + k) })) });
+    const files = [], keys = new Set(); let dffBytes = 0, multiAtomic = 0;
+    for (const q of parts) { const d = exportDff(q, { single: true, prelit: $('cvDffPrelit').checked }); files.push({ name: q.name + '.dff', data: d.bytes }); dffBytes += d.bytes.length; d.keys.forEach(k => keys.add(k)); if (d.parts > 1) multiAtomic++; }
+    const colParts = parts.map((q, k) => colOf(Object.assign({}, q, { name: q.name }), q.name, po.parts[k].id));
+    let colLen = 0; colParts.forEach(c => colLen += c.bytes.length); const colAll = new Uint8Array(colLen); { let p0 = 0; for (const c of colParts) { colAll.set(c.bytes, p0); p0 += c.bytes.length; } }
+    const have = Array.from(keys).filter(k => S.tex.has(k)); let txdMsg = '', txdInfo = 'Tekstura yo\'q.';
+    if (have.length) {
+        const fmt = $('cvTxdFmt').value === 'argb' ? 'auto' : $('cvTxdFmt').value, mx = Math.min(1024, parseInt($('cvTxdMax').value, 10) || 1024);
+        const t = buildTxd({ tex: S.tex }, have, { fmt, pot: true, maxSize: mx }); files.push({ name: o.name + '.txd', data: t.bytes });
+        const mb = t.bytes.length / 1048576; txdMsg = have.length + ' tekstura (TXD ' + mb.toFixed(2) + ' MB, DXT, ≤' + mx + ' px)';
+        txdInfo = 'TXD ' + mb.toFixed(2) + ' MB (GTA uchun DXT format, tekstura ≤' + mx + ' px).' + (mb > 8 ? ' DIQQAT: TXD katta - o\'yin qotishi mumkin, teksturalarni kichraytiring.' : '');
+        if (mb > 8) txdMsg += ' ⚠ JUDA KATTA';
+    } else if (keys.size) txdMsg = 'TEKSTURA RASMLARI YO\'Q — TXD qo\'shilmadi'; else txdMsg = 'modelda tekstura yo\'q — TXD kerak emas';
+    files.push({ name: o.name + '.col', data: colAll });
+    files.push({ name: o.name + '.ide', data: TE.encode(exportIde(po)) }, { name: o.name + '.ipl', data: TE.encode(exportIpl(po)) });
+    files.push({ name: 'README.txt', data: TE.encode(mapReadme(Object.assign({ colInfo: colParts.map(c => c.info).join('; '), txdInfo }, po))) });
     const z = zipStore(files); dl(z, o.name + '_gta_xarita.zip');
-    const miss = dff.keys.length - have.length;
-    setMsg('GTA xarita paketi saqlandi (' + (z.size / 1048576).toFixed(2) + ' MB): DFF · ' + txdMsg + ' · ' + colMsg(col) + ' · IDE · IPL · README. ID ' + o.id + ', joy ' + o.x + ', ' + o.y + ', ' + o.z + '.' + (miss > 0 && have.length ? ' ' + miss + ' ta tekstura rasmi topilmadi.' : ''), miss > 0 && !have.length);
+    const miss = keys.size - have.length, nTri = colParts.reduce((a, c) => a + c.nFaces, 0);
+    const warn = (sp.tooBig ? ' ⚠ ' + sp.tooBig + ' qism hali 65000 vertexdan katta (bitta obyekt juda og\'ir).' : '') + (multiAtomic ? ' ⚠ ' + multiAtomic + ' qism bir nechta atomikka bo\'lindi.' : '') + (miss > 0 && have.length ? ' ' + miss + ' ta tekstura rasmi topilmadi.' : '');
+    setMsg('GTA xarita paketi saqlandi (' + (z.size / 1048576).toFixed(2) + ' MB): ' + parts.length + ' ta model (DFF ' + (dffBytes / 1048576).toFixed(2) + ' MB) · ' + txdMsg + ' · COL (' + colParts[0].mode + ', ' + nTri.toLocaleString() + ' uchburchak, ' + (colLen / 1024).toFixed(0) + ' KB) · IDE · IPL · README. ID ' + po.parts.map(q => q.id).join(', ') + ', joy ' + o.x + ', ' + o.y + ', ' + o.z + '.' + warn, miss > 0 && !have.length);
 }
 
 /* ---------- xaritadan joy tanlash ---------- */
