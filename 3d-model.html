@@ -420,7 +420,7 @@
         #cvCard .cv-warn { font-size: 11.5px; color: #fbbf24; background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 10px; padding: 8px 11px; line-height: 1.5; overflow-wrap: anywhere; }
         #cvCard .cv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         #cvCard .cv-f { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--muted); min-width: 0; }
-        #cvCard .cv-f select, #cvCard .cv-f input[type="number"] {
+        #cvCard .cv-f select, #cvCard .cv-f input[type="number"], #cvCard .cv-f input[type="text"] {
             width: 100%; height: 36px; padding: 0 10px; min-width: 0;
             background: var(--card-2); color: var(--text-color);
             border: 1px solid var(--border); border-radius: 9px;
@@ -438,6 +438,10 @@
         #cvCard .btn:disabled { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.4); transform: none; box-shadow: none; }
         #cvCard .cv-exports .btn { font-size: 12px; padding: 0 8px; }
         #cvCard code { font: 11px var(--mono); color: var(--accent); }
+        #cvCard .cv-maprow { display: flex; gap: 8px; flex-wrap: wrap; }
+        #cvCard .cv-maprow .btn { flex: 1 1 160px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+        #cvCard .cv-mappanel { display: flex; flex-direction: column; gap: 6px; }
+        #cvCard #cvMapCv { width: 100%; aspect-ratio: 1 / 1; height: auto; border: 1px solid var(--border-strong); border-radius: 12px; cursor: crosshair; background: #070d1c; touch-action: none; }
         body.cv-busy #cvCard .cv-exports .btn, body.cv-busy #cvCard #cvDrop { opacity: 0.6; pointer-events: none; }
         @media (max-width: 420px) { #cvCard .cv-grid { grid-template-columns: 1fr; } }
     </style>
@@ -652,6 +656,14 @@
                     <label class="cv-f"><span>COL: mayda detal chegarasi (m)</span><input type="number" id="cvColMin" min="0" step="0.1" value="0.5"></label>
                     <label class="cv-f"><span>COL: maks. uchburchak</span><input type="number" id="cvColMax" min="100" max="65000" step="500" value="30000"></label>
                     <label class="cv-f"><span>COL: sirt materiali (0 = default)</span><input type="number" id="cvColSurf" min="0" max="255" value="0"></label>
+                </div>
+                <div class="cv-maprow">
+                    <button class="btn" id="cvMapPick" type="button">📍 Xaritadan joy tanlash</button>
+                    <label class="btn cv-filebtn" title="GTA SA xaritasining o‘zingizdagi rasmi (butun dunyo, kvadrat: X va Y −3000…+3000)">🖼 Xarita rasmini yuklash<input type="file" id="cvMapImg" accept="image/*" hidden></label>
+                </div>
+                <div id="cvMapPanel" class="cv-mappanel" hidden>
+                    <canvas id="cvMapCv" width="720" height="720"></canvas>
+                    <p class="note" id="cvMapHint">Xaritani bosing — X va Y o‘zi yoziladi. Tepa = shimol (+Y), o‘ng = sharq (+X). Setka har 500 birlikda. Shahar nomlari taxminiy; aniq joy uchun o‘z xarita rasmingizni yuklang yoki o‘yinda koordinatani tekshiring.</p>
                 </div>
                 <div class="opt-row"><label class="chk" title="Paketda uy pastki o‘rta nuqtasi (0,0,0) ga keltiriladi — IPL dagi joy aynan shu nuqta bo‘ladi"><input type="checkbox" id="cvMapCenter" checked> Paketda uyni pastki markazga keltirish</label></div>
                 <div class="export-grid cv-exports">
@@ -5811,6 +5823,47 @@ async function doGta(kind, m) {
     setMsg('GTA xarita paketi saqlandi (' + (z.size / 1048576).toFixed(2) + ' MB): DFF · ' + txdMsg + ' · ' + colMsg(col) + ' · IDE · IPL · README. ID ' + o.id + ', joy ' + o.x + ', ' + o.y + ', ' + o.z + '.' + (miss > 0 && have.length ? ' ' + miss + ' ta tekstura rasmi topilmadi.' : ''), miss > 0 && !have.length);
 }
 
+/* ---------- xaritadan joy tanlash ---------- */
+function initMapPicker() {
+    const cv = $('cvMapCv'), panel = $('cvMapPanel'), ctx = cv.getContext('2d'), W = cv.width, R = 3000;
+    let img = null, hover = null, url = null;
+    const toPx = (x, y) => [(x + R) / (2 * R) * W, (R - y) / (2 * R) * W];
+    const val = id => { const v = parseFloat($(id).value); return isFinite(v) ? v : 0; };
+    const CITIES = [['Los Santos', 1700, -1600], ['San Fierro', -2000, 600], ['Las Venturas', 2000, 1500]];
+    function draw() {
+        ctx.clearRect(0, 0, W, W); ctx.fillStyle = '#070d1c'; ctx.fillRect(0, 0, W, W);
+        if (img) { ctx.globalAlpha = 0.92; ctx.drawImage(img, 0, 0, W, W); ctx.globalAlpha = 1; }
+        ctx.font = '600 12px monospace'; ctx.textBaseline = 'top';
+        for (let v = -R; v <= R; v += 500) {
+            const major = v % 1000 === 0, [px] = toPx(v, 0), [, py] = toPx(0, v);
+            ctx.strokeStyle = v === 0 ? 'rgba(31,214,245,0.7)' : major ? 'rgba(139,108,255,0.45)' : 'rgba(255,255,255,0.12)'; ctx.lineWidth = v === 0 ? 1.5 : 1;
+            ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, W); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+            if (major && v > -R && v < R) { ctx.fillStyle = 'rgba(231,238,251,0.75)'; ctx.fillText(String(v), px + 3, 3); ctx.fillText(String(v), 3, py + 3); }
+        }
+        if (!img) for (const [n, x, y] of CITIES) { const [px, py] = toPx(x, y); ctx.fillStyle = 'rgba(139,108,255,0.35)'; ctx.beginPath(); ctx.arc(px, py, 26, 0, 7); ctx.fill(); ctx.fillStyle = '#e7eefb'; ctx.textAlign = 'center'; ctx.fillText(n + ' (~)', px, py - 6); ctx.textAlign = 'left'; }
+        if (hover) { const [px, py] = toPx(hover[0], hover[1]); ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, W); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke(); const t = Math.round(hover[0]) + ', ' + Math.round(hover[1]); ctx.font = '700 13px monospace'; const tw = ctx.measureText(t).width + 10; const bx = Math.min(W - tw - 4, px + 10), by = Math.min(W - 24, py + 10); ctx.fillStyle = 'rgba(7,13,28,0.9)'; ctx.fillRect(bx, by, tw, 20); ctx.fillStyle = '#fff'; ctx.fillText(t, bx + 5, by + 4); ctx.font = '600 12px monospace'; }
+        const [mx, my] = toPx(val('cvMapX'), val('cvMapY'));
+        ctx.strokeStyle = '#1fd6f5'; ctx.fillStyle = 'rgba(31,214,245,0.3)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mx, my, 9, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(mx - 15, my); ctx.lineTo(mx + 15, my); ctx.moveTo(mx, my - 15); ctx.lineTo(mx, my + 15); ctx.stroke();
+    }
+    const world = e => { const r = cv.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * W, py = (e.clientY - r.top) / r.height * W; return [Math.max(-R, Math.min(R, px / W * 2 * R - R)), Math.max(-R, Math.min(R, R - py / W * 2 * R))]; };
+    const setXY = w => { $('cvMapX').value = (Math.round(w[0] * 10) / 10); $('cvMapY').value = (Math.round(w[1] * 10) / 10); draw(); $('cvMapHint').textContent = 'Tanlandi: X ' + $('cvMapX').value + ', Y ' + $('cvMapY').value + '. Z (balandlik) ni o‘zingiz yozing — o‘yinda shu nuqtada yer balandligini tekshiring.'; };
+    let drag = false;
+    cv.addEventListener('pointerdown', e => { drag = true; try { cv.setPointerCapture(e.pointerId); } catch (_) {} setXY(world(e)); });
+    cv.addEventListener('pointermove', e => { hover = world(e); if (drag) setXY(hover); else draw(); });
+    cv.addEventListener('pointerup', () => { drag = false; });
+    cv.addEventListener('pointerleave', () => { hover = null; draw(); });
+    ['cvMapX', 'cvMapY'].forEach(id => $(id).addEventListener('input', draw));
+    $('cvMapPick').addEventListener('click', () => { panel.hidden = !panel.hidden; if (!panel.hidden) draw(); });
+    $('cvMapImg').addEventListener('change', e => {
+        const f = e.target.files[0]; if (!f) return; const im = new Image();
+        im.onload = () => { img = im; panel.hidden = false; draw(); const sq = Math.abs(im.width - im.height) / Math.max(im.width, im.height) < 0.03; $('cvMapHint').textContent = 'Xarita rasmi yuklandi (' + im.width + '×' + im.height + ').' + (sq ? '' : ' Diqqat: rasm kvadrat emas — butun dunyoni (−3000…+3000) qamrab olgan kvadrat rasm kerak, aks holda koordinata siljiydi.') + ' Bosib joy tanlang.'; };
+        im.onerror = () => { $('cvMapHint').textContent = 'Rasm o‘qilmadi.'; };
+        if (url) URL.revokeObjectURL(url); url = URL.createObjectURL(f); im.src = url; e.target.value = '';
+    });
+    window.CVMAP = { draw };
+}
+
 /* ---------- ulash ---------- */
 (function init() {
     const fi = $('cvFile'), dz = $('cvDrop');
@@ -5820,6 +5873,7 @@ async function doGta(kind, m) {
     dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('dragover'); if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files); });
     document.querySelectorAll('#cvCard .cv-ex').forEach(b => b.addEventListener('click', () => doExport(b.dataset.k)));
     $('cvClear').addEventListener('click', clearAll);
+    initMapPicker();
     ['cvUp', 'cvUnit', 'cvFit', 'cvCrease', 'cvRecalc', 'cvHideDam', 'cvCenter', 'cvDouble'].forEach(id => $(id).addEventListener('change', () => { if (S.raw.length && !S.busy) { S.warn = S.warn.filter(w => !/^Tekstura topilmadi/.test(w)); rebuild(); } }));
     // eski funksiyalar (1–5) yangi fayl yuklasa — konvertor ko'rinishi yashiriladi
     const oldIn = document.getElementById('fileInput'), oldDz = document.getElementById('dropZone');
