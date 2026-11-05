@@ -5541,7 +5541,19 @@ function exportCol(model, o) {
         const out = []; for (const m of model.meshes) {
             const P = m.pos, mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
             for (let i = 0; i < P.length; i += 3) for (let k = 0; k < 3; k++) { const v = P[i + k]; if (v < mn[k]) mn[k] = v; if (v > mx[k]) mx[k] = v; }
-            if (isFinite(mn[0]) && Math.hypot(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) >= minSize) out.push({ min: mn, max: mx });
+            if (!isFinite(mn[0])) continue;
+            const diag = Math.hypot(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
+            if (diag < minSize) continue;
+            if (diag <= 60) { out.push({ min: mn, max: mx }); continue; }
+            // katta obyekt: bitta ulkan quti o'rniga to'r (grid) bo'yicha ko'p tor qutilar — shakl aniqroq (minora, uzun bino...)
+            const g = Math.max(2, diag / 30), cells = new Map(), nT = m.idx.length / 3;
+            for (let t = 0; t < nT; t++) {
+                let cx = 0, cy = 0, cz = 0; const a0 = [Infinity, Infinity, Infinity], a1 = [-Infinity, -Infinity, -Infinity];
+                for (let k = 0; k < 3; k++) { const i = m.idx[t * 3 + k] * 3; for (let q = 0; q < 3; q++) { const v = P[i + q]; if (v < a0[q]) a0[q] = v; if (v > a1[q]) a1[q] = v; } cx += P[i]; cy += P[i + 1]; cz += P[i + 2]; }
+                const key = Math.floor((cx / 3 - mn[0]) / g) + ',' + Math.floor((cy / 3 - mn[1]) / g) + ',' + Math.floor((cz / 3 - mn[2]) / g), c = cells.get(key);
+                if (!c) cells.set(key, { min: a0, max: a1 }); else for (let q = 0; q < 3; q++) { if (a0[q] < c.min[q]) c.min[q] = a0[q]; if (a1[q] > c.max[q]) c.max[q] = a1[q]; }
+            }
+            if (cells.size > 20000) out.push({ min: mn, max: mx }); else for (const c of cells.values()) out.push(c);
         } return out;
     };
     if (mode === 'auto') {
@@ -5549,11 +5561,11 @@ function exportCol(model, o) {
         for (let k = 0; k < 6; k++, ms *= 2) { const t = colMeshData(model, ms); if (t.nF > 0 && t.nF <= o.maxTris && t.nV < 65535) { md = t; info = 'mesh (mayda detal < ' + ms.toFixed(2) + ' m tashlandi)'; break; } }
         if (md) mode = 'mesh'; else { mode = 'boxes'; info = 'mesh juda og\'ir bo\'ldi — har obyekt qutisi'; }
     } else if (mode === 'mesh') { md = colMeshData(model, o.minSize); info = 'mesh'; }
-    if (mode === 'mesh') {
-        if (md.over) throw new Error('COL mesh: model ±255 m dan katta — COL mesh koordinatalari shu chegarada (markazga keltiring yoki "quti" rejimini tanlang).');
-        if (md.nF > 65535 || md.nV > 65535) throw new Error('COL mesh: ' + md.nF + ' uchburchak / ' + md.nV + ' vertex — chegara 65535. Mayda detal o\'lchamini oshiring yoki "Avto" / "Qutilar" rejimini tanlang.');
-        if (!md.nF) throw new Error('COL mesh: to\'qnashuv uchun uchburchak qolmadi (mayda detal chegarasini kamaytiring).');
-    } else if (mode === 'boxes') { boxes = meshBoxes(Math.max(0, o.minSize)); if (!boxes.length) boxes = [{ min: model.bb.min.slice(), max: model.bb.max.slice() }]; info = info || ('har obyekt qutisi, ' + boxes.length + ' ta'); }
+    if (mode === 'mesh' && md && (md.over || md.nF > 65535 || md.nV > 65535 || !md.nF)) { // COL mesh formati sig'dira olmasa — qutilar bilan (xato bermaydi)
+        info = md.over ? 'model ±255 m dan katta — qutilar qoplamasi' : !md.nF ? 'mayda detallar — qutilar qoplamasi' : 'mesh juda og\'ir — qutilar qoplamasi'; mode = 'boxes'; md = null;
+    }
+    if (mode === 'mesh') { /* tayyor */ }
+    else if (mode === 'boxes') { boxes = meshBoxes(Math.max(0, o.minSize)); if (!boxes.length) boxes = [{ min: model.bb.min.slice(), max: model.bb.max.slice() }]; info = info || ('har obyekt qutisi, ' + boxes.length + ' ta'); }
     else { boxes = [{ min: model.bb.min.slice(), max: model.bb.max.slice() }]; info = 'bitta quti'; }
     if (boxes.length > 65535) boxes.length = 65535;
     // bounds
@@ -5588,7 +5600,7 @@ function exportIde(o) { // ASCII, izohsiz (eski o'yin tahlilchisi uchun xavfsiz)
 }
 function exportIpl(o) {
     const f = v => String(Math.round(v * 10000) / 10000);
-    return ['inst'].concat(gtaParts(o).map(p => [p.id, p.name, o.interior || 0, f(o.x), f(o.y), f(o.z), 0, 0, 0, 1, -1].join(', ')), ['end', '']).join('\r\n');
+    return ['inst'].concat(gtaParts(o).map(p => [p.id, p.name, o.interior || 0, f(o.x + (p.dx || 0)), f(o.y + (p.dy || 0)), f(o.z + (p.dz || 0)), 0, 0, 0, 1, -1].join(', ')), ['end', '']).join('\r\n');
 }
 /* modelni meshlar bo'yicha qismlarga bo'ladi: har qism <= maxV vertex (GTA: bir qism 65535 dan oshmasin) */
 /* bitta juda katta obyektni (>maxV vertex) fazoviy bo'laklarga ajratadi: uchburchaklar eng uzun o'q bo'yicha tartiblanib, har bo'lak <= maxV vertex */
@@ -5615,7 +5627,37 @@ function splitBigMesh(m, maxV) {
     }
     return out;
 }
-function splitModel(model, maxV, baseName) {
+/* juda katta model: fazoviy katakchalarga (cell m) bo'linadi; har katakcha o'z markazida (pivot) turadi, joyi IPL ofseti bilan beriladi.
+   Shunda har qism ±255 m ichida qoladi va COL mesh har qanday o'lcham uchun ishlaydi. */
+function subMeshTris(m, tris, name) {
+    const map = new Map(), vs = []; for (const t of tris) for (let k = 0; k < 3; k++) { const v = m.idx[t * 3 + k]; if (!map.has(v)) { map.set(v, vs.length); vs.push(v); } }
+    const n = vs.length, c = { name, pos: new Float32Array(n * 3), nrm: m.nrm ? new Float32Array(n * 3) : null, uv: m.uv ? new Float32Array(n * 2) : null, col: m.col ? new Uint8Array(n * 4) : null, idx: new Uint32Array(tris.length * 3), tm: new Uint32Array(tris.length) };
+    vs.forEach((v, i) => { c.pos.set(m.pos.subarray(v * 3, v * 3 + 3), i * 3); if (c.nrm) c.nrm.set(m.nrm.subarray(v * 3, v * 3 + 3), i * 3); if (c.uv) c.uv.set(m.uv.subarray(v * 2, v * 2 + 2), i * 2); if (c.col) c.col.set(m.col.subarray(v * 4, v * 4 + 4), i * 4); });
+    tris.forEach((t, i) => { for (let k = 0; k < 3; k++) c.idx[i * 3 + k] = map.get(m.idx[t * 3 + k]); c.tm[i] = m.tm[t]; });
+    return c;
+}
+function needsCells(model, lim) { const bb = bounds(model.meshes); return Math.max(Math.abs(bb.min[0]), Math.abs(bb.max[0]), Math.abs(bb.min[1]), Math.abs(bb.max[1]), Math.abs(bb.min[2]), Math.abs(bb.max[2])) > (lim || 250); }
+function splitCells(model, cell) {
+    const bb = bounds(model.meshes), cells = new Map();
+    for (const m of model.meshes) {
+        const per = new Map(), nT = m.idx.length / 3;
+        for (let t = 0; t < nT; t++) {
+            let cx = 0, cy = 0, cz = 0; for (let k = 0; k < 3; k++) { const i = m.idx[t * 3 + k] * 3; cx += m.pos[i]; cy += m.pos[i + 1]; cz += m.pos[i + 2]; }
+            const key = Math.floor((cx / 3 - bb.min[0]) / cell) + ',' + Math.floor((cy / 3 - bb.min[1]) / cell) + ',' + Math.floor((cz / 3 - bb.min[2]) / cell);
+            let a = per.get(key); if (!a) per.set(key, a = []); a.push(t);
+        }
+        for (const [key, tris] of per) { let c = cells.get(key); if (!c) cells.set(key, c = []); c.push(subMeshTris(m, tris, m.name)); }
+    }
+    const out = [];
+    for (const key of Array.from(cells.keys()).sort()) {
+        const ms = cells.get(key), b = bounds(ms), cx = (b.min[0] + b.max[0]) / 2, cy = (b.min[1] + b.max[1]) / 2, cz = (b.min[2] + b.max[2]) / 2;
+        const meshes = ms.map(m => { const pos = new Float32Array(m.pos.length); for (let i = 0; i < pos.length; i += 3) { pos[i] = m.pos[i] - cx; pos[i + 1] = m.pos[i + 1] - cy; pos[i + 2] = m.pos[i + 2] - cz; } return Object.assign({}, m, { pos }); });
+        const b2 = bounds(meshes), size = [b2.max[0] - b2.min[0], b2.max[1] - b2.min[1], b2.max[2] - b2.min[2]];
+        out.push({ model: Object.assign({}, model, { meshes, bb: b2, size, L: Math.max(size[0], size[1], size[2]) }), dx: cx, dy: cy, dz: cz });
+    }
+    return out;
+}
+function splitModelBase(model, maxV, baseName) {
     const groups = []; let cur = [], nv = 0;
     const meshes = []; for (const m of model.meshes) for (const c of splitBigMesh(m, maxV)) meshes.push(c);
     for (const m of meshes) { const v = m.pos.length / 3; if (cur.length && nv + v > maxV) { groups.push(cur); cur = []; nv = 0; } cur.push(m); nv += v; }
@@ -5628,6 +5670,14 @@ function splitModel(model, maxV, baseName) {
         return Object.assign({}, model, { name, meshes: g, bb, size, L: Math.max(size[0], size[1], size[2]) });
     });
     return { parts, tooBig };
+}
+const partName = (base, k) => k === 0 ? base : (k < 26 ? base.slice(0, 17) + '_' + String.fromCharCode(97 + k) : base.slice(0, 15) + '_' + k).slice(0, 20);
+function splitModel(model, maxV, baseName) {
+    if (!needsCells(model, 250)) { const r = splitModelBase(model, maxV, baseName); r.cells = 1; return r; }
+    const parts = []; let tooBig = 0, cells = 0;
+    for (const c of splitCells(model, 400)) { cells++; const r = splitModelBase(c.model, maxV, baseName); tooBig += r.tooBig; for (const q of r.parts) { q.dx = c.dx; q.dy = c.dy; q.dz = c.dz; parts.push(q); } }
+    parts.forEach((q, k) => { q.name = partName(baseName, k); });
+    return { parts, tooBig, cells };
 }
 /* IMG v2 (GTA SA) arxivi: files = [{name, data(Uint8Array)}] */
 function buildImg(files) {
@@ -5653,6 +5703,8 @@ function mapReadme(o) {
         '  ' + N + '.col  - tokinish (shu bolmasa uy "arvoh" boladi)',
         '  ' + N + '.ide  - obyekt tarifi (ID ' + P.map(p => p.id).join(', ') + ')',
         '  ' + N + '.ipl  - xaritadagi joyi: X ' + o.x + '  Y ' + o.y + '  Z ' + o.z, '',
+        ...(P.some(p => p.dx || p.dy || p.dz) ? ['  (Model katta bo\'lgani uchun bo\'laklar bir nechta hududga bo\'lingan; IPL dagi koordinatalar shuning uchun turlicha - bu normal.)'] : []),
+        '',
         'ORNATISH:',
         '1) ' + N + '.img  ->  GTA SA papkasidagi  models\\  papkasiga qoying.',
         '2) ' + N + '.ide, ' + N + '.col, ' + N + '.ipl  ->  GTA SA papkasidagi  data\\maps\\  papkasiga qoying (ichki papka yaratmang).',
@@ -6284,7 +6336,7 @@ async function doGta(kind, m) {
     // to'liq paket
     const mm = $('cvMapCenter').checked ? centeredCopy(m, o.name) : Object.assign({}, m, { name: o.name });
     const sp = splitModel(mm, 55000, o.name), parts = sp.parts; // GTA obyekti: bitta atomik, <= 65535 vertex
-    const po = Object.assign({}, o, { parts: parts.map((q, k) => ({ name: q.name, id: Math.min(19999, o.id + k) })) });
+    const po = Object.assign({}, o, { parts: parts.map((q, k) => ({ name: q.name, id: Math.min(19999, o.id + k), dx: q.dx || 0, dy: q.dy || 0, dz: q.dz || 0 })) });
     const files = [], imgFiles = [], keys = new Set(); let dffBytes = 0, multiAtomic = 0;
     for (const q of parts) { const d = exportDff(q, { single: true, prelit: $('cvDffPrelit').checked }); imgFiles.push({ name: q.name + '.dff', data: d.bytes }); dffBytes += d.bytes.length; d.keys.forEach(k => keys.add(k)); if (d.parts > 1) multiAtomic++; }
     const colParts = parts.map((q, k) => colOf(Object.assign({}, q, { name: q.name }), q.name, po.parts[k].id));
@@ -6303,7 +6355,7 @@ async function doGta(kind, m) {
     files.push({ name: 'README.txt', data: TE.encode(mapReadme(Object.assign({ colInfo: Array.from(new Set(colParts.map(c => c.info))).join('; '), txdInfo }, po))) });
     const z = zipStore(files); dl(z, o.name + '_gta_xarita.zip');
     const miss = keys.size - have.length, nTri = colParts.reduce((a, c) => a + c.nFaces, 0);
-    const warn = (sp.tooBig ? ' ⚠ ' + sp.tooBig + ' qism hali 65000 vertexdan katta (bitta obyekt juda og\'ir).' : '') + (multiAtomic ? ' ⚠ ' + multiAtomic + ' qism bir nechta atomikka bo\'lindi.' : '') + (miss > 0 && have.length ? ' ' + miss + ' ta tekstura rasmi topilmadi.' : '');
+    const warn = (sp.cells > 1 ? ' Model katta bo\'lgani uchun ' + sp.cells + ' ta hududga bo\'lindi (har bo\'lak o\'z joyida turadi).' : '') + (sp.tooBig ? ' ⚠ ' + sp.tooBig + ' qism hali 65000 vertexdan katta (bitta obyekt juda og\'ir).' : '') + (multiAtomic ? ' ⚠ ' + multiAtomic + ' qism bir nechta atomikka bo\'lindi.' : '') + (miss > 0 && have.length ? ' ' + miss + ' ta tekstura rasmi topilmadi.' : '');
     setMsg('GTA xarita paketi saqlandi (' + (z.size / 1048576).toFixed(2) + ' MB): ' + parts.length + ' ta model (DFF ' + (dffBytes / 1048576).toFixed(2) + ' MB, ' + o.name + '.img arxivi tayyor) · ' + txdMsg + ' · COL (' + colParts[0].mode + ', ' + nTri.toLocaleString() + ' uchburchak, ' + (colLen / 1024).toFixed(0) + ' KB) · IDE · IPL · README. ID ' + po.parts.map(q => q.id).join(', ') + ', joy ' + o.x + ', ' + o.y + ', ' + o.z + '.' + warn, miss > 0 && !have.length);
 }
 
