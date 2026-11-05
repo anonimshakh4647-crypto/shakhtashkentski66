@@ -634,6 +634,7 @@
                 <label class="chk" title="Modelni markazga qo‘yadi, tagini Z=0 ga tushiradi"><input type="checkbox" id="cvCenter"> Markazga qo‘yish</label>
                 <label class="chk" title="GTA mashinalarida _dam (zarar) va _vlo (past LOD) qismlar asosiy qism ustiga tushib, yaltirab/yassi ko‘rinadi. Eksportga ham kirmaydi."><input type="checkbox" id="cvHideDam" checked> _dam / _vlo qismlarni yashirish</label>
                 <label class="chk" title="Faqat ko‘rinish uchun"><input type="checkbox" id="cvDouble"> Ikki tomonli ko‘rinish</label>
+                <label class="chk" title="Faqat bir tomonga qaragan yuzlar (devor, tom, deraza) o‘yinda va ko‘rinishda orqadan ko‘rinmay qoladi. Bu parametr har bir yuzning orqa tomonini ham yaratadi — eksport qilingan DFF/OBJ da ham ikki tomondan ko‘rinadi. Uchburchaklar soni ikki baravar bo‘ladi."><input type="checkbox" id="cvBack"> Orqa tomonni ham yaratish (eksportda ham)</label>
             </div>
 
             <details class="cv-det">
@@ -6071,7 +6072,7 @@ const UNSUPPORTED = {
 const UNIT_M = { m: 1, cm: 0.01, mm: 0.001, in: 0.0254, ft: 0.3048 };
 const opt = () => ({
     up: $('cvUp').value, unit: $('cvUnit').value, fit: parseFloat($('cvFit').value) || 0, scale: (v => isFinite(v) && v > 0 ? clamp(v, 0.0001, 100000) : 1)(parseFloat($('cvScale').value)), crease: clamp(parseFloat($('cvCrease').value) || 50, 0, 180),
-    recalc: $('cvRecalc').checked, hideDam: $('cvHideDam').checked, center: $('cvCenter').checked, dbl: $('cvDouble').checked
+    recalc: $('cvRecalc').checked, hideDam: $('cvHideDam').checked, center: $('cvCenter').checked, dbl: $('cvDouble').checked, back: $('cvBack').checked
 });
 const setMsg = (t, bad) => { setStatus((bad ? '⚠ ' : '✓ ') + t); };
 function showWarn() {
@@ -6151,6 +6152,18 @@ async function loadFiles(fileList) {
     finally { S.busy = false; document.body.classList.remove('cv-busy'); showWarn(); }
 }
 
+/* har bir uchburchakning orqa tomonini ham yaratadi (teskari tartib + teskari normal) */
+function addBackFaces(m) {
+    const n = m.pos.length / 3, tn = m.idx.length;
+    const dup = (a, k) => { if (!a) return a; const r = new a.constructor(a.length * 2); r.set(a); r.set(a, a.length); return r; };
+    const pos = dup(m.pos), uv = m.uv ? dup(m.uv) : m.uv, col = m.col ? dup(m.col) : m.col;
+    let nrm = null; if (m.nrm) { nrm = new Float32Array(m.nrm.length * 2); nrm.set(m.nrm); for (let i = 0; i < m.nrm.length; i++) nrm[m.nrm.length + i] = -m.nrm[i]; }
+    const idx = new Uint32Array(tn * 2); idx.set(m.idx);
+    for (let t = 0; t < tn; t += 3) { idx[tn + t] = m.idx[t] + n; idx[tn + t + 1] = m.idx[t + 2] + n; idx[tn + t + 2] = m.idx[t + 1] + n; }
+    const tm = new Uint32Array(m.tm.length * 2); tm.set(m.tm); tm.set(m.tm, m.tm.length);
+    m.pos = pos; m.nrm = nrm; m.uv = uv; m.col = col; m.idx = idx; m.tm = tm;
+}
+
 /* ---------- modelni qurish (vaqtinchalik sozlamalar bo'yicha) ---------- */
 function buildModel() {
     const o = opt(), meshes = [], mats = []; let hidden = 0;
@@ -6173,6 +6186,7 @@ function buildModel() {
             const tm = new Uint32Array(m.tm.length); for (let t = 0; t < tm.length; t++) tm[t] = m.tm[t] + off;
             const mesh = { name: m.name, pos, nrm: o.recalc ? null : nrm, uv: m.uv, col: m.col, idx: m.idx, tm };
             if (!mesh.nrm) computeSmoothNormals(mesh, o.crease);
+            if (o.back) addBackFaces(mesh);
             meshes.push(mesh);
         }
     }
@@ -6418,7 +6432,7 @@ function initMapPicker() {
     initGtaMap();
     initTexTool();
     ['txAutoUV', 'txTile'].forEach(id => $(id) && $(id).addEventListener('change', () => { if (S.raw.length && !S.busy) rebuild(); }));
-    ['cvUp', 'cvUnit', 'cvFit', 'cvScale', 'cvCrease', 'cvRecalc', 'cvHideDam', 'cvCenter', 'cvDouble'].forEach(id => $(id).addEventListener('change', () => { if (S.raw.length && !S.busy) { S.warn = S.warn.filter(w => !/^Tekstura topilmadi/.test(w)); rebuild(); } }));
+    ['cvUp', 'cvUnit', 'cvFit', 'cvScale', 'cvCrease', 'cvRecalc', 'cvHideDam', 'cvCenter', 'cvDouble', 'cvBack'].forEach(id => $(id).addEventListener('change', () => { if (S.raw.length && !S.busy) { S.warn = S.warn.filter(w => !/^Tekstura topilmadi/.test(w)); rebuild(); } }));
     // eski funksiyalar (1–5) yangi fayl yuklasa — konvertor ko'rinishi yashiriladi
     const oldIn = document.getElementById('fileInput'), oldDz = document.getElementById('dropZone');
     const releaseOld = () => { if (S.pivot) { hideModel(); } };
