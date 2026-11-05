@@ -2336,8 +2336,8 @@ const OPDEF = { door: { w: 1.0, h: 2.1, sill: 0 }, window: { w: 1.2, h: 1.2, sil
 function mkOp(type, c) { const d = OPDEF[type], D = S.P.def; return Object.assign({ id: uid(), type, c: round(c, 100), frame: D.frame, glass: D.glass, door: D.door, leaf: false, bars: 0, open: false, hinge: 'L', swing: 'out', ang: 90 }, d); }
 /* xona: 4 ta devor (soat strelkasi bo'yicha: tashqi tomon A) + pol plitasi */
 function addRoom(x1, y1, x2, y2, lv, o) {
-    o = o || {}; const xa = Math.min(x1, x2), xb = Math.max(x1, x2), ya = Math.min(y1, y2), yb = Math.max(y1, y2), h = WALL_T / 2, P = S.P, ids = [];
-    const ws = [mkWall(xa, ya + h, xa, yb - h, lv, { capA: false, capB: false }), mkWall(xa - h, yb, xb + h, yb, lv), mkWall(xb, yb - h, xb, ya + h, lv, { capA: false, capB: false }), mkWall(xb + h, ya, xa - h, ya, lv)];
+    o = o || {}; const xa = Math.min(x1, x2), xb = Math.max(x1, x2), ya = Math.min(y1, y2), yb = Math.max(y1, y2), T = o.t || WALL_T, h = T / 2, P = S.P, ids = [], tt = o.t ? { t: o.t } : {};
+    const ws = [mkWall(xa, ya + h, xa, yb - h, lv, Object.assign({ capA: false, capB: false }, tt)), mkWall(xa - h, yb, xb + h, yb, lv, tt), mkWall(xb, yb - h, xb, ya + h, lv, Object.assign({ capA: false, capB: false }, tt)), mkWall(xb + h, ya, xa - h, ya, lv, tt)];
     for (const w of ws) { P.walls.push(w); ids.push(w.id); }
     if (o.floor !== false) P.slabs.push(mkSlab(xa - h, ya - h, xb + h, yb + h, lv));
     return ws;
@@ -2386,8 +2386,124 @@ const TEMPLATES = [
 ];
 function applyTemplate(id) {
     const P = newProject(); S.P = P; S.lv = 0; S.sel = null; ASSETS.length = 0; ASSET_TEX.clear(); const t = TEMPLATES.find(x => x.id === id); if (t) t.make(P);
-    S.hist = []; S.hi = -1; commit(); afterLoad(); fitPlan(); fit3d(true);
+    S.hist = []; S.hi = -1; commit(); afterLoad(); fitPlan(); rebuildModel(); fit3d(true);
 }
+
+/* ===== Katta shablonlar: villa, boy uy, saroy, qal'a ===== */
+const T0 = WALL_T;
+const put = (w, type, x, y, ex) => { const op = mkOp(type, Math.hypot(x - w.x1, y - w.y1)); if (ex) Object.assign(op, ex); w.ops.push(op); return op; };
+const putH = (w, type, xs, y, ex) => xs.forEach(x => put(w, type, x, y, ex)); // gorizontal devorga (y o'zgarmas)
+const putV = (w, type, x, ys, ex) => ys.forEach(y => put(w, type, x, y, ex)); // vertikal devorga
+const plinth = dz => { const s = S.P.slabs[S.P.slabs.length - 1]; s.dz = dz; s.t = FOUND + dz; }; // oxirgi qo'shilgan xona pol plitasi balandligi
+const pad = (P, x1, y1, x2, y2, m) => P.slabs.push(mkSlab(x1, y1, x2, y2, 0, { t: 0.3, dz: -0.03, mT: m, mS: m, mB: m }));
+const merlons = (P, pts, lv, h) => pts.forEach(p => P.cols.push(mkCol(p[0], p[1], lv, { shape: 'square', r: 0.3, h, m: 5 })));
+const lineX = (x1, x2, y, st) => { const o = []; for (let x = x1; x <= x2 + 1e-6; x += st) o.push([x, y]); return o; };
+const lineY = (x, y1, y2, st) => { const o = []; for (let y = y1; y <= y2 + 1e-6; y += st) o.push([x, y]); return o; };
+const BIG = { w: 1.4, h: 2.4, sill: 0.6, bars: 2 };
+/* uchrashadigan devorlar: bir xil joyda ikkala devorga eshik */
+const link = (wa, wb, type, x, y, ex) => { put(wa, type, x, y, ex); put(wb, type, x, y, ex); };
+/* o'rab turuvchi devor + darvoza ustunlari */
+function estate(P, x1, y1, x2, y2, gx, gw, mat) {
+    const f = mkWall(x1, y1, x2, y1, 0, { t: 0.35, h: 1.9, mA: mat, mB: mat }); put(f, 'door', gx, y1, { w: gw, h: 1.9, sill: 0 }); P.walls.push(f);
+    P.walls.push(mkWall(x2, y1, x2, y2, 0, { t: 0.35, h: 1.9, mA: mat, mB: mat }), mkWall(x2, y2, x1, y2, 0, { t: 0.35, h: 1.9, mA: mat, mB: mat }), mkWall(x1, y2, x1, y1, 0, { t: 0.35, h: 1.9, mA: mat, mB: mat }));
+    for (const p of [[x1, y1], [x2, y1], [x1, y2], [x2, y2], [gx - gw / 2 - 0.25, y1], [gx + gw / 2 + 0.25, y1]]) P.cols.push(mkCol(p[0], p[1], 0, { shape: 'square', r: 0.38, h: 2.5, m: mat }));
+}
+TEMPLATES.push(
+{ id: 'villa', name: 'Zamonaviy villa 24 × 12', desc: 'Ikki qavat, konsol ustidagi ikkinchi qavat, katta oynalar, garaj, tekis tom, hovli.', make(P) {
+    Object.assign(P.def, { wallA: 2, wallB: 2, floor: 8, frame: 14, col: 14, roof: 6, gable: 2, under: 2 }); P.levels = [{ name: '1-qavat', h: 3.2 }, { name: '2-qavat', h: 3.0 }];
+    const g = addRoom(0, 0, 16, 11, 0);
+    putH(g[3], 'window', [3.0, 7.2], 0, { w: 3.0, h: 2.4, sill: 0.2, bars: 1 }); put(g[3], 'door', 11.6, 0, { w: 1.4, h: 2.4 }); put(g[3], 'window', 14.6, 0, { w: 1.0, h: 2.4, sill: 0.2, bars: 0 });
+    putH(g[1], 'window', [4, 11.6], 11, { w: 4.0, h: 2.4, sill: 0.2, bars: 1 }); put(g[0], 'window', 0, 5.5, { w: 1.6, h: 1.6, sill: 0.8 });
+    const gr = addRoom(16 + T0, 0, 23, 7, 0); put(gr[3], 'garage', 19.5, 0, { w: 5.0, h: 2.4 }); link(g[2], gr[0], 'door', 16.125, 4, { w: 1.0, h: 2.1 }); put(gr[2], 'window', 23, 3.5, { w: 1.0, h: 0.6, sill: 1.6 });
+    const u = addRoom(2, -1.5, 17, 10, 1); u[0].mA = 5; u[0].mB = 2;
+    putH(u[3], 'window', [5, 9.5, 14], -1.5, { w: 3.4, h: 1.8, sill: 0.5 }); putH(u[1], 'window', [5.5, 12.5], 10, { w: 3.0, h: 1.6, sill: 0.7 }); putV(u[2], 'window', 17, [2.5, 7.5], { w: 1.8, h: 1.6, sill: 0.7 }); put(u[0], 'window', 2, 4, { w: 2.0, h: 1.6, sill: 0.7 });
+    P.roofs.push(mkRoof(0, 0, 16, 11, 0, { type: 'flat', ov: 0.3, dz: -0.26 }), mkRoof(16 + T0, 0, 23, 7, 0, { type: 'flat', ov: 0.3, dz: -0.26 }), mkRoof(2, -1.5, 17, 10, 1, { type: 'flat', ov: 0.45 }));
+    for (const x of [4, 9.5, 15]) P.cols.push(mkCol(x, -1.3, 0, { shape: 'square', r: 0.1, m: 14 }));
+    const st = mkStair(13.2, 6.6, 0, { dir: 0, w: 1.0, len: 4.6 }); P.stairs.push(st); cutStairHole(st);
+    pad(P, -1, -10, 24.5, -1.7, 6); P.slabs.push(mkSlab(0, 11.3, 16, 15.5, 0, { t: 0.3, dz: -0.03, mT: 7, mS: 6, mB: 6 })); } },
+{ id: 'med', name: 'O‘rta yer dengizi villasi', desc: 'Krem devor, terrakota tom, ikki qavatli ayvon (kolonnalar), minora, yon qanot.', make(P) {
+    Object.assign(P.def, { wallA: 3, wallB: 2, floor: 8, frame: 16, col: 15, roof: 9, gable: 3, under: 2, slabSide: 3 }); P.levels = [{ name: '1-qavat', h: 3.4 }, { name: '2-qavat', h: 3.1 }, { name: '3-qavat', h: 3.0 }];
+    const m0 = addRoom(0, 0, 14, 10, 0); const m1 = addRoom(0, 0, 14, 10, 1);
+    putH(m0[3], 'window', [2.8, 11.4], 0, { w: 1.3, h: 1.9, sill: 0.8, bars: 2 }); put(m0[3], 'door', 7, 0, { w: 1.8, h: 2.6 }); putH(m0[1], 'window', [3.5, 7, 10.5], 10, { w: 1.3, h: 1.9, sill: 0.8, bars: 2 });
+    putH(m1[3], 'door', [4.2, 7, 9.8], 0, { w: 1.2, h: 2.4, sill: 0 }); putH(m1[1], 'window', [3.5, 7, 10.5], 10, { w: 1.3, h: 1.6, sill: 0.7, bars: 2 }); putV(m1[2], 'window', 14, [3, 7], { w: 1.3, h: 1.6, sill: 0.7, bars: 2 }); put(m0[2], 'window', 14, 8.6, { w: 1.3, h: 1.9, sill: 0.8, bars: 2 });
+    const tw = addRoom(-4 - T0, 0, -T0, 4, 0); const t1 = addRoom(-4 - T0, 0, -T0, 4, 1); const t2 = addRoom(-4 - T0, 0, -T0, 4, 2);
+    link(m0[0], tw[2], 'door', -0.125, 2, { w: 1.0, h: 2.1 }); putH(tw[3], 'window', [-2 - T0], 0, { w: 0.9, h: 1.8, sill: 0.8 }); putV(tw[0], 'window', -4 - T0, [2], { w: 0.9, h: 1.8, sill: 0.8 });
+    for (const t of [t1, t2]) { putH(t[3], 'window', [-2 - T0], 0, { w: 0.9, h: 1.7, sill: 0.6 }); putV(t[0], 'window', -4 - T0, [2], { w: 0.9, h: 1.7, sill: 0.6 }); }
+    const wg = addRoom(14 + T0, 0, 22, 7, 0); link(m0[2], wg[0], 'door', 14.125, 3.5, { w: 1.0, h: 2.1 }); putH(wg[3], 'window', [17, 20], 0, { w: 1.3, h: 1.9, sill: 0.8, bars: 2 }); put(wg[1], 'window', 18.5, 7, { w: 1.3, h: 1.9, sill: 0.8, bars: 2 }); put(wg[2], 'window', 22, 3.5, { w: 1.3, h: 1.9, sill: 0.8, bars: 2 });
+    P.slabs.push(mkSlab(1.5, -3.2, 12.5, -0.15, 0, { t: 0.4, dz: 0, mT: 15, mS: 3, mB: 3 }), mkSlab(1.5, -3.2, 12.5, -0.15, 1, { t: 0.25, mT: 15, mS: 3, mB: 3 }));
+    for (const x of [2.5, 4.75, 7, 9.25, 11.5]) P.cols.push(mkCol(x, -3, 0, { r: 0.22, h: 6.5, m: 15 }));
+    P.walls.push(mkWall(1.8, -2.75, 12.2, -2.75, 1, { h: 0.95, t: 0.18, mA: 3, mB: 3 }), mkWall(1.8, -2.75, 1.8, -0.2, 1, { h: 0.95, t: 0.18, mA: 3, mB: 3 }), mkWall(12.2, -2.75, 12.2, -0.2, 1, { h: 0.95, t: 0.18, mA: 3, mB: 3 }));
+    P.roofs.push(mkRoof(0, 0, 14, 10, 1, { type: 'hip', pitch: 22, ov: 0.6 }), mkRoof(1.5, -3.5, 12.5, 0.4, 1, { type: 'shed', dir: 0, pitch: 14, ov: 0.3 }), mkRoof(-4 - T0, 0, -T0, 4, 2, { type: 'hip', pitch: 40, ov: 0.5 }), mkRoof(14 + T0, 0, 22, 7, 0, { type: 'hip', pitch: 22, ov: 0.5 }));
+    P.cols.push(mkCol(12.6, 8.9, 1, { shape: 'square', r: 0.4, h: 5.0, m: 1 }));
+    const st = mkStair(11.7, 7.4, 0, { dir: 0, w: 1.1, len: 4.4 }); P.stairs.push(st); cutStairHole(st);
+    pad(P, 0.5, 10.3, 13.5, 14.5, 15); pad(P, -6, -9, 24, -3.4, 5); } },
+{ id: 'mansion', name: 'Boy uyi (mansion) 22 × 12', desc: 'Qizil g‘isht, ustunli portik, ikki qavat, garaj, kuz bog‘i (kolonnali devor), darvozali to‘siq.', make(P) {
+    Object.assign(P.def, { wallA: 1, wallB: 2, floor: 7, frame: 16, col: 15, roof: 11, gable: 2, under: 2, slabSide: 6 }); P.levels = [{ name: '1-qavat', h: 3.6 }, { name: '2-qavat', h: 3.3 }];
+    const a = addRoom(0, 0, 22, 12, 0); plinth(0.5); const b = addRoom(0, 0, 22, 12, 1);
+    put(a[3], 'door', 11, 0, { w: 1.8, h: 2.7, sill: 0.5 }); putH(a[3], 'window', [3.2, 6, 16, 18.8], 0, { w: 1.1, h: 2.0, sill: 1.0, bars: 2 }); putH(a[3], 'window', [9.2, 12.8], 0, { w: 0.6, h: 2.0, sill: 1.0, bars: 0 });
+    putH(b[3], 'window', [3.2, 6, 16, 18.8], 0, { w: 1.1, h: 1.9, sill: 0.6, bars: 2 }); put(b[3], 'door', 11, 0, { w: 1.2, h: 2.4, sill: 0 });
+    putH(a[1], 'window', [4, 9, 14, 19], 12, { w: 1.1, h: 2.0, sill: 1.0, bars: 2 }); putH(b[1], 'window', [4, 9, 14, 19], 12, { w: 1.1, h: 1.9, sill: 0.6, bars: 2 });
+    putV(b[0], 'window', 0, [3, 9], { w: 1.1, h: 1.9, sill: 0.6, bars: 2 }); putV(b[2], 'window', 22, [3, 9], { w: 1.1, h: 1.9, sill: 0.6, bars: 2 }); put(a[2], 'window', 22, 3, { w: 1.1, h: 2.0, sill: 1.0, bars: 2 });
+    const sr = addRoom(-7, 1.5, -T0, 10.5, 0); plinth(0.5); link(a[0], sr[2], 'door', -0.125, 6, { w: 1.6, h: 2.4, sill: 0.5 });
+    putH(sr[3], 'window', [-3.6], 1.5, { w: 2.4, h: 2.1, sill: 0.9, bars: 1 }); putH(sr[1], 'window', [-3.6], 10.5, { w: 2.4, h: 2.1, sill: 0.9, bars: 1 }); putV(sr[0], 'window', -7, [4.2, 7.8], { w: 2.2, h: 2.1, sill: 0.9, bars: 1 });
+    const gr = addRoom(22 + T0, 0, 31, 9.5, 0); gr.forEach(w => { w.h = 3.0; }); putH(gr[3], 'garage', [24.2, 28.0], 0, { w: 3.0, h: 2.4 }); link(a[2], gr[0], 'door', 22.125, 6, { w: 1.0, h: 2.1, sill: 0.5 }); put(gr[2], 'window', 31, 4.7, { w: 1.1, h: 0.8, sill: 1.6, bars: 0 });
+    P.roofs.push(mkRoof(0, 0, 22, 12, 1, { type: 'hip', pitch: 30, ov: 0.55 }), mkRoof(-7, 1.5, -T0, 10.5, 0, { type: 'flat', ov: 0.3, m: 6 }), mkRoof(22 + T0, 0, 31, 9.5, 0, { type: 'gable', dir: 0, pitch: 24, ov: 0.45, dz: -0.6 }));
+    P.slabs.push(mkSlab(6.2, -3.6, 15.8, -0.15, 0, { t: 0.8, dz: 0.5, mT: 15, mS: 15, mB: 15 }));
+    for (const x of [7.7, 9.9, 12.1, 14.3]) P.cols.push(mkCol(x, -3.2, 0, { r: 0.3, h: 6.9, m: 15 }));
+    P.roofs.push(mkRoof(6.4, -3.6, 15.6, 0.4, 1, { type: 'gable', dir: 1, pitch: 22, ov: 0.2, mG: 2, mU: 2 }));
+    P.stairs.push(mkStair(11, -4.5, 0, { dir: 0, w: 3.6, len: 1.8, rise: 0.5, m: 15 }));
+    const st = mkStair(11, 8.6, 0, { dir: 0, w: 1.8, len: 5.2 }); P.stairs.push(st); cutStairHole(st);
+    for (const p of [[2.5, 2.5], [19.5, 2.5]]) P.cols.push(mkCol(p[0], p[1], 1, { shape: 'square', r: 0.45, h: 6.4, m: 1 }));
+    pad(P, 9, -12, 13, -5.4, 6); estate(P, -10, -12, 34, 16, 11, 4.4, 5); } },
+{ id: 'palace', name: 'Saroy (qasr) 42 × 14', desc: 'Klassik saroy: markaziy zal 3 qavat, ikki qanot, 6 ustunli portik + balkon, zinapoya, yashil tomlar, darvozali to‘siq.', make(P) {
+    Object.assign(P.def, { wallA: 3, wallB: 2, floor: 15, frame: 16, col: 15, roof: 10, gable: 15, under: 2, slabSide: 15, stair: 15 }); P.levels = [{ name: '1-qavat', h: 4.5 }, { name: '2-qavat', h: 4.0 }, { name: '3-qavat', h: 3.4 }];
+    const L = [addRoom(0, 0, 14, 14, 0)]; plinth(0.9); L.push(addRoom(0, 0, 14, 14, 1));
+    const C = [addRoom(14 + T0, 0, 28 - T0, 14, 0)]; plinth(0.9); C.push(addRoom(14 + T0, 0, 28 - T0, 14, 1), addRoom(14 + T0, 0, 28 - T0, 14, 2));
+    const R = [addRoom(28, 0, 42, 14, 0)]; plinth(0.9); R.push(addRoom(28, 0, 42, 14, 1));
+    const wx = [2.5, 5.5, 8.5, 11.5], wx2 = wx.map(x => 42 - x);
+    for (const [W, xs] of [[L, wx], [R, wx2]]) {
+        putH(W[0][3], 'window', xs, 0, { w: 1.4, h: 2.4, sill: 1.5, bars: 2 }); putH(W[0][1], 'window', xs, 14, { w: 1.4, h: 2.4, sill: 1.5, bars: 2 });
+        putH(W[1][3], 'window', xs, 0, { w: 1.4, h: 2.4, sill: 0.7, bars: 2 }); putH(W[1][1], 'window', xs, 14, { w: 1.4, h: 2.4, sill: 0.7, bars: 2 });
+        const sx = W === L ? 0 : 42; for (const k of [0, 1]) putV(W[k][W === L ? 0 : 2], 'window', sx, [4, 10], { w: 1.4, h: 2.4, sill: k ? 0.7 : 1.5, bars: 2 });
+    }
+    link(L[0][2], C[0][0], 'door', 14.125, 7, { w: 2.0, h: 2.8, sill: 0.9 }); link(R[0][0], C[0][2], 'door', 27.875, 7, { w: 2.0, h: 2.8, sill: 0.9 }); link(L[1][2], C[1][0], 'door', 14.125, 7, { w: 2.0, h: 2.8 }); link(R[1][0], C[1][2], 'door', 27.875, 7, { w: 2.0, h: 2.8 });
+    put(C[0][3], 'door', 21, 0, { w: 2.8, h: 3.6, sill: 0.9 }); putH(C[0][3], 'window', [16.6, 25.4], 0, { w: 1.4, h: 2.6, sill: 1.5, bars: 2 });
+    putH(C[1][3], 'door', [17.8, 24.2], 0, { w: 1.6, h: 2.9, sill: 0 }); put(C[1][3], 'window', 21, 0, { w: 1.4, h: 2.6, sill: 0.7, bars: 2 });
+    putH(C[0][1], 'window', [17, 21, 25], 14, { w: 1.6, h: 2.6, sill: 1.5, bars: 2 }); putH(C[1][1], 'window', [17, 21, 25], 14, { w: 1.6, h: 2.6, sill: 0.7, bars: 2 });
+    putH(C[2][3], 'window', [17, 21, 25], 0, { w: 1.4, h: 2.2, sill: 0.6, bars: 2 }); putH(C[2][1], 'window', [17, 21, 25], 14, { w: 1.4, h: 2.2, sill: 0.6, bars: 2 });
+    P.roofs.push(mkRoof(0, 0, 14, 14, 1, { type: 'hip', pitch: 25, ov: 0.55 }), mkRoof(28, 0, 42, 14, 1, { type: 'hip', pitch: 25, ov: 0.55 }), mkRoof(14 + T0, 0, 28 - T0, 14, 2, { type: 'hip', pitch: 30, ov: 0.55 }));
+    P.slabs.push(mkSlab(13.8, -5.8, 28.2, -0.15, 0, { t: 1.3, dz: 0.9, mT: 15, mS: 15, mB: 15 }), mkSlab(13.8, -5.8, 28.2, -0.15, 1, { t: 0.4, mT: 15, mS: 15, mB: 15 }));
+    for (const x of [15, 17.4, 19.8, 22.2, 24.6, 27]) P.cols.push(mkCol(x, -5, 0, { r: 0.4, h: 8.5, m: 15 }));
+    const rl = { h: 1.0, t: 0.2, mA: 15, mB: 15 }; P.walls.push(mkWall(14.2, -5.6, 27.8, -5.6, 1, rl), mkWall(14.2, -5.6, 14.2, -0.2, 1, rl), mkWall(27.8, -5.6, 27.8, -0.2, 1, rl));
+    P.roofs.push(mkRoof(13.8, -5.9, 28.2, 0.4, 1, { type: 'gable', dir: 1, pitch: 20, ov: 0.3, m: 10, mG: 15, mU: 15 }));
+    P.stairs.push(mkStair(21, -7.3, 0, { dir: 0, w: 7, len: 3.0, rise: 0.9, m: 15 }));
+    const st = mkStair(21, 8.2, 0, { dir: 0, w: 2.4, len: 9.0 }); P.stairs.push(st); cutStairHole(st);
+    const st2 = mkStair(21, 8.2, 1, { dir: 0, w: 2.4, len: 9.0 }); P.stairs.push(st2); cutStairHole(st2);
+    pad(P, 8, -22, 34, -9.2, 5); estate(P, -6, -22, 48, 24, 21, 6, 3); } },
+{ id: 'castle', name: 'Qal‘a (qirollik qasri) 36 × 30', desc: 'Tosh qal‘a: 4 burchak minora, devor tishlari, darvoza, markaziy bosh qasr (3 qavat, zina, tom maydoni).', make(P) {
+    Object.assign(P.def, { wallA: 5, wallB: 4, floor: 7, frame: 14, col: 5, roof: 10, gable: 5, under: 4, slabSide: 5, stair: 5 }); P.levels = [{ name: '1-qavat', h: 4 }, { name: '2-qavat', h: 4 }, { name: '3-qavat', h: 4 }, { name: 'Tepa', h: 1.2 }];
+    const TW = [[0, 0], [36, 0], [0, 30], [36, 30]];
+    for (const [cx, cy] of TW) {
+        for (let lv = 0; lv < 4; lv++) {
+            const w = addRoom(cx - 3, cy - 3, cx + 3, cy + 3, lv, { t: 0.8 }); if (lv === 3) w.forEach(q => { q.h = 3; });
+            const fx = cx < 18 ? cx - 3 : cx + 3, fy = cy < 15 ? cy - 3 : cy + 3;
+            if (lv < 3) { put(w[cx < 18 ? 0 : 2], 'window', fx, cy, { w: 0.35, h: 1.3, sill: 1.3, bars: 0, frame: 14 }); put(w[cy < 15 ? 3 : 1], 'window', cx, fy, { w: 0.35, h: 1.3, sill: 1.3, bars: 0 }); }
+            else for (const q of w) put(q, 'window', (q.x1 + q.x2) / 2, (q.y1 + q.y2) / 2, { w: 0.8, h: 1.4, sill: 0.8, bars: 1 });
+        }
+        P.roofs.push(mkRoof(cx - 3, cy - 3, cx + 3, cy + 3, 3, { type: 'hip', pitch: 62, ov: 0.6, dz: 1.8 }));
+    }
+    const cw = (x1, y1, x2, y2) => { for (let lv = 0; lv < 2; lv++) P.walls.push(mkWall(x1, y1, x2, y2, lv, { t: 1.2, mA: 5, mB: 5 })); };
+    cw(3, 0, 33, 0); cw(33, 30, 3, 30); cw(0, 27, 0, 3); cw(36, 3, 36, 27);
+    put(P.walls.find(w => w.y1 === 0 && w.y2 === 0 && w.lv === 0), 'door', 18, 0, { w: 4, h: 3.6, sill: 0 });
+    merlons(P, [].concat(lineX(3.6, 32.4, 0, 1.5), lineX(3.6, 32.4, 30, 1.5), lineY(0, 3.6, 26.4, 1.5), lineY(36, 3.6, 26.4, 1.5)), 2, 1.0);
+    const k = addRoom(11, 8, 25, 22, 0, { t: 0.8 }); const k1 = addRoom(11, 8, 25, 22, 1, { t: 0.8 }); const k2 = addRoom(11, 8, 25, 22, 2, { t: 0.8 });
+    put(k[3], 'door', 18, 8, { w: 2.4, h: 3.2, sill: 0 }); for (const K of [k1, k2]) { putH(K[3], 'window', [14.5, 18, 21.5], 8, { w: 1.0, h: 1.7, sill: 1.0, bars: 1 }); putH(K[1], 'window', [14.5, 18, 21.5], 22, { w: 1.0, h: 1.7, sill: 1.0, bars: 1 }); putV(K[0], 'window', 11, [12, 15, 18], { w: 1.0, h: 1.7, sill: 1.0, bars: 1 }); putV(K[2], 'window', 25, [12, 15, 18], { w: 1.0, h: 1.7, sill: 1.0, bars: 1 }); }
+    putH(k[1], 'window', [14.5, 21.5], 22, { w: 1.0, h: 1.7, sill: 1.0, bars: 1 }); putV(k[0], 'window', 11, [12, 18], { w: 1.0, h: 1.7, sill: 1.0, bars: 1 }); putV(k[2], 'window', 25, [12, 18], { w: 1.0, h: 1.7, sill: 1.0, bars: 1 });
+    P.slabs.push(mkSlab(10.4, 7.4, 25.6, 22.6, 3, { t: 0.4, mT: 5, mS: 5, mB: 4 }));
+    const sp = []; for (let x = 10.8; x <= 25.2 + 1e-6; x += 1.4) { sp.push([x, 7.6], [x, 22.4]); } for (let y = 9; y <= 21 + 1e-6; y += 1.4) { sp.push([10.6, y], [25.4, y]); } merlons(P, sp, 3, 1.0);
+    for (let lv = 0; lv < 3; lv++) { const st = mkStair(13.2, 15, lv, { dir: 0, w: 1.6, len: 6.4 }); P.stairs.push(st); cutStairHole(st); }
+    pad(P, -4, -4, 40, 34, 5); } }
+);
 
 /* ===== 2D reja: chizish va boshqarish ===== */
 const cv = $('plan'), cx = cv.getContext('2d'); let PW = 300, PH = 300, DPR = 1;
@@ -2691,8 +2807,8 @@ function init3d() {
     const cam = V3.cam = new THREE.PerspectiveCamera(45, 1, 0.1, 800); cam.position.set(14, 10, 16);
     const ctrl = V3.ctrl = new THREE.OrbitControls(cam, r.domElement); ctrl.enableDamping = true; ctrl.dampingFactor = 0.12; ctrl.maxPolarAngle = Math.PI * 0.497; ctrl.target.set(4, 1.5, -3);
     sc.add(new THREE.HemisphereLight(0xdbe9ff, 0x1a2436, 0.95));
-    const dl = new THREE.DirectionalLight(0xfff4e0, 0.85); dl.position.set(14, 26, 12); dl.castShadow = true; dl.shadow.mapSize.set(2048, 2048); const sh = dl.shadow.camera; sh.left = -26; sh.right = 26; sh.top = 26; sh.bottom = -26; sh.near = 1; sh.far = 90; dl.shadow.bias = -0.0004; sc.add(dl);
-    const gr = V3.ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0x24362c })); gr.rotation.x = -Math.PI / 2; gr.position.y = -0.005; gr.receiveShadow = true; sc.add(gr);
+    const dl = new THREE.DirectionalLight(0xfff4e0, 0.85); dl.position.set(14, 26, 12); dl.castShadow = true; dl.shadow.mapSize.set(2048, 2048); const sh = dl.shadow.camera; sh.left = -26; sh.right = 26; sh.top = 26; sh.bottom = -26; sh.near = 1; sh.far = 90; dl.shadow.bias = -0.0004; sc.add(dl); sc.add(dl.target); V3.dl = dl;
+    const gr = V3.ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0x24362c })); gr.rotation.x = -Math.PI / 2; gr.position.y = -0.06; gr.receiveShadow = true; sc.add(gr);
     const grid = new THREE.GridHelper(80, 80, 0x3b5a46, 0x2f4638); grid.position.y = 0.002; sc.add(grid);
     V3.house = new THREE.Group(); V3.house.rotation.x = -Math.PI / 2; sc.add(V3.house);
     // odam (o'lchov uchun)
@@ -2719,6 +2835,11 @@ function updateScene() {
         const mesh = new THREE.Mesh(g, m); mesh.castShadow = !glassy; mesh.receiveShadow = true; mesh.frustumCulled = false; if (glassy) mesh.renderOrder = 2; grp.add(mesh);
     }
     const bb = model.bb; V3.man.position.set(bb.min[0] - 1.4, 0, -(bb.min[1] + (bb.max[1] - bb.min[1]) * 0.3)); V3.man.visible = V3.showMan; V3.need = true;
+    { // katta modellar (qal'a, saroy): tuman va soya maydoni modelga moslashadi
+        const L = Math.max(model.L, 12), k = Math.max(1, L / 30), cx = (bb.min[0] + bb.max[0]) / 2, cy = (bb.min[1] + bb.max[1]) / 2, cz = (bb.min[2] + bb.max[2]) / 2, dl = V3.dl;
+        V3.scene.fog.near = Math.max(30, L * 3); V3.scene.fog.far = Math.max(120, L * 10);
+        if (dl) { dl.target.position.set(cx, cz, -cy); dl.position.set(cx + 14 * k, cz + 26 * k, -cy + 12 * k); const h = Math.max(26, L * 0.75), c = dl.shadow.camera; c.left = -h; c.right = h; c.top = h; c.bottom = -h; c.far = 90 * k + 60; c.updateProjectionMatrix(); dl.target.updateMatrixWorld(); }
+    }
     if (!V3.framed) { V3.framed = true; fit3d(true); }
 }
 function fit3d(force) {
