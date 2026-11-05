@@ -451,6 +451,17 @@
         #cvCard .cv-qs .btn { flex: 1 1 48px; min-width: 48px; height: 34px; font-size: 12px; padding: 0 6px; }
         body.cv-busy #cvCard .cv-exports .btn, body.cv-busy #cvCard #cvDrop { opacity: 0.6; pointer-events: none; }
         @media (max-width: 420px) { #cvCard .cv-grid { grid-template-columns: 1fr; } }
+        #cvCard .cv-txlist { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; font: 600 12px var(--font); color: var(--text-muted, #9fb0c8); }
+        #cvCard .cv-txrow { display: grid; grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 8px; align-items: center; }
+        #cvCard .cv-txrow select, #cvCard #txAll { height: 34px; min-width: 0; background: var(--card-2); color: var(--text-color); border: 1px solid var(--border); border-radius: 9px; font: 600 12px var(--font); padding: 0 8px; }
+        #cvCard .cv-sw { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--border); }
+        #cvCard .cv-txn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-color); }
+        #cvCard .cv-txs { font-size: 11px; color: var(--accent); }
+        #cvCard .cv-txpick { cursor: pointer; }
+        #cvCard #txBox .cv-grid input[type="text"], #cvCard #txBox .cv-grid input[type="number"], #cvCard #txBox .cv-grid select { width: 100%; height: 36px; padding: 0 10px; background: var(--card-2); color: var(--text-color); border: 1px solid var(--border); border-radius: 9px; font: 600 12px var(--font); outline: none; }
+        #cvCard .cv-hint { font: 600 12px var(--font); color: var(--text-muted, #9fb0c8); line-height: 1.5; }
+        #cvCard #txBox .cv-txex { display: grid; grid-template-columns: 1fr; gap: 8px; }
+        #cvCard #txBox .opt-row .btn, #cvCard #txBox .opt-row select { flex: 1 1 140px; }
     </style>
 </head>
 <body>
@@ -653,6 +664,29 @@
                 <button class="btn btn-export cv-ex" data-k="glb" type="button" disabled>Export .GLB</button>
                 <button class="btn cv-ex" data-k="png" type="button" disabled>Teksturalar .PNG</button>
             </div>
+            <details class="cv-det" id="txBox">
+                <summary>Tekstura biriktirish · DFF uchun TXD yasash</summary>
+                <div class="cv-hint">TXD si yo‘q DFF ni yuklang, so‘ng istalgan rasmni tanlang — u modelning materiallariga biriktiriladi. Keyin shu modelga mos DFF + TXD saqlanadi.</div>
+                <div class="opt-row">
+                    <label class="btn cv-txpick">Rasm tanlash (PNG / JPG / BMP / TGA…)<input type="file" id="txImg" accept="image/*,.tga,.dds,.bmp" multiple hidden></label>
+                    <select id="txAll" title="Hamma materialga biriktiriladigan rasm"></select>
+                    <button class="btn" id="txAllBtn" type="button" disabled>Hammasiga</button>
+                    <button class="btn" id="txResetBtn" type="button">Asl holat</button>
+                </div>
+                <div id="txList" class="cv-txlist">Avval model faylini (DFF yoki boshqa) yuklang.</div>
+                <div class="cv-grid">
+                    <label class="cv-f"><span>Fayl nomi (DFF va TXD)</span><input type="text" id="txName" maxlength="20" placeholder="myhouse"></label>
+                    <label class="cv-f"><span>TXD format</span><select id="txFmt"><option value="dxt" selected>DXT (kichik, GTA uchun)</option><option value="argb">32-bit ARGB (sifatli, katta)</option></select></label>
+                    <label class="cv-f"><span>Maks. o‘lcham</span><select id="txMax"><option value="256">256</option><option value="512">512</option><option value="1024" selected>1024</option><option value="2048">2048</option></select></label>
+                    <label class="cv-f"><span>UV yo‘q bo‘lsa — plitka (m)</span><input type="number" id="txTile" min="0" step="0.1" value="0" title="0 = avto (model o‘lchamining 1/3 qismi)"></label>
+                </div>
+                <div class="opt-row"><label class="chk" title="Modelda UV bo‘lmasa, rasm yopishishi uchun quti proyeksiyasi bilan UV yaratadi"><input type="checkbox" id="txAutoUV" checked> UV yo‘q bo‘lsa avtomatik yaratish</label></div>
+                <div class="export-grid cv-txex">
+                    <button class="btn btn-export cv-ex" data-k="txzip" type="button" disabled>DFF + TXD (ZIP, 2 ta fayl)</button>
+                    <button class="btn btn-export cv-ex" data-k="txone" type="button" disabled>DFF (TXD ichida, 1 fayl)</button>
+                </div>
+            </details>
+
             <details class="cv-det" id="cvMapBox">
                 <summary>GTA SA xaritasiga qo‘shish (COL · IDE · IPL)</summary>
                 <div class="cv-grid">
@@ -5871,9 +5905,82 @@ function initGtaMap() {
     window.CVGM = { GM, gmIndex, gmDraw, gmParseIde, gmParseIplText, gmParseIplBin, gmReadImg, gmGround, gmPlaceHouse };
 }
 
+/* ---------- Tekstura biriktirish: DFF ga rasm tanlab TXD yasash ---------- */
+const NONE = '__none__';
+
+/* UV yo'q mesh uchun quti (box) proyeksiya: har uchburchak o'z o'qi bo'yicha proyeksiyalanadi (vertexlar ajratiladi) */
+function genBoxUV(m, tile) {
+    const nT = m.idx.length / 3, pos = m.pos, P = [], N = m.nrm ? [] : null, U = [], C = m.col ? [] : null, idx = new Uint32Array(nT * 3);
+    for (let t = 0; t < nT; t++) {
+        const ia = m.idx[t * 3], ib = m.idx[t * 3 + 1], ic = m.idx[t * 3 + 2], a = ia * 3, b = ib * 3, c = ic * 3;
+        const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2], vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
+        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+        [ia, ib, ic].forEach((vi, k) => {
+            const x = pos[vi * 3], y = pos[vi * 3 + 1], z = pos[vi * 3 + 2]; P.push(x, y, z);
+            if (N) N.push(m.nrm[vi * 3], m.nrm[vi * 3 + 1], m.nrm[vi * 3 + 2]);
+            if (C) C.push(m.col[vi * 4], m.col[vi * 4 + 1], m.col[vi * 4 + 2], m.col[vi * 4 + 3]);
+            let u, v; if (ax >= ay && ax >= az) { u = (nx > 0 ? y : -y) / tile; v = z / tile; } else if (ay >= az) { u = (ny > 0 ? -x : x) / tile; v = z / tile; } else { u = (nz > 0 ? x : -x) / tile; v = y / tile; }
+            U.push(u, v); idx[t * 3 + k] = t * 3 + k;
+        });
+    }
+    m.pos = new Float32Array(P); m.nrm = N ? new Float32Array(N) : null; m.uv = new Float32Array(U); m.col = C ? new Uint8Array(C) : null; m.idx = idx;
+}
+
+/* material ro'yxati */
+function refreshTexList() {
+    const box = $('txList'), all = $('txAll'); if (!box) return;
+    const m = S.model, keys = Array.from(S.tex.keys());
+    all.innerHTML = ''; for (const k of keys) { const o = document.createElement('option'); o.value = k; o.textContent = k; all.appendChild(o); }
+    $('txAllBtn').disabled = !(m && keys.length);
+    if (!m) { box.textContent = 'Avval model faylini (DFF yoki boshqa) yuklang.'; return; }
+    box.innerHTML = '';
+    m.mats.forEach(mt => {
+        const row = document.createElement('div'); row.className = 'cv-txrow';
+        const sw = document.createElement('span'); sw.className = 'cv-sw'; sw.style.background = 'rgb(' + mt.color[0] + ',' + mt.color[1] + ',' + mt.color[2] + ')';
+        const nm = document.createElement('span'); nm.className = 'cv-txn'; nm.textContent = mt.name; nm.title = mt.name;
+        const sel = document.createElement('select');
+        const add = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
+        add('', '(asl)'); add(NONE, 'Teksturasiz'); for (const k of keys) add(k, k);
+        const cur = S.texAssign.get(mt.key); sel.value = cur !== undefined && (cur === NONE || S.tex.has(cur)) ? cur : '';
+        const st = document.createElement('span'); st.className = 'cv-txs'; st.textContent = mt.tex ? (S.tex.has(mt.tex) ? '✓' : '✗ ' + mt.tex) : '';
+        sel.addEventListener('change', () => { if (sel.value === '') S.texAssign.delete(mt.key); else S.texAssign.set(mt.key, sel.value); rebuild(); });
+        row.append(sw, nm, sel, st); box.appendChild(row);
+    });
+}
+
+/* eksport: DFF + TXD (ZIP yoki bitta fayl) */
+async function doTex(kind, m) {
+    const nm = gtaName($('txName').value.trim() || m.name), mm = Object.assign({}, m, { name: nm });
+    const r = exportDff(mm, { single: $('cvDffMode').value === 'single', prelit: $('cvDffPrelit').checked });
+    const have = r.keys.filter(k => S.tex.has(k));
+    if (!have.length) throw new Error('Modelda tekstura yo\'q — yuqoridagi "Rasm tanlash" bilan rasm tanlang va materialga biriktiring.');
+    const t = buildTxd({ tex: S.tex }, have, { fmt: $('txFmt').value, pot: true, maxSize: parseInt($('txMax').value, 10) || 1024 });
+    const mb = t.bytes.length / 1048576, info = have.length + ' tekstura · TXD ' + mb.toFixed(2) + ' MB · DFF ' + (r.bytes.length / 1048576).toFixed(2) + ' MB';
+    const miss = m.mats.filter(x => x.tex && !S.tex.has(x.tex)).length;
+    const tail = (miss ? ' ⚠ ' + miss + ' ta materialning teksturasi yo\'q (oq chiqadi).' : '') + (mb > 8 ? ' ⚠ TXD katta — o\'yin uchun DXT va kichikroq o\'lcham tanlang.' : '');
+    if (kind === 'txzip') { const z = zipStore([{ name: nm + '.dff', data: r.bytes }, { name: nm + '.txd', data: t.bytes }]); dl(z, nm + '_dff_txd.zip'); setMsg('DFF + TXD (ZIP) saqlandi: ' + info + '.' + tail, miss > 0 && !have.length); }
+    else { const b = new Uint8Array(r.bytes.length + t.bytes.length); b.set(r.bytes, 0); b.set(t.bytes, r.bytes.length); dl(toBlob(b), nm + '.dff'); setMsg('DFF (ichida TXD) saqlandi: ' + info + '. Eslatma: GTA o\'yini TXD ni DFF ichidan o\'qimaydi — o\'yin uchun ZIP (alohida fayllar) ni oling.' + tail); }
+}
+
+function initTexTool() {
+    const inp = $('txImg'); if (!inp) return;
+    inp.addEventListener('change', async e => {
+        const files = Array.from(e.target.files); e.target.value = ''; if (!files.length || S.busy) return;
+        const before = new Set(S.tex.keys()); await loadFiles(files);
+        const added = Array.from(S.tex.keys()).filter(k => !before.has(k)), m = S.model;
+        if (m && added.length === 1 && !m.mats.some(x => x.tex && S.tex.has(x.tex))) { // hech bir materialda tekstura yo'q: bitta rasm hammasiga biriktiriladi
+            for (const x of m.mats) S.texAssign.set(x.key, added[0]); rebuild(); setMsg('"' + added[0] + '" rasmi barcha ' + m.mats.length + ' materialga biriktirildi. Kerak bo\'lsa ro\'yxatdan o\'zgartiring.');
+        } else refreshTexList();
+    });
+    $('txAllBtn').addEventListener('click', () => { const m = S.model, k = $('txAll').value; if (!m || !k) return; for (const x of m.mats) S.texAssign.set(x.key, k); rebuild(); setMsg('"' + k + '" barcha materialga biriktirildi.'); });
+    $('txResetBtn').addEventListener('click', () => { S.texAssign.clear(); if (S.raw.length) rebuild(); else refreshTexList(); setMsg('Biriktirishlar bekor qilindi (asl holat).'); });
+    document.addEventListener('cv-model-changed', refreshTexList);
+    refreshTexList();
+}
+
 /* ===== Konvertor: yuklash, qayta ishlash, ko'rsatish, eksport tugmalari ===== */
 const $ = id => document.getElementById(id);
-const S = { raw: [], tex: new Map(), model: null, names: [], warn: [], pivot: null, saved: null, busy: false };
+const S = { raw: [], tex: new Map(), model: null, names: [], warn: [], pivot: null, saved: null, busy: false, texAssign: new Map() };
 const MODEL_EXT = new Set(['obj', 'stl', 'ply', '3ds', 'dxf', 'dff', 'svg', 'wrl', 'vrml', 'fbx', 'dae', 'gltf', 'glb', 'usda', 'usd', 'usdz', 'kmz']);
 const UNSUPPORTED = {
     blend: 'Blender .blend faylini brauzer o\'qiy olmaydi. Blenderda File ▸ Export ▸ glTF (.glb) yoki OBJ/FBX qilib saqlang.',
@@ -5947,7 +6054,7 @@ async function loadFiles(fileList) {
         for (const b of bad) S.warn.push(baseName(b.name) + ': ' + UNSUPPORTED[extOf(b.name)]);
         for (const e of entries) { const x = extOf(e.name); if (!MODEL_EXT.has(x) && !IMG_EXT.has(x) && x !== 'txd' && x !== 'mtl' && x !== 'bin' && !UNSUPPORTED[x] && !/^(png|jpg|jpeg|bmp|gif|webp|tga|dds|kml|xml|json|txt|mat)$/.test(x)) S.warn.push(baseName(e.name) + ': noma\'lum format (' + (x || 'kengaytmasiz') + ') — o\'tkazib yuborildi.'); }
         const newModel = models.length > 0;
-        if (newModel) { S.raw = []; S.tex = new Map(); S.names = []; }
+        if (newModel) { S.raw = []; S.tex = new Map(); S.names = []; S.texAssign = new Map(); }
         else if (!S.raw.length && !txds.length && !imgs.length) { throw new Error(bad.length ? 'Bu format qo\'llanmaydi (pastdagi izohga qarang).' : 'Model fayl topilmadi.'); }
         // teksturalar: rasm fayllari, TXD
         for (const im of imgs) { try { const cv = await decodeImage(im.buf, im.name); S.tex.set(texKey(im.name), { name: stemOf(im.name), canvas: cv, alpha: hasAlphaPixels(cv) }); } catch (e) { S.warn.push(baseName(im.name) + ': ' + e.message); } }
@@ -5973,7 +6080,11 @@ function buildModel() {
     for (const r of S.raw) {
         const up = o.up === 'auto' ? (r.up || 'y') : o.up;
         const k = o.unit === 'auto' ? (r.unit != null ? r.unit : 1) : (UNIT_M[o.unit] || 1);
-        const off = mats.length; r.mats.forEach(m => mats.push({ name: m.name, color: m.color.slice(), tex: m.tex, spec: m.spec }));
+        const off = mats.length; r.mats.forEach(m => {
+            const key = m.name + '|' + m.color.join(','), a = S.texAssign.get(key), mt = { name: m.name, color: m.color.slice(), tex: m.tex, spec: m.spec, key };
+            if (a === NONE) mt.tex = null; else if (a !== undefined && S.tex.has(a)) { mt.tex = a; mt.color = [255, 255, 255, m.color[3]]; }
+            mats.push(mt);
+        });
         for (const m of r.meshes) {
             if (o.hideDam && /(_dam|_vlo)\d*$/i.test(m.name || '')) { hidden++; continue; }
             const n = m.pos.length / 3, pos = new Float32Array(n * 3), nrm = m.nrm ? new Float32Array(n * 3) : null;
@@ -5993,6 +6104,14 @@ function buildModel() {
     let L = Math.max(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]) || 1;
     if (o.fit > 0) { const k = o.fit / L; for (const m of meshes) for (let i = 0; i < m.pos.length; i++) m.pos[i] *= k; }
     if (o.scale !== 1) { for (const m of meshes) for (let i = 0; i < m.pos.length; i++) m.pos[i] *= o.scale; }
+    if ($('txAutoUV') && $('txAutoUV').checked && S.texAssign.size) { // UV yo'q, lekin tekstura biriktirilgan obyektlarga avtomatik UV
+        const tl = parseFloat($('txTile').value), bb2 = bounds(meshes), L2 = Math.max(bb2.max[0] - bb2.min[0], bb2.max[1] - bb2.min[1], bb2.max[2] - bb2.min[2]) || 1, tile = tl > 0 ? tl : L2 / 3;
+        for (const m of meshes) {
+            const noUv = !m.uv || !m.uv.some(v => v !== 0); if (!noUv) continue;
+            let tx = false; for (let t = 0; t < m.tm.length && !tx; t++) { const mt = mats[m.tm[t]]; if (mt && mt.tex && S.tex.has(mt.tex)) tx = true; }
+            if (tx) genBoxUV(m, tile);
+        }
+    }
     let b2 = bounds(meshes);
     if (o.center) { const cx = (b2.min[0] + b2.max[0]) / 2, cy = (b2.min[1] + b2.max[1]) / 2, cz = b2.min[2]; for (const m of meshes) for (let i = 0; i < m.pos.length; i += 3) { m.pos[i] -= cx; m.pos[i + 1] -= cy; m.pos[i + 2] -= cz; } b2 = bounds(meshes); }
     // faqat ishlatilgan materiallarni qoldirish
@@ -6054,7 +6173,7 @@ function hideModel() {
     disposeView(); currentModelRoot.visible = true;
     if (S.saved) { const h = id => $(id); h('hudFile').textContent = S.saved.f; h('hudMode').textContent = S.saved.m; h('hudDffSpan').textContent = S.saved.s; h('hudVerts').textContent = S.saved.v; h('hudTris').textContent = S.saved.t; h('hudMats').textContent = S.saved.c; S.saved = null; }
 }
-function clearAll() { S.raw = []; S.tex = new Map(); S.names = []; S.model = null; S.warn = []; CV.warn = []; hideModel(); updateInfo(); showWarn(); $('cvFile').value = ''; setStatus('✓ Konvertor tozalandi. Eski funksiyalar (1–5) ishlashda davom etadi.'); }
+function clearAll() { S.raw = []; S.tex = new Map(); S.names = []; S.texAssign = new Map(); S.model = null; S.warn = []; CV.warn = []; hideModel(); updateInfo(); showWarn(); refreshTexList(); $('cvFile').value = ''; setStatus('✓ Konvertor tozalandi. Eski funksiyalar (1–5) ishlashda davom etadi.'); }
 
 /* ---------- info paneli ---------- */
 function updateInfo() {
@@ -6095,6 +6214,8 @@ async function doExport(kind) {
             }
             dl(toBlob(bytes), base + '.dff');
             setMsg('DFF saqlandi: ' + (bytes.length / 1048576).toFixed(2) + ' MB · ' + m.nV.toLocaleString() + ' vertex · ' + m.nT.toLocaleString() + ' uchburchak · ' + r.parts + ' ta geometriya · ' + m.mats.length + ' material.' + tail);
+        } else if (kind === 'txzip' || kind === 'txone') {
+            await doTex(kind, m);
         } else if (kind === 'col' || kind === 'ide' || kind === 'ipl' || kind === 'map') {
             await doGta(kind, m);
         } else if (kind === '3ds') {
@@ -6218,6 +6339,8 @@ function initMapPicker() {
         if (S.raw.length && !S.busy) rebuild(); else setMsg('Masshtab ×' + v + ' (model yuklangach qo\'llanadi).');
     }));
     initGtaMap();
+    initTexTool();
+    ['txAutoUV', 'txTile'].forEach(id => $(id) && $(id).addEventListener('change', () => { if (S.raw.length && !S.busy) rebuild(); }));
     ['cvUp', 'cvUnit', 'cvFit', 'cvScale', 'cvCrease', 'cvRecalc', 'cvHideDam', 'cvCenter', 'cvDouble'].forEach(id => $(id).addEventListener('change', () => { if (S.raw.length && !S.busy) { S.warn = S.warn.filter(w => !/^Tekstura topilmadi/.test(w)); rebuild(); } }));
     // eski funksiyalar (1–5) yangi fayl yuklasa — konvertor ko'rinishi yashiriladi
     const oldIn = document.getElementById('fileInput'), oldDz = document.getElementById('dropZone');
