@@ -619,6 +619,7 @@
                     <label class="cv-f"><span>STL birligi</span><select id="cvStlUnit"><option value="1000" selected>millimetr (m → mm)</option><option value="100">santimetr</option><option value="1">metr</option></select></label>
                 </div>
                 <div class="opt-row">
+                    <label class="chk" title="DFF fayli oxiriga TXD (teksturalar) ham qo'shiladi — bitta fayl"><input type="checkbox" id="cvDffTxd" checked> DFF ichiga TXD ni joylash (bitta fayl)</label>
                     <label class="chk"><input type="checkbox" id="cvDffPrelit"> DFF: Prelit (vertex rang)</label>
                     <label class="chk"><input type="checkbox" id="cvTxdPot" checked> TXD: 2 darajaga keltirish</label>
                     <label class="chk"><input type="checkbox" id="cvObjY" checked> OBJ: Y yuqori (Blender/Max)</label>
@@ -4354,7 +4355,16 @@ function importDff(buf, name) {
     if (native) CV.warn.push('DFF: ' + native + ' ta konsol (native) geometriya o\'tkazib yuborildi.');
     if (skinned) CV.warn.push('DFF: skin (suyak) geometriya statik holatda o\'qildi.');
     if (!meshes.length) throw new Error('DFF ichida geometriya topilmadi.');
-    return { meshes, mats: ml.list, up: 'z', unit: 1 };
+    const embedded = []; // DFF oxiriga qo'shilgan TXD (Texture Dictionary) chunklari
+    try {
+        const u8 = bytesOf(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+        for (let p = 0; p + 12 <= u8.length;) {
+            const type = dv.getUint32(p, true), size = dv.getUint32(p + 4, true);
+            if (type === 0x16) for (const x of parseTxdBuf(u8.subarray(p, Math.min(u8.length, p + 12 + size)))) embedded.push({ key: texKey(x.name), canvas: x.canvas });
+            p += 12 + size;
+        }
+    } catch (e) { CV.warn.push('DFF ichidagi TXD o\'qilmadi: ' + e.message); }
+    return { meshes, mats: ml.list, up: 'z', unit: 1, embedded };
 }
 
 /* ---------- TXD (PC, D3D8/D3D9) ---------- */
@@ -5588,8 +5598,19 @@ async function doExport(kind) {
                 const z = zipStore(files); dl(z, base + '_obj.zip'); setMsg('OBJ + MTL' + (r.keys.length ? ' + ' + r.keys.length + ' tekstura' : '') + ' ZIP qilib saqlandi (' + (z.size / 1048576).toFixed(2) + ' MB).');
             } else { dl(toBlob(TE.encode(r.obj), 'text/plain'), base + '.obj'); setTimeout(() => dl(toBlob(TE.encode(r.mtl), 'text/plain'), base + '.mtl'), 400); setMsg('OBJ va MTL saqlandi (teksturalar uchun ZIP ni yoqing).'); }
         } else if (kind === 'dff') {
-            const r = exportDff(m, { single: $('cvDffMode').value === 'single', prelit: $('cvDffPrelit').checked }); dl(toBlob(r.bytes), base + '.dff');
-            setMsg('DFF saqlandi: ' + (r.bytes.length / 1048576).toFixed(2) + ' MB · ' + m.nV.toLocaleString() + ' vertex · ' + m.nT.toLocaleString() + ' uchburchak · ' + r.parts + ' ta geometriya · ' + m.mats.length + ' material.' + (r.keys.length ? ' Teksturalar uchun TXD ni ham saqlang.' : ''));
+            const r = exportDff(m, { single: $('cvDffMode').value === 'single', prelit: $('cvDffPrelit').checked });
+            let bytes = r.bytes, tail = '';
+            if (r.keys.length) {
+                const have = r.keys.filter(k => S.tex.has(k));
+                if ($('cvDffTxd').checked && have.length) { // DFF (Clump) + TXD (Texture Dictionary) — bitta faylda ketma-ket RenderWare chunklar
+                    const t = buildTxd({ tex: S.tex }, have, { fmt: $('cvTxdFmt').value, pot: $('cvTxdPot').checked, maxSize: parseInt($('cvTxdMax').value, 10) || 2048 });
+                    bytes = new Uint8Array(r.bytes.length + t.bytes.length); bytes.set(r.bytes, 0); bytes.set(t.bytes, r.bytes.length);
+                    tail = ' ' + have.length + ' ta tekstura (TXD) ichiga joylandi.' + (have.length < r.keys.length ? ' ' + (r.keys.length - have.length) + ' tasi topilmagani uchun qo\'shilmadi.' : '');
+                } else if (!$('cvDffTxd').checked) tail = ' Teksturalar uchun TXD ni ham saqlang.';
+                else tail = ' Tekstura rasmlari yo\'q — TXD qo\'shilmadi (rasm/TXD faylni ham tanlang).';
+            }
+            dl(toBlob(bytes), base + '.dff');
+            setMsg('DFF saqlandi: ' + (bytes.length / 1048576).toFixed(2) + ' MB · ' + m.nV.toLocaleString() + ' vertex · ' + m.nT.toLocaleString() + ' uchburchak · ' + r.parts + ' ta geometriya · ' + m.mats.length + ' material.' + tail);
         } else if (kind === '3ds') {
             const r = export3ds(m, { crease });
             if (r.keys.length) { const z = zipStore([{ name: base + '.3ds', data: r.bytes }, ...(await texPngs(m, r.keys))]); dl(z, base + '_3ds.zip'); setMsg('3DS + ' + r.keys.length + ' tekstura ZIP qilib saqlandi.'); }
