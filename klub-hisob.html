@@ -41,7 +41,7 @@ main { padding: 14px 16px 90px; max-width: 1500px; margin: 0 auto; }
 .sec { display: flex; align-items: center; gap: 10px; margin: 18px 0 10px; }
 .sec h2 { margin: 0; font-size: 15px; letter-spacing: .06em; text-transform: uppercase; }
 .sec .line { flex: 1; height: 1px; background: var(--line); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 12px; }
+.card { min-width: 0; } .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 12px; }
 .card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 6px; transition: border-color .2s, box-shadow .2s; }
 .card.ps { --ac: var(--violet); } .card.pc { --ac: var(--cyan); }
 .card .top { display: flex; align-items: center; gap: 8px; }
@@ -87,8 +87,9 @@ label.f { display: block; } label.f > span { display: block; color: var(--muted)
 .toast { position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%); z-index: 70; background: var(--panel2); border: 1px solid var(--cyan); border-radius: 12px; padding: 10px 16px; max-width: 92vw; display: none; } .toast.on { display: block; }
 .toast.err { border-color: var(--red); }
 .lockb { color: var(--amber); border-color: var(--amber); }
+.sync { font-size: 11px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); } .sync.ok { color: var(--green); border-color: rgba(61,220,151,.5); } .sync.err, .sync.conn { color: var(--amber); border-color: var(--amber); }
 #print { display: none; }
-@media (max-width: 640px) { .card .time { font-size: 26px; } .grid { grid-template-columns: repeat(2, 1fr); gap: 8px; } .clock { display: none; } .brow { grid-template-columns: 80px 1fr 84px; } }
+@media (max-width: 640px) { .card .time { font-size: 26px; } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .card .time { font-size: 22px; } .card .sum { font-size: 17px; } .card .top b { font-size: 13px; } .clock { display: none; } .brow { grid-template-columns: 80px 1fr 84px; } }
 @media print { body > *:not(#print) { display: none !important; } #print { display: block; color: #000; background: #fff; font: 13px/1.4 monospace; padding: 10px; width: 80mm; } #print .line2 { border-color: #999; } #print .total { color: #000; border-color: #000; } }
 </style>
 </head>
@@ -98,6 +99,7 @@ label.f { display: block; } label.f > span { display: block; color: var(--muted)
   <div class="brand"><div class="logo">GC</div><div><b id="club">IT SHAKH</b><small>KLUB HISOBI · REAL VAQT</small></div></div>
   <div class="sp"></div>
   <div class="clock mono" id="clock">--:--:--</div>
+  <span class="sync off" id="sync"></span>
   <button class="btn lockb" id="bLock"></button>
 </header>
 <nav class="tabs" id="tabs"><button data-t="st" class="on">Stansiyalar</button><button data-t="rep">Hisobot</button><button data-t="set" class="adm">Sozlamalar</button></nav>
@@ -123,15 +125,32 @@ function defaults() {
     const st = []; for (let i = 1; i <= 10; i++) st.push({ id: 'ps' + i, type: 'ps', name: 'PlayStation ' + i, rate: null, on: true }); for (let i = 1; i <= 10; i++) st.push({ id: 'pc' + i, type: 'pc', name: 'Kompyuter ' + i, rate: null, on: true });
     return { v: 1, club: 'IT SHAKH Game Club', rates: { ps: 25000, pc: 15000 }, round: 100, minMin: 0, sound: true, pin: null, stations: st, sessions: {}, history: [], seq: 1 };
 }
-function load() { try { const o = JSON.parse(localStorage.getItem(LS)); if (o && o.stations && o.sessions) return Object.assign(defaults(), o); } catch (e) { } return defaults(); }
+const isStd = id => /^(ps|pc)(10|[1-9])$/.test(id);
+function heal(o) { /* 10 PlayStation + 10 kompyuter har doim bor; to'xtatilgan (pauza) seanslar davom ettiriladi */
+    if (!o.sessions || Array.isArray(o.sessions)) o.sessions = {}; if (!Array.isArray(o.history)) o.history = []; const now = NOW(); for (const k in o.sessions) { const se = o.sessions[k]; if (se.pausedAt != null) { se.pausedMs = (se.pausedMs || 0) + (now - se.pausedAt); se.pausedAt = null; } }
+    for (const t of ['ps', 'pc']) for (let i = 1; i <= 10; i++) { const id = t + i; let s = o.stations.find(x => x.id === id); if (!s) o.stations.push(s = { id, type: t, name: TN[t] + ' ' + i, rate: null, on: true }); s.type = t; s.on = true; }
+    o.stations.sort((a, b) => (a.type === b.type ? 0 : a.type === 'ps' ? -1 : 1) || (isStd(b.id) - isStd(a.id)) || (parseInt(a.id.slice(2)) - parseInt(b.id.slice(2)))); return o;
+}
+function load() { try { const o = JSON.parse(localStorage.getItem(LS)); if (o && o.stations && o.sessions) return heal(Object.assign(defaults(), o)); } catch (e) { } return defaults(); }
+/* ---------- SERVER (ma'lumot serverda saqlanadi) ----------
+   PHP hosting: klub-api.php ni shu fayl yoniga yuklang (shu qator o'zgarmaydi).
+   Cloudflare Worker va h.k.: to'liq manzilni yozing, masalan 'https://klub.sizning-nom.workers.dev/'.
+   Bo'sh ('') qoldirsangiz — ma'lumot faqat shu brauzerda saqlanadi. */
+const CLUB_API = 'klub-api.php';
+const SY = { url: CLUB_API, on: false, rev: 0, off: 0, st: 'off', dirty: false, pushing: false, again: false, key: '', last: 0 };
+try { const v = localStorage.getItem('klub_api'); if (v != null) SY.url = v; SY.key = localStorage.getItem('klub_key') || ''; SY.rev = +localStorage.getItem('klub_rev') || 0; SY.dirty = localStorage.getItem('klub_dirty') === '1'; } catch (e) { }
+const NOW = () => Date.now() + SY.off;
+const ALERTED = new Set();
 let S = load(); const UI = { tab: 'st', sel: new Set(), filter: 'today', from: '', to: '', admin: false };
-function save() { try { localStorage.setItem(LS, JSON.stringify(S)); localStorage.setItem(LS + '_bak', JSON.stringify(S)); } catch (e) { toast('Saqlab bo‘lmadi: xotira to‘lgan yoki taqiqlangan.', true); } }
-UI.admin = !S.pin || sessionStorage.getItem('klub_admin') === '1';
+function save() { try { localStorage.setItem(LS, JSON.stringify(S)); localStorage.setItem(LS + '_bak', JSON.stringify(S)); } catch (e) { if (!SY.on) toast('Saqlab bo‘lmadi: xotira to‘lgan yoki taqiqlangan.', true); } if (SY.on && SY.key && UI.admin) { SY.dirty = true; flag(1); schedulePush(); } }
+UI.admin = SY.url ? !!SY.key : (!S.pin || sessionStorage.getItem('klub_admin') === '1');
+let STORE_OK = true; try { localStorage.setItem(LS + '_t', '1'); localStorage.removeItem(LS + '_t'); } catch (e) { STORE_OK = false; }
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { }
 const stOf = id => S.stations.find(s => s.id === id), rateOf = st => st.rate > 0 ? st.rate : S.rates[st.type];
 const rnd = x => { const k = S.round || 1; return Math.round(x / k) * k; };
 const need = () => { if (!UI.admin) { toast('Faqat admin o‘zgartira oladi — “Admin kirish” ni bosing.', true); return false; } return true; };
 
-/* ---------- hisob (har doim Date.now() dan — sahifa yopiq bo'lsa ham davom etadi) ---------- */
+/* ---------- hisob (har doim server soatidan — sahifa yopiq bo'lsa ham davom etadi) ---------- */
 function calc(se, now) {
     const end = se.pausedAt != null ? se.pausedAt : now, work = Math.max(0, end - se.startTs - (se.pausedMs || 0)), minMs = (S.minMin || 0) * 60000, billMs = Math.max(work, minMs);
     const time = rnd(billMs / 3600000 * se.rate), ex = (se.extras || []).reduce((a, x) => a + (+x.sum || 0), 0), gross = time + ex, disc = Math.min(gross, Math.round(gross * (se.discPct || 0) / 100) + (+se.discSum || 0));
@@ -149,13 +168,13 @@ function beep() { if (!S.sound) return; try { const a = new (window.AudioContext
 
 /* ---------- render ---------- */
 function render() {
-    document.body.classList.toggle('locked', !UI.admin); $('#club').textContent = S.club || 'Klub'; $('#bLock').textContent = S.pin ? (UI.admin ? '🔓 Qulflash' : '🔒 Admin kirish') : '👤 Admin'; $('#bLock').title = S.pin ? '' : 'PIN kod Sozlamalarda o‘rnatiladi';
+    document.body.classList.toggle('locked', !UI.admin); $('#club').textContent = S.club || 'Klub'; $('#bLock').textContent = (SY.on || S.pin) ? (UI.admin ? '🔓 Qulflash' : '🔒 Admin kirish') : '👤 Admin'; $('#bLock').title = (SY.on || S.pin) ? '' : 'PIN kod Sozlamalarda o‘rnatiladi'; setSt(SY.st);
     document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === UI.tab)); if (UI.tab === 'set' && !UI.admin) UI.tab = 'st';
     ({ st: renderSt, rep: renderRep, set: renderSet })[UI.tab](); renderBar(); tick();
 }
-function stats() { const now = Date.now(), run = Object.values(S.sessions); let cur = 0, ps = 0, pc = 0; for (const se of run) { const c = calc(se, now).total; cur += c; if (stOf(se.st) && stOf(se.st).type === 'ps') ps++; else pc++; } const d0 = new Date(); d0.setHours(0, 0, 0, 0); const today = S.history.filter(h => h.endTs >= d0.getTime()).reduce((a, h) => a + h.total, 0); return { cur, ps, pc, n: run.length, today }; }
+function stats() { const now = NOW(), run = Object.values(S.sessions); let cur = 0, ps = 0, pc = 0; for (const se of run) { const c = calc(se, now).total; cur += c; if (stOf(se.st) && stOf(se.st).type === 'ps') ps++; else pc++; } const d0 = new Date(); d0.setHours(0, 0, 0, 0); const today = S.history.filter(h => h.endTs >= d0.getTime()).reduce((a, h) => a + h.total, 0); return { cur, ps, pc, n: run.length, today }; }
 function renderSt() {
-    const m = $('#main'); m.innerHTML = '';
+    const m = $('#main'); m.innerHTML = ''; if (!STORE_OK) m.appendChild(el('div', 'panel', '<b style="color:var(--red)">⚠ Brauzer xotirasi ishlamayapti</b> (maxfiy rejim yoki taqiqlangan). Sahifa yopilsa seanslar yo‘qoladi. Oddiy oynada oching.'));
     const sx = el('div', 'stats'); sx.innerHTML = '<div class="stat"><small>Hozir band</small><b id="sN">0</b><small id="sNd"></small></div><div class="stat"><small>Ishlayotgan hisob</small><b class="mono" id="sCur">0</b></div><div class="stat hl"><small>Bugungi tushum (to‘langan)</small><b class="mono" id="sToday">0</b></div><div class="stat"><small>Tushum + hozirgi hisob</small><b class="mono" id="sAll">0</b></div>'; m.appendChild(sx);
     for (const type of ['ps', 'pc']) {
         const list = S.stations.filter(s => s.type === type && s.on); const h = el('div', 'sec'); h.innerHTML = '<h2 style="color:' + (type === 'ps' ? 'var(--violet)' : 'var(--cyan)') + '">' + TN[type] + ' · ' + list.length + ' ta</h2><div class="line"></div><span class="note">' + fmt(S.rates[type]) + ' so‘m / soat</span>'; m.appendChild(h);
@@ -163,25 +182,26 @@ function renderSt() {
     }
 }
 function card(st) {
-    const se = S.sessions[st.id], c = el('div', 'card ' + st.type + (se ? (se.pausedAt != null ? ' pause' : ' run') : '') + (UI.sel.has(st.id) ? ' sel' : '')); c.dataset.id = st.id;
+    const se = S.sessions[st.id], c = el('div', 'card ' + st.type + (se ? ' run' : '') + (UI.sel.has(st.id) ? ' sel' : '')); c.dataset.id = st.id;
     const top = el('div', 'top'); const ck = el('label', 'chk adm'), i = el('input'); i.type = 'checkbox'; i.checked = UI.sel.has(st.id); i.onchange = () => { i.checked ? UI.sel.add(st.id) : UI.sel.delete(st.id); c.classList.toggle('sel', i.checked); renderBar(); }; ck.appendChild(i); top.append(ck, el('b', '', esc(st.name)), el('span', 'badge', st.type === 'ps' ? 'PS' : 'PC'));
     if (se) { const k = el('button', 'kebab adm', '⋯'); k.title = 'Tahrirlash'; k.onclick = () => editSession(st.id); top.appendChild(k); } c.appendChild(top);
     c.append(el('div', 'time mono', '00:00:00'), el('div', 'sub', se ? esc(se.client || 'Mijoz') + ' · ' + fmt(se.rate) + '/soat' : fmt(rateOf(st)) + ' so‘m/soat'), el('div', 'sum', '<span class="v mono">0</span> <small>so‘m</small>'));
     if (se && se.limitMin) c.appendChild(el('div', 'prog', '<i></i>'));
     const b = el('div', 'btns adm');
     if (!se) { const s = el('button', 'btn pri', '▶ Boshlash'); s.onclick = () => startModal([st.id]); b.appendChild(s); }
-    else { const p = el('button', 'btn', se.pausedAt != null ? '▶ Davom' : '⏸ Pauza'); p.onclick = () => togglePause(st.id); const x = el('button', 'btn bad', '■ Stop'); x.onclick = () => stopModal([st.id]); b.append(p, x); }
+    else { const x = el('button', 'btn bad', '■ Stop'); x.onclick = () => stopModal([st.id]); b.append(x); }
     c.appendChild(b); return c;
 }
 function tick() {
-    const now = Date.now(); $('#clock').textContent = dtl(now).slice(11) + ':' + p2(new Date(now).getSeconds()); let any = false;
+    const now = NOW(); $('#clock').textContent = dtl(now).slice(11) + ':' + p2(new Date(now).getSeconds()); let any = false;
     for (const id in S.sessions) {
         const se = S.sessions[id], c = calc(se, now), cd = $('.card[data-id="' + id + '"]'); if (cd) {
-            const over = c.rem != null && c.rem <= 0 && se.pausedAt == null; cd.classList.toggle('over', over); cd.querySelector('.time').textContent = se.limitMin && !over && se.pausedAt == null ? dur(c.rem) : (over ? '+' + dur(-c.rem) : dur(c.work)); cd.querySelector('.sum .v').textContent = fmt(c.total);
+            const over = c.rem != null && c.rem <= 0; cd.classList.toggle('over', over); cd.querySelector('.time').textContent = dur(c.work); cd.querySelector('.sum .v').textContent = fmt(c.total);
+            const sb = cd.querySelector('.sub'); if (sb) sb.textContent = (se.client || 'Mijoz') + ' · ' + fmt(se.rate) + '/soat' + (c.rem != null ? (over ? ' · ⏰ belgilangan vaqt o‘tdi +' + dur(-c.rem) : ' · qoldi ' + dur(c.rem)) : '');
             const pr = cd.querySelector('.prog i'); if (pr) pr.style.width = Math.min(100, c.work / (se.limitMin * 60000) * 100) + '%';
-            if (cd.querySelector('.sub')) cd.querySelector('.sub').title = 'Boshlangan: ' + dt(se.startTs) + ' · ish vaqti ' + dur(c.work);
+            if (cd.querySelector('.sub')) cd.querySelector('.sub').title = 'Boshlangan: ' + dt(se.startTs);
         }
-        if (c.rem != null && c.rem <= 0 && !se.alerted && se.pausedAt == null) { se.alerted = true; save(); beep(); toast('⏰ ' + (stOf(id) ? stOf(id).name : id) + ': belgilangan vaqt tugadi — hisob davom etmoqda.', true); any = true; }
+        if (c.rem != null && c.rem <= 0 && !ALERTED.has(se.id)) { ALERTED.add(se.id); if (UI.admin) beep(); toast('⏰ ' + (stOf(id) ? stOf(id).name : id) + ': belgilangan vaqt o‘tdi — hisob to‘xtamaydi, “Stop” bosilmaguncha davom etadi.', true); any = true; }
     }
     const s = stats(); const set = (i, v) => { const e = $(i); if (e) e.textContent = v; }; set('#sN', s.n + ' / ' + S.stations.filter(x => x.on).length); set('#sNd', 'PS ' + s.ps + ' · PC ' + s.pc); set('#sCur', fmt(s.cur) + ' so‘m'); set('#sToday', fmt(s.today) + ' so‘m'); set('#sAll', fmt(s.today + s.cur) + ' so‘m'); document.title = (s.n ? '(' + s.n + ') ' : '') + 'Klub hisobi | IT SHAKH';
     const bt = $('#barSum'); if (bt) { let t = 0; for (const id of UI.sel) if (S.sessions[id]) t += calc(S.sessions[id], now).total; bt.textContent = fmt(t) + ' so‘m'; }
@@ -211,12 +231,11 @@ function startModal(ids) {
         const cu = el('input'); cu.type = 'number'; cu.min = 1; cu.placeholder = 'daq'; cu.style.width = '84px'; cu.oninput = () => { limit = Math.max(0, parseInt(cu.value) || 0); upd(); }; pr.appendChild(cu);
         b.append(est, back); upd();
         const a = el('div', 'acts'), c = el('button', 'btn', 'Bekor'), ok = el('button', 'btn pri', '▶ Boshlash'); c.onclick = closeModal;
-        ok.onclick = () => { const t0 = Date.now() - Math.max(0, parseFloat(bi.value) || 0) * 60000; ids.forEach(i => { S.sessions[i] = newSession(i, { startTs: t0, client: cl.value.trim(), limitMin: limit }); }); UI.sel.clear(); save(); closeModal(); render(); toast(ids.length + ' ta stansiya ishga tushdi.'); }; a.append(c, ok); b.appendChild(a);
+        ok.onclick = () => { const t0 = NOW() - Math.max(0, parseFloat(bi.value) || 0) * 60000; ids.forEach(i => { S.sessions[i] = newSession(i, { startTs: t0, client: cl.value.trim(), limitMin: limit }); }); UI.sel.clear(); save(); closeModal(); render(); toast(ids.length + ' ta stansiya ishga tushdi.'); }; a.append(c, ok); b.appendChild(a);
     });
 }
-function togglePause(id) { if (!need()) return; const se = S.sessions[id]; if (!se) return; const now = Date.now(); if (se.pausedAt != null) { se.pausedMs = (se.pausedMs || 0) + (now - se.pausedAt); se.pausedAt = null; } else se.pausedAt = now; save(); render(); }
 function stopModal(ids) {
-    if (!need()) return; ids = ids.filter(i => S.sessions[i]); if (!ids.length) return; const at = Date.now(); let pay = 'Naqd', extraDisc = 0;
+    if (!need()) return; ids = ids.filter(i => S.sessions[i]); if (!ids.length) return; const at = NOW(); let pay = 'Naqd', extraDisc = 0;
     modal(b => {
         b.appendChild(el('h3', '', '■ Hisob-kitob (chek)')); const box = el('div'); b.appendChild(box);
         const df = el('label', 'f', '<span>Qo‘shimcha chegirma (so‘m)</span>'), di = el('input'); di.type = 'number'; di.min = 0; di.value = 0; df.appendChild(di);
@@ -224,7 +243,7 @@ function stopModal(ids) {
         const draw = () => { extraDisc = Math.max(0, parseFloat(di.value) || 0); let h = '', sum = 0; ids.forEach(i => { const se = S.sessions[i], c = calc(se, at), st = stOf(i); sum += c.total; h += '<div class="line2"><span><b>' + esc(st.name) + '</b>' + (se.client ? ' · ' + esc(se.client) : '') + '<br><small class="note">' + tm(se.startTs) + ' → ' + tm(at) + ' · ' + hm(c.work) + ' × ' + fmt(se.rate) + '/soat' + (c.ex ? ' · qo‘shimcha ' + fmt(c.ex) : '') + (c.disc ? ' · chegirma −' + fmt(c.disc) : '') + '</small></span><b class="mono">' + fmt(c.total) + '</b></div>'; }); sum = Math.max(0, sum - extraDisc); if (extraDisc) h += '<div class="line2"><span>Qo‘shimcha chegirma</span><b class="mono">−' + fmt(extraDisc) + '</b></div>'; box.innerHTML = h + '<div class="total"><span>JAMI</span><span class="mono">' + fmt(sum) + ' so‘m</span></div>'; return sum; };
         di.oninput = draw; draw();
         const a = el('div', 'acts'), c = el('button', 'btn', 'Bekor (davom etadi)'), pr = el('button', 'btn', '🖨 Chop etish'), ok = el('button', 'btn ok', '✔ To‘landi — to‘xtatish'); c.onclick = closeModal;
-        const finish = () => { let rest = extraDisc; const gid = 'R' + Date.now().toString(36); ids.forEach((i, k) => { const se = S.sessions[i], c = calc(se, at), st = stOf(i), cut = k === ids.length - 1 ? rest : Math.min(rest, Math.round(extraDisc / ids.length)); rest -= (k === ids.length - 1 ? rest : cut); const tot = Math.max(0, c.total - cut); S.history.push({ id: S.seq++, gid, st: i, name: st.name, type: st.type, client: se.client, startTs: se.startTs, endTs: at, workMs: c.work, rate: se.rate, timeSum: c.time, extras: se.extras || [], disc: c.disc + cut, total: tot, pay: ps.value, note: se.note || '' }); delete S.sessions[i]; UI.sel.delete(i); }); save(); };
+        const finish = () => { let rest = extraDisc; const gid = 'R' + NOW().toString(36); ids.forEach((i, k) => { const se = S.sessions[i], c = calc(se, at), st = stOf(i), cut = k === ids.length - 1 ? rest : Math.min(rest, Math.round(extraDisc / ids.length)); rest -= (k === ids.length - 1 ? rest : cut); const tot = Math.max(0, c.total - cut); S.history.push({ id: S.seq++, gid, st: i, name: st.name, type: st.type, client: se.client, startTs: se.startTs, endTs: at, workMs: c.work, rate: se.rate, timeSum: c.time, extras: se.extras || [], disc: c.disc + cut, total: tot, pay: ps.value, note: se.note || '' }); delete S.sessions[i]; UI.sel.delete(i); }); save(); };
         pr.onclick = () => { const sum = draw(); const p = $('#print'); p.innerHTML = '<div style="text-align:center"><b>' + esc(S.club) + '</b><br>' + dt(at) + '</div><hr>' + box.innerHTML.replace(/<small class="note">/g, '<small>') + '<div class="note" style="text-align:center;margin-top:8px">Rahmat!</div>'; print(); };
         ok.onclick = () => { finish(); closeModal(); render(); toast('Saqlandi. Hisobotda ko‘rinadi.'); }; a.append(c, pr, ok); b.appendChild(a);
     });
@@ -243,7 +262,7 @@ function editSession(id) {
         const mv = el('select'); mv.innerHTML = '<option value="">— ko‘chirmaslik —</option>' + S.stations.filter(s => s.on && !S.sessions[s.id]).map(s => '<option value="' + s.id + '">' + esc(s.name) + '</option>').join(''); b.appendChild(mk('Boshqa bo‘sh stansiyaga ko‘chirish (vaqt saqlanadi)', mv));
         const a = el('div', 'acts'), del = el('button', 'btn bad', '🗑 Bekor qilish (hisobsiz)'), c = el('button', 'btn', 'Yopish'), ok = el('button', 'btn pri', 'Saqlash'); c.onclick = closeModal;
         del.onclick = () => confirmBox(st.name + ' seansini hisoblamasdan o‘chiramizmi? Hisobotga yozilmaydi.', () => { delete S.sessions[id]; save(); render(); toast('Seans o‘chirildi.'); }, 'O‘chirish');
-        ok.onclick = () => { const t = new Date(sd.value).getTime(); if (!isFinite(t)) { toast('Boshlanish vaqti noto‘g‘ri.', true); return; } Object.assign(se, { client: cl.value.trim(), startTs: t, rate: Math.max(1, parseFloat(rt.value) || se.rate), limitMin: Math.max(0, parseInt(lm.value) || 0), discPct: Math.min(100, Math.max(0, parseFloat(dp.value) || 0)), discSum: Math.max(0, parseFloat(ds.value) || 0), note: nt.value.trim(), extras: ex, alerted: false }); if (mv.value) { se.st = mv.value; S.sessions[mv.value] = se; delete S.sessions[id]; } save(); closeModal(); render(); toast('Saqlandi.'); }; a.append(del, c, ok); b.appendChild(a);
+        ok.onclick = () => { const t = new Date(sd.value).getTime(); if (!isFinite(t)) { toast('Boshlanish vaqti noto‘g‘ri.', true); return; } Object.assign(se, { client: cl.value.trim(), startTs: t, rate: Math.max(1, parseFloat(rt.value) || se.rate), limitMin: Math.max(0, parseInt(lm.value) || 0), discPct: Math.min(100, Math.max(0, parseFloat(dp.value) || 0)), discSum: Math.max(0, parseFloat(ds.value) || 0), note: nt.value.trim(), extras: ex }); ALERTED.delete(se.id); if (mv.value) { se.st = mv.value; S.sessions[mv.value] = se; delete S.sessions[id]; } save(); closeModal(); render(); toast('Saqlandi.'); }; a.append(del, c, ok); b.appendChild(a);
     });
 }
 
@@ -273,25 +292,76 @@ function renderSet() {
     F('Klub nomi', inp('text', S.club, i => { S.club = i.value.trim() || 'Klub'; save(); render(); })); F('PlayStation narxi (so‘m / soat)', inp('number', S.rates.ps, i => { S.rates.ps = Math.max(0, +i.value || 0); save(); toast('Yangi narx keyingi boshlanadigan seanslarga amal qiladi (ishlayotganlar o‘z narxida qoladi).'); })); F('Kompyuter narxi (so‘m / soat)', inp('number', S.rates.pc, i => { S.rates.pc = Math.max(0, +i.value || 0); save(); toast('Yangi narx keyingi boshlanadigan seanslarga amal qiladi (ishlayotganlar o‘z narxida qoladi).'); }));
     const rs = el('select', '', '<option value="1">1 so‘m (aniq)</option><option value="100">100 so‘mgacha</option><option value="500">500 so‘mgacha</option><option value="1000">1 000 so‘mgacha</option>'); rs.value = String(S.round); rs.onchange = () => { S.round = +rs.value; save(); }; F('Yaxlitlash', rs); F('Minimal hisoblanadigan vaqt (daq)', inp('number', S.minMin, i => { S.minMin = Math.max(0, +i.value || 0); save(); }));
     const sd = el('select', '', '<option value="1">Yoqilgan</option><option value="0">O‘chirilgan</option>'); sd.value = S.sound ? '1' : '0'; sd.onchange = () => { S.sound = sd.value === '1'; save(); if (S.sound) beep(); }; F('Vaqt tugaganda ovoz', sd);
-    g.appendChild(el('div', 'note', 'Hisob: vaqt (soniyagacha aniq) × narx / 3600, so‘ng tanlangan yaxlitlash. Sahifa yopilsa ham seans davom etadi — hisob boshlanish vaqtidan hozirgi soatgacha qayta hisoblanadi.'));
-    const pn = P('<h3>Admin PIN</h3>'); pn.appendChild(el('div', 'note', S.pin ? 'PIN o‘rnatilgan: sahifa ochilganda faqat ko‘rish rejimi, o‘zgartirish uchun PIN kerak.' : 'PIN o‘rnatilmagan — sahifani ochgan har kim hammasini o‘zgartira oladi.')); const pr = el('div', 'row'); pr.style.marginTop = '10px'; const pi = inp('password', ''); pi.placeholder = 'Yangi PIN (4+ belgi)'; pi.autocomplete = 'new-password'; const w = el('label', 'f', '<span>Yangi PIN</span>'); w.appendChild(pi); pr.appendChild(w); const sb = el('button', 'btn pri', S.pin ? 'PIN ni almashtirish' : 'PIN o‘rnatish'); sb.onclick = async () => { if (pi.value.length < 4) { toast('PIN kamida 4 belgi.', true); return; } S.pin = await hash(pi.value); save(); sessionStorage.setItem('klub_admin', '1'); toast('PIN saqlandi.'); render(); }; pr.appendChild(sb); if (S.pin) { const rb = el('button', 'btn bad', 'PIN ni o‘chirish'); rb.onclick = () => { S.pin = null; save(); render(); toast('PIN o‘chirildi.'); }; pr.appendChild(rb); } pn.appendChild(pr);
-    pn.appendChild(el('div', 'note', 'Eslatma: PIN faqat tasodifiy bosib yuborishdan himoya qiladi; ma’lumotlar shu brauzerda saqlanadi.'));
-    const sp = P('<h3>Stansiyalar</h3>'), sc = el('div', 'scroll'), t = el('table', 'tbl'); t.innerHTML = '<tr><th>Nomi</th><th>Tur</th><th>Maxsus narx (bo‘sh = umumiy)</th><th>Faol</th><th></th></tr>'; sc.appendChild(t); sp.appendChild(sc);
-    S.stations.forEach(st => { const tr = el('tr'), c = () => el('td'); const n = el('input'); n.value = st.name; n.onchange = () => { st.name = n.value.trim() || st.name; save(); }; const ty = el('select', '', '<option value="ps">PlayStation</option><option value="pc">Kompyuter</option>'); ty.value = st.type; ty.disabled = !!S.sessions[st.id]; ty.onchange = () => { st.type = ty.value; save(); }; const rt = el('input'); rt.type = 'number'; rt.placeholder = fmt(S.rates[st.type]); rt.value = st.rate || ''; rt.onchange = () => { st.rate = +rt.value > 0 ? +rt.value : null; save(); }; const on = el('input'); on.type = 'checkbox'; on.checked = st.on; on.disabled = !!S.sessions[st.id]; on.onchange = () => { st.on = on.checked; save(); }; const dl_ = el('button', 'btn sm bad', '✕'); dl_.disabled = !!S.sessions[st.id]; dl_.onclick = () => confirmBox(st.name + ' ro‘yxatdan o‘chiriladi (hisobot tarixi saqlanadi).', () => { S.stations = S.stations.filter(x => x !== st); save(); render(); }, 'O‘chirish'); [n, ty, rt, on, dl_].forEach(x => { const d = c(); d.appendChild(x); tr.appendChild(d); }); t.appendChild(tr); });
+    g.appendChild(el('div', 'note', 'Hisob: vaqt (soniyagacha aniq) × narx / 3600, so‘ng tanlangan yaxlitlash. Hisob hech qachon to‘xtamaydi: faqat “Stop” bosilganda tugaydi. Sahifa yopilsa, kompyuter o‘chirilsa ham — qayta ochganda hisob boshlanish vaqtidan hozirgi soatgacha qayta hisoblanadi.'));
+    P_server(P);
+    if (!SY.on) { const pn = P('<h3>Admin PIN</h3>'); pn.appendChild(el('div', 'note', S.pin ? 'PIN o‘rnatilgan: sahifa ochilganda faqat ko‘rish rejimi, o‘zgartirish uchun PIN kerak.' : 'PIN o‘rnatilmagan — sahifani ochgan har kim hammasini o‘zgartira oladi.')); const pr = el('div', 'row'); pr.style.marginTop = '10px'; const pi = inp('password', ''); pi.placeholder = 'Yangi PIN (4+ belgi)'; pi.autocomplete = 'new-password'; const w = el('label', 'f', '<span>Yangi PIN</span>'); w.appendChild(pi); pr.appendChild(w); const sb = el('button', 'btn pri', S.pin ? 'PIN ni almashtirish' : 'PIN o‘rnatish'); sb.onclick = async () => { if (pi.value.length < 4) { toast('PIN kamida 4 belgi.', true); return; } S.pin = await hash(pi.value); save(); sessionStorage.setItem('klub_admin', '1'); toast('PIN saqlandi.'); render(); }; pr.appendChild(sb); if (S.pin) { const rb = el('button', 'btn bad', 'PIN ni o‘chirish'); rb.onclick = () => { S.pin = null; save(); render(); toast('PIN o‘chirildi.'); }; pr.appendChild(rb); } pn.appendChild(pr);
+    pn.appendChild(el('div', 'note', 'Eslatma: PIN faqat tasodifiy bosib yuborishdan himoya qiladi; ma’lumotlar shu brauzerda saqlanadi.')); }
+    const sp = P('<h3>Stansiyalar</h3>'), sc = el('div', 'scroll'), t = el('table', 'tbl'); t.innerHTML = '<tr><th>Nomi</th><th>Tur</th><th>Maxsus narx (bo‘sh = umumiy)</th><th>Faol</th><th></th></tr>'; sc.appendChild(t); sp.appendChild(el('div', 'note', 'Asosiy 10 ta PlayStation va 10 ta kompyuter doim bor (o‘chirib bo‘lmaydi). Nomini va maxsus narxini o‘zgartirish mumkin; qo‘shimcha stansiya qo‘shsa bo‘ladi.')); sp.appendChild(sc);
+    S.stations.forEach(st => { const tr = el('tr'), c = () => el('td'); const n = el('input'); n.value = st.name; n.onchange = () => { st.name = n.value.trim() || st.name; save(); }; const ty = el('select', '', '<option value="ps">PlayStation</option><option value="pc">Kompyuter</option>'); ty.value = st.type; ty.disabled = !!S.sessions[st.id] || isStd(st.id); ty.onchange = () => { st.type = ty.value; save(); }; const rt = el('input'); rt.type = 'number'; rt.placeholder = fmt(S.rates[st.type]); rt.value = st.rate || ''; rt.onchange = () => { st.rate = +rt.value > 0 ? +rt.value : null; save(); }; const on = el('input'); on.type = 'checkbox'; on.checked = st.on; on.disabled = !!S.sessions[st.id] || isStd(st.id); on.onchange = () => { st.on = on.checked; save(); }; const dl_ = el('button', 'btn sm bad', '✕'); dl_.disabled = !!S.sessions[st.id] || isStd(st.id); if (isStd(st.id)) dl_.title = 'Asosiy 10+10 stansiyalarni o‘chirib bo‘lmaydi'; dl_.onclick = () => confirmBox(st.name + ' ro‘yxatdan o‘chiriladi (hisobot tarixi saqlanadi).', () => { S.stations = S.stations.filter(x => x !== st); save(); render(); }, 'O‘chirish'); [n, ty, rt, on, dl_].forEach(x => { const d = c(); d.appendChild(x); tr.appendChild(d); }); t.appendChild(tr); });
     const ab = el('div', 'acts'); ab.style.justifyContent = 'flex-start'; ['ps', 'pc'].forEach(ty => { const b = el('button', 'btn', '+ ' + TN[ty] + ' qo‘shish'); b.onclick = () => { let k = 1; while (S.stations.some(s => s.id === ty + k)) k++; S.stations.push({ id: ty + k, type: ty, name: TN[ty] + ' ' + k, rate: null, on: true }); save(); render(); }; ab.appendChild(b); }); sp.appendChild(ab);
-    const bk = P('<h3>Zaxira nusxa va tozalash</h3>'), br = el('div', 'acts'); br.style.justifyContent = 'flex-start'; const ex = el('button', 'btn', '⬇ Hammasini yuklab olish (JSON)'); ex.onclick = () => dl(JSON.stringify(S), 'klub-zaxira-' + dtl(Date.now()).slice(0, 10) + '.json', 'application/json'); const im = el('button', 'btn', '⬆ Zaxiradan tiklash'), fi = el('input'); fi.type = 'file'; fi.accept = '.json'; fi.hidden = true; im.onclick = () => fi.click(); fi.onchange = async () => { try { const o = JSON.parse(await fi.files[0].text()); if (!o.stations || !o.sessions || !Array.isArray(o.history)) throw 0; confirmBox('Hozirgi barcha ma’lumot zaxiradagi bilan almashtiriladi.', () => { S = Object.assign(defaults(), o); save(); render(); toast('Tiklandi.'); }, 'Tiklash'); } catch (e) { toast('Bu zaxira fayl emas.', true); } }; const ch = el('button', 'btn bad', '🗑 Hisobot tarixini tozalash'); ch.onclick = () => confirmBox('Butun hisobot tarixi o‘chadi (ishlayotgan seanslar qoladi). Avval zaxira yuklab oling.', () => { S.history = []; save(); render(); toast('Tarix tozalandi.'); }, 'Tozalash'); br.append(ex, im, fi, ch); bk.appendChild(br);
+    const bk = P('<h3>Zaxira nusxa va tozalash</h3>'), br = el('div', 'acts'); br.style.justifyContent = 'flex-start'; const ex = el('button', 'btn', '⬇ Hammasini yuklab olish (JSON)'); ex.onclick = () => dl(JSON.stringify(S), 'klub-zaxira-' + dtl(NOW()).slice(0, 10) + '.json', 'application/json'); const im = el('button', 'btn', '⬆ Zaxiradan tiklash'), fi = el('input'); fi.type = 'file'; fi.accept = '.json'; fi.hidden = true; im.onclick = () => fi.click(); fi.onchange = async () => { try { const o = JSON.parse(await fi.files[0].text()); if (!o.stations || !o.sessions || !Array.isArray(o.history)) throw 0; confirmBox('Hozirgi barcha ma’lumot zaxiradagi bilan almashtiriladi.', () => { S = Object.assign(defaults(), o); save(); render(); toast('Tiklandi.'); }, 'Tiklash'); } catch (e) { toast('Bu zaxira fayl emas.', true); } }; const ch = el('button', 'btn bad', '🗑 Hisobot tarixini tozalash'); ch.onclick = () => confirmBox('Butun hisobot tarixi o‘chadi (ishlayotgan seanslar qoladi). Avval zaxira yuklab oling.', () => { S.history = []; save(); render(); toast('Tarix tozalandi.'); }, 'Tozalash'); br.append(ex, im, fi, ch); bk.appendChild(br);
 }
 async function hash(s) { try { const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('klub|' + s)); return [...new Uint8Array(d)].map(b => p2(b.toString(16))).join(''); } catch (e) { let h = 5381; for (const ch of 'klub|' + s) h = (h * 33 ^ ch.charCodeAt(0)) >>> 0; return 'x' + h; } }
 
 /* ---------- admin kirish / tabs / sinxron ---------- */
 $('#bLock').onclick = () => {
+    if (SY.on) { if (UI.admin) { logout(); toast('Qulflandi: faqat ko‘rish rejimi.'); } else keyModal(); return; }
     if (!S.pin) { toast('PIN o‘rnatilmagan. Sozlamalar → Admin PIN dan o‘rnating.'); if (UI.admin) { UI.tab = 'set'; render(); } return; }
     if (UI.admin) { UI.admin = false; sessionStorage.removeItem('klub_admin'); UI.sel.clear(); render(); toast('Qulflandi: faqat ko‘rish rejimi.'); return; }
     modal(b => { b.innerHTML = '<h3>🔒 Admin kirish</h3>'; const i = el('input'); i.type = 'password'; i.placeholder = 'PIN'; i.autocomplete = 'current-password'; b.appendChild(i); const a = el('div', 'acts'), c = el('button', 'btn', 'Bekor'), ok = el('button', 'btn pri', 'Kirish'); c.onclick = closeModal; const go = async () => { if (await hash(i.value) === S.pin) { UI.admin = true; sessionStorage.setItem('klub_admin', '1'); closeModal(); render(); toast('Admin rejimi yoqildi.'); } else { toast('PIN noto‘g‘ri.', true); i.value = ''; } }; ok.onclick = go; i.onkeydown = e => { if (e.key === 'Enter') go(); }; a.append(c, ok); b.appendChild(a); });
 };
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { UI.tab = b.dataset.t; render(); });
+
+/* ---------- server bilan sinxronlash ---------- */
+const flag = v => { try { v ? localStorage.setItem('klub_dirty', '1') : localStorage.removeItem('klub_dirty'); } catch (e) { } };
+const urlOf = q => SY.url + (q ? (SY.url.indexOf('?') >= 0 ? '&' : '?') + q : '');
+async function req(q, o) { o = o || {}; const hd = Object.assign({}, o.headers); if (SY.key) hd['X-Key'] = SY.key; const t0 = Date.now(); const r = await fetch(urlOf(q), Object.assign({ cache: 'no-store' }, o, { headers: hd })); return { r, t0, t1: Date.now() }; }
+const jsonOf = async res => { try { return await res.r.json(); } catch (e) { return null; } };
+function setSt(s) { SY.st = s; const e = $('#sync'); if (!e) return; e.className = 'sync ' + s; e.textContent = ({ ok: '☁ Server ✓', err: '☁ Ulanmayapti — qayta uriniladi', conn: '☁ Ulanmoqda…', off: '💾 Faqat shu brauzerda' })[s] || ''; e.title = s === 'ok' ? 'Ma’lumot serverda saqlanadi (versiya ' + SY.rev + ')' : (s === 'off' ? 'Server ulanmagan: Sozlamalar → Server' : ''); }
+function cacheLocal() { try { localStorage.setItem(LS, JSON.stringify(S)); localStorage.setItem('klub_rev', String(SY.rev)); } catch (e) { } }
+function adopt(j) { S = heal(Object.assign(defaults(), j.data)); SY.rev = j.rev; cacheLocal(); render(); }
+async function pull(first) {
+    if (!SY.url) { setSt('off'); return; }
+    try {
+        const res = await req('rev=' + SY.rev), j = res.r.ok ? await jsonOf(res) : null;
+        if (!j || typeof j.rev !== 'number') { if (first) { SY.on = false; setSt('off'); } else if (SY.on) setSt('err'); return; }
+        SY.off = j.now - (res.t0 + res.t1) / 2; SY.on = true; setSt('ok'); SY.last = Date.now();
+        if (j.same) return;
+        if (!j.data) { if (SY.key) { SY.dirty = true; flag(1); schedulePush(); } return; } /* server bo'sh: shu qurilmadagi ma'lumot yuklanadi */
+        if (SY.dirty && !first) return;
+        adopt(j);
+    } catch (e) { if (first && SY.key) { SY.on = true; setSt('err'); } else if (first) { SY.on = false; setSt('off'); } else if (SY.on) setSt('err'); }
+}
+let pushT = 0; const schedulePush = () => { clearTimeout(pushT); pushT = setTimeout(() => push(), 300); };
+async function push(force) {
+    if (!SY.on || !SY.key) return; if (SY.pushing) { SY.again = true; return; } SY.pushing = true;
+    try {
+        const res = await req('', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev: SY.rev, force: !!force, data: Object.assign({}, S, { pin: null }) }) }), j = await jsonOf(res);
+        if (res.r.status === 409 && j && j.data) { SY.dirty = false; flag(0); adopt(j); toast('Boshqa qurilmada o‘zgarish bo‘lgan — yangi holat yuklandi. Amalingizni qayta bajaring.', true); }
+        else if (res.r.status === 403) { logout(); toast('Server kaliti noto‘g‘ri — qayta kiring.', true); }
+        else if (res.r.ok && j && j.ok) { SY.rev = j.rev; SY.dirty = false; flag(0); SY.off = j.now - (res.t0 + res.t1) / 2; cacheLocal(); setSt('ok'); }
+        else throw new Error('HTTP ' + res.r.status);
+    } catch (e) { setSt('err'); clearTimeout(pushT); pushT = setTimeout(() => push(), 4000); }
+    finally { SY.pushing = false; if (SY.again) { SY.again = false; schedulePush(); } }
+}
+function logout() { SY.key = ''; try { localStorage.removeItem('klub_key'); } catch (e) { } UI.admin = false; UI.sel.clear(); render(); }
+async function verifyKey() { if (!SY.key) { UI.admin = false; return; } try { const res = await req('auth=1'); if (res.r.status === 403) { SY.key = ''; try { localStorage.removeItem('klub_key'); } catch (e) { } UI.admin = false; } else UI.admin = true; } catch (e) { UI.admin = true; } }
+function keyModal() {
+    modal(b => { b.innerHTML = '<h3>🔒 Admin kirish</h3><div class="note" style="margin-bottom:8px">Server kaliti (klub-api.php dagi $KEY). Shu qurilmada eslab qolinadi.</div>'; const i = el('input'); i.type = 'password'; i.placeholder = 'Server kaliti'; i.autocomplete = 'current-password'; b.appendChild(i); const a = el('div', 'acts'), c = el('button', 'btn', 'Bekor'), ok = el('button', 'btn pri', 'Kirish'); c.onclick = closeModal;
+        const go = async () => { SY.key = i.value; try { const res = await req('auth=1'); if (res.r.ok) { try { localStorage.setItem('klub_key', SY.key); } catch (e) { } UI.admin = true; closeModal(); await pull(false); if (SY.rev === 0) { SY.dirty = true; flag(1); schedulePush(); } render(); toast('Admin rejimi yoqildi.'); } else { SY.key = ''; toast('Kalit noto‘g‘ri.', true); i.value = ''; } } catch (e) { SY.key = ''; toast('Serverga ulanib bo‘lmadi.', true); } };
+        ok.onclick = go; i.onkeydown = e => { if (e.key === 'Enter') go(); }; a.append(c, ok); b.appendChild(a); });
+}
+function P_server(P) {
+    const sp = P('<h3>Server (ma’lumotni saqlash)</h3>'), line = el('div', 'note'); line.innerHTML = SY.on ? 'Holat: <b style="color:' + (SY.st === 'ok' ? 'var(--green)' : 'var(--amber)') + '">' + (SY.st === 'ok' ? 'ulangan, ma’lumot serverda saqlanmoqda' : 'ulanmayapti — o‘zgarishlar qurilmada saqlanib, ulanganda yuboriladi') + '</b> · versiya ' + SY.rev : 'Holat: <b>server ulanmagan</b> — ma’lumot faqat shu brauzerda. Server fayli (klub-api.php) shu sahifa yoniga yuklansa, avtomatik ulanadi.'; sp.appendChild(line);
+    const r = el('div', 'row'); r.style.marginTop = '10px'; const w = el('label', 'f', '<span>Server manzili (shu qurilma uchun; bo‘sh = faqat brauzer)</span>'), ui = el('input'); ui.value = SY.url; ui.placeholder = 'klub-api.php yoki https://…workers.dev/'; w.appendChild(ui); r.appendChild(w); const sb = el('button', 'btn pri', 'Saqlash va qayta ulanish'); sb.onclick = () => { try { localStorage.setItem('klub_api', ui.value.trim()); } catch (e) { } location.reload(); }; r.appendChild(sb); sp.appendChild(r);
+    const ac = el('div', 'acts'); ac.style.justifyContent = 'flex-start'; if (SY.on) { const n = el('button', 'btn', '🔄 Hozir sinxronlash'); n.onclick = async () => { await pull(false); await push(); render(); toast('Sinxronlandi.'); }; const f = el('button', 'btn bad', '⬆ Shu qurilmadagini serverga majburan yuklash'); f.onclick = () => confirmBox('Serverdagi ma’lumot shu qurilmadagi bilan almashtiriladi.', async () => { await push(true); toast('Serverga yuklandi.'); render(); }, 'Yuklash'); ac.append(n, f); } sp.appendChild(ac);
+    sp.appendChild(el('div', 'note', 'Server kaliti — klub-api.php (yoki Worker) dagi KEY. Faqat kalitni bilgan admin o‘zgartira oladi; boshqalar ochsa faqat ko‘radi. Ma’lumot faqat o‘zingiz “Tozalash” bosganingizda o‘chadi.'));
+}
+setInterval(() => { if (SY.on && !SY.pushing && !SY.dirty) pull(false); }, 5000); document.addEventListener('visibilitychange', () => { if (!document.hidden && SY.on) pull(false); });
+async function initSync() { setSt('conn'); await pull(true); if (SY.on) await verifyKey(); else UI.admin = !S.pin || sessionStorage.getItem('klub_admin') === '1'; render(); if (SY.on && SY.dirty && SY.key) schedulePush(); }
 addEventListener('storage', e => { if (e.key === LS) { S = load(); render(); } });
 render();
+initSync();
 </script>
 </body>
 </html>
