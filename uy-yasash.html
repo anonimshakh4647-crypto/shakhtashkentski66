@@ -4860,12 +4860,14 @@ function crown(P, cx, cy, R, z, o) { // ustun (baraban) + gumbaz
 }
 /* minora: pog‘onali tarqoq tana, bezak belbog‘lari, balkon, fonus va qalpoq */
 function minaret(P, x, y, H, r0, o) {
-    o = o || {}; const r1 = o.r1 || r0 * 0.62, mS = o.m != null ? o.m : um(P, 'pax'), mB = o.mb != null ? o.mb : um(P, 'tfir'), mC = o.mc != null ? o.mc : um(P, 'blu'), n = o.n || cl(Math.round(H / 2.4), 7, 14), hg = H * 0.8;
-    if (o.plinth !== false) col(P, x, y, 0, r0 * 1.55, Math.max(0.8, H * 0.04), mS, 'square');
+    o = o || {}; const r1 = o.r1 || r0 * 0.62, mS = o.m != null ? o.m : um(P, 'pax'), mB = o.mb != null ? o.mb : um(P, 'tfir'), mC = o.mc != null ? o.mc : um(P, 'blu'), n = o.n || cl(Math.round(H / 2.4), 7, 14), hg = o.hg || H * 0.8, hl = o.hl != null ? o.hl : H * 0.1, cap = o.cap != null ? o.cap : H * 0.1;
+    if (o.plinth !== false) col(P, x, y, 0, o.pr || r0 * 1.55, o.ph || Math.max(0.8, H * 0.04), o.pm != null ? o.pm : mS, o.pshape || 'square');
     for (let i = 0; i < n; i++) col(P, x, y, 0, r0 + (r1 - r0) * i / (n - 1), hg * (i + 1) / n, (i % 3 === 1) ? mB : mS);
-    const k = ensureZ(P, hg), hl = H * 0.1; col(P, x, y, k, r1 * 1.5, 0.9, mS); col(P, x, y, k, r1 * 0.95, hl, mB);
-    const ns = 6; for (let i = 0; i < ns; i++) col(P, x, y, k, r1 * 1.12 * (1 - i / ns) + 0.1, hl + 0.3 + (H * 0.1) * (i + 1) / ns, mC);
-    col(P, x, y, k, 0.07, hl + H * 0.1 + 1.1, um(P, 'gld'));
+    if (cap <= 0 && hl <= 0) return;
+    const k = ensureZ(P, hg); col(P, x, y, k, r1 * 1.5, 0.9, mS);
+    if (o.arches) { col(P, x, y, k, r1 * 0.8, 0.5, mB); for (let i = 0; i < o.arches; i++) { const a = i / o.arches * Math.PI * 2; col(P, x + Math.cos(a) * r1 * 1.22, y + Math.sin(a) * r1 * 1.22, k, Math.max(0.1, r1 * 0.09), hl, mB); } col(P, x, y, k, r1 * 1.4, 0.25, mB); }
+    else col(P, x, y, k, r1 * 0.95, hl, mB);
+    if (cap > 0) { const ns = 6; for (let i = 0; i < ns; i++) col(P, x, y, k, r1 * 1.12 * (1 - i / ns) + 0.1, hl + 0.3 + cap * (i + 1) / ns, mC); col(P, x, y, k, 0.07, hl + cap + (o.spike || 1.1), um(P, 'gld')); }
 }
 /* peshtoq: ikki ustun + ustki plita */
 function pishtaq(P, cx, y, pw, Hp, dh, o) {
@@ -4904,34 +4906,35 @@ UZ.ring = ring;
 
 /* =====================  MADRASA  ===================== */
 function madrasa(P, o) {
-    const w = o.w, d = o.d, F = o.fl || 1, H = o.H || 4.2, T = o.ring || 6.5, Ht = F * H, cw0 = o.cw || 4.6, pw = o.pw || 7, x0 = -w / 2, x1 = w / 2, y0 = -d / 2, y1 = d / 2;
+    const w = o.w, d = o.d, F = o.fl || 1, H = o.H || 4.2, T = o.ring || 6.5, Tx = o.Tx || T, Ty = o.Ty || T, Ht = F * H, cw0 = o.cw || 4.6, pw = o.pw || 7, x0 = -w / 2, x1 = w / 2, y0 = -d / 2, y1 = d / 2;
     lvInit(P, new Array(F).fill(H)); ensureZ(P, Ht);
-    const mw = um(P, o.wall || 'pax'), mc = MC.cream, mt = um(P, o.tile || 'tfir'), mt2 = um(P, 'tblu'), nx = Math.max(2, Math.round(w / cw0)), ny = Math.max(2, Math.round((d - 2 * T) / cw0)), cwx = w / nx, cwy = (d - 2 * T) / ny;
+    const mw = um(P, o.wall || 'pax'), mc = MC.cream, mt = um(P, o.tile || 'tfir'), mt2 = um(P, 'tblu'), nx = Math.max(2, Math.round(w / cw0)), ny = Math.max(2, Math.round((d - 2 * Ty) / cw0)), cwx = w / nx, cwy = (d - 2 * Ty) / ny;
     slab(P, x0 - 0.5, y0 - 0.5, x1 + 0.5, y1 + 0.5, 0, 0.4, MC.stone);
     for (let k = 0; k < F; k++) {
-        const kk = ensureZ(P, k * H), out = box(P, x0, y0, x1, y1, kk, H, { t: 0.8, mA: mw, mB: mc }), inn = box(P, x0 + T, y0 + T, x1 - T, y1 - T, kk, H, { t: 0.5, mA: mc, mB: mw });
-        if (k > 0) { const s = slab(P, x0, y0, x1, y1, k * H, 0.25, MC.parquet, MC.cream); s.hole = [x0 + T, y0 + T, x1 - T, y1 - T]; }
-        for (let i = 1; i < nx; i++) { const x = x0 + i * cwx; if (Math.abs(x) >= pw / 2 + 0.6) wall(P, x, y0 + 0.4, x, y0 + T - 0.25, kk, H, { t: 0.3, mA: mc, mB: mc }); if (Math.abs(x) >= T * 0.62 || o.dome === false) wall(P, x, y1 - T + 0.25, x, y1 - 0.4, kk, H, { t: 0.3, mA: mc, mB: mc }); }
-        for (let j = 1; j < ny; j++) { const y = y0 + T + j * cwy; if (Math.abs(y) < 1.4) continue; wall(P, x0 + 0.4, y, x0 + T - 0.25, y, kk, H, { t: 0.3, mA: mc, mB: mc }); wall(P, x1 - T + 0.25, y, x1 - 0.4, y, kk, H, { t: 0.3, mA: mc, mB: mc }); }
+        const kk = ensureZ(P, k * H), out = box(P, x0, y0, x1, y1, kk, H, { t: 0.8, mA: mw, mB: mc }), inn = box(P, x0 + Tx, y0 + Ty, x1 - Tx, y1 - Ty, kk, H, { t: 0.5, mA: mc, mB: mw });
+        if (k > 0) { const s = slab(P, x0, y0, x1, y1, k * H, 0.25, MC.parquet, MC.cream); s.hole = [x0 + Tx, y0 + Ty, x1 - Tx, y1 - Ty]; }
+        for (let i = 1; i < nx; i++) { const x = x0 + i * cwx; if (Math.abs(x) >= pw / 2 + 0.6) wall(P, x, y0 + 0.4, x, y0 + Ty - 0.25, kk, H, { t: 0.3, mA: mc, mB: mc }); if (Math.abs(x) >= Ty * 0.62 || o.dome === false) wall(P, x, y1 - Ty + 0.25, x, y1 - 0.4, kk, H, { t: 0.3, mA: mc, mB: mc }); }
+        for (let j = 1; j < ny; j++) { const y = y0 + Ty + j * cwy; if (Math.abs(y) < 1.4) continue; wall(P, x0 + 0.4, y, x0 + Tx - 0.25, y, kk, H, { t: 0.3, mA: mc, mB: mc }); wall(P, x1 - Tx + 0.25, y, x1 - 0.4, y, kk, H, { t: 0.3, mA: mc, mB: mc }); }
         /* hujra eshiklari / derazalar (hovli tomonda) */
         const dop = (wl, tt, a, b, fixed, hor) => { for (let i = 0; i < tt; i++) { const c = a + (i + 0.5) * b; const x = hor ? c : fixed, y = hor ? fixed : c; if (k === 0) op(wl, 'door', x, y, { w: 1.3, h: Math.min(2.6, H - 0.5), sill: 0 }); else op(wl, 'window', x, y, { w: 1.1, h: 1.7, sill: 0.8, bars: 2 }); } };
-        dop(inn[3], nx, x0, cwx, y0 + T, true); dop(inn[1], nx, x0, cwx, y1 - T, true); dop(inn[0], ny, y0 + T, cwy, x0 + T, false); dop(inn[2], ny, y0 + T, cwy, x1 - T, false);
+        dop(inn[3], nx, x0, cwx, y0 + Ty, true); dop(inn[1], nx, x0, cwx, y1 - Ty, true); dop(inn[0], ny, y0 + Ty, cwy, x0 + Tx, false); dop(inn[2], ny, y0 + Ty, cwy, x1 - Tx, false);
         /* tashqi derazalar */
         const sill = Math.max(1.4, H - 2.2);
         for (let i = 0; i < nx; i++) { const c = x0 + (i + 0.5) * cwx; if (Math.abs(c) < pw / 2 + 0.5) continue; if (k === F - 1) { op(out[3], 'window', c, y0, { w: 0.8, h: 1.1, sill, bars: 2 }); op(out[1], 'window', c, y1, { w: 0.8, h: 1.1, sill, bars: 2 }); } }
-        for (let j = 0; j < ny; j++) { const c = y0 + T + (j + 0.5) * cwy; if (k === F - 1) { op(out[0], 'window', x0, c, { w: 0.8, h: 1.1, sill, bars: 2 }); op(out[2], 'window', x1, c, { w: 0.8, h: 1.1, sill, bars: 2 }); } }
-        if (k === 0) { op(out[3], 'door', 0, y0, { w: Math.min(3.8, pw - 1.4), h: Math.min(4.0, H - 0.2), sill: 0 }); op(inn[3], 'door', 0, y0 + T, { w: Math.min(3.8, pw - 1.4), h: Math.min(4.0, H - 0.2), sill: 0 }); }
-        if (k === 0 && o.iwans !== false) { op(inn[1], 'door', 0, y1 - T, { w: 3.4, h: Math.min(3.8, H - 0.3), sill: 0 }); op(inn[0], 'door', x0 + T, 0, { w: 3.0, h: Math.min(3.6, H - 0.3), sill: 0 }); op(inn[2], 'door', x1 - T, 0, { w: 3.0, h: Math.min(3.6, H - 0.3), sill: 0 }); }
+        for (let j = 0; j < ny; j++) { const c = y0 + Ty + (j + 0.5) * cwy; if (k === F - 1) { op(out[0], 'window', x0, c, { w: 0.8, h: 1.1, sill, bars: 2 }); op(out[2], 'window', x1, c, { w: 0.8, h: 1.1, sill, bars: 2 }); } }
+        if (k === 0) { op(out[3], 'door', 0, y0, { w: Math.min(3.8, pw - 1.4), h: Math.min(4.0, H - 0.2), sill: 0 }); op(inn[3], 'door', 0, y0 + Ty, { w: Math.min(3.8, pw - 1.4), h: Math.min(4.0, H - 0.2), sill: 0 }); }
+        if (k === 0 && o.iwans !== false) { op(inn[1], 'door', 0, y1 - Ty, { w: 3.4, h: Math.min(3.8, H - 0.3), sill: 0 }); op(inn[0], 'door', x0 + Tx, 0, { w: 3.0, h: Math.min(3.6, H - 0.3), sill: 0 }); op(inn[2], 'door', x1 - Tx, 0, { w: 3.0, h: Math.min(3.6, H - 0.3), sill: 0 }); }
     }
-    slab(P, x0 - 0.4, y0 - 0.4, x1 + 0.4, y0 + T + 0.3, Ht, 0.35, MC.stone, mw); slab(P, x0 - 0.4, y1 - T - 0.3, x1 + 0.4, y1 + 0.4, Ht, 0.35, MC.stone, mw);
-    slab(P, x0 - 0.4, y0 + T, x0 + T + 0.3, y1 - T, Ht, 0.35, MC.stone, mw); slab(P, x1 - T - 0.3, y0 + T, x1 + 0.4, y1 - T, Ht, 0.35, MC.stone, mw);
+    slab(P, x0 - 0.4, y0 - 0.4, x1 + 0.4, y0 + Ty + 0.3, Ht, 0.35, MC.stone, mw); slab(P, x0 - 0.4, y1 - Ty - 0.3, x1 + 0.4, y1 + 0.4, Ht, 0.35, MC.stone, mw);
+    slab(P, x0 - 0.4, y0 + Ty, x0 + Tx + 0.3, y1 - Ty, Ht, 0.35, MC.stone, mw); slab(P, x1 - Tx - 0.3, y0 + Ty, x1 + 0.4, y1 - Ty, Ht, 0.35, MC.stone, mw);
     pishtaq(P, 0, y0, pw, Ht + (o.ph == null ? 2.4 : o.ph), Math.min(4.0, H - 0.2) + 0.7, { m: mt, m2: mt2 });
-    if (o.fdome) for (const sx of [-1, 1]) { const cx = sx * (pw / 2 + 1.4 + o.fdome); crown(P, cx, y0 + T / 2, o.fdome, Ht + 0.35, { m: um(P, o.dm || 'blu'), md: mt, ky: o.ky || 1.2, m2: o.dm2 ? um(P, o.dm2) : null }); }
-    if (o.dome !== false) crown(P, 0, y1 - T / 2, Math.min(T / 2 - 0.2, o.R || 3.6), Ht + 0.35, { m: um(P, o.dm || 'blu'), md: mt, ky: o.ky || 1.15, m2: o.dm2 ? um(P, o.dm2) : null, hd: 1.4 });
-    if (o.dome2) { for (const sx of [-1, 1]) crown(P, sx * (w / 2 - T / 2), y1 - T / 2, Math.min(T / 2 - 0.3, 3.0), Ht + 0.35, { m: um(P, o.dm || 'blu'), md: mt, hd: 1.0 }); }
+    if (o.fdome) for (const sx of [-1, 1]) { const cx = sx * (pw / 2 + 1.4 + o.fdome); crown(P, cx, y0 + Ty / 2, o.fdome, Ht + 0.35, { m: um(P, o.dm || 'blu'), md: mt, ky: o.ky || 1.2, m2: o.dm2 ? um(P, o.dm2) : null }); }
+    if (o.dome !== false) crown(P, 0, y1 - Ty / 2, Math.min(Ty / 2 - 0.2, o.R || 3.6), Ht + 0.35, { m: um(P, o.dm || 'blu'), md: mt, ky: o.ky || 1.15, m2: o.dm2 ? um(P, o.dm2) : null, hd: 1.4 });
+    if (o.dome2) { for (const sx of [-1, 1]) crown(P, sx * (w / 2 - Tx / 2), y1 - Ty / 2, Math.min(Ty / 2 - 0.3, 3.0), Ht + 0.35, { m: um(P, o.dm || 'blu'), md: mt, hd: 1.0 }); }
     const mh = Ht + (o.mh || 11), mr = o.mr || 1.35;
     if (o.min) { for (const p of o.min === 4 ? [[x0, y0], [x1, y0], [x0, y1], [x1, y1]] : [[x0, y0], [x1, y0]]) minaret(P, p[0], p[1], mh, mr, { mb: mt, mc: um(P, o.dm || 'blu') }); }
     if (o.tower) for (const sx of [-1, 1]) col(P, sx * (pw / 2 + pw * 0.14 + 3.5), y0 - 0.2, 0, 1.3, Ht + 2.2, mt, 'square');
+    if (o.cdome) for (const sx of [-1, 1]) for (const sy of [-1, 1]) crown(P, sx * (x1 - Tx / 2), sy * (y1 - Ty / 2), o.cdome, Ht + 0.35, { m: um(P, o.dm || 'blu'), md: mt, hd: 1.2, ky: 1.1 });
     if (o.court) { const tc = um(P, 'wat'); slab(P, -2.2, -2.2, 2.2, 2.2, 0.02, 0.3, tc, MC.stone); }
 }
 UZ.madrasa = madrasa;
@@ -5029,7 +5032,7 @@ function tower(P, o) {
     else { box(P, cx - tl.w / 2, cy - tl.d / 2, cx + tl.w / 2, cy + tl.d / 2, kt, 1.1, { t: 0.25, mA: wm, mB: wm }); if (o.spire) col(P, cx, cy, kt, 0.2, o.spire, um(P, 'sil')); }
 }
 function tvTower(P, o) {
-    const H = o.H || 150, s = H / 150, wm = um(P, 'whs'), gm = um(P, 'gl'), m = um(P, 'sil'), gld = um(P, 'tfir'), zp = H * 0.57;
+    const H = o.H || 150, s = H / 150, wm = um(P, 'whs'), gm = um(P, 'gl'), m = um(P, 'sil'), gld = um(P, 'tfir'), zp = o.zp || H * 0.57;
     lvInit(P, [3]); slab(P, -28 * s - 6, -28 * s - 6, 28 * s + 6, 28 * s + 6, 0, 0.5, MC.concrete); slab(P, -18 * s, -18 * s, 18 * s, 18 * s, 0.9, 1.0, MC.stone);
     const n = 14; for (let i = 0; i < n; i++) col(P, 0, 0, 0, (6.2 - 3.0 * i / (n - 1)) * s, zp * (i + 1) / n + 8 * s, wm);
     col(P, 0, 0, 0, 3.2 * s, zp + 12 * s, wm);
@@ -5124,6 +5127,29 @@ function toqi(P, o) { // savdo gumbazlari: xoch shaklidagi yo‘lak (Toqi)
         else { const ya = dy > 0 ? S / 2 : -S / 2, yb = dy > 0 ? S / 2 + L : -S / 2 - L; wl(-W2, ya, -W2, yb); wl(W2, yb, W2, ya); ex = dy > 0 ? wl(-W2, yb, W2, yb) : wl(W2, yb, -W2, yb); op(ex, 'door', 0, yb, { w: 2.6, h: 3.6, sill: 0 }); slab(P, -W2 - 0.5, Math.min(ya, yb) - 0.5, W2 + 0.5, Math.max(ya, yb) + 0.5, H + 0.4, 0.4, mw, mw); for (let i = 0; i < 2; i++) crown(P, 0, ya + (yb - ya) * (i + 0.5) / 2, Math.min(3.0, W2 - 0.3), H + 0.4, { m: um(P, 'clay'), md: mw, hd: 0.5, fin: false }); }
     };
     arm(1, 0); arm(-1, 0); arm(0, 1); arm(0, -1);
+}
+
+
+function bibi(P) { // Bibi-Xonim: manbalar bo‘yicha 167×109 m, hovli 78×64, portal 35 m, gumbaz ~40 m, galereya 7.2 m
+    const A = 109, B = 167, cx = 64, cy = 78, Hg = 7.2, mw = um(P, 'pax'), mt = um(P, 'tfir'), mm = MC.marble, x0 = -A / 2, x1 = A / 2, y0 = -B / 2, y1 = B / 2, yp = y0 + (B - cy) / 2, yd = y1 - (B - cy) / 2;
+    lvInit(P, [Hg]); ensureZ(P, Hg);
+    slab(P, x0 - 1, y0 - 1, x1 + 1, y1 + 1, 0, 0.4, MC.stone);
+    const ow = box(P, x0, y0, x1, y1, 0, Hg, { t: 1.2, mA: mw, mB: MC.cream });
+    for (const [wl, hor] of [[ow[0], false], [ow[2], false]]) { const n = 12; for (let i = 0; i < n; i++) { const c = y0 + 12 + (B - 24) * (i + 0.5) / n; op(wl, 'window', wl.x1, c, { w: 1.4, h: 2.6, sill: 2.2, bars: 3 }); } }
+    /* hovli (78×64) atrofidagi galereyalar: 3 qator marmar ustun */
+    const cwx = A / 2 - cx / 2 - 1.2, rows = 3;
+    for (const sx of [-1, 1]) for (let r = 0; r < rows; r++) { const x = sx * (cx / 2 + 1 + r * (cwx - 1) / (rows - 1)); for (let y = -cy / 2; y <= cy / 2 + 0.01; y += 3.9) col(P, x, y, 0, 0.3, Hg, mm); }
+    for (const sy of [-1, 1]) for (let r = 0; r < 2; r++) { const y = sy * (cy / 2 + 1 + r * 3); for (let x = -cx / 2; x <= cx / 2 + 0.01; x += 3.9) col(P, x, y, 0, 0.3, Hg, mm); }
+    slab(P, x0, y0, x1, y1, Hg + 0.35, 0.35, mw, mw).hole = [-cx / 2, -cy / 2, cx / 2, cy / 2];
+    /* portal (35 m) */
+    pishtaq(P, 0, y0, 20, 35, 14, { m: mt, m2: um(P, 'tblu'), pr: 3.2, dep: 5, cap: 2.5 });
+    op(ow[3], 'door', 0, y0, { w: 8, h: 11, sill: 0 });
+    /* asosiy gumbazli zal (gumbaz ~40 m) */
+    const Sd = 40; domedBlock(P, 0, y1 - Sd / 2 - 2, Sd, { H: 28, R: 17, hd: 3, ky: 0.95, dm: 'tfir', m: 'blu', m2: 'fir', wm: 'pax', dw: 6, dh: 8, win: false, t: 1.6 });
+    /* yon gumbazlar (uzun tomonlar o‘rtasida) */
+    for (const sx of [-1, 1]) domedBlock(P, sx * (x1 - 11), 0, 22, { H: 16, R: 8.5, hd: 2, ky: 0.95, dm: 'tfir', m: 'blu', wm: 'pax', dw: 4, dh: 6, win: false, t: 1.2 });
+    /* 4 ta burchak minorasi */
+    for (const p of [[x0 + 2, y0 + 2], [x1 - 2, y0 + 2], [x0 + 2, y1 - 2], [x1 - 2, y1 - 2]]) minaret(P, p[0], p[1], 26, 2.4, { mb: mt, mc: um(P, 'blu') });
 }
 
 /* =====================  QAL‘A  ===================== */
@@ -5228,7 +5254,7 @@ const T = (fam, id, name, desc, fn) => TEMPLATES.push({ id: 'uz-' + id, fam, nam
 const NOTE = ' (soddalashtirilgan model)';
 const FAMS = [['uzh', 'O‘zb: madrasa va masjid'], ['uzm', 'O‘zb: maqbara va minora'], ['uzq', 'O‘zb: qal‘a va saroy'], ['uzs', 'O‘zb: shahar obidalari'], ['uzb', 'O‘zb: baland binolar'], ['uzu', 'O‘zb: uy va hovli'], ['uze', 'O‘zb: ansambllar']];
 FAMS.forEach(f => TPL_FAMS.push(f));
-window.UZ.reg = { T, NOTE, tower, tvTower, panel, hovli, yurt, hammom, bazaarDome, toqi, fort, innerHouses, palaceCourt, theatre, hall, arena, stadium, monument, circus, lathe, rnd };
+window.UZ.reg = { bibi, T, NOTE, tower, tvTower, panel, hovli, yurt, hammom, bazaarDome, toqi, fort, innerHouses, palaceCourt, theatre, hall, arena, stadium, monument, circus, lathe, rnd };
 })();
 
 /* ===== O‘zbekiston modellari kutubxonasi (uz3: shablonlar ro‘yxati) ===== */
@@ -5236,7 +5262,7 @@ window.UZ.reg = { T, NOTE, tower, tvTower, panel, hovli, yurt, hammom, bazaarDom
 const U = window.UZ, R = U.reg, { T, NOTE } = R, { um, lvInit, place } = U;
 const comp = (P, parts) => { lvInit(P, [3]); for (const [fn, x, y, r] of parts) place(P, fn, x, y, r || 0); };
 const MAD = o => P => U.madrasa(P, o), MQ = o => P => U.mausoleum(P, o), MIN = o => P => U.minaretStand(P, o), TW = o => P => R.tower(P, o), HV = o => P => R.hovli(P, o);
-const D = (s) => s + NOTE;
+const D = (s) => s + NOTE; let FAMS_EX;
 
 /* ---------- MADRASALAR ---------- */
 const MADS = [
@@ -5341,6 +5367,18 @@ T('uzs', 'shr-obelisk', 'Obelisk (xotira ustuni)', D('To‘rtburchak pog‘onali
 T('uzs', 'shr-teleminora', 'Toshkent teleminorasi (kichraytirilgan 150 m)', D('Tana, qabul qilish gumbazi (shayba) va mayoq — haqiqiyning ~40%.'), P => R.tvTower(P, { H: 150 }));
 T('uzs', 'shr-sirk', 'Toshkent sirki uslubida (gumbazli)', D('Aylana bino va katta gumbaz.'), P => R.circus(P, { R: 30, dm: 'blu' }));
 T('uzs', 'shr-rasadxona', 'Ulug‘bek rasadxonasi (aylana asos)', D('Silindrsimon bino va past gumbaz.'), P => R.monument(P, { kind: 'ulugbek' }));
+
+
+/* ---------- ANIQ O‘LCHAMLI (manbalar bo‘yicha) ---------- */
+FAMS_EX = ['uzx', 'O‘zb: aniq o‘lchamli (manba)'];
+TPL_FAMS.push(FAMS_EX);
+const X = (id, nm, ds, fn) => T('uzx', 'ex-' + id, nm, ds, fn);
+X('ulugbek', 'Ulug‘bek madrasasi — manba o‘lchamlari (56×81 m)', 'Reja 56×81 m, hovli 30×40 m, 2 qavat, 4 burchak minorasi 33 m, 4 burchak darsxonasi gumbazli, orqada masjid, peshtoq ~2/3 fasad eni (Wikipedia). Peshtoq balandligi manbada «35 fut» deb yozilgan, 35 m deb oldim (shubhali). Qavat balandligi taxminiy.', P => U.madrasa(P, { w: 56, d: 81, Tx: 13, Ty: 20.5, fl: 2, H: 5.4, cw: 4.0, pw: 33, ph: 35 - 10.8, min: 4, mh: 33 - 10.8, mr: 1.8, cdome: 5.5, R: 5.5, dm: 'blu', tile: 'tfir', iwans: true }));
+X('kalon', 'Kalon minorasi — manba o‘lchamlari (45,6 m)', 'Balandlik 45,6 m (uchi bilan 48), tana ~32 m gacha, asos diametri 9,7 m, tepada 6 m, 16 yoyli fonus, 10 qirrali poydevor 1,85 m, 14 bezak belbog‘i (Wikipedia).', P => { U.lvInit(P, [3]); U.minaret(P, 0, 0, 45.6, 4.85, { r1: 3.0, hg: 32, hl: 8, cap: 5.6, spike: 2.4, ph: 1.85, pr: 6.2, pshape: 'round', arches: 16, n: 14, m: um(P, 'pax'), mb: um(P, 'pax'), mc: um(P, 'pax') }); });
+X('kalta', 'Kalta Minor — manba o‘lchamlari (29 m)', 'Qurilgan balandlik 29 m (rejada 70–80 m), asos diametri 14,2 m, yuzasi firuza, oq va yashil sirli koshin; tepasi tugallanmagan (Wikipedia).', P => { U.lvInit(P, [3]); U.minaret(P, 0, 0, 29, 7.1, { r1: 6.6, hg: 29, hl: 0, cap: 0, n: 10, m: um(P, 'tfir'), mb: um(P, 'whs'), plinth: false }); });
+X('islomxoja', 'Islom Xo‘ja minorasi — manba balandligi (57 m)', 'Balandlik poydevor bilan 57 m, yuqori maydoncha 45 m (orexca.com). Asos va tepa diametri manbada yo‘q — taxminiy olindi.', P => { U.lvInit(P, [3]); U.minaret(P, 0, 0, 57, 4.8, { r1: 2.6, hg: 45, hl: 6, cap: 6, spike: 1.5, n: 14, m: um(P, 'sav'), mb: um(P, 'tfir'), mc: um(P, 'blu') }); });
+X('bibi', 'Bibi-Xonim masjidi — manba o‘lchamlari (167×109 m)', 'Reja 167×109 m, hovli 78×64 m, portal 35 m, asosiy gumbaz ~40 m, galereya 7,2 m, 400+ marmar ustun, 4 burchak minorasi (Wikipedia). Minora balandligi va gumbaz diametri manbada yo‘q — taxminiy.', P => R.bibi(P));
+X('teleminora', 'Toshkent teleminorasi — 375 m (to‘liq o‘lcham)', 'Umumiy balandlik 375 m, kuzatuv maydonchasi 97 m (Wikipedia). Tana va shayba diametrlari manbada yo‘q — proporsiya bo‘yicha taxminiy.', P => R.tvTower(P, { H: 375, zp: 97 }));
 
 /* ---------- BALAND BINOLAR ---------- */
 const TOWERS = [];
