@@ -106,6 +106,22 @@ textarea.in { font-family: inherit; line-height: 1.35; }
   #side { border-left: 0; border-top: 1px solid var(--line); } .pane { max-height: none; }
   #pname { width: 110px; }
 }
+/* ===== Asboblar moduli ===== */
+#tabs button { padding: 0 2px; font-size: 11.5px; }
+.xsec { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; background: rgba(255,255,255,.015); }
+.xsec > summary { cursor: pointer; padding: 10px 12px; font-weight: 700; font-size: 12.5px; list-style: none; display: flex; justify-content: space-between; align-items: center; user-select: none; }
+.xsec > summary::-webkit-details-marker { display: none; } .xsec > summary::after { content: '+'; color: var(--cyan); font-size: 16px; line-height: 1; } .xsec[open] > summary::after { content: '−'; }
+.xsec[open] > summary { border-bottom: 1px solid var(--line); } .xb { padding: 8px 12px 12px; }
+.xbtns { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; } .xlab { font-size: 10.5px; color: var(--muted); margin: 10px 0 4px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; } .xlab:first-child { margin-top: 0; }
+.xchks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 6px 0 8px; font-size: 12px; } .xchk { font-size: 12px; }
+.xslot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; } .xslot small { color: var(--muted); display: block; font-size: 10px; } .xslb { display: flex; gap: 4px; flex: none; }
+.okc { color: var(--ok); } .xsec input[type=range] { width: 100%; accent-color: #1fd6f5; }
+
+/* xarita boshqaruv paneli */
+.mpctl { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel2); }
+.mpg { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .mpg > b { font: 700 10px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.mppad { display: grid; grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(2, 36px); gap: 4px; } .mppad .btn, .mprb .btn { height: 36px; padding: 0; font-size: 17px; width: 100%; } .mppad .up { grid-column: 2; grid-row: 1; } .mppad .lf { grid-column: 1; grid-row: 2; } .mppad .dn { grid-column: 2; grid-row: 2; } .mppad .rt { grid-column: 3; grid-row: 2; } .mprb { display: flex; gap: 4px; } .mprb .btn { width: 46px; }
+.mpctl .seg button { height: 30px; padding: 0 9px; font-size: 11.5px; } .mprd { font: 600 12px var(--mono); color: #ffb86b; min-width: 150px; }
 </style>
 </head>
 <body>
@@ -129,8 +145,8 @@ textarea.in { font-family: inherit; line-height: 1.35; }
     </section>
   </main>
   <aside id="side">
-    <div id="tabs"><button data-t="obj" class="on">Obyekt</button><button data-t="mat">Materiallar</button><button data-t="mod">Modlar</button><button data-t="exp">Eksport</button></div>
-    <div class="pane on" id="pObj"></div><div class="pane" id="pMat"></div><div class="pane" id="pMod"></div><div class="pane" id="pExp"></div>
+    <div id="tabs"><button data-t="obj" class="on">Obyekt</button><button data-t="mat">Materiallar</button><button data-t="mod">Modlar</button><button data-t="exp">Eksport</button><button data-t="ext">Asboblar</button></div>
+    <div class="pane on" id="pObj"></div><div class="pane" id="pMat"></div><div class="pane" id="pMod"></div><div class="pane" id="pExp"></div><div class="pane" id="pExt"></div>
   </aside>
   <footer id="status"><i class="dot"></i><span id="stxt">Tayyor.</span></footer>
 </div>
@@ -1519,8 +1535,8 @@ function exportIde(o) { // ASCII, izohsiz (eski o'yin tahlilchisi uchun xavfsiz)
     return ['objs'].concat(gtaParts(o).map(p => [p.id, p.name, o.txd, o.draw, o.flags].join(', ')), ['end', '']).join('\r\n');
 }
 function exportIpl(o) {
-    const f = v => String(Math.round(v * 10000) / 10000);
-    return ['inst'].concat(gtaParts(o).map(p => [p.id, p.name, o.interior || 0, f(o.x + (p.dx || 0)), f(o.y + (p.dy || 0)), f(o.z + (p.dz || 0)), 0, 0, 0, 1, -1].join(', ')), ['end', '']).join('\r\n');
+    const f = v => String(Math.round(v * 10000) / 10000), ar = (o.rot || 0) * Math.PI / 180, ca = Math.cos(ar), sa = Math.sin(ar), qz = f(-Math.sin(ar / 2)), qw = f(Math.cos(ar / 2));
+    return ['inst'].concat(gtaParts(o).map(p => [p.id, p.name, o.interior || 0, f(o.x + (p.dx || 0) * ca - (p.dy || 0) * sa), f(o.y + (p.dx || 0) * sa + (p.dy || 0) * ca), f(o.z + (p.dz || 0)), 0, 0, qz, qw, -1].join(', ')), ['end', '']).join('\r\n');
 }
 /* modelni meshlar bo'yicha qismlarga bo'ladi: har qism <= maxV vertex (GTA: bir qism 65535 dan oshmasin) */
 /* bitta juda katta obyektni (>maxV vertex) fazoviy bo'laklarga ajratadi: uchburchaklar eng uzun o'q bo'yicha tartiblanib, har bo'lak <= maxV vertex */
@@ -1622,7 +1638,7 @@ function mapReadme(o) {
         '                  (IMG Tool KERAK EMAS, asosiy gta3.img ga TEGMANG)',
         '  ' + N + '.col  - tokinish (shu bolmasa uy "arvoh" boladi)',
         '  ' + N + '.ide  - obyekt tarifi (ID ' + P.map(p => p.id).join(', ') + ')',
-        '  ' + N + '.ipl  - xaritadagi joyi: X ' + o.x + '  Y ' + o.y + '  Z ' + o.z, '',
+        '  ' + N + '.ipl  - xaritadagi joyi: X ' + o.x + '  Y ' + o.y + '  Z ' + o.z + (o.rot ? '  burilish ' + o.rot + ' gradus (chapga)' : ''), '',
         ...(P.some(p => p.dx || p.dy || p.dz) ? ['  (Model katta bo\'lgani uchun bo\'laklar bir nechta hududga bo\'lingan; IPL dagi koordinatalar shuning uchun turlicha - bu normal.)'] : []),
         '',
         'ORNATISH:',
@@ -2324,7 +2340,7 @@ const round = (v, k) => { k = k || 1000; return Math.round(v * k) / k; };
 
 function newProject() {
     return { v: 1, name: 'uy1', levels: [{ name: '1-qavat', h: 2.8 }], walls: [], slabs: [], roofs: [], stairs: [], cols: [], texts: [], mods: [], mats: defaultMats(), def: Object.assign({}, DEF_IDS), nid: 1,
-        exp: { id: 18631, x: 2495.5, y: -1688.25, z: 13.5, draw: 300, glassFlag: true, txMax: 512, col: 'auto' } };
+        exp: { id: 18631, x: 2495.5, y: -1688.25, z: 13.5, rot: 0, draw: 300, glassFlag: true, txMax: 512, col: 'auto' } };
 }
 const uid = () => S.P.nid++;
 const ASSETS = []; // yuklangan rasmlar: {key, name, dataURL}  (tarixga kirmaydi, saqlashga kiradi)
@@ -3366,7 +3382,8 @@ function gmPlaceHouse() {
         const tx = mt.tex && m.tex.get(mt.tex), map = tx ? gmTexture(tx.canvas) : null, tr = mt.color[3] < 255 || (tx && tx.alpha);
         return new THREE.MeshLambertMaterial({ map, color: new THREE.Color(mt.color[0] / 255, mt.color[1] / 255, mt.color[2] / 255), side: THREE.DoubleSide, transparent: !!tr, opacity: mt.color[3] / 255, alphaTest: tx && tx.alpha ? 0.4 : 0 });
     });
-    const root = new THREE.Group(); root.position.set(x, y, z);
+    const rot = ((S.P.exp.rot || 0) * Math.PI) / 180, root = new THREE.Group(); root.position.set(x, y, z); root.rotation.z = rot;
+    { const fa = rot - Math.PI / 2, ar = new THREE.ArrowHelper(new THREE.Vector3(Math.cos(fa), Math.sin(fa), 0), new THREE.Vector3(x, y, z + 0.8), Math.max(14, (m.L || 10) * 0.7), 0xffb86b, 4, 2.5); v.marker.add(ar); }
     for (const me of m.meshes) {
         const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(me.pos, 3)); if (me.nrm) g.setAttribute('normal', new THREE.BufferAttribute(me.nrm, 3)); if (me.uv) g.setAttribute('uv', new THREE.BufferAttribute(me.uv, 2));
         const groups = groupByMat(me), index = new Uint32Array(me.idx.length); let p = 0;
@@ -3550,7 +3567,7 @@ const fmtN = v => String(Math.round(v * 10000) / 10000);
 async function exportModPack(id, k) {
     try {
         k = k > 0 ? k : 1; const m = modLoad(id), E = S.P.exp, def = m.def, fn = def.file + kName(k), z = E.z - m.mn[2] * k, dr = modDraw(def, k), sc = modScaled(m, k);
-        const po = { name: fn, txd: def.file, id: E.id, x: E.x, y: E.y, z, draw: dr, flags: 0, interior: 0, parts: [{ name: fn, id: E.id, dx: 0, dy: 0, dz: 0 }] }, colB = modColOf(m, k, fn, E.id);
+        const po = { name: fn, txd: def.file, id: E.id, x: E.x, y: E.y, rot: E.rot || 0, z, draw: dr, flags: 0, interior: 0, parts: [{ name: fn, id: E.id, dx: 0, dy: 0, dz: 0 }] }, colB = modColOf(m, k, fn, E.id);
         const img = buildImg([{ name: fn + '.dff', data: sc.dff }, { name: def.file + '.txd', data: m.txd }]);
         const sz = modSize(m, k), rd = mapReadme(Object.assign({ colInfo: colB.info, txdInfo: 'TXD asl fayl (o‘zgartirilmagan).' }, po)) + '\r\nMOD: ' + def.name + ' — hajm ×' + fmtN(k) + ', model o‘lchami ' + sz.map(v => v.toFixed(0)).join(' × ') + ' m. Joy Z = ' + fmtN(z) + ' (pastki qismi yerga tegadi). Teksturalar: ' + def.file + '.txd.\r\n';
         const z0 = zipStore([{ name: fn + '.img', data: img }, { name: fn + '.col', data: colB.bytes }, { name: fn + '.ide', data: TE.encode(exportIde(po)) }, { name: fn + '.ipl', data: TE.encode(exportIpl(po)) }, { name: 'README.txt', data: TE.encode(rd) }]);
@@ -3563,7 +3580,7 @@ function modsForPack(E, c, firstId) {
     for (const it of list) {
         const m = modLoad(it.id); if (!m) continue; const k = modK(it), fn = m.def.file + kName(k), key = it.id + '@' + k.toFixed(4); let u = used.get(key);
         if (!u) { u = { id: Math.min(19999, next++), m, fn }; used.set(key, u); files.push({ name: fn + '.dff', data: modScaled(m, k).dff }); if (!txdDone.has(it.id)) { txdDone.add(it.id); files.push({ name: m.def.file + '.txd', data: m.txd }); } cols.push(modColOf(m, k, fn, u.id)); ideL.push([u.id, fn, m.def.file, modDraw(m.def, k), 0].join(', ')); }
-        const X = E.x + it.x - c[0], Y = E.y + it.y - c[1], Z = E.z + it.z; iplL.push([u.id, fn, 0, fmtN(X), fmtN(Y), fmtN(Z), modQuat(it.rz), -1].join(', ')); info.push(m.def.name + ' ×' + fmtN(k) + ' → ' + fn + ' (ID ' + u.id + ', X ' + fmtN(X) + ' Y ' + fmtN(Y) + ' Z ' + fmtN(Z) + ')');
+        const ar = (E.rot || 0) * Math.PI / 180, ca = Math.cos(ar), sa = Math.sin(ar), mx = it.x - c[0], my = it.y - c[1], X = E.x + mx * ca - my * sa, Y = E.y + mx * sa + my * ca, Z = E.z + it.z; iplL.push([u.id, fn, 0, fmtN(X), fmtN(Y), fmtN(Z), modQuat((it.rz || 0) + (E.rot || 0)), -1].join(', ')); info.push(m.def.name + ' ×' + fmtN(k) + ' → ' + fn + ' (ID ' + u.id + ', X ' + fmtN(X) + ' Y ' + fmtN(Y) + ' Z ' + fmtN(Z) + ')');
     }
     return { files, cols, ide: ideL, ipl: iplL, info, ids: Array.from(used.values()).map(u => u.id) };
 }
@@ -3891,6 +3908,8 @@ function renderExport() {
     const r1 = rowOf(box); field(r1, 'Obyekt ID (boshlang‘ich)', E, 'id', { min: 1, max: 19999, step: 1 }); field(r1, 'Ko‘rinish masofasi (m)', E, 'draw', { min: 20, max: 1500, step: 10 });
     box.appendChild(el('div', 'h', 'Xaritadagi joy (GTA koordinatasi)'));
     const r2 = rowOf(box, 'three'); field(r2, 'X', E, 'x', { step: 0.5 }); field(r2, 'Y', E, 'y', { step: 0.5 }); field(r2, 'Z (yer balandligi)', E, 'z', { step: 0.5 });
+    { const rr = el('div', 'acts'); rr.style.margin = '2px 0 4px'; box.appendChild(rr); const lt = el('span', 'note', 'Burilish: <b>' + (E.rot || 0) + '°</b>'); lt.style.alignSelf = 'center'; rr.appendChild(lt);
+      const rot = d => () => { E.rot = Math.round(((((E.rot || 0) + d) % 360) + 360) % 360 * 10) / 10; commit(); renderExport(); }; btn(rr, '⟲ 15°', rot(15)); btn(rr, '⟳ 15°', rot(-15)); btn(rr, '⟲ 90°', rot(90)); btn(rr, '⟳ 90°', rot(-90)); btn(rr, 'Tiklash', () => { E.rot = 0; commit(); renderExport(); }); }
     { const a = el('div', 'acts'); a.style.margin = '2px 0 8px'; box.appendChild(a); const mb = btn(a, '📍 Xaritadan joy tanlash (3D)', () => openMap(), 'pri'); mb.style.flex = '1 1 100%'; mb.style.height = '36px'; }
     box.appendChild(el('div', 'note', 'Joyni o‘yindagi koordinatadan oling yoki sayt’dagi <b>3D model</b> sahifasi xaritasidan tanlang. Uy markazi shu X, Y ga qo‘yiladi; Z — yer balandligi (pol shu balandlikda turadi).'));
     box.appendChild(el('div', 'h', 'Sifat'));
@@ -3946,8 +3965,8 @@ async function exportPack() {
             const dn = name.slice(0, 16) + '_d' + (k + 1), did = Math.min(19999, E.id + parts.length + k), lm = buildLeaf(S.P, dr, dn); if (!lm) return null;
             const d = exportDff(lm, { single: true, prelit: false }); imgFiles.push({ name: dn + '.dff', data: d.bytes }); dffBytes += d.bytes.length;
             colParts.push(exportCol(lm, { name: dn, id: did, mode: 'mesh', minSize: 0, maxTris: 30000, surface: 0 }));
-            const ex = Math.cos(dr.phi * Math.PI / 180), ey = Math.sin(dr.phi * Math.PI / 180), X0 = E.x + dr.x - X.c[0], Y0 = E.y + dr.y - X.c[1];
-            dls.push({ model: did, name: dn, kind: dr.kind, x: X0, y: Y0, z: E.z + dr.z, a0: dr.phi, a1: dr.phi + dr.delta, ox: dr.ox, oy: dr.oy, oz: dr.oz, cx: X0 + ex * dr.W / 2, cy: Y0 + ey * dr.W / 2, cz: E.z + dr.z + dr.Ht / 2, r: Math.max(2.5, dr.W / 2 + 2.0), dur: dr.kind === 'swing' ? 0.6 : 1.6 });
+            const ar = (E.rot || 0) * Math.PI / 180, cr = Math.cos(ar), sr = Math.sin(ar), rx = dr.x - X.c[0], ry = dr.y - X.c[1], ph = dr.phi + (E.rot || 0), ex = Math.cos(ph * Math.PI / 180), ey = Math.sin(ph * Math.PI / 180), X0 = E.x + rx * cr - ry * sr, Y0 = E.y + rx * sr + ry * cr;
+            dls.push({ model: did, name: dn, kind: dr.kind, x: X0, y: Y0, z: E.z + dr.z, a0: ph, a1: ph + dr.delta, ox: dr.ox * cr - dr.oy * sr, oy: dr.ox * sr + dr.oy * cr, oz: dr.oz, cx: X0 + ex * dr.W / 2, cy: Y0 + ey * dr.W / 2, cz: E.z + dr.z + dr.Ht / 2, r: Math.max(2.5, dr.W / 2 + 2.0), dur: dr.kind === 'swing' ? 0.6 : 1.6 });
             return lm;
         }).filter(Boolean);
         const MP = modsForPack(E, X.c, E.id + parts.length + leafs.length); if (MP) { MP.files.forEach(f => { imgFiles.push(f); dffBytes += f.name.endsWith('.dff') ? f.data.length : 0; }); MP.cols.forEach(c => colParts.push(c)); }
@@ -3956,7 +3975,7 @@ async function exportPack() {
         const keys = Array.from(new Set(usedTextures(model).concat(...leafs.map(l => usedTextures(l))))); let txdInfo = 'Tekstura yo‘q.', txdKB = 0;
         if (keys.length) { const t = buildTxd({ tex: texAll }, keys, { fmt: 'dxt', pot: true, maxSize: E.txMax }); imgFiles.push({ name: name + '.txd', data: t.bytes }); txdKB = t.bytes.length / 1024; txdInfo = 'TXD ' + (txdKB / 1024).toFixed(2) + ' MB (DXT, tekstura ≤ ' + E.txMax + ' px).'; }
         const flags = E.glassFlag && model.mats.some(m => m.tex === 'hb_glass' || m.color[3] < 255 || (getTex(m.tex) && getTex(m.tex).alpha)) ? 4 : 0;
-        const po = { name, txd: name, id: E.id, x: E.x, y: E.y, z: E.z, draw: Math.max(20, E.draw | 0), flags, interior: 0, parts: parts.map((q, k) => ({ name: q.name, id: ids[k], dx: q.dx || 0, dy: q.dy || 0, dz: q.dz || 0 })) };
+        const po = { name, txd: name, id: E.id, x: E.x, y: E.y, rot: E.rot || 0, z: E.z, draw: Math.max(20, E.draw | 0), flags, interior: 0, parts: parts.map((q, k) => ({ name: q.name, id: ids[k], dx: q.dx || 0, dy: q.dy || 0, dz: q.dz || 0 })) };
         let ide = exportIde(po); if (dls.length) ide = ide.replace(/end\r\n$/, dls.map(d => [d.model, d.name, name, po.draw, 0].join(', ')).join('\r\n') + '\r\nend\r\n'); if (MP) ide = ide.replace(/end\r\n$/, MP.ide.join('\r\n') + '\r\nend\r\n'); let ipl = exportIpl(po); if (MP) ipl = ipl.replace(/end\r\n$/, MP.ipl.join('\r\n') + '\r\nend\r\n');
         const files = [{ name: name + '.img', data: buildImg(imgFiles) }, { name: name + '.col', data: colAll }, { name: name + '.ide', data: TE.encode(ide) }, { name: name + '.ipl', data: TE.encode(ipl) },
             { name: 'README.txt', data: TE.encode(mapReadme(Object.assign({ colInfo: Array.from(new Set(colParts.map(c => c.info))).join('; '), txdInfo }, po)) + (dls.length ? doorReadme(name, dls) : '') + (MP ? '\r\nMODLAR (paket ichida, IMG/IDE/IPL/COL ga qo‘shilgan):\r\n  ' + MP.info.join('\r\n  ') + '\r\n' : '')) }];
@@ -4012,6 +4031,741 @@ function setMode(m) {
 }
 
 /* ---------- ishga tushirish ---------- */
+/* ===================================================================
+   ASBOBLAR moduli — qo'shimcha oddiy funksiyalar (asosiy kodga tegmaydi)
+   =================================================================== */
+const X = {
+    v: { step: 1, scope: 'lv', scaleK: 1.1, wallT: 0.25, wallH: 0, nWin: 3, winW: 1.2, winH: 1.2, winSill: 0.9, splitN: 2, newLen: 4,
+        lvH: 2.8, lvName: '', roofType: 'gable', roofPitch: 30, roofOv: 0.45,
+        fenceM: 3, fenceH: 1.8, fenceT: 0.15, gateW: 3.5, porchW: 3, porchD: 1.8, porchN: 2, roomSide: 'r', roomW: 4, roomD: 4, garW: 3.5, garD: 6,
+        arrN: 3, arrDx: 1.5, arrDy: 0, colN: 4, colOff: 0.6, theme: 'classic', matA: 1, matB: 2, matRoof: 9, matFloor: 7,
+        pWall: 280000, pFloor: 350000, pRoof: 250000, pDoor: 1800000, pWin: 1200000, pGar: 6000000, pStair: 4000000, pCol: 500000, brickK: 400, slot: 1 },
+    view: { lens: false, areas: false, dims: false, compass: false, scalebar: false, grid: true, ub: false },
+    env: { sky: 'default', ground: 'default', shadow: true, fog: true, grid: true, fov: 45, sunAz: 49, sunEl: 55, rot: false, rotSpeed: 1.5, groundOn: true },
+    ruler: { on: false, a: null, b: null, hover: null },
+    ub: { img: null, op: 0.5, w: 20, x: 0, y: 0 },
+    refresh: null, open: {}
+};
+const XKEY = 'hb_ext_v1';
+(function loadX() { try { const o = JSON.parse(localStorage.getItem(XKEY) || 'null'); if (o) { Object.assign(X.v, o.v || {}); Object.assign(X.view, o.view || {}); Object.assign(X.env, o.env || {}); X.view.ub = false; } } catch (e) { /* yo'q */ } })();
+function saveX() { try { localStorage.setItem(XKEY, JSON.stringify({ v: X.v, view: X.view, env: X.env })); } catch (e) { /* yo'q */ } }
+const xv = k => X.v[k];
+
+/* ---------- umumiy yordamchilar ---------- */
+const xf = (v, d) => (Math.round(v * Math.pow(10, d == null ? 2 : d)) / Math.pow(10, d == null ? 2 : d)).toString();
+const inScope = o => X.v.scope === 'all' || o.lv === S.lv;
+const clone = o => JSON.parse(JSON.stringify(o));
+function wbox(lv) { // devorlar chegarasi (qalinligi bilan); lv=null — hammasi
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    for (const w of S.P.walls) { if (lv != null && w.lv !== lv) continue; const q = wallQuad(w); if (!q) continue; for (const p of q) { a = Math.min(a, p[0]); c = Math.max(c, p[0]); b = Math.min(b, p[1]); d = Math.max(d, p[1]); } }
+    return isFinite(a) ? { x1: a, y1: b, x2: c, y2: d, w: c - a, d: d - b } : null;
+}
+const wH = w => w.h > 0 ? w.h : lvH(S.P, w.lv);
+const mapName = id => { const m = S.P.mats.find(x => x.id === id); return m ? m.name : '#' + id; };
+function act(fn, opt) {
+    opt = opt || {};
+    try {
+        const r = fn();
+        if (r && r.e) { toast(r.e, true); return; }
+        commit(); touch(true); S.dirty = true; renderProps(); if (opt.lv) renderLevels(); if (opt.fit) fitPlan();
+        toast(typeof r === 'string' ? r : 'Bajarildi.'); if (X.refresh) X.refresh();
+    } catch (e) { console.error(e); toast('Xato: ' + e.message, true); }
+}
+const selObj = () => { const g = getSel(); return g && S.sel ? { t: S.sel.t, o: g.o, wall: g.wall } : null; };
+
+/* ---------- butun uy: siljitish / burish / ko'zgu / masshtab ---------- */
+function mapPts(P, f) { // har bir (x,y) nuqtani f bilan almashtiradi
+    const rect = o => { const a = f(o.x1, o.y1), b = f(o.x2, o.y2); o.x1 = round(Math.min(a[0], b[0])); o.x2 = round(Math.max(a[0], b[0])); o.y1 = round(Math.min(a[1], b[1])); o.y2 = round(Math.max(a[1], b[1])); if (o.hole) { const h = o.hole, p = f(h[0], h[1]), q = f(h[2], h[3]); o.hole = [round(Math.min(p[0], q[0])), round(Math.min(p[1], q[1])), round(Math.max(p[0], q[0])), round(Math.max(p[1], q[1]))]; } };
+    for (const w of P.walls) { const a = f(w.x1, w.y1), b = f(w.x2, w.y2); w.x1 = round(a[0]); w.y1 = round(a[1]); w.x2 = round(b[0]); w.y2 = round(b[1]); }
+    P.slabs.forEach(rect); P.roofs.forEach(rect);
+    for (const o of P.stairs.concat(P.cols)) { const a = f(o.x, o.y); o.x = round(a[0]); o.y = round(a[1]); }
+    for (const m of (P.mods || [])) { const a = f(m.x, m.y); m.x = round(a[0]); m.y = round(a[1]); }
+}
+function xMove(dx, dy) { act(() => { mapPts(S.P, (x, y) => [x + dx, y + dy]); return 'Uy ' + xf(Math.hypot(dx, dy)) + ' m siljitildi.'; }); }
+function xRot(cw) {
+    act(() => {
+        const P = S.P, d = cw ? 1 : 3; mapPts(P, cw ? (x, y) => [y, -x] : (x, y) => [-y, x]);
+        for (const r of P.roofs) r.dir = (((r.dir | 0) + d) % 4 + 4) % 4; for (const s of P.stairs) s.dir = (((s.dir | 0) + d) % 4 + 4) % 4;
+        for (const m of (P.mods || [])) m.rz = round((m.rz || 0) + (cw ? -90 : 90), 100);
+        return cw ? 'Uy 90° soat strelkasi bo‘yicha burildi.' : 'Uy 90° teskari burildi.';
+    }, { fit: true });
+}
+function xMirror(axis) {
+    act(() => {
+        const P = S.P; mirrorX(P);
+        if (axis === 'y') { mapPts(P, (x, y) => [-x, -y]); for (const r of P.roofs) r.dir = ((r.dir | 0) + 2) % 4; for (const q of P.stairs) q.dir = ((q.dir | 0) + 2) % 4; for (const m of (P.mods || [])) m.rz = round((m.rz || 0) + 180, 100); }
+        return axis === 'y' ? 'Uy Y o‘qi bo‘yicha aks ettirildi.' : 'Uy X o‘qi bo‘yicha aks ettirildi.';
+    }, { fit: true });
+}
+function xScale(k) {
+    act(() => {
+        if (!(k > 0.05 && k < 20)) return { e: 'Koeffitsient 0.05 … 20 oralig‘ida bo‘lsin.' };
+        const P = S.P; mapPts(P, (x, y) => [x * k, y * k]);
+        for (const w of P.walls) for (const o of w.ops) o.c = round(clamp(o.c * k, o.w / 2 + 0.05, Math.max(o.w / 2 + 0.05, wallLen(w) - o.w / 2 - 0.05)), 100);
+        for (const t of P.texts) t.s = round(t.s * k, 100);
+        return 'Uy ×' + xf(k) + ' masshtabga o‘zgartirildi.';
+    }, { fit: true });
+}
+function xCenter() {
+    act(() => { const b = wbox(null); if (!b) return { e: 'Uy bo‘sh.' }; const dx = -(b.x1 + b.x2) / 2, dy = -(b.y1 + b.y2) / 2; mapPts(S.P, (x, y) => [x + dx, y + dy]); return 'Uy markazi (0, 0) ga qo‘yildi.'; }, { fit: true });
+}
+function xCorner() {
+    act(() => { const b = wbox(null); if (!b) return { e: 'Uy bo‘sh.' }; const dx = -b.x1, dy = -b.y1; mapPts(S.P, (x, y) => [x + dx, y + dy]); return 'Uyning chap-pastki burchagi (0, 0) ga qo‘yildi.'; }, { fit: true });
+}
+
+/* ---------- devorlar ---------- */
+function setWallProp(fn, label) {
+    act(() => { let n = 0; for (const w of S.P.walls) if (inScope(w)) { fn(w); n++; } return n ? n + ' ta devor: ' + label : { e: 'Devor topilmadi.' }; });
+}
+function distribute(w, n, type, sz) {
+    const L = wallLen(w), d = OPDEF[type]; let ww = (sz && sz.w) || d.w; n = Math.max(0, Math.floor(n));
+    while (n > 0 && L / n < ww + 0.5) n--; if (n < 1) return 0;
+    w.ops = w.ops.filter(o => o.type !== type); let added = 0;
+    for (let i = 0; i < n; i++) {
+        const c = round(L * (i + 0.5) / n, 100); if (w.ops.some(o => Math.abs(o.c - c) < (o.w + ww) / 2 + 0.1)) continue;
+        const op = mkOp(type, c); if (sz) { op.w = sz.w; op.h = Math.min(sz.h, wH(w) - sz.sill - 0.1); op.sill = sz.sill; } w.ops.push(op); added++;
+    }
+    return added;
+}
+function splitWall(w, parts) {
+    const P = S.P, L = wallLen(w); if (L < 0.8 * parts) return null; const dx = (w.x2 - w.x1) / L, dy = (w.y2 - w.y1) / L, segs = [];
+    for (let i = 0; i < parts; i++) {
+        const a = L * i / parts, b = L * (i + 1) / parts, n = i === 0 ? w : clone(w); if (i > 0) { n.id = uid(); n.ops = []; }
+        const keep = i === 0 ? w.ops.slice() : w.ops; n.x1 = round(w.x1 + dx * a); n.y1 = round(w.y1 + dy * a); n.x2 = round(w.x1 + dx * b); n.y2 = round(w.y1 + dy * b);
+        n.capA = i === 0 ? w.capA : false; n.capB = i === parts - 1 ? w.capB : false; n._a = a; n._b = b; segs.push(n);
+    }
+    const all = w.ops.slice(); for (const s of segs) s.ops = [];
+    for (const o of all) { const k = Math.min(parts - 1, Math.floor(o.c / (L / parts))), s = segs[k]; o.c = round(clamp(o.c - s._a, o.w / 2 + 0.05, Math.max(o.w / 2 + 0.05, s._b - s._a - o.w / 2 - 0.05)), 100); s.ops.push(o); }
+    for (const t of P.texts) if (t.wid === w.id) { const k = Math.min(parts - 1, Math.floor(t.s / (L / parts))), s = segs[k]; t.wid = s.id; t.s = round(t.s - s._a, 100); }
+    for (const s of segs) { delete s._a; delete s._b; if (s !== w) P.walls.push(s); } return segs;
+}
+
+/* ---------- qavat ---------- */
+function topSlabAndRoof(kind) {
+    const P = S.P;
+    if (kind === 'slab') { const b = wbox(S.lv); if (!b) return { e: 'Bu qavatda devor yo‘q.' }; P.slabs = P.slabs.filter(s => s.lv !== S.lv); P.slabs.push(mkSlab(b.x1, b.y1, b.x2, b.y2, S.lv)); P.stairs.filter(q => q.lv === S.lv - 1).forEach(cutStairHole); return 'Pol plitasi avtomatik qo‘yildi.'; }
+    const top = P.levels.length - 1, b = wbox(top); if (!b) return { e: 'Yuqori qavatda devor yo‘q.' };
+    P.roofs = P.roofs.filter(r => r.lv !== top); P.roofs.push(mkRoof(b.x1, b.y1, b.x2, b.y2, top, { type: xv('roofType'), dir: b.w >= b.d ? 0 : 1, pitch: xv('roofPitch'), ov: xv('roofOv') }));
+    return 'Tom avtomatik qo‘yildi (' + P.levels[top].name + ').';
+}
+
+/* ---------- tashqi qurilmalar ---------- */
+function addFence() {
+    const P = S.P, b = wbox(0); if (!b) return { e: 'Birinchi qavatda devor yo‘q.' };
+    P.walls = P.walls.filter(w => !w.fence); const m = xv('fenceM'), t = xv('fenceT'), H = xv('fenceH'), hh = t / 2;
+    const x1 = b.x1 - m, y1 = b.y1 - m, x2 = b.x2 + m, y2 = b.y2 + m, ex = { t, h: H, fence: true, mA: MC.stone, mB: MC.stone };
+    const south = mkWall(x1 - hh, y1, x2 + hh, y1, 0, ex); // old tomon (pastki)
+    const ws = [mkWall(x1, y1 + hh, x1, y2 - hh, 0, Object.assign({ capA: false, capB: false }, ex)), mkWall(x1 - hh, y2, x2 + hh, y2, 0, ex), mkWall(x2, y2 - hh, x2, y1 + hh, 0, Object.assign({ capA: false, capB: false }, ex)), south];
+    const L = wallLen(south), gw = Math.min(xv('gateW'), L - 1); if (gw > 1) { const g = mkOp('garage', L / 2); g.w = gw; g.h = Math.max(0.8, H - 0.15); g.sill = 0; south.ops.push(g); }
+    ws.forEach(w => P.walls.push(w)); return 'To‘siq va darvoza qo‘shildi.';
+}
+function addPorch(withCols) {
+    const P = S.P, b = wbox(0); if (!b) return { e: 'Birinchi qavatda devor yo‘q.' }; const W = xv('porchW'), D = xv('porchD'), cx0 = (b.x1 + b.x2) / 2, x1 = cx0 - W / 2, x2 = cx0 + W / 2, y2 = b.y1, y1 = y2 - D;
+    P.slabs.push(mkSlab(x1, y1, x2, y2, 0, { t: 0.2 }));
+    if (withCols) {
+        const n = Math.max(2, Math.round(xv('porchN'))); for (let i = 0; i < n; i++) P.cols.push(mkCol(round(x1 + 0.2 + (W - 0.4) * i / (n - 1), 100), round(y1 + 0.2, 100), 0));
+        P.roofs.push(mkRoof(x1, y1, x2, y2, 0, { type: 'flat', ov: 0.2, dz: -0.2 }));
+    }
+    return withCols ? 'Ayvon (ustunli, tomli) qo‘shildi.' : 'Terassa qo‘shildi.';
+}
+function attachRoom(kind) {
+    const P = S.P, b = wbox(0); if (!b) return { e: 'Birinchi qavatda devor yo‘q.' }; const t = WALL_T, h = t / 2, side = xv('roomSide'), g = kind === 'garage';
+    const W = g ? xv('garW') : xv('roomW'), D = g ? xv('garD') : xv('roomD'); let x1, y1, x2, y2;
+    if (side === 'r') { x1 = b.x2 + h; x2 = x1 + W; y1 = b.y1 + h; y2 = y1 + D; } else if (side === 'l') { x2 = b.x1 - h; x1 = x2 - W; y1 = b.y1 + h; y2 = y1 + D; }
+    else if (side === 'f') { y2 = b.y1 - h; y1 = y2 - D; x1 = b.x1 + h; x2 = x1 + W; } else { y1 = b.y2 + h; y2 = y1 + D; x1 = b.x1 + h; x2 = x1 + W; }
+    const ws = addRoom(x1, y1, x2, y2, 0); const front = ws[3]; // ws[3] — pastki devor (old)
+    if (g) { const go = mkOp('garage', wallLen(front) / 2); go.w = Math.min(go.w, Math.max(1.5, wallLen(front) - 1)); front.ops.push(go); }
+    else { const far = side === 'l' ? ws[0] : side === 'r' ? ws[2] : side === 'f' ? ws[3] : ws[1]; far.ops.push(mkOp('window', wallLen(far) / 2)); const dw = side === 'f' ? ws[0] : ws[3]; dw.ops.push(mkOp('door', wallLen(dw) / 2)); }
+    return g ? 'Garaj qo‘shildi.' : 'Xona qo‘shildi.';
+}
+function colsAlongWall(w) {
+    const P = S.P, L = wallLen(w), dx = (w.x2 - w.x1) / L, dy = (w.y2 - w.y1) / L, nx = -dy, ny = dx, n = Math.max(2, Math.round(xv('colN'))), off = xv('colOff');
+    for (let i = 0; i < n; i++) { const s = L * i / (n - 1); P.cols.push(mkCol(round(w.x1 + dx * s + nx * off, 100), round(w.y1 + dy * s + ny * off, 100), w.lv)); } return n + ' ta ustun qo‘yildi.';
+}
+
+/* ---------- nusxa / massiv / tanlangan element ---------- */
+function shiftEl(t, o, dx, dy) {
+    if (o.x1 != null) { o.x1 = round(o.x1 + dx); o.x2 = round(o.x2 + dx); o.y1 = round(o.y1 + dy); o.y2 = round(o.y2 + dy); if (o.hole) o.hole = [o.hole[0] + dx, o.hole[1] + dy, o.hole[2] + dx, o.hole[3] + dy].map(v => round(v)); }
+    else if (o.x != null) { o.x = round(o.x + dx); o.y = round(o.y + dy); }
+}
+function cloneEl(s, dx, dy, dlv) {
+    const key = LISTS[s.t], c = clone(s.o); c.id = uid(); if (dlv) c.lv = s.o.lv + dlv; if (s.t === 'wall') c.ops = (c.ops || []).map(p => Object.assign(p, { id: uid() })); shiftEl(s.t, c, dx, dy); S.P[key].push(c); return c;
+}
+function arrayCopy() {
+    const s = selObj(); if (!s) return { e: 'Avval biror element tanlang.' }; if (s.t === 'op') { const g = s.wall, n = Math.round(xv('arrN')); let c = s.o.c; for (let i = 0; i < n; i++) { c += xv('arrDx'); if (c > wallLen(g) - s.o.w / 2 - 0.1) break; const o = clone(s.o); o.id = uid(); o.c = round(c, 100); g.ops.push(o); } return 'Tuynuk nusxalandi.'; }
+    if (s.t === 'txt') return { e: 'Yozuv uchun massiv ishlamaydi.' }; const n = Math.max(1, Math.min(50, Math.round(xv('arrN'))));
+    for (let i = 1; i <= n; i++) cloneEl(s, xv('arrDx') * i, xv('arrDy') * i, 0); return n + ' ta nusxa yaratildi.';
+}
+function copyLevel(d) {
+    const s = selObj(); if (!s || s.t === 'op' || s.t === 'txt') return { e: 'Devor, plita, tom, zina yoki ustunni tanlang.' }; const to = s.o.lv + d; if (to < 0 || to >= S.P.levels.length) return { e: 'U qavat mavjud emas.' };
+    cloneEl(s, 0, 0, d); return 'Nusxa ' + S.P.levels[to].name + 'ga qo‘yildi.';
+}
+function rotateSel() {
+    const s = selObj(); if (!s) return { e: 'Avval element tanlang.' }; const o = s.o;
+    if (s.t === 'wall') { const mx = (o.x1 + o.x2) / 2, my = (o.y1 + o.y2) / 2, rx = (x, y) => [mx + (y - my), my - (x - mx)], a = rx(o.x1, o.y1), b = rx(o.x2, o.y2); o.x1 = round(a[0]); o.y1 = round(a[1]); o.x2 = round(b[0]); o.y2 = round(b[1]); return 'Devor 90° burildi.'; }
+    if (s.t === 'slab' || s.t === 'roof') { const mx = (o.x1 + o.x2) / 2, my = (o.y1 + o.y2) / 2, hw = Math.abs(o.x2 - o.x1) / 2, hd = Math.abs(o.y2 - o.y1) / 2; o.x1 = round(mx - hd); o.x2 = round(mx + hd); o.y1 = round(my - hw); o.y2 = round(my + hw); if (o.hole) delete o.hole; if (s.t === 'roof') o.dir = ((o.dir | 0) + 1) % 4; return 'Element 90° burildi.'; }
+    if (s.t === 'stair') { o.dir = ((o.dir | 0) + 1) % 4; return 'Zina burildi.'; } return { e: 'Bu element burilmaydi.' };
+}
+function setWallLen(w, Ln) {
+    if (!(Ln >= 0.5)) return { e: 'Uzunlik kamida 0.5 m.' }; const L = wallLen(w), dx = (w.x2 - w.x1) / L, dy = (w.y2 - w.y1) / L; w.x2 = round(w.x1 + dx * Ln); w.y2 = round(w.y1 + dy * Ln);
+    for (const o of w.ops) o.c = round(clamp(o.c, o.w / 2 + 0.05, Math.max(o.w / 2 + 0.05, Ln - o.w / 2 - 0.05)), 100); return 'Devor uzunligi ' + xf(Ln) + ' m.';
+}
+
+/* ---------- mavzular ---------- */
+const THEMES = [
+    ['classic', 'Klassik (g‘isht + cherepitsa)', { a: 1, b: 2, roof: 9, gable: 3, floor: 7 }], ['modern', 'Zamonaviy (kulrang + shingle)', { a: 4, b: 2, roof: 11, gable: 4, floor: 8 }],
+    ['med', 'O‘rta yer dengizi (krem)', { a: 3, b: 2, roof: 9, gable: 3, floor: 8 }], ['stone', 'Tosh uy', { a: 5, b: 23, roof: 11, gable: 5, floor: 15 }],
+    ['concrete', 'Beton va metall', { a: 6, b: 6, roof: 14, gable: 6, floor: 6 }], ['warm', 'Iliq (sariq + yog‘och)', { a: 18, b: 2, roof: 17, gable: 18, floor: 24 }],
+    ['dark', 'Qora-kulrang', { a: 20, b: 4, roof: 36, gable: 20, floor: 15 }], ['green', 'Yashil tom (metall)', { a: 2, b: 2, roof: 10, gable: 2, floor: 7 }]
+];
+function applyTheme(id) {
+    const T = THEMES.find(t => t[0] === id)[2], P = S.P; const has = k => P.mats.some(m => m.id === k);
+    for (const w of P.walls) { if (w.fence || w.rail) continue; if (w.int) { if (has(T.b)) w.mA = w.mB = T.b; continue; } if (has(T.a)) w.mA = T.a; if (has(T.b)) w.mB = T.b; }
+    for (const r of P.roofs) { if (has(T.roof)) r.m = T.roof; if (has(T.gable)) r.mG = T.gable; } const oldF = P.def.floor; for (const s of P.slabs) { if (has(T.floor) && (s.mT === oldF || s.mT === T.floor)) s.mT = T.floor; }
+    Object.assign(P.def, { wallA: T.a, wallB: T.b, roof: T.roof, gable: T.gable, floor: T.floor }); return 'Mavzu qo‘llandi.';
+}
+
+/* ---------- hisob-kitob (smeta) ---------- */
+function estimate() {
+    const P = S.P, r = { wallA: 0, wallV: 0, wallN: P.walls.length, door: 0, win: 0, gar: 0, openA: 0, floorA: 0, roofA: 0, stair: P.stairs.length, col: P.cols.length, perim: 0 };
+    for (const w of P.walls) {
+        const L = wallLen(w), H = wH(w); let open = 0; for (const o of w.ops) { open += o.w * o.h; if (o.type === 'door') r.door++; else if (o.type === 'window') r.win++; else r.gar++; }
+        const net = Math.max(0, L * H - open); r.wallA += net; r.wallV += net * w.t; r.openA += open;
+    }
+    for (const s of P.slabs) { let a = Math.abs((s.x2 - s.x1) * (s.y2 - s.y1)); if (s.hole) a -= Math.abs((s.hole[2] - s.hole[0]) * (s.hole[3] - s.hole[1])); r.floorA += Math.max(0, a); }
+    for (const q of P.roofs) { const a = Math.abs((q.x2 - q.x1 + 2 * q.ov) * (q.y2 - q.y1 + 2 * q.ov)); r.roofA += q.type === 'flat' ? a : a / Math.cos(clamp(q.pitch || 30, 0, 75) * Math.PI / 180); }
+    const b = wbox(0); if (b) r.perim = 2 * (b.w + b.d); r.box = wbox(null);
+    r.cost = r.wallA * xv('pWall') + r.floorA * xv('pFloor') + r.roofA * xv('pRoof') + r.door * xv('pDoor') + r.win * xv('pWin') + r.gar * xv('pGar') + r.stair * xv('pStair') + r.col * xv('pCol');
+    return r;
+}
+const money = v => Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+function estRows() {
+    const e = estimate();
+    return [['Devorlar (sof maydon)', e.wallA, 'm²', xv('pWall')], ['Pol/ship plitalari', e.floorA, 'm²', xv('pFloor')], ['Tom (qiyalik bilan)', e.roofA, 'm²', xv('pRoof')], ['Eshiklar', e.door, 'dona', xv('pDoor')],
+        ['Oynalar', e.win, 'dona', xv('pWin')], ['Garaj eshiklari', e.gar, 'dona', xv('pGar')], ['Zinalar', e.stair, 'dona', xv('pStair')], ['Ustunlar', e.col, 'dona', xv('pCol')]].map(r => ({ n: r[0], q: r[1], u: r[2], p: r[3], s: r[1] * r[3] })).concat([]);
+}
+function estText() {
+    const e = estimate(), rows = estRows(); let t = 'Loyiha: ' + S.P.name + '\n'; for (const r of rows) t += r.n + ': ' + xf(r.q) + ' ' + r.u + ' × ' + money(r.p) + ' = ' + money(r.s) + ' so‘m\n';
+    t += 'Devor hajmi: ' + xf(e.wallV) + ' m³ (≈ ' + money(e.wallV * xv('brickK')) + ' dona g‘isht)\nJAMI: ' + money(e.cost) + ' so‘m'; return t;
+}
+function estCsv() {
+    const rows = estRows(), e = estimate(); let t = '﻿Nomi;Miqdor;Birlik;Narx;Summa\n'; for (const r of rows) t += r.n + ';' + xf(r.q) + ';' + r.u + ';' + r.p + ';' + Math.round(r.s) + '\n'; t += 'Jami;;;;' + Math.round(e.cost) + '\n'; return t;
+}
+
+/* ---------- eksport: PNG / SVG / DXF / OBJ ---------- */
+const fname = () => gtaName(S.P.name || 'uy');
+function exportPlanPng() { cv.toBlob(b => { if (b) { dlFile(b, fname() + '-reja.png'); toast('Reja PNG saqlandi.'); } }, 'image/png'); }
+function exportShot(k) {
+    if (!V3.r) { toast('3D ishlamayapti.', true); return; } const r = V3.r, pr = r.getPixelRatio(); try { r.setPixelRatio(pr * k); r.render(V3.scene, V3.cam); r.domElement.toBlob(b => { if (b) { dlFile(b, fname() + '-3d.png'); toast('3D rasm saqlandi.'); } }); } finally { r.setPixelRatio(pr); r.render(V3.scene, V3.cam); V3.need = true; }
+}
+function planSvg(lv) {
+    const P = S.P, b = wbox(null); if (!b) return null; const K = 100, pad = 1.5, X0 = b.x1 - pad, Y1 = b.y2 + pad, W = (b.w + 2 * pad) * K, H = (b.d + 2 * pad) * K, px = x => ((x - X0) * K).toFixed(1), py = y => ((Y1 - y) * K).toFixed(1); let s = '';
+    const poly = (pts, fill, stroke, sw) => '<polygon points="' + pts.map(p => px(p[0]) + ',' + py(p[1])).join(' ') + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + sw + '"/>';
+    for (const sl of P.slabs) if (sl.lv === lv) s += poly([[sl.x1, sl.y1], [sl.x2, sl.y1], [sl.x2, sl.y2], [sl.x1, sl.y2]], '#f4f4f0', '#999', 2);
+    for (const st of P.stairs) if (st.lv === lv) { const r = stairRect(st); s += poly([[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]], '#fff3df', '#c98a2b', 2); }
+    for (const w of P.walls) if (w.lv === lv) { const q = wallQuad(w); if (q) s += poly(q, '#2b2f3a', '#111', 1); }
+    for (const w of P.walls) if (w.lv === lv) {
+        const L = wallLen(w); if (L < 1e-6) continue; const dx = (w.x2 - w.x1) / L, dy = (w.y2 - w.y1) / L;
+        for (const o of w.ops) { const a = o.c - o.w / 2, c = o.c + o.w / 2, h = w.t / 2 + 0.01, p = (t, n) => [w.x1 + dx * t - dy * h * n, w.y1 + dy * t + dx * h * n]; s += poly([p(a, 1), p(c, 1), p(c, -1), p(a, -1)], o.type === 'window' ? '#bfe6ff' : '#ffffff', o.type === 'window' ? '#2a7bb5' : '#8a5a2b', 2); }
+    }
+    for (const c of P.cols) if (c.lv === lv) s += '<circle cx="' + px(c.x) + '" cy="' + py(c.y) + '" r="' + (c.r * K).toFixed(1) + '" fill="#888" stroke="#222"/>';
+    s += '<text x="' + (W / 2) + '" y="' + (H - 12) + '" text-anchor="middle" font-family="sans-serif" font-size="22" fill="#333">' + esc(P.name) + ' — ' + esc(P.levels[lv].name) + ' · ' + xf(b.w) + ' × ' + xf(b.d) + ' m</text>';
+    return '<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="' + W.toFixed(0) + '" height="' + H.toFixed(0) + '" viewBox="0 0 ' + W.toFixed(0) + ' ' + H.toFixed(0) + '"><rect width="100%" height="100%" fill="#ffffff"/>' + s + '</svg>';
+}
+function exportSvg() { const s = planSvg(S.lv); if (!s) { toast('Uy bo‘sh.', true); return; } dlFile(s, fname() + '-' + (S.lv + 1) + '-qavat.svg', 'image/svg+xml'); toast('SVG chizma saqlandi.'); }
+function dxfText() {
+    const P = S.P; let e = '', L = new Set(); const ln = (lay, a, b, c, d) => { L.add(lay); e += '0\nLINE\n8\n' + lay + '\n10\n' + a.toFixed(4) + '\n20\n' + b.toFixed(4) + '\n30\n0\n11\n' + c.toFixed(4) + '\n21\n' + d.toFixed(4) + '\n31\n0\n'; };
+    const quad = (lay, q) => { for (let i = 0; i < q.length; i++) { const a = q[i], b = q[(i + 1) % q.length]; ln(lay, a[0], a[1], b[0], b[1]); } };
+    P.walls.forEach(w => { const q = wallQuad(w); if (q) quad('QAVAT' + (w.lv + 1) + '_DEVOR', q); });
+    P.walls.forEach(w => { const Ll = wallLen(w); if (Ll < 1e-6) return; const dx = (w.x2 - w.x1) / Ll, dy = (w.y2 - w.y1) / Ll, h = w.t / 2; for (const o of w.ops) { const a = o.c - o.w / 2, c = o.c + o.w / 2, p = (t, n) => [w.x1 + dx * t - dy * h * n, w.y1 + dy * t + dx * h * n]; quad('QAVAT' + (w.lv + 1) + '_TUYNUK', [p(a, 1), p(c, 1), p(c, -1), p(a, -1)]); } });
+    P.slabs.forEach(s => quad('QAVAT' + (s.lv + 1) + '_PLITA', [[s.x1, s.y1], [s.x2, s.y1], [s.x2, s.y2], [s.x1, s.y2]]));
+    P.roofs.forEach(s => quad('QAVAT' + (s.lv + 1) + '_TOM', [[s.x1 - s.ov, s.y1 - s.ov], [s.x2 + s.ov, s.y1 - s.ov], [s.x2 + s.ov, s.y2 + s.ov], [s.x1 - s.ov, s.y2 + s.ov]]));
+    P.stairs.forEach(s => { const r = stairRect(s); quad('QAVAT' + (s.lv + 1) + '_ZINA', [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]]); });
+    P.cols.forEach(c => { const q = []; for (let i = 0; i < 12; i++) q.push([c.x + c.r * Math.cos(i * Math.PI / 6), c.y + c.r * Math.sin(i * Math.PI / 6)]); quad('QAVAT' + (c.lv + 1) + '_USTUN', q); });
+    let t = '0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n6\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n' + L.size + '\n';
+    for (const l of L) t += '0\nLAYER\n2\n' + l + '\n70\n0\n62\n7\n6\nCONTINUOUS\n'; t += '0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n' + e + '0\nENDSEC\n0\nEOF\n'; return t;
+}
+function exportDxf() { if (!S.P.walls.length) { toast('Uy bo‘sh.', true); return; } dlFile(dxfText(), fname() + '.dxf', 'application/dxf'); toast('DXF saqlandi (AutoCAD, LibreCAD, …).'); }
+async function xExportObj() {
+    const m = S.model; if (!m) { toast('Model bo‘sh.', true); return; } const me = m.meshes[0], name = fname(), sn = s => String(s).replace(/[^\w\-]+/g, '_');
+    const mn = m.mats.map((mt, i) => sn((mt.name || 'mat') + '_' + i)); let o = 'mtllib ' + name + '.mtl\no ' + name + '\n', n = me.pos.length / 3;
+    const pos = me.pos, nr = me.nrm, uv = me.uv; const parts = [];
+    for (let i = 0; i < n; i++) parts.push('v ' + xf(pos[i * 3], 4) + ' ' + xf(pos[i * 3 + 2], 4) + ' ' + xf(-pos[i * 3 + 1], 4)); o += parts.join('\n') + '\n'; parts.length = 0;
+    if (uv) { for (let i = 0; i < n; i++) parts.push('vt ' + xf(uv[i * 2], 5) + ' ' + xf(1 - uv[i * 2 + 1], 5)); o += parts.join('\n') + '\n'; parts.length = 0; }
+    if (nr) { for (let i = 0; i < n; i++) parts.push('vn ' + xf(nr[i * 3], 4) + ' ' + xf(nr[i * 3 + 2], 4) + ' ' + xf(-nr[i * 3 + 1], 4)); o += parts.join('\n') + '\n'; parts.length = 0; }
+    const by = m.mats.map(() => []); for (let t = 0; t < me.tm.length; t++) by[me.tm[t]].push(t);
+    const f = k => { const a = me.idx[k] + 1; return a + '/' + (uv ? a : '') + (nr ? '/' + a : ''); };
+    by.forEach((tris, mi) => { if (!tris.length) return; parts.push('usemtl ' + mn[mi]); for (const t of tris) parts.push('f ' + f(t * 3) + ' ' + f(t * 3 + 1) + ' ' + f(t * 3 + 2)); }); o += parts.join('\n') + '\n';
+    let mtl = ''; const files = [], texDone = new Map();
+    for (let i = 0; i < m.mats.length; i++) {
+        const mt = m.mats[i]; mtl += 'newmtl ' + mn[i] + '\nKd ' + xf(mt.color[0] / 255, 3) + ' ' + xf(mt.color[1] / 255, 3) + ' ' + xf(mt.color[2] / 255, 3) + '\nd ' + xf(mt.color[3] / 255, 3) + '\n';
+        if (mt.tex && m.tex.has(mt.tex)) { const fnm = sn(mt.tex) + '.png'; if (!texDone.has(mt.tex)) { const cvs = m.tex.get(mt.tex).canvas; const blob = await new Promise(r => cvs.toBlob(r, 'image/png')); if (blob) files.push({ name: fnm, data: new Uint8Array(await blob.arrayBuffer()) }); texDone.set(mt.tex, fnm); } mtl += 'map_Kd ' + fnm + '\n'; }
+    }
+    const te = new TextEncoder(); files.unshift({ name: name + '.obj', data: te.encode(o) }, { name: name + '.mtl', data: te.encode(mtl) });
+    dlFile(zipStore(files), name + '-obj.zip', 'application/zip'); toast('OBJ + MTL + teksturalar (ZIP) saqlandi.');
+}
+
+/* ---------- loyiha uyalari (localStorage) ---------- */
+const SLOTKEY = 'hb_slots_v1';
+const slotsGet = () => { try { return JSON.parse(localStorage.getItem(SLOTKEY) || '{}') || {}; } catch (e) { return {}; } };
+function slotsPut(o) { try { localStorage.setItem(SLOTKEY, JSON.stringify(o)); return true; } catch (e) { toast('Xotira to‘lgan yoki taqiqlangan.', true); return false; } }
+function slotSave(i) { const o = slotsGet(); o[i] = { name: S.P.name, date: new Date().toISOString(), P: S.P }; if (slotsPut(o)) toast(i + '-uyaga saqlandi.'); }
+async function slotLoad(i) { const o = slotsGet()[i]; if (!o) { toast('Bu uya bo‘sh.', true); return; } await openProject({ P: clone(o.P), assets: [] }); toast(i + '-uyadan ochildi: ' + o.name); }
+function slotDel(i) { const o = slotsGet(); delete o[i]; slotsPut(o); }
+
+/* ---------- 3D sozlamalari ---------- */
+const SKY = { default: { bg: 0x0a1122, hemi: 0.95, dir: 0.85, dc: 0xfff4e0 }, day: { bg: 0x9cc9f2, hemi: 1.05, dir: 1.0, dc: 0xfff4e0 }, dusk: { bg: 0xe58b62, hemi: 0.75, dir: 0.75, dc: 0xffb27a }, night: { bg: 0x03060e, hemi: 0.35, dir: 0.2, dc: 0x9fb4ff }, mist: { bg: 0xaab3bd, hemi: 1.0, dir: 0.5, dc: 0xffffff } };
+const GRD = { default: 0x24362c, grass: 0x3f7a3a, sand: 0xc9b27c, snow: 0xe9eef5, asphalt: 0x2b2d31, concrete: 0x8c9096 };
+function applyEnv() {
+    if (!V3.r) return; const E = X.env, sky = SKY[E.sky] || SKY.default, sc = V3.scene;
+    sc.background = new THREE.Color(sky.bg); if (sc.fog) { sc.fog.color = new THREE.Color(sky.bg); if (!E.fog) { sc.fog.near = 1e5; sc.fog.far = 2e5; } else if (E.sky === 'mist') { sc.fog.near = 6; sc.fog.far = 55; } }
+    const hemi = sc.children.find(o => o.isHemisphereLight); if (hemi) hemi.intensity = sky.hemi; const dl = V3.dl; if (dl) {
+        dl.intensity = sky.dir; dl.color = new THREE.Color(sky.dc); dl.castShadow = !!E.shadow; const t = dl.target.position, R = Math.hypot(dl.position.x - t.x, dl.position.y - t.y, dl.position.z - t.z) || 30, az = E.sunAz * Math.PI / 180, el = E.sunEl * Math.PI / 180;
+        dl.position.set(t.x + R * Math.cos(el) * Math.sin(az), t.y + R * Math.sin(el), t.z + R * Math.cos(el) * Math.cos(az)); dl.target.updateMatrixWorld();
+    }
+    if (V3.ground) { V3.ground.material.color.setHex(GRD[E.ground] || GRD.default); V3.ground.visible = E.groundOn !== false; }
+    const gh = sc.children.find(o => o.isGridHelper); if (gh) gh.visible = !!E.grid; V3.cam.fov = E.fov; V3.cam.updateProjectionMatrix();
+    V3.ctrl.autoRotate = !!E.rot; V3.ctrl.autoRotateSpeed = E.rotSpeed; V3.need = true;
+}
+function camPreset(k) {
+    if (!V3.r) return; const m = S.model; if (!m) return; const bb = m.bb, c = [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, (bb.min[2] + bb.max[2]) / 2], L = Math.max(m.L, 4), d = Math.max(L * 1.7, 10), tx = c[0], ty = c[2], tz = -c[1];
+    const P = { top: [tx + 0.01, ty + d * 1.9, tz + 0.01], front: [tx, ty + d * 0.18, tz + d], back: [tx, ty + d * 0.18, tz - d], left: [tx - d, ty + d * 0.18, tz], right: [tx + d, ty + d * 0.18, tz], iso: [tx + d * 0.7, ty + d * 0.6, tz + d * 0.8] }[k];
+    V3.ctrl.target.set(tx, ty, tz); V3.cam.position.set(P[0], P[1], P[2]); V3.ctrl.update(); V3.need = true;
+}
+const _updateScene = updateScene; updateScene = function () { _updateScene(); applyEnv(); };
+
+/* ---------- reja ustiga qo'shimcha chizmalar ---------- */
+const _drawGrid = drawGrid;
+drawGrid = function () {
+    if (X.ub.img && X.view.ub) { const u = X.ub, w = u.w, h = u.w * u.img.height / u.img.width; cx.save(); cx.globalAlpha = u.op; cx.drawImage(u.img, sx(u.x), sy(u.y + h), w * S.v.sc, h * S.v.sc); cx.restore(); }
+    if (X.view.grid) _drawGrid();
+};
+function pillTxt(txt, x, y, col) {
+    const c = cx; c.font = '600 10.5px JetBrains Mono, monospace'; const w = c.measureText(txt).width + 8; c.fillStyle = 'rgba(7,11,23,.82)'; c.beginPath(); if (c.roundRect) c.roundRect(x - w / 2, y - 8, w, 16, 5); else c.rect(x - w / 2, y - 8, w, 16); c.fill();
+    c.fillStyle = col || '#cfe9ff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, x, y + 0.5);
+}
+function drawExtra() {
+    const c = cx, P = S.P, lv = S.lv, V = X.view;
+    if (V.lens) for (const w of P.walls) if (w.lv === lv) { const L = wallLen(w); if (L < 0.4) continue; const mx = (w.x1 + w.x2) / 2, my = (w.y1 + w.y2) / 2, nx = -(w.y2 - w.y1) / L, ny = (w.x2 - w.x1) / L; pillTxt(xf(L) + ' m', sx(mx) + nx * (w.t / 2 * S.v.sc + 11), sy(my) - ny * (w.t / 2 * S.v.sc + 11), '#9fe9ff'); }
+    if (V.areas) for (const s of P.slabs) if (s.lv === lv) { let a = Math.abs((s.x2 - s.x1) * (s.y2 - s.y1)); if (s.hole) a -= Math.abs((s.hole[2] - s.hole[0]) * (s.hole[3] - s.hole[1])); pillTxt(xf(a, 1) + ' m²', sx((s.x1 + s.x2) / 2), sy((s.y1 + s.y2) / 2), '#c9b8ff'); }
+    if (V.dims) { const b = wbox(lv); if (b) {
+        c.strokeStyle = '#ffd166'; c.fillStyle = '#ffd166'; c.lineWidth = 1; const yy = sy(b.y1) + 22, xx = sx(b.x1) - 22; c.beginPath(); c.moveTo(sx(b.x1), yy); c.lineTo(sx(b.x2), yy); c.moveTo(sx(b.x1), yy - 4); c.lineTo(sx(b.x1), yy + 4); c.moveTo(sx(b.x2), yy - 4); c.lineTo(sx(b.x2), yy + 4);
+        c.moveTo(xx, sy(b.y1)); c.lineTo(xx, sy(b.y2)); c.moveTo(xx - 4, sy(b.y1)); c.lineTo(xx + 4, sy(b.y1)); c.moveTo(xx - 4, sy(b.y2)); c.lineTo(xx + 4, sy(b.y2)); c.stroke();
+        pillTxt(xf(b.w) + ' m', sx((b.x1 + b.x2) / 2), yy + 12, '#ffd166'); pillTxt(xf(b.d) + ' m', xx - 14, sy((b.y1 + b.y2) / 2), '#ffd166'); } }
+    if (V.compass) { const x = PW - 38, y = 52; c.save(); c.strokeStyle = 'rgba(143,163,192,.7)'; c.fillStyle = 'rgba(7,11,23,.7)'; c.lineWidth = 1.2; c.beginPath(); c.arc(x, y, 24, 0, 7); c.fill(); c.stroke(); c.fillStyle = '#ff6b81'; c.beginPath(); c.moveTo(x, y - 20); c.lineTo(x - 6, y + 4); c.lineTo(x + 6, y + 4); c.closePath(); c.fill(); c.fillStyle = '#8fa3c0'; c.beginPath(); c.moveTo(x, y + 20); c.lineTo(x - 6, y - 4); c.lineTo(x + 6, y - 4); c.closePath(); c.fill(); c.fillStyle = '#fff'; c.font = '700 11px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('N', x, y - 32); c.restore(); }
+    if (V.scalebar) { const steps = [0.5, 1, 2, 5, 10, 20, 50]; let m = steps[0]; for (const s of steps) { m = s; if (s * S.v.sc >= 70) break; } const L = m * S.v.sc, x = PW - 16 - L, y = PH - 22; c.strokeStyle = '#e6edf7'; c.lineWidth = 2; c.beginPath(); c.moveTo(x, y - 5); c.lineTo(x, y); c.lineTo(x + L, y); c.lineTo(x + L, y - 5); c.stroke(); c.fillStyle = '#e6edf7'; c.font = '600 11px JetBrains Mono, monospace'; c.textAlign = 'center'; c.textBaseline = 'bottom'; c.fillText(m + ' m', x + L / 2, y - 6); }
+    const R = X.ruler; if (R.on) {
+        const a = R.a, b = R.b || R.hover; if (a) { c.strokeStyle = '#ff6b81'; c.fillStyle = '#ff6b81'; c.lineWidth = 2; c.setLineDash([6, 4]); if (b) { c.beginPath(); c.moveTo(sx(a[0]), sy(a[1])); c.lineTo(sx(b[0]), sy(b[1])); c.stroke(); } c.setLineDash([]); c.beginPath(); c.arc(sx(a[0]), sy(a[1]), 4, 0, 7); c.fill(); if (b) { c.beginPath(); c.arc(sx(b[0]), sy(b[1]), 4, 0, 7); c.fill(); const dx = b[0] - a[0], dy = b[1] - a[1]; pillTxt(xf(Math.hypot(dx, dy)) + ' m  (Δx ' + xf(dx) + ', Δy ' + xf(dy) + ', ' + xf(Math.atan2(dy, dx) * 180 / Math.PI, 1) + '°)', (sx(a[0]) + sx(b[0])) / 2, (sy(a[1]) + sy(b[1])) / 2 - 14, '#ffb3be'); } }
+    }
+}
+const _drawPlan = drawPlan; drawPlan = function () { _drawPlan(); try { drawExtra(); } catch (e) { console.error(e); } };
+
+/* ---------- o'lchagich (reja ustida bosib o'lchash) ---------- */
+function rulerPt(e) {
+    const p = evPt(e); let x = wx(p[0]), y = wy(p[1]), best = 10 / S.v.sc, hit = null; for (const w of S.P.walls) if (w.lv === S.lv) for (const q of [[w.x1, w.y1], [w.x2, w.y2]]) { const d = Math.hypot(q[0] - x, q[1] - y); if (d < best) { best = d; hit = q; } }
+    return hit ? hit.slice() : [snapV(x), snapV(y)];
+}
+cv.addEventListener('pointerdown', e => { if (!X.ruler.on || e.button !== 0) return; e.stopImmediatePropagation(); e.preventDefault(); const R = X.ruler, p = rulerPt(e); if (!R.a || R.b) { R.a = p; R.b = null; } else R.b = p; S.dirty = true; }, true);
+cv.addEventListener('pointermove', e => { if (!X.ruler.on) return; X.ruler.hover = rulerPt(e); S.dirty = true; if (e.buttons === 0) e.stopImmediatePropagation(); }, true);
+cv.addEventListener('pointerup', e => { if (X.ruler.on && e.button === 0) e.stopImmediatePropagation(); }, true);
+function setRuler(on) { X.ruler.on = on; if (!on) { X.ruler.a = X.ruler.b = X.ruler.hover = null; } cv.style.cursor = on ? 'crosshair' : ''; S.dirty = true; if (on) toast('O‘lchagich: reja ustida ikki nuqtani bosing (devor uchlariga yopishadi). Chiqish: U.'); const b = document.getElementById('xRulerBtn'); if (b) b.classList.toggle('on', on); }
+
+/* ---------- yordam oynasi ---------- */
+function showHelp() {
+    const b = $('modalBox'); b.classList.remove('wide');
+    const rows = [['V / W / B', 'Tanlash / devor / xona'], ['D / N / G', 'Eshik / oyna / garaj'], ['S / O / L / K', 'Plita / tom / zina / ustun'], ['T / I', 'Yozuv / logotip'], ['H yoki Space', 'Reja siljitish'], ['R', 'Tanlangan zina/tomni burish'], ['Ctrl+Z / Ctrl+Y', 'Bekor qilish / qaytarish'], ['Ctrl+D', 'Nusxa'], ['Ctrl+S', 'Saqlash'], ['Del', 'O‘chirish'], ['Strelkalar', 'Tanlanganni siljitish'], ['F', 'Rejani markazlash'], ['PageUp / PageDown', 'Qavatni almashtirish'], ['U', 'O‘lchagich'], ['E', 'Asboblar bo‘limini ochish'], ['?', 'Shu yordam oynasi']];
+    b.innerHTML = '<h3>Klaviatura yordami</h3><div class="note">Tez ishlash uchun tugmalar.</div><div class="stat" style="margin:12px 0">' + rows.map(r => '<span>' + esc(r[1]) + '</span><b>' + esc(r[0]) + '</b>').join('') + '</div>';
+    const a = el('div', 'acts'); btn(a, 'Yopish', () => $('modal').classList.remove('on'), 'pri'); b.appendChild(a); $('modal').classList.add('on');
+}
+window.addEventListener('keydown', e => {
+    const tg = e.target; if (MP.open) return; if (tg && /^(INPUT|SELECT|TEXTAREA)$/.test(tg.tagName) && !(tg.type === 'checkbox' || tg.type === 'range')) return; if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key; if (k === '?') { showHelp(); return; } const l = k.toLowerCase();
+    if (l === 'f') { fitPlan(); } else if (l === 'u') { setRuler(!X.ruler.on); } else if (l === 'e') { document.querySelector('#tabs button[data-t="ext"]').click(); }
+    else if (k === 'PageUp' || k === 'PageDown') { e.preventDefault(); const n = clamp(S.lv + (k === 'PageUp' ? 1 : -1), 0, S.P.levels.length - 1); if (n !== S.lv) { S.lv = n; S.sel = null; renderLevels(); renderProps(); S.dirty = true; if (S.cut) touch(true); } }
+    else if (k === 'Escape' && X.ruler.on) setRuler(false);
+});
+
+/* ---------- Asboblar paneli (UI) ---------- */
+function renderExt() {
+    const box = $('pExt'); box.innerHTML = ''; const P = S.P;
+    const sec = (title, open) => { const d = el('details', 'xsec'); d.open = X.open[title] != null ? X.open[title] : !!open; d.addEventListener('toggle', () => { X.open[title] = d.open; }); d.appendChild(el('summary', '', title)); const b = el('div', 'xb'); d.appendChild(b); box.appendChild(d); return b; };
+    const nf = (par, label, key, cfg) => { cfg = cfg || {}; const f = el('label', 'f', '<span>' + label + '</span>'), i = el('input', 'in'); i.type = 'number'; i.step = cfg.step || 'any'; if (cfg.min != null) i.min = cfg.min; if (cfg.max != null) i.max = cfg.max; i.value = X.v[key]; i.addEventListener('input', () => { const v = parseFloat(i.value); if (isFinite(v)) { X.v[key] = v; saveX(); if (cfg.live) cfg.live(); } }); f.appendChild(i); par.appendChild(f); return f; };
+    const sl = (par, label, key, opts, cb) => { const f = el('label', 'f', '<span>' + label + '</span>'), s = el('select', 'in'); for (const o of opts) { const op = el('option', '', esc(o[1])); op.value = o[0]; s.appendChild(op); } s.value = X.v[key]; s.addEventListener('change', () => { X.v[key] = isNaN(+s.value) || s.value === '' ? s.value : +s.value; saveX(); if (cb) cb(); }); f.appendChild(s); par.appendChild(f); return f; };
+    const ck = (par, label, o, key, cb) => { const l = el('label', 'chk xchk'), i = el('input'); i.type = 'checkbox'; i.checked = !!o[key]; i.addEventListener('change', () => { o[key] = i.checked; saveX(); S.dirty = true; if (cb) cb(); }); l.appendChild(i); l.appendChild(document.createTextNode(' ' + label)); par.appendChild(l); return l; };
+    const bs = par => { const a = el('div', 'xbtns'); par.appendChild(a); return a; };
+    const lab = (par, t) => par.appendChild(el('div', 'xlab', t));
+    const matOpts = P.mats.map(m => [m.id, m.name]);
+
+    // --- 0. Quruvchi
+    { const b = sec('🏗 Quruvchi: uyni 0 dan qurish', true);
+        b.appendChild(el('div', 'note', 'Turini tanlang va «0 dan qurish» ni bosing — ichki xonalar, eshik, oyna, zina, tom va hovli detallari bilan avtomatik quriladi. Yoqmasa «Boshqa variant».'));
+        const r0 = rowOf(b); sl(r0, 'Uy turi', 'qStyle', Object.keys(STY).map(k => [k, STY[k].name]), () => { qDefaults(X.v.qStyle); renderExt(); }); sl(r0, 'Rang mavzusi', 'qTheme', [['auto', 'Avtomatik']].concat(THEMES.map(t => [t[0], t[1]])));
+        const r1 = rowOf(b, 'three'); nf(r1, 'Eni (m)', 'qW', { step: 0.5, min: 5 }); nf(r1, 'Chuqurligi (m)', 'qD', { step: 0.5, min: 5 }); nf(r1, 'Qavatlar', 'qF', { step: 1, min: 1, max: 6 });
+        const r2 = rowOf(b, 'three'); nf(r2, 'Qavat balandligi', 'qH', { step: 0.1, min: 2.4 }); nf(r2, 'Xonalar (0 = avto)', 'qRooms', { step: 1, min: 0 }); nf(r2, 'Variant №', 'qSeed', { step: 1, min: 1 });
+        lab(b, 'Nimalar bo‘lsin'); const g = el('div', 'xchks'); b.appendChild(g); for (const o of OPTS) ck(g, o[1], X.v.qo, o[0]);
+        const a = bs(b); btn(a, '🏗 0 dan qurish', () => qBuild(false), 'pri'); btn(a, '🎲 Boshqa variant', () => qBuild(true)); btn(a, 'Shablonlar galereyasi', showTemplates);
+        lab(b, 'Tayyor uyga bir tugma bilan qo‘shish'); const a2 = bs(b); for (const d of DET) btn(a2, d[0], () => act(d[1], { lv: true }));
+    }
+    // --- 1. Butun uy
+    { const b = sec('🏠 Butun uy: siljitish, burish, ko‘zgu', true);
+        const bb = wbox(null); b.appendChild(el('div', 'note', bb ? 'Uy o‘lchami: <b>' + xf(bb.w) + ' × ' + xf(bb.d) + ' m</b>' : 'Uy hozircha bo‘sh.'));
+        lab(b, 'Siljitish'); const r0 = rowOf(b); nf(r0, 'Qadam (m)', 'step', { step: 0.1 });
+        const a = bs(b); const mv = (t, dx, dy) => btn(a, t, () => xMove(dx * xv('step'), dy * xv('step'))); mv('← chap', -1, 0); mv('→ o‘ng', 1, 0); mv('↑ shimol', 0, 1); mv('↓ janub', 0, -1);
+        const a2 = bs(b); btn(a2, 'Markazni (0,0) ga', xCenter); btn(a2, 'Burchakni (0,0) ga', xCorner);
+        lab(b, 'Burish va ko‘zgu'); const a3 = bs(b); btn(a3, '⟲ 90°', () => xRot(false)); btn(a3, '⟳ 90°', () => xRot(true)); btn(a3, '180°', () => { xRot(true); xRot(true); }); btn(a3, '↔ Ko‘zgu X', () => xMirror('x')); btn(a3, '↕ Ko‘zgu Y', () => xMirror('y'));
+        lab(b, 'Masshtab (reja o‘lchamlari)'); const r1 = rowOf(b); nf(r1, 'Koeffitsient', 'scaleK', { step: 0.05, min: 0.1 }); const a4 = bs(b); btn(a4, 'Kattalashtirish ×k', () => xScale(xv('scaleK'))); btn(a4, 'Kichraytirish ÷k', () => xScale(1 / xv('scaleK')));
+    }
+    // --- 2. Devorlar
+    { const b = sec('🧱 Devorlar'); const r = rowOf(b); sl(r, 'Qaysi devorlarga', 'scope', [['lv', 'Joriy qavat'], ['all', 'Barcha qavat']]); r.appendChild(el('div'));
+        lab(b, 'Qalinlik va balandlik'); const r1 = rowOf(b); nf(r1, 'Qalinlik (m)', 'wallT', { step: 0.01, min: 0.05 }); nf(r1, 'Balandlik (0 = qavat)', 'wallH', { step: 0.1, min: 0 });
+        const a = bs(b); btn(a, 'Qalinlikni qo‘llash', () => setWallProp(w => { w.t = Math.max(0.05, xv('wallT')); }, 'qalinlik ' + xv('wallT') + ' m.')); btn(a, 'Balandlikni qo‘llash', () => setWallProp(w => { w.h = Math.max(0, xv('wallH')); }, 'balandlik o‘zgardi.'));
+        lab(b, 'Material'); const r2 = rowOf(b); sl(r2, 'A tomon', 'matA', matOpts); sl(r2, 'B tomon', 'matB', matOpts);
+        const a2 = bs(b); btn(a2, 'A ni qo‘llash', () => setWallProp(w => { w.mA = xv('matA'); }, 'A tomon materiali.')); btn(a2, 'B ni qo‘llash', () => setWallProp(w => { w.mB = xv('matB'); }, 'B tomon materiali.')); btn(a2, 'A ↔ B almashtirish', () => setWallProp(w => { const t = w.mA; w.mA = w.mB; w.mB = t; }, 'A va B almashtirildi.'));
+        lab(b, 'Oyna va eshiklar (hamma devorlarda)'); const r3 = rowOf(b, 'three'); nf(r3, 'Oyna eni', 'winW', { step: 0.05, min: 0.3 }); nf(r3, 'Bo‘yi', 'winH', { step: 0.05, min: 0.3 }); nf(r3, 'Ostki balandlik', 'winSill', { step: 0.05, min: 0 });
+        const r4 = rowOf(b); nf(r4, 'Bir devorga oyna soni', 'nWin', { step: 1, min: 1 }); r4.appendChild(el('div'));
+        const a3 = bs(b);
+        btn(a3, 'Oynasiz devorlarga oyna qo‘shish', () => act(() => { let n = 0; for (const w of S.P.walls) if (inScope(w) && wallLen(w) > 1.8 && !w.fence && !w.ops.length) n += distribute(w, xv('nWin'), 'window', { w: xv('winW'), h: xv('winH'), sill: xv('winSill') }) ? 1 : 0; return n ? n + ' ta devorga oyna qo‘yildi.' : { e: 'Mos bo‘sh devor topilmadi.' }; }));
+        btn(a3, 'Hamma oyna o‘lchamini o‘zgartirish', () => act(() => { let n = 0; for (const w of S.P.walls) if (inScope(w)) for (const o of w.ops) if (o.type === 'window') { o.w = xv('winW'); o.h = Math.min(xv('winH'), wH(w) - xv('winSill') - 0.1); o.sill = xv('winSill'); n++; } return n ? n + ' ta oyna o‘zgardi.' : { e: 'Oyna yo‘q.' }; }));
+        btn(a3, 'Hamma oynalarni olib tashlash', () => act(() => { let n = 0; for (const w of S.P.walls) if (inScope(w)) { const k = w.ops.length; w.ops = w.ops.filter(o => o.type !== 'window'); n += k - w.ops.length; } return n + ' ta oyna olib tashlandi.'; }));
+        btn(a3, 'Hamma eshiklarni olib tashlash', () => act(() => { let n = 0; for (const w of S.P.walls) if (inScope(w)) { const k = w.ops.length; w.ops = w.ops.filter(o => o.type === 'window'); n += k - w.ops.length; } return n + ' ta eshik/garaj olib tashlandi.'; }));
+        lab(b, 'Tanlangan devor ustida'); const r5 = rowOf(b); nf(r5, 'Bo‘laklar soni', 'splitN', { step: 1, min: 2, max: 8 }); nf(r5, 'Yangi uzunlik (m)', 'newLen', { step: 0.1, min: 0.5 });
+        const needW = f => () => { const s = selObj(); if (!s || s.t !== 'wall') { toast('Avval devorni tanlang.', true); return; } f(s.o); };
+        const a4 = bs(b);
+        btn(a4, 'Teng bo‘laklarga bo‘lish', needW(w => act(() => splitWall(w, clamp(Math.round(xv('splitN')), 2, 8)) ? 'Devor bo‘laklarga bo‘lindi.' : { e: 'Devor bo‘lish uchun juda qisqa.' })));
+        btn(a4, 'Uzunlikni belgilash', needW(w => act(() => setWallLen(w, xv('newLen')))));
+        btn(a4, 'Oynalarni tekis taqsimlash', needW(w => act(() => { const n = distribute(w, xv('nWin'), 'window', { w: xv('winW'), h: xv('winH'), sill: xv('winSill') }); return n ? n + ' ta oyna tekis qo‘yildi.' : { e: 'Devor oyna uchun juda qisqa.' }; })));
+        btn(a4, 'O‘rtasiga eshik', needW(w => act(() => { if (w.ops.some(o => Math.abs(o.c - wallLen(w) / 2) < 0.9)) return { e: 'O‘rtada joy band.' }; w.ops.push(mkOp('door', wallLen(w) / 2)); return 'Eshik qo‘yildi.'; })));
+        btn(a4, 'Tuynuklarni tozalash', needW(w => act(() => { w.ops = []; return 'Devordagi eshik/oynalar olib tashlandi.'; })));
+        btn(a4, 'Ustun qatori', needW(w => act(() => colsAlongWall(w)))); const r6 = rowOf(b); nf(r6, 'Ustunlar soni', 'colN', { step: 1, min: 2 }); nf(r6, 'Devordan masofa (m)', 'colOff', { step: 0.1 });
+    }
+    // --- 3. Qavatlar va tom
+    { const b = sec('🏢 Qavatlar, plita va tom'); const r = rowOf(b); nf(r, 'Hamma qavat balandligi (m)', 'lvH', { step: 0.1, min: 2 }); const f = el('label', 'f', '<span>Joriy qavat nomi</span>'), ni = el('input', 'in'); ni.value = P.levels[S.lv].name; f.appendChild(ni); r.appendChild(f);
+        const a = bs(b); btn(a, 'Qavat balandligini qo‘llash', () => act(() => { P.levels.forEach(l => { l.h = clamp(xv('lvH'), 2, 8); }); return 'Hamma qavat balandligi ' + xv('lvH') + ' m.'; }, { lv: true })); btn(a, 'Nomni o‘zgartirish', () => act(() => { P.levels[S.lv].name = ni.value.trim() || P.levels[S.lv].name; return 'Qavat nomi o‘zgardi.'; }, { lv: true }));
+        btn(a, 'Joriy qavatni tozalash', () => act(() => { let n = 0; for (const k of Object.values(LISTS)) { const c = P[k].length; P[k] = P[k].filter(o => o.lv !== S.lv); n += c - P[k].length; } S.sel = null; return n + ' ta element o‘chirildi.'; }));
+        lab(b, 'Tom turi'); const r1 = rowOf(b, 'three'); sl(r1, 'Turi', 'roofType', [['gable', 'Ikki qiyali'], ['hip', 'To‘rt qiyali'], ['shed', 'Bir qiyali'], ['flat', 'Tekis']]); nf(r1, 'Qiyalik °', 'roofPitch', { step: 1, min: 5, max: 70 }); nf(r1, 'Chiqish (m)', 'roofOv', { step: 0.05, min: 0 });
+        const a2 = bs(b); btn(a2, 'Joriy qavatga pol plitasi', () => act(() => topSlabAndRoof('slab'))); btn(a2, 'Yuqori qavatga avto-tom', () => act(() => topSlabAndRoof('roof'))); btn(a2, 'Hamma tomga qo‘llash', () => act(() => { for (const q of P.roofs) { q.type = xv('roofType'); q.pitch = xv('roofPitch'); q.ov = xv('roofOv'); } return P.roofs.length + ' ta tom o‘zgardi.'; }));
+        btn(a2, 'Barcha tomlarni olib tashlash', () => act(() => { const n = P.roofs.length; P.roofs = []; return n + ' ta tom olib tashlandi.'; }));
+        btn(a2, '+ Qavat (nusxa) va tom', () => { addLevel(true); act(() => topSlabAndRoof('roof'), { lv: true }); });
+    }
+    // --- 4. Tashqi qurilmalar
+    { const b = sec('🌳 To‘siq, ayvon, garaj, xona');
+        lab(b, 'To‘siq (hovli devori) darvoza bilan'); const r = rowOf(b, 'three'); nf(r, 'Uydan masofa', 'fenceM', { step: 0.5, min: 1 }); nf(r, 'Balandlik', 'fenceH', { step: 0.1, min: 0.5 }); nf(r, 'Qalinlik', 'fenceT', { step: 0.05, min: 0.08 }); const r1 = rowOf(b); nf(r1, 'Darvoza eni', 'gateW', { step: 0.1, min: 1 }); r1.appendChild(el('div'));
+        const a = bs(b); btn(a, 'To‘siq qo‘shish', () => act(addFence)); btn(a, 'To‘siqni olib tashlash', () => act(() => { const n = P.walls.filter(w => w.fence).length; P.walls = P.walls.filter(w => !w.fence); return n + ' ta to‘siq devori olib tashlandi.'; }));
+        lab(b, 'Ayvon / terassa (old tomonga)'); const r2 = rowOf(b, 'three'); nf(r2, 'Eni', 'porchW', { step: 0.1, min: 1 }); nf(r2, 'Chuqurligi', 'porchD', { step: 0.1, min: 0.8 }); nf(r2, 'Ustunlar', 'porchN', { step: 1, min: 2 });
+        const a2 = bs(b); btn(a2, 'Ayvon (ustun + tom)', () => act(() => addPorch(true))); btn(a2, 'Terassa (plita)', () => act(() => addPorch(false)));
+        lab(b, 'Qo‘shimcha xona / garaj (uyning yoniga)'); const r3 = rowOf(b); sl(r3, 'Qaysi tomonga', 'roomSide', [['r', 'O‘ng (sharq)'], ['l', 'Chap (g‘arb)'], ['f', 'Old (janub)'], ['b', 'Orqa (shimol)']]); r3.appendChild(el('div'));
+        const r4 = rowOf(b); nf(r4, 'Xona eni', 'roomW', { step: 0.1, min: 2 }); nf(r4, 'Xona chuqurligi', 'roomD', { step: 0.1, min: 2 }); const r5 = rowOf(b); nf(r5, 'Garaj eni', 'garW', { step: 0.1, min: 2.5 }); nf(r5, 'Garaj chuqurligi', 'garD', { step: 0.1, min: 3 });
+        const a3 = bs(b); btn(a3, 'Xona qo‘shish', () => act(() => attachRoom('room'))); btn(a3, 'Garaj qo‘shish', () => act(() => attachRoom('garage')));
+    }
+    // --- 5. Tanlangan element: nusxa va massiv
+    { const b = sec('📋 Tanlangan element: nusxa, massiv, burish'); b.appendChild(el('div', 'note', 'Avval rejada elementni tanlang (devor, plita, tom, zina, ustun yoki eshik/oyna).'));
+        const r = rowOf(b, 'three'); nf(r, 'Nusxalar soni', 'arrN', { step: 1, min: 1, max: 50 }); nf(r, 'Δx (m)', 'arrDx', { step: 0.1 }); nf(r, 'Δy (m)', 'arrDy', { step: 0.1 });
+        const a = bs(b); btn(a, 'Massiv (ketma-ket nusxa)', () => act(arrayCopy)); btn(a, 'Yuqori qavatga nusxa', () => act(() => copyLevel(1), { lv: true })); btn(a, 'Pastki qavatga nusxa', () => act(() => copyLevel(-1), { lv: true })); btn(a, '⟳ 90° burish', () => act(rotateSel));
+    }
+    // --- 6. Mavzu
+    { const b = sec('🎨 Tayyor mavzular va tom/pol materiali'); const r = rowOf(b, 'one'); sl(r, 'Mavzu', 'theme', THEMES.map(t => [t[0], t[1]])); const a = bs(b); btn(a, 'Mavzuni butun uyga qo‘llash', () => act(() => applyTheme(xv('theme'))), 'pri');
+        lab(b, 'Alohida'); const r2 = rowOf(b); sl(r2, 'Tom materiali', 'matRoof', matOpts); sl(r2, 'Pol materiali', 'matFloor', matOpts);
+        const a2 = bs(b); btn(a2, 'Hamma tomga', () => act(() => { P.roofs.forEach(q => { q.m = xv('matRoof'); }); return 'Tom materiali o‘zgardi.'; })); btn(a2, 'Hamma polga', () => act(() => { P.slabs.forEach(s => { s.mT = xv('matFloor'); }); return 'Pol materiali o‘zgardi.'; }));
+    }
+    // --- 7. Smeta
+    { const b = sec('🧮 Hisob-kitob (smeta)'); const box2 = el('div'); b.appendChild(box2);
+        const draw = () => { const e = estimate(), rows = estRows(); let h = '<div class="stat">'; for (const r of rows) h += '<span>' + esc(r.n) + ': ' + xf(r.q) + ' ' + r.u + '</span><b>' + money(r.s) + '</b>'; h += '<span>Devor hajmi: ' + xf(e.wallV) + ' m³ (≈ ' + money(e.wallV * xv('brickK')) + ' g‘isht)</span><b></b><span>Uy perimetri: ' + xf(e.perim) + ' m</span><b></b><span><b style="text-align:left">JAMI (so‘m)</b></span><b class="okc">' + money(e.cost) + '</b></div>'; box2.innerHTML = h; }; X.refresh = () => { if (S.tab === 'ext') draw(); }; draw();
+        lab(b, 'Narxlar (so‘m)'); const r = rowOf(b, 'three'); const cfg = { step: 1000, min: 0, live: draw };
+        nf(r, 'Devor /m²', 'pWall', cfg); nf(r, 'Plita /m²', 'pFloor', cfg); nf(r, 'Tom /m²', 'pRoof', cfg); const r2 = rowOf(b, 'three'); nf(r2, 'Eshik', 'pDoor', cfg); nf(r2, 'Oyna', 'pWin', cfg); nf(r2, 'Garaj eshik', 'pGar', cfg); const r3 = rowOf(b, 'three'); nf(r3, 'Zina', 'pStair', cfg); nf(r3, 'Ustun', 'pCol', cfg); nf(r3, 'G‘isht /m³', 'brickK', { step: 10, live: draw });
+        const a = bs(b); btn(a, 'Yangilash', draw); btn(a, 'Matn nusxasi', async () => { try { await navigator.clipboard.writeText(estText()); toast('Smeta nusxalandi.'); } catch (e) { toast('Nusxalab bo‘lmadi.', true); } }); btn(a, 'CSV (Excel)', () => { dlFile(estCsv(), fname() + '-smeta.csv', 'text/csv'); toast('Smeta CSV saqlandi.'); });
+    }
+    // --- 8. Reja ko'rinishi
+    { const b = sec('📐 Reja ko‘rinishi va o‘lchagich'); const g = el('div', 'xchks'); b.appendChild(g);
+        ck(g, 'Devor uzunliklari', X.view, 'lens'); ck(g, 'Plita maydonlari', X.view, 'areas'); ck(g, 'Umumiy o‘lchamlar', X.view, 'dims'); ck(g, 'Kompas', X.view, 'compass'); ck(g, 'Masshtab chizg‘ichi', X.view, 'scalebar'); ck(g, 'To‘r', X.view, 'grid');
+        const a = bs(b); const rb = btn(a, '📏 O‘lchagich (U)', () => setRuler(!X.ruler.on)); rb.id = 'xRulerBtn'; rb.classList.toggle('on', X.ruler.on); btn(a, 'Rejani markazlash (F)', fitPlan);
+        lab(b, 'Fon rasm (chizma ustidan ko‘chirish uchun)'); const f = el('input'); f.type = 'file'; f.accept = 'image/*'; f.style.display = 'none'; b.appendChild(f);
+        f.addEventListener('change', () => { const file = f.files[0]; f.value = ''; if (!file) return; const im = new Image(); im.onload = () => { X.ub.img = im; X.view.ub = true; const bb = wbox(null); X.ub.x = bb ? bb.x1 : 0; X.ub.y = bb ? bb.y1 : 0; X.ub.w = bb ? Math.max(5, bb.w) : 20; S.dirty = true; renderExt(); }; im.src = URL.createObjectURL(file); });
+        const a2 = bs(b); btn(a2, 'Rasm yuklash…', () => f.click()); if (X.ub.img) { btn(a2, 'Rasmni olib tashlash', () => { X.ub.img = null; X.view.ub = false; S.dirty = true; renderExt(); }, 'dng');
+            const rr = rowOf(b, 'three'); const mk = (label, key, step, mn) => { const fl = el('label', 'f', '<span>' + label + '</span>'), i = el('input', 'in'); i.type = 'number'; i.step = step; if (mn != null) i.min = mn; i.value = X.ub[key]; i.addEventListener('input', () => { const v = parseFloat(i.value); if (isFinite(v)) { X.ub[key] = v; S.dirty = true; } }); fl.appendChild(i); rr.appendChild(fl); };
+            mk('Eni (m)', 'w', 0.5, 0.5); mk('X (m)', 'x', 0.5); mk('Y (m)', 'y', 0.5); const rg = el('label', 'f', '<span>Shaffoflik</span>'), ri = el('input', 'in'); ri.type = 'range'; ri.min = 0.1; ri.max = 1; ri.step = 0.05; ri.value = X.ub.op; ri.addEventListener('input', () => { X.ub.op = +ri.value; S.dirty = true; }); rg.appendChild(ri); b.appendChild(rg); ck(b, 'Fon rasmni ko‘rsatish', X.view, 'ub'); }
+    }
+    // --- 9. 3D
+    { const b = sec('🎥 3D ko‘rinish sozlamalari'); const E = X.env; lab(b, 'Kamera'); const a = bs(b);
+        [['top', 'Tepadan'], ['front', 'Old'], ['back', 'Orqa'], ['left', 'Chap'], ['right', 'O‘ng'], ['iso', 'Izometrik']].forEach(p => btn(a, p[1], () => camPreset(p[0])));
+        const g = el('div', 'xchks'); b.appendChild(g); ck(g, 'Avto-aylanish', E, 'rot', applyEnv); ck(g, 'Soyalar', E, 'shadow', () => { applyEnv(); touch(true); }); ck(g, 'Tuman', E, 'fog', () => { applyEnv(); touch(true); }); ck(g, 'To‘r', E, 'grid', applyEnv); ck(g, 'Yer yuzasi', E, 'groundOn', applyEnv);
+        const r = rowOf(b); const mkSel = (label, key, opts) => { const f = el('label', 'f', '<span>' + label + '</span>'), s = el('select', 'in'); for (const o of opts) { const op = el('option', '', o[1]); op.value = o[0]; s.appendChild(op); } s.value = E[key]; s.addEventListener('change', () => { E[key] = s.value; saveX(); applyEnv(); touch(true); }); f.appendChild(s); r.appendChild(f); };
+        mkSel('Osmon / yorug‘lik', 'sky', [['default', 'Tungi ko‘k (standart)'], ['day', 'Kunduz'], ['dusk', 'Oqshom'], ['night', 'Tun'], ['mist', 'Tuman']]); mkSel('Yer rangi', 'ground', [['default', 'To‘q yashil'], ['grass', 'O‘t'], ['sand', 'Qum'], ['snow', 'Qor'], ['asphalt', 'Asfalt'], ['concrete', 'Beton']]);
+        const rs = (label, key, mn, mx, st) => { const f = el('label', 'f', '<span>' + label + '</span>'), i = el('input', 'in'); i.type = 'range'; i.min = mn; i.max = mx; i.step = st; i.value = E[key]; i.addEventListener('input', () => { E[key] = +i.value; saveX(); applyEnv(); }); f.appendChild(i); return f; };
+        const r2 = rowOf(b); r2.append(rs('Quyosh yo‘nalishi', 'sunAz', 0, 360, 5), rs('Quyosh balandligi', 'sunEl', 10, 85, 1)); const r3 = rowOf(b); r3.append(rs('Ko‘rish burchagi (FOV)', 'fov', 20, 90, 1), rs('Aylanish tezligi', 'rotSpeed', 0.5, 8, 0.5));
+        lab(b, 'Rasm'); const a2 = bs(b); btn(a2, '3D PNG', () => exportShot(1)); btn(a2, '3D PNG ×2', () => exportShot(2)); btn(a2, 'Reja PNG', exportPlanPng);
+    }
+    // --- 10. Qo'shimcha eksport
+    { const b = sec('📤 Qo‘shimcha eksport'); b.appendChild(el('div', 'note', 'GTA paketi — «Eksport» bo‘limida. Bu yerda boshqa dasturlar uchun formatlar.')); const a = bs(b);
+        btn(a, 'SVG chizma (joriy qavat)', exportSvg); btn(a, 'DXF (AutoCAD)', exportDxf); btn(a, 'OBJ + MTL + tekstura (ZIP)', xExportObj); btn(a, 'Reja PNG', exportPlanPng);
+    }
+    // --- 11. Loyiha
+    { const b = sec('💾 Loyiha uyalari va boshqalar'); b.appendChild(el('div', 'note', 'Brauzer xotirasidagi 6 ta tez saqlash uyasi (faylga saqlashdan tashqari).')); const sd = slotsGet();
+        for (let i = 1; i <= 6; i++) { const it = sd[i], row = el('div', 'xslot'); row.appendChild(el('span', '', '<b>' + i + '</b> ' + (it ? esc(it.name) + ' <small>' + new Date(it.date).toLocaleString() + '</small>' : '<small>bo‘sh</small>'))); const bt = el('div', 'xslb'); btn(bt, 'Saqlash', () => { slotSave(i); renderExt(); }); if (it) { btn(bt, 'Ochish', () => slotLoad(i)); btn(bt, '✕', () => { slotDel(i); renderExt(); }, 'dng'); } row.appendChild(bt); b.appendChild(row); }
+        const a = bs(b); btn(a, 'Klaviatura yordami (?)', showHelp); btn(a, 'JSON nusxasi', async () => { try { await navigator.clipboard.writeText(JSON.stringify({ app: 'uy-quruvchi', v: 1, P: S.P })); toast('Loyiha JSON nusxalandi.'); } catch (e) { toast('Nusxalab bo‘lmadi.', true); } });
+        btn(a, 'Koordinata nusxasi', async () => { const E = S.P.exp; try { await navigator.clipboard.writeText(E.x + ', ' + E.y + ', ' + E.z); toast('Koordinata nusxalandi: ' + E.x + ', ' + E.y + ', ' + E.z); } catch (e) { toast('Nusxalab bo‘lmadi.', true); } });
+        btn(a, 'Tarixni tozalash', () => { S.hist = [JSON.stringify(S.P)]; S.hi = 0; updateUndoBtns(); toast('Bekor qilish tarixi tozalandi.'); });
+    }
+}
+document.querySelector('#tabs button[data-t="ext"]').addEventListener('click', () => { renderExt(); applyEnv(); });
+const _afterLoad = afterLoad; afterLoad = function () { _afterLoad(); if (S.tab === 'ext') renderExt(); };
+try { applyEnv(); } catch (e) { /* 3D hali tayyor emas */ }
+
+/* ===== Xarita: uyni siljitish va aylantirish paneli ===== */
+X.v.mpStep = X.v.mpStep || 2; X.v.mpRStep = X.v.mpRStep || 15; X.v.mpMode = X.v.mpMode || 'cam';
+const BEAR = ['Shimol', 'Shimoli-sharq', 'Sharq', 'Janubi-sharq', 'Janub', 'Janubi-g‘arb', 'G‘arb', 'Shimoli-g‘arb'];
+function mpRefreshCtl() {
+    const E = S.P.exp, rot = E.rot || 0, brg = (((180 - rot) % 360) + 360) % 360, nm = BEAR[Math.round(brg / 45) % 8], t = $('mpRd');
+    if (t) t.innerHTML = 'Burilish: <b>' + xf(rot, 1) + '°</b> · old tomon: <b>' + nm + '</b>'; if (MP.draw2d) MP.draw2d(); if (GM.view) gmPlaceHouse();
+}
+function mpRot(deg) { const E = S.P.exp; E.rot = Math.round(((((E.rot || 0) + deg) % 360) + 360) % 360 * 10) / 10; if (E.rot >= 360) E.rot = 0; mpRefreshCtl(); }
+function mpMove(right, fwd, k) {
+    const E = S.P.exp, st = X.v.mpStep * (k || 1), mode = X.v.mpMode; let gx = 0, gy = 1;
+    if (mode === 'cam' && GM.view) { const d = new THREE.Vector3(); GM.view.camera.getWorldDirection(d); gx = d.x; gy = -d.z; } else if (mode === 'house') { const a = ((E.rot || 0) - 90) * Math.PI / 180; gx = Math.cos(a); gy = Math.sin(a); }
+    const L = Math.hypot(gx, gy); if (L < 0.2) { gx = 0; gy = 1; } else { gx /= L; gy /= L; } // tepadan qaraganda — shimol
+    const rx = gy, ry = -gx; mpSet(E.x + (rx * right + gx * fwd) * st, E.y + (ry * right + gy * fwd) * st, null);
+}
+function mpUp(dz, k) { mpSet(null, null, S.P.exp.z + dz * X.v.mpStep * (k || 1) * 0.5); }
+function holdBtn(b, fn) { let t, iv; const stop = () => { clearTimeout(t); clearInterval(iv); }; b.addEventListener('pointerdown', e => { e.preventDefault(); fn(); t = setTimeout(() => { iv = setInterval(fn, 70); }, 350); }); ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, stop)); }
+(function initMapCtl() {
+    const box = document.querySelector('#mapov .mpbox'), head = box && box.querySelector('.mphead'); if (!head) return;
+    const bar = el('div', 'mpctl'); head.after(bar);
+    const seg = (par, key, opts, cb) => { const s = el('div', 'seg'); const draw = () => s.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(b.dataset.v) === String(X.v[key]))); for (const o of opts) { const b = el('button', '', o[1]); b.type = 'button'; b.dataset.v = o[0]; b.addEventListener('click', () => { X.v[key] = isNaN(+o[0]) ? o[0] : +o[0]; saveX(); draw(); if (cb) cb(); }); s.appendChild(b); } draw(); par.appendChild(s); };
+    const g1 = el('div', 'mpg'); g1.appendChild(el('b', '', 'Siljitish')); const pad = el('div', 'mppad'); g1.appendChild(pad);
+    const mk = (txt, cls, fn, title) => { const b = el('button', 'btn ' + cls, txt); b.type = 'button'; b.title = title; holdBtn(b, fn); pad.appendChild(b); };
+    mk('↑', 'up', () => mpMove(0, 1), 'Oldinga'); mk('←', 'lf', () => mpMove(-1, 0), 'Chapga'); mk('↓', 'dn', () => mpMove(0, -1), 'Orqaga'); mk('→', 'rt', () => mpMove(1, 0), 'O‘ngga');
+    const zb = el('div', 'mprb'); const z1 = el('button', 'btn', '▲ Z'), z2 = el('button', 'btn', '▼ Z'); z1.style.width = z2.style.width = '54px'; z1.style.fontSize = z2.style.fontSize = '12px'; z1.type = z2.type = 'button'; holdBtn(z1, () => mpUp(1)); holdBtn(z2, () => mpUp(-1)); zb.append(z1, z2); g1.appendChild(zb);
+    const g1b = el('div', 'mpg'); seg(g1b, 'mpStep', [[0.5, '0.5 m'], [2, '2 m'], [10, '10 m'], [50, '50 m']]); seg(g1b, 'mpMode', [['cam', 'Kamera bo‘yicha'], ['house', 'Uy bo‘yicha'], ['north', 'Shimol (kompas)']]);
+    const g2 = el('div', 'mpg'); g2.appendChild(el('b', '', 'Burish')); const rb = el('div', 'mprb'); const l = el('button', 'btn', '⟲'), r = el('button', 'btn', '⟳'); l.type = r.type = 'button'; l.title = 'Chapga burish'; r.title = 'O‘ngga burish'; holdBtn(l, () => mpRot(X.v.mpRStep)); holdBtn(r, () => mpRot(-X.v.mpRStep)); rb.append(l, r); g2.appendChild(rb);
+    const g2b = el('div', 'mpg'); seg(g2b, 'mpRStep', [[1, '1°'], [5, '5°'], [15, '15°'], [45, '45°'], [90, '90°']]);
+    const q = (txt, d) => { const b = el('button', 'btn sm', txt); b.type = 'button'; b.addEventListener('click', () => mpRot(d)); return b; }; const rs = el('button', 'btn sm', 'Tiklash'); rs.type = 'button'; rs.addEventListener('click', () => { S.P.exp.rot = 0; mpRefreshCtl(); }); g2b.append(q('180°', 180), rs);
+    const rd = el('div', 'mprd'); rd.id = 'mpRd'; const hint = el('div', 'note', 'Klaviatura: strelkalar — siljitish (Shift = 5×) · Q / E — burish · R / F — balandlik. Sariq strelka — uyning old tomoni.');
+    bar.append(g1, g1b, g2, g2b, rd, hint);
+    const open0 = openMap; openMap = function (t) { open0(t); mpRefreshCtl(); };
+    window.addEventListener('keydown', e => {
+        if (!MP.open) return; const tg = e.target; if (tg && /^(INPUT|SELECT|TEXTAREA)$/.test(tg.tagName)) return; if (e.ctrlKey || e.metaKey || e.altKey) return; const k = e.key.toLowerCase(), m = e.shiftKey ? 5 : 1; let h = true;
+        if (k === 'arrowup') mpMove(0, 1, m); else if (k === 'arrowdown') mpMove(0, -1, m); else if (k === 'arrowleft') mpMove(-1, 0, m); else if (k === 'arrowright') mpMove(1, 0, m);
+        else if (k === 'q' || k === ',') mpRot(X.v.mpRStep * (e.shiftKey ? 3 : 1)); else if (k === 'e' || k === '.') mpRot(-X.v.mpRStep * (e.shiftKey ? 3 : 1)); else if (k === 'r' || k === 'pageup') mpUp(1, m); else if (k === 'f' || k === 'pagedown') mpUp(-1, m); else h = false;
+        if (h) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+})();
+
+/* ===================================================================
+   QURUVCHI: villa, qasr, boy uylarni 0 dan avtomatik qurish + tayyor detallar
+   =================================================================== */
+const BQ = { rnd: Math.random };
+const mulberry = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const wdir = w => { const L = wallLen(w); return { L, dx: (w.x2 - w.x1) / L, dy: (w.y2 - w.y1) / L }; };
+const rnd2 = () => BQ.rnd();
+const OPTS = [['inner', 'Ichki xonalar va eshiklar'], ['stairs', 'Zina'], ['porch', 'Ayvon / portiko'], ['balcony', 'Balkon'], ['garage', 'Garaj'], ['wings', 'Yon qanotlar'], ['towers', 'Burchak minoralari'], ['quoins', 'Burchak ustunlari'], ['belt', 'Qavat belbog‘lari'], ['chim', 'Mo‘ri'], ['fence', 'To‘siq va darvoza'], ['path', 'Yo‘lak'], ['pool', 'Hovuz'], ['fountain', 'Favvora'], ['gazebo', 'Besedka'], ['terrace', 'Orqa terassa']];
+const STY = {
+    oddiy: { name: 'Oddiy uy', W: 9, D: 7, F: 1, H: 2.7, roof: 'gable', pitch: 30, ov: 0.5, theme: 'classic', win: { w: 1.2, h: 1.3, sill: 0.95, bars: 2 }, door: { w: 1.0, h: 2.1 }, rooms: 3, opt: { inner: 1, porch: 1, fence: 1, path: 1 } },
+    kottej: { name: 'Boy kottej', W: 11, D: 8.5, F: 2, H: 2.8, roof: 'gable', pitch: 36, ov: 0.55, theme: 'classic', win: { w: 1.2, h: 1.4, sill: 0.9, bars: 2 }, door: { w: 1.1, h: 2.2 }, rooms: 5, opt: { inner: 1, stairs: 1, porch: 1, chim: 1, fence: 1, path: 1, gazebo: 1, terrace: 1 } },
+    villa: { name: 'Zamonaviy villa', W: 16, D: 11, F: 2, H: 3.1, roof: 'flat', pitch: 0, ov: 0.3, theme: 'modern', win: { w: 2.2, h: 2.1, sill: 0.5, bars: 1 }, door: { w: 1.4, h: 2.4 }, rooms: 6, opt: { inner: 1, stairs: 1, porch: 1, balcony: 1, garage: 1, fence: 1, path: 1, pool: 1, terrace: 1 } },
+    med: { name: 'O‘rta yer dengizi villasi', W: 15, D: 10.5, F: 2, H: 3.0, roof: 'hip', pitch: 22, ov: 0.8, theme: 'med', win: { w: 1.3, h: 1.9, sill: 0.8, bars: 2 }, door: { w: 1.3, h: 2.4 }, rooms: 6, opt: { inner: 1, stairs: 1, porch: 1, balcony: 1, garage: 1, quoins: 1, belt: 1, fence: 1, path: 1, pool: 1, terrace: 1 } },
+    mansion: { name: 'Boy uyi (konak)', W: 24, D: 14, F: 3, H: 3.3, roof: 'hip', pitch: 28, ov: 0.8, theme: 'stone', win: { w: 1.3, h: 2.0, sill: 0.8, bars: 2 }, door: { w: 1.6, h: 2.6 }, rooms: 9, opt: { inner: 1, stairs: 1, porch: 1, balcony: 1, wings: 1, quoins: 1, belt: 1, chim: 1, fence: 1, path: 1, pool: 1, fountain: 1, gazebo: 1, terrace: 1 } },
+    palace: { name: 'Qasr (saroy)', W: 34, D: 16, F: 3, H: 4.0, roof: 'hip', pitch: 33, ov: 1.0, theme: 'med', win: { w: 1.4, h: 2.6, sill: 0.8, bars: 2 }, door: { w: 2.0, h: 3.0 }, rooms: 10, opt: { inner: 1, stairs: 1, porch: 1, balcony: 1, wings: 1, towers: 1, quoins: 1, belt: 1, fence: 1, path: 1, pool: 1, fountain: 1, gazebo: 1, terrace: 1 } }
+};
+{ const QD = { qStyle: 'villa', qW: 16, qD: 11, qF: 2, qH: 3.1, qRooms: 0, qSeed: 1, qTheme: 'auto', qo: Object.assign({}, STY.villa.opt) }; for (const k in QD) if (X.v[k] === undefined) X.v[k] = QD[k]; }
+function qDefaults(style) { const s = STY[style]; Object.assign(X.v, { qStyle: style, qW: s.W, qD: s.D, qF: s.F, qH: s.H, qRooms: 0, qo: Object.assign({}, s.opt) }); saveX(); }
+
+/* --- yordamchi: devor bo'ylab bo'sh oraliqlar --- */
+function attachS(w, list) {
+    const d = wdir(w), out = []; for (const v of list) { if (v === w) continue; for (const q of [[v.x1, v.y1], [v.x2, v.y2]]) { const s = (q[0] - w.x1) * d.dx + (q[1] - w.y1) * d.dy, off = Math.abs(-(q[0] - w.x1) * d.dy + (q[1] - w.y1) * d.dx); if (off < 0.3 && s > 0.2 && s < d.L - 0.2) out.push(s); } } return out;
+}
+function freeGaps(w, blocks, m) {
+    const L = wallLen(w), bl = blocks.map(b => [Math.max(0, b[0]), Math.min(L, b[1])]).filter(b => b[1] > b[0]).sort((p, q) => p[0] - q[0]), out = []; let cur = m;
+    for (const b of bl) { if (b[0] > cur) out.push([cur, Math.min(b[0], L - m)]); cur = Math.max(cur, b[1]); } if (L - m > cur) out.push([cur, L - m]); return out.filter(g => g[1] - g[0] > 0.3);
+}
+const opBlocks = (w, pad) => w.ops.map(o => [o.c - o.w / 2 - pad, o.c + o.w / 2 + pad]);
+
+/* --- xonalarga bo'lish (BSP) --- */
+function bsp(rect, target, minS) {
+    let L = [rect.slice()]; const parts = []; let guard = 0;
+    while (L.length < target && guard++ < 80) {
+        L.sort((a, b) => (b[2] - b[0]) * (b[3] - b[1]) - (a[2] - a[0]) * (a[3] - a[1])); const r = L[0], w = r[2] - r[0], d = r[3] - r[1], ax = w >= d, len = ax ? w : d; if (len < 2 * minS) break;
+        let pos = (ax ? r[0] : r[1]) + Math.round(len * (0.38 + rnd2() * 0.24) * 4) / 4; pos = clamp(pos, (ax ? r[0] : r[1]) + minS, (ax ? r[2] : r[3]) - minS); L.shift();
+        if (ax) { parts.push([pos, r[1], pos, r[3]]); L.push([r[0], r[1], pos, r[3]], [pos, r[1], r[2], r[3]]); } else { parts.push([r[0], pos, r[2], pos]); L.push([r[0], r[1], r[2], pos], [r[0], pos, r[2], r[3]]); }
+    }
+    return { leaves: L, parts };
+}
+function mkBlk(rect, F, rooms, o) {
+    const P = S.P, D = P.def, blk = { rect, F, out: [], inner: [], leaves: [rect.slice()], o: o || {} }; let parts = [];
+    if (blk.o.inner !== false && rooms > 1) { const b = bsp(rect, rooms, 2.8); blk.leaves = b.leaves; parts = b.parts; }
+    for (let l = 0; l < F; l++) { blk.out[l] = addRoom(rect[0], rect[1], rect[2], rect[3], l); blk.inner[l] = parts.map(p => { const w = mkWall(p[0], p[1], p[2], p[3], l, { t: 0.15, int: true, mA: D.wallB, mB: D.wallB }); P.walls.push(w); return w; }); }
+    return blk;
+}
+function interiorDoors(blk) {
+    const P = S.P; for (let l = 0; l < blk.F; l++) { const all = P.walls.filter(w => w.lv === l); for (const w of blk.inner[l]) { const g = freeGaps(w, attachS(w, all).map(s => [s - 0.65, s + 0.65]), 0.5).sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]))[0]; if (!g || g[1] - g[0] < 1.0) continue; w.ops.push(mkOp('door', round(g[0] + (g[1] - g[0]) * (0.35 + 0.3 * rnd2()), 100))); } }
+}
+function pickGap(w, blocks, width, near) { // eshik uchun eng mos joy (near ga yaqin)
+    let best = null; for (const g of freeGaps(w, blocks, 0.5)) { if (g[1] - g[0] < width + 0.6) continue; const c = clamp(near, g[0] + width / 2 + 0.3, g[1] - width / 2 - 0.3); if (!best || Math.abs(c - near) < Math.abs(best - near)) best = c; } return best;
+}
+function linkWalls(wa, wb, width) { // ikkita qarama-qarshi devorga bir xil global joyda eshik
+    const P = S.P, ax = Math.abs(wdir(wa).dy) > Math.abs(wdir(wa).dx) ? 'y' : 'x';
+    const toG = (w, g) => { const d = wdir(w), a = ax === 'y' ? w.y1 + d.dy * g[0] : w.x1 + d.dx * g[0], b = ax === 'y' ? w.y1 + d.dy * g[1] : w.x1 + d.dx * g[1]; return [Math.min(a, b), Math.max(a, b)]; };
+    const gaps = w => freeGaps(w, attachS(w, P.walls.filter(v => v.lv === w.lv && v.int)).map(s => [s - 0.65, s + 0.65]).concat(opBlocks(w, 0.3)), 0.6).map(g => toG(w, g));
+    let best = null; for (const a of gaps(wa)) for (const b of gaps(wb)) { const lo = Math.max(a[0], b[0]), hi = Math.min(a[1], b[1]); if (hi - lo >= width + 0.4 && (!best || hi - lo > best[1] - best[0])) best = [lo, hi]; }
+    if (!best) return false; const m = (best[0] + best[1]) / 2, pt = w => { const d = wdir(w); return ax === 'y' ? (m - w.y1) / d.dy : (m - w.x1) / d.dx; };
+    for (const w of [wa, wb]) { const op = mkOp('door', round(pt(w), 100)); op.w = width; op.h = 2.2; w.ops.push(op); } return true;
+}
+function outerWindows(w, spec) {
+    const P = S.P, bl = attachS(w, P.walls.filter(v => v.lv === w.lv && v.int)).map(s => [s - 0.5, s + 0.5]).concat(opBlocks(w, 0.45));
+    for (const g of freeGaps(w, bl, 0.6)) {
+        const len = g[1] - g[0]; let n = clamp(Math.floor((len + 0.6) / (spec.w + 1.0)), 0, 4); if (!n && len >= spec.w + 0.5) n = 1;
+        for (let i = 0; i < n; i++) { const op = mkOp('window', round(g[0] + len * (i + 0.5) / n, 100)); op.w = spec.w; op.h = Math.min(spec.h, wH(w) - spec.sill - 0.3); op.sill = spec.sill; op.bars = spec.bars; w.ops.push(op); }
+    }
+}
+function addStairs(blk) {
+    const P = S.P; if (blk.F < 2) return; const cand = blk.leaves.map(r => ({ r, a: (r[2] - r[0]) * (r[3] - r[1]) })).sort((a, b) => b.a - a.a).slice(0, 3);
+    for (let l = 0; l < blk.F - 1; l++) {
+        const c = cand[l % cand.length].r, w = c[2] - c[0], d = c[3] - c[1], n = Math.max(2, Math.round(lvH(P, l) / 0.18)), alongY = d >= w, room = (alongY ? d : w), sw = 1.1;
+        const len = Math.min(n * 0.27, room - 1.0); if (len < n * 0.19 || (alongY ? w : d) - 0.5 < sw) continue;
+        const cx = alongY ? c[0] + sw / 2 + 0.35 : (c[0] + c[2]) / 2, cy = alongY ? (c[1] + c[3]) / 2 : c[1] + sw / 2 + 0.35, st = mkStair(round(cx), round(cy), l, { w: sw, len: round(len, 100), dir: alongY ? 0 : 1 }); P.stairs.push(st); cutStairHole(st);
+    }
+}
+function roofBlk(blk, spec, lv) {
+    const P = S.P, r = blk.rect, h = WALL_T / 2, W = r[2] - r[0], D = r[3] - r[1], flat = spec.roof === 'flat';
+    P.roofs.push(mkRoof(r[0] - h, r[1] - h, r[2] + h, r[3] + h, lv == null ? blk.F - 1 : lv, flat ? { type: 'flat', ov: spec.ov, dz: -0.26 } : { type: spec.roof, dir: W >= D ? 0 : 1, pitch: spec.pitch, ov: spec.ov }));
+}
+
+/* --- balkon (har qanday devorga) --- */
+function balcony(w, lv, s, width, depth, glass) {
+    const P = S.P, { dx, dy } = wdir(w), nx = -dy, ny = dx, hh = w.t / 2, p = (a, b) => [w.x1 + dx * (s + a) + nx * b, w.y1 + dy * (s + a) + ny * b];
+    const c = [p(-width / 2, hh - 0.05), p(width / 2, hh - 0.05), p(width / 2, hh + depth), p(-width / 2, hh + depth)], xs = c.map(q => q[0]), ys = c.map(q => q[1]);
+    P.slabs.push(mkSlab(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), lv, { t: 0.2 }));
+    const m = glass ? MC.glass : MC.white, ex = { t: glass ? 0.05 : 0.1, h: 1.05, mA: m, mB: m, rail: true }, a1 = p(-width / 2 + 0.06, hh + 0.02), a2 = p(-width / 2 + 0.06, hh + depth - 0.06), b1 = p(width / 2 - 0.06, hh + depth - 0.06), b2 = p(width / 2 - 0.06, hh + 0.02);
+    P.walls.push(mkWall(a1[0], a1[1], a2[0], a2[1], lv, ex), mkWall(a2[0], a2[1], b1[0], b1[1], lv, ex), mkWall(b1[0], b1[1], b2[0], b2[1], lv, ex));
+    if (!w.ops.some(o => Math.abs(o.c - s) < (o.w + 1.4) / 2 + 0.1)) { const op = mkOp('door', round(s, 100)); op.w = 1.4; op.h = 2.2; w.ops.push(op); }
+    if (lv === 1) for (const q of [p(-width / 2 + 0.12, hh + depth - 0.12), p(width / 2 - 0.12, hh + depth - 0.12)]) P.cols.push(mkCol(round(q[0], 100), round(q[1], 100), 0, { shape: 'square', r: 0.09, m: MC.white }));
+}
+/* --- ayvon / portiko --- */
+function portico(cx, yf, F, kind, wid, dep, nc) {
+    const P = S.P, x1 = cx - wid / 2, x2 = cx + wid / 2, y1 = yf - dep, y2 = yf, H0 = lvH(P, 0), H1 = lvH(P, Math.min(1, P.levels.length - 1)); wid = wid || 5; nc = Math.max(2, nc || 4);
+    P.slabs.push(mkSlab(x1, y1, x2, y2, 0, { t: 0.3, dz: -0.03, mT: MC.stone, mS: MC.stone, mB: MC.stone }));
+    const xs = Array.from({ length: nc }, (_, i) => round(x1 + 0.4 + (wid - 0.8) * i / (nc - 1), 100));
+    if (kind === 'none') { /* faqat zinapoya plitasi */ }
+    else if (kind === 'tall' && F >= 2) {
+        for (const x of xs) P.cols.push(mkCol(x, round(y1 + 0.4, 100), 0, { shape: 'round', r: 0.28, h: H0 + H1, m: MC.white }));
+        P.slabs.push(mkSlab(x1, y1, x2, y2, 1, { t: 0.2, mT: MC.stone }));
+        P.roofs.push(mkRoof(x1 - 0.2, y1 - 0.15, x2 + 0.2, y2, 1, { type: 'gable', dir: 1, pitch: 20, ov: 0.3, mG: MC.white }));
+    } else if (kind === 'canopy') {
+        for (const x of [xs[0], xs[xs.length - 1]]) P.cols.push(mkCol(x, round(y1 + 0.3, 100), 0, { shape: 'square', r: 0.12, h: 2.8, m: MC.metal }));
+        P.roofs.push(mkRoof(x1, y1, x2, y2, 0, { type: 'flat', ov: 0.15, dz: -(H0 - 2.9) }));
+    } else {
+        for (const x of xs) P.cols.push(mkCol(x, round(y1 + 0.3, 100), 0, { shape: 'square', r: 0.14, h: 2.6, m: MC.white }));
+        P.roofs.push(mkRoof(x1 - 0.1, y1 - 0.1, x2 + 0.1, y2, 0, { type: 'gable', dir: 1, pitch: 25, ov: 0.25, dz: -(H0 - 2.6) }));
+    }
+}
+/* --- minora (burchakka) --- */
+function tower(x1, y1, x2, y2, nL, spec) {
+    const P = S.P; for (let l = 0; l < nL; l++) { const ws = addRoom(x1, y1, x2, y2, l); for (const w of ws) { const L = wallLen(w), op = mkOp('window', round(L / 2, 100)); op.w = 0.9; op.h = Math.min(1.6, wH(w) - 1.4); op.sill = 0.9; op.bars = 2; w.ops.push(op); } }
+    P.roofs.push(mkRoof(x1 - 0.12, y1 - 0.12, x2 + 0.12, y2 + 0.12, nL - 1, { type: 'hip', pitch: 58, ov: 0.5 }));
+}
+const chimneyAt = (x, y, lv, h) => S.P.cols.push(mkCol(round(x, 100), round(y, 100), lv, { shape: 'square', r: 0.33, h, m: MC.brick }));
+function pool(cx, y1, w, d) {
+    const P = S.P, x1 = cx - w / 2, x2 = cx + w / 2, y2 = y1 + d, rim = { t: 0.35, h: 0.45, mA: MC.marble, mB: MC.marble };
+    P.slabs.push(mkSlab(x1 - 1.3, y1 - 1.3, x2 + 1.3, y2 + 1.3, 0, { t: 0.3, dz: -0.03, mT: MC.stone, mS: MC.stone, mB: MC.stone }));
+    P.walls.push(mkWall(x1 - 0.17, y1, x2 + 0.17, y1, 0, rim), mkWall(x2, y1, x2, y2, 0, rim), mkWall(x2 + 0.17, y2, x1 - 0.17, y2, 0, rim), mkWall(x1, y2, x1, y1, 0, rim));
+    P.slabs.push(mkSlab(x1, y1, x2, y2, 0, { t: 0.1, dz: 0.3, mT: MC.glass, mS: MC.glass, mB: MC.glass }));
+}
+function fountain(x, y) { const P = S.P; P.cols.push(mkCol(x, y, 0, { r: 1.7, h: 0.55, m: MC.stone }), mkCol(x, y, 0, { r: 0.32, h: 1.7, m: MC.white }), mkCol(x, y, 0, { r: 0.75, h: 0.9, m: MC.marble })); }
+function gazebo(x, y) { const P = S.P, H0 = lvH(P, 0); P.slabs.push(mkSlab(x - 1.8, y - 1.8, x + 1.8, y + 1.8, 0, { t: 0.3, dz: 0.05, mT: MC.wood, mS: MC.stone, mB: MC.stone })); for (const p of [[-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5]]) P.cols.push(mkCol(round(x + p[0], 100), round(y + p[1], 100), 0, { shape: 'square', r: 0.1, h: 2.6, m: MC.wood })); P.roofs.push(mkRoof(x - 1.8, y - 1.8, x + 1.8, y + 1.8, 0, { type: 'hip', pitch: 30, ov: 0.35, dz: -(H0 - 2.6) })); }
+function bboxAll() { const b = wbox(null); return b; }
+
+/* --- asosiy: 0 dan qurish --- */
+function buildFromSpec(o) {
+    const P = S.P, st = STY[o.style], opt = o.opt, F = o.F, H = o.H, W = o.W, D = o.D; BQ.rnd = mulberry(o.seed | 0 || 1);
+    for (const k of Object.values(LISTS)) P[k] = []; P.mods = P.mods || [];
+    const nL = F + (opt.towers ? 1 : 0); P.levels = Array.from({ length: nL }, (_, i) => ({ name: (i + 1) + '-qavat', h: H }));
+    const T = WALL_T, rooms = o.rooms > 0 ? o.rooms : clamp(Math.round(W * D / 28), 2, 10), spec = { roof: st.roof, pitch: st.pitch, ov: st.ov };
+    const blocks = [], main = mkBlk([0, 0, W, D], F, rooms, { inner: !!opt.inner, front: true }); blocks.push(main);
+    const info = { main };
+    let wL = null, wR = null, gar = null; const Fw = F >= 3 ? F - 1 : F;
+    if (opt.wings) {
+        const ww = Math.max(7, Math.round(W * 0.4)), wD = Math.round(D * 0.8 * 2) / 2, wy = Math.round((D - wD) / 4) * 2;
+        wL = mkBlk([-T - ww, wy, -T, wy + wD], Fw, clamp(Math.round(ww * wD / 28), 2, 6), { inner: !!opt.inner }); wR = mkBlk([W + T, wy, W + T + ww, wy + wD], Fw, clamp(Math.round(ww * wD / 28), 2, 6), { inner: !!opt.inner }); blocks.push(wL, wR);
+        wL.shared = [{ i: 2, upto: Fw }]; wR.shared = [{ i: 0, upto: Fw }]; main.shared = [{ i: 0, upto: Fw }, { i: 2, upto: Fw }];
+    } else if (opt.garage) {
+        const gw = 3.8, gd = Math.min(6.5, D - 1); gar = mkBlk([W + T, 0, W + T + gw, gd], 1, 1, { inner: false, garage: true }); blocks.push(gar); gar.shared = [{ i: 0, upto: 1 }]; main.shared = [{ i: 2, upto: 1 }];
+    }
+    for (const b of blocks) interiorDoors(b);
+    for (let l = 0; l < Fw && wL; l++) { linkWalls(main.out[l][0], wL.out[l][2], 1.4); linkWalls(main.out[l][2], wR.out[l][0], 1.4); }
+    if (gar) linkWalls(main.out[0][2], gar.out[0][0], 1.0);
+    // old eshik
+    { const w = main.out[0][3], L = wallLen(w), dw = st.door.w, bl = attachS(w, P.walls.filter(v => v.lv === 0 && v.int)).map(s => [s - 0.55, s + 0.55]).concat(opBlocks(w, 0.3)), c = pickGap(w, bl, dw, L / 2);
+        if (c != null) { const op = mkOp('door', round(c, 100)); op.w = dw; op.h = st.door.h; w.ops.push(op); info.doorX = W + T / 2 - c; } }
+    if (gar) { const w = gar.out[0][3], L = wallLen(w), g = mkOp('garage', round(L / 2, 100)); g.w = Math.min(3.0, L - 0.8); w.ops.push(g); }
+    // ayvon / portiko / balkon (old tomonda)
+    const cxDoor = info.doorX != null ? info.doorX : W / 2, sDoor = W + T / 2 - cxDoor, balc = !!(opt.balcony && F >= 2);
+    if (opt.porch) { const big = o.style === 'mansion' || o.style === 'palace', kind = big && F >= 2 ? 'tall' : (balc ? 'none' : (o.style === 'villa' ? 'canopy' : 'classic')), pw = kind === 'tall' ? Math.max(6, Math.round(st.door.w * 3.4)) : (kind === 'canopy' ? 4.4 : 3.2), nc = kind === 'tall' ? (o.style === 'palace' ? 6 : 4) : 2;
+        portico(cxDoor, -T / 2, F, kind, pw, kind === 'tall' ? 4.0 : 2.0, nc); info.porch = { kind, cx: cxDoor };
+        if (kind === 'tall') { const w = main.out[1][3], op = mkOp('door', round(sDoor, 100)); op.w = Math.min(2.0, st.door.w); op.h = st.door.h - 0.2; w.ops.push(op); } }
+    if (balc && !(info.porch && info.porch.kind === 'tall')) { const w = main.out[1][3]; const c = pickGap(w, attachS(w, P.walls.filter(v => v.lv === 1 && v.int)).map(s => [s - 0.55, s + 0.55]).concat(opBlocks(w, 0.3)), 2.6, sDoor); if (c != null) balcony(w, 1, c, o.style === 'villa' ? 4.0 : 3.2, 1.3, o.style === 'villa'); }
+    if (opt.balcony && F >= 2) { const w = main.out[1][1], c = pickGap(w, attachS(w, P.walls.filter(v => v.lv === 1 && v.int)).map(s => [s - 0.55, s + 0.55]).concat(opBlocks(w, 0.3)), 2.6, wallLen(w) / 2); if (c != null) balcony(w, 1, c, 3.0, 1.2, o.style === 'villa'); }
+    // minoralar
+    if (opt.towers) { const xs = [wL ? wL.rect[0] : 0, wR ? wR.rect[2] : W], ys = [wL ? wL.rect[1] : 0, wL ? wL.rect[3] : D], ts = 4.6;
+        for (const [ix, x] of xs.entries()) for (const [iy, y] of ys.entries()) { const sx = ix ? 1 : -1, sy = iy ? 1 : -1, ax = sx < 0 ? x - 1.5 : x + 1.5 - ts, ay = sy < 0 ? y - 1.5 : y + 1.5 - ts; tower(ax, ay, ax + ts, ay + ts, nL, spec); } }
+    // oynalar
+    for (const b of blocks) for (let l = 0; l < b.F; l++) b.out[l].forEach((w, i) => { const sh = (b.shared || []).find(s => s.i === i); if (sh && l < sh.upto) return; outerWindows(w, b.o.garage ? { w: 0.9, h: 0.7, sill: 1.5, bars: 1 } : st.win); });
+    // zina
+    if (opt.stairs) { addStairs(main); if (wL) { addStairs(wL); addStairs(wR); } }
+    // tom
+    roofBlk(main, spec); if (wL) { roofBlk(wL, spec); roofBlk(wR, spec); } if (gar) roofBlk(gar, st.roof === 'flat' ? spec : { roof: st.roof, pitch: st.pitch, ov: 0.4 });
+    const bb = wbox(null);
+    // burchak ustunlari va belbog'lar
+    if (opt.quoins) for (const p of [[0, 0], [W, 0], [0, D], [W, D]]) { if (opt.towers) break; if (wL && (p[0] === 0 || p[0] === W)) continue; P.cols.push(mkCol(p[0], p[1], 0, { shape: 'square', r: 0.2, h: F * H, m: MC.stone })); }
+    if (opt.belt && !opt.wings) for (let l = 1; l < F; l++) P.slabs.push(mkSlab(-T / 2 - 0.2, -T / 2 - 0.2, W + T / 2 + 0.2, D + T / 2 + 0.2, l, { t: 0.16, dz: -0.02, mT: MC.white, mS: MC.white, mB: MC.white }));
+    // mo'ri
+    if (opt.chim && st.roof !== 'flat') { const pr = Math.tan(st.pitch * Math.PI / 180), x = W >= D ? W * 0.28 : W / 2, y = W >= D ? D / 2 : D * 0.28; chimneyAt(x, y, F - 1, H + pr * Math.min(D / 2, W * 0.28 + st.ov) + 0.9); }
+    // orqa terassa
+    if (opt.terrace) { const w = main.out[0][1], L = wallLen(w), tw = Math.min(5, W * 0.4), cxx = W / 2; P.slabs.push(mkSlab(cxx - tw / 2, D, cxx + tw / 2, D + 3.2, 0, { t: 0.3, dz: -0.03, mT: MC.wood, mS: MC.stone, mB: MC.stone }));
+        const c = pickGap(w, attachS(w, P.walls.filter(v => v.lv === 0 && v.int)).map(s => [s - 0.55, s + 0.55]).concat(opBlocks(w, 0.3)), 1.4, L / 2); if (c != null) { const op = mkOp('door', round(c, 100)); op.w = 1.4; op.h = 2.3; w.ops.push(op); } }
+    // hovli: to'siq, yo'lak, hovuz, favvora, besedka
+    const px1 = bb.x1 - 5, px2 = bb.x2 + 5, py1 = bb.y1 - (opt.fountain ? 15 : 7), py2 = bb.y2 + (opt.pool ? 11 : 5), gxw = o.style === 'palace' ? 5 : 3.6;
+    const hx = cxDoor;
+    if (opt.fence) estate(P, px1, py1, px2, py2, hx, gxw, st.theme === 'modern' ? MC.white : MC.stone);
+    const fy = py1, hy = bb.y1 - (info.porch ? (info.porch.kind === 'tall' ? 4.0 : 2.0) : 0.2);
+    if (opt.path) {
+        if (opt.fountain) { const fcy = (fy + hy) / 2; P.slabs.push(mkSlab(hx - 4, fcy - 4, hx + 4, fcy + 4, 0, { t: 0.3, dz: -0.03, mT: MC.stone, mS: MC.stone, mB: MC.stone })); P.slabs.push(mkSlab(hx - 1.1, fy, hx + 1.1, fcy - 4, 0, { t: 0.3, dz: -0.03, mT: MC.concrete, mS: MC.concrete, mB: MC.concrete })); P.slabs.push(mkSlab(hx - 1.1, fcy + 4, hx + 1.1, hy, 0, { t: 0.3, dz: -0.03, mT: MC.concrete, mS: MC.concrete, mB: MC.concrete })); fountain(hx, fcy); }
+        else pad(P, hx - 1.1, fy, hx + 1.1, hy, MC.concrete);
+        if (gar) { pad(P, gar.rect[0] + 0.3, fy, gar.rect[2] - 0.3, 0, MC.concrete); }
+    }
+    if (opt.pool) pool(hx, bb.y2 + (opt.terrace ? 4.6 : 2.6), 9, 4.5);
+    if (opt.gazebo) gazebo(px1 + 3.5, bb.y2 + 3.5);
+    // mavzu
+    const th = o.theme === 'auto' ? st.theme : o.theme; applyTheme(th);
+    S.lv = 0; S.sel = null;
+    return st.name + ': ' + P.walls.length + ' devor, ' + P.levels.length + ' qavat';
+}
+function qBuild(newSeed) {
+    const v = X.v; if (newSeed) v.qSeed = Math.floor(Math.random() * 99999) + 1; saveX();
+    act(() => buildFromSpec({ style: v.qStyle, W: v.qW, D: v.qD, F: clamp(Math.round(v.qF), 1, 6), H: clamp(v.qH, 2.4, 6), rooms: Math.round(v.qRooms), seed: v.qSeed, theme: v.qTheme, opt: v.qo }) + ' qurildi. Ctrl+Z bilan qaytarasiz.', { lv: true, fit: true });
+    rebuildModel(); fit3d(true); if (X.refresh) X.refresh();
+}
+
+/* --- tayyor uyga qo'shiladigan detallar --- */
+const frontY = () => { const b = wbox(0); return b; };
+const DET = [
+    ['Portiko (ustunli)', () => { const b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; portico((b.x1 + b.x2) / 2, b.y1, S.P.levels.length, 'tall', 6, 4, 4); return 'Ustunli portiko qo‘shildi.'; }],
+    ['Ayvon (kichik)', () => { const b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; portico((b.x1 + b.x2) / 2, b.y1, 1, 'classic', 3.4, 2, 2); return 'Ayvon qo‘shildi.'; }],
+    ['Soyabon (zamonaviy)', () => { const b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; portico((b.x1 + b.x2) / 2, b.y1, 1, 'canopy', 4.4, 2, 2); return 'Kirish soyaboni qo‘shildi.'; }],
+    ['Balkon (tanlangan devorga)', () => { const s = selObj(); if (!s || s.t !== 'wall') return { e: 'Avval devorni tanlang (yuqori qavatda).' }; const w = s.o; balcony(w, Math.max(1, w.lv), wallLen(w) / 2, Math.min(3.6, wallLen(w) - 1), 1.3, false); return 'Balkon qo‘shildi.'; }],
+    ['Shisha balkon', () => { const s = selObj(); if (!s || s.t !== 'wall') return { e: 'Avval devorni tanlang.' }; const w = s.o; balcony(w, Math.max(1, w.lv), wallLen(w) / 2, Math.min(4, wallLen(w) - 1), 1.4, true); return 'Shisha panjarali balkon qo‘shildi.'; }],
+    ['Mo‘ri', () => { const P = S.P, b = wbox(P.levels.length - 1) || wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; const top = P.levels.length - 1; const r = P.roofs.find(q => q.lv === top); chimneyAt(b.x1 + b.w * 0.28, (b.y1 + b.y2) / 2, top, lvH(P, top) + (r ? Math.tan((r.pitch || 30) * Math.PI / 180) * Math.min(b.d / 2, b.w * 0.28) : 0) + 0.9); return 'Mo‘ri qo‘shildi.'; }],
+    ['Minora (burchakka)', () => { const P = S.P, b = wbox(null); if (!b) return { e: 'Uy bo‘sh.' }; const nL0 = P.levels.length; P.levels.push({ name: (nL0 + 1) + '-qavat', h: P.levels[nL0 - 1].h }); tower(b.x2 - 3.1, b.y2 - 3.1, b.x2 + 1.5, b.y2 + 1.5, nL0 + 1, {}); return 'Minora qo‘shildi (yangi qavat bilan).'; }],
+    ['Besedka', () => { const b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; gazebo(b.x1 - 4.5, b.y2 + 3.5); return 'Besedka qo‘shildi.'; }],
+    ['Hovuz', () => { const b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; pool((b.x1 + b.x2) / 2, b.y2 + 3, 9, 4.5); return 'Hovuz qo‘shildi.'; }],
+    ['Favvora', () => { const b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; fountain((b.x1 + b.x2) / 2, b.y1 - 6); return 'Favvora qo‘shildi.'; }],
+    ['Yo‘lak (hovlidan eshikkacha)', () => { const b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; pad(S.P, (b.x1 + b.x2) / 2 - 1.1, b.y1 - 9, (b.x1 + b.x2) / 2 + 1.1, b.y1 - 0.2, MC.concrete); return 'Yo‘lak qo‘shildi.'; }],
+    ['Darvoza ustunlari', () => { const b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; const cx0 = (b.x1 + b.x2) / 2, y = b.y1 - 9; for (const x of [cx0 - 2.2, cx0 + 2.2]) S.P.cols.push(mkCol(round(x, 100), round(y, 100), 0, { shape: 'square', r: 0.38, h: 2.6, m: MC.stone })); return 'Darvoza ustunlari qo‘yildi.'; }],
+    ['Burchak ustunlari', () => { const P = S.P, b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; const Ht = P.levels.reduce((a, l) => a + l.h, 0); for (const p of [[b.x1 + 0.125, b.y1 + 0.125], [b.x2 - 0.125, b.y1 + 0.125], [b.x1 + 0.125, b.y2 - 0.125], [b.x2 - 0.125, b.y2 - 0.125]]) P.cols.push(mkCol(round(p[0], 100), round(p[1], 100), 0, { shape: 'square', r: 0.2, h: Ht, m: MC.stone })); return 'Burchak ustunlari qo‘yildi.'; }],
+    ['Qavat belbog‘lari', () => { const P = S.P, b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; for (let l = 1; l < P.levels.length; l++) P.slabs.push(mkSlab(b.x1 - 0.2, b.y1 - 0.2, b.x2 + 0.2, b.y2 + 0.2, l, { t: 0.16, dz: -0.02, mT: MC.white, mS: MC.white, mB: MC.white })); return 'Belbog‘lar qo‘yildi.'; }],
+    ['Pergola (soyabon-shiypon)', () => { const b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; const x0 = b.x2 + 1, y0 = b.y1 + 1, P = S.P; P.slabs.push(mkSlab(x0, y0, x0 + 4, y0 + 3, 0, { t: 0.3, dz: -0.03, mT: MC.wood, mS: MC.stone, mB: MC.stone })); for (const p of [[0.2, 0.2], [3.8, 0.2], [0.2, 2.8], [3.8, 2.8]]) P.cols.push(mkCol(x0 + p[0], y0 + p[1], 0, { shape: 'square', r: 0.1, h: 2.5, m: MC.wood })); P.roofs.push(mkRoof(x0, y0, x0 + 4, y0 + 3, 0, { type: 'flat', ov: 0.2, dz: -(lvH(P, 0) - 2.55), m: MC.wood, mG: MC.wood, mU: MC.wood })); return 'Pergola qo‘shildi.'; }],
+    ['Mashina soyaboni (karport)', () => { const b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; const x0 = b.x2 + 1, y0 = b.y1, P = S.P; for (const p of [[0.2, 0.2], [3.4, 0.2], [0.2, 5.8], [3.4, 5.8]]) P.cols.push(mkCol(x0 + p[0], y0 + p[1], 0, { shape: 'square', r: 0.12, h: 2.5, m: MC.metal })); P.slabs.push(mkSlab(x0, y0, x0 + 3.6, y0 + 6, 0, { t: 0.3, dz: -0.03, mT: MC.concrete, mS: MC.concrete, mB: MC.concrete })); P.roofs.push(mkRoof(x0, y0, x0 + 3.6, y0 + 6, 0, { type: 'flat', ov: 0.2, dz: -(lvH(P, 0) - 2.6), m: MC.metal, mG: MC.metal, mU: MC.metal })); return 'Karport qo‘shildi.'; }],
+    ['Yon qanot (o‘ng)', () => { const P = S.P, b = wbox(0); if (!b) return { e: 'Uy bo‘sh.' }; const T = WALL_T, nF = Math.max(1, P.levels.length - 1), x1 = b.x2 + T / 2, x2 = x1 + 8, y1 = b.y1 + T / 2 + 0.5, y2 = b.y2 - T / 2 - 0.5; if (y2 - y1 < 4) return { e: 'Uy qanot uchun juda tor.' }; BQ.rnd = mulberry(Date.now() % 99999); const blk = mkBlk([x1, y1, x2, y2], nF, 3, { inner: true }); interiorDoors(blk); const sp = STY[X.v.qStyle] || STY.villa; for (let l = 0; l < nF; l++) { const ew = eastWall(l, b); if (ew) linkWalls(ew, blk.out[l][0], 1.4); blk.out[l].forEach((w, i) => { if (i !== 0) outerWindows(w, sp.win); }); } const top = P.roofs.find(r => r.lv === P.levels.length - 1); P.roofs.push(mkRoof(x1 - 0.125, y1 - 0.125, x2 + 0.125, y2 + 0.125, nF - 1, top ? { type: top.type, dir: top.dir, pitch: top.pitch, ov: top.ov, dz: top.dz } : { type: 'gable', dir: 0, pitch: 30, ov: 0.5 })); return 'Yon qanot qo‘shildi.'; }]
+];
+function eastWall(l, b) { const c = S.P.walls.filter(w => w.lv === l && Math.abs(w.x1 - w.x2) < 1e-6 && Math.abs(w.x1 - (b.x2 - w.t / 2)) < 0.3 && !w.int && !w.fence).sort((a, b2) => wallLen(b2) - wallLen(a)); return c[0] || null; }
+
 async function init() {
     renderTools(); init3d(); initMapOverlay(); resizePlan(); new ResizeObserver(() => resizePlan()).observe(cv.parentElement);
     let restored = false; try { const raw = localStorage.getItem('hb_autosave_v1'); if (raw) { const o = JSON.parse(raw); if (o && o.P && o.P.walls && o.P.walls.length) { await openProject(o); restored = true; toast('Oxirgi loyiha tiklandi.'); } } } catch (e) { /* buzilgan saqlash */ }
