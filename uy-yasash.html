@@ -4766,6 +4766,667 @@ const DET = [
 ];
 function eastWall(l, b) { const c = S.P.walls.filter(w => w.lv === l && Math.abs(w.x1 - w.x2) < 1e-6 && Math.abs(w.x1 - (b.x2 - w.t / 2)) < 0.3 && !w.int && !w.fence).sort((a, b2) => wallLen(b2) - wallLen(a)); return c[0] || null; }
 
+/* ===== O‘zbekiston modellari kutubxonasi (uz1: dvigatel va tarixiy obidalar) ===== */
+(function () {
+const R2 = v => Math.round(v * 1000) / 1000;
+const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+/* ---- materiallar (loyihaga kerak bo‘lganda qo‘shiladi) ---- */
+const UM = {
+    fir: ['Kashin (firuza)', 'hb_paint', [44, 190, 206], 1], blu: ['Kashin (ko‘k)', 'hb_paint', [38, 104, 190], 1], gld: ['Gumbaz (oltin)', 'hb_paint', [226, 182, 52], 1],
+    pax: ['G‘isht (paxsa)', 'hb_brick', [226, 190, 128], 0.8], sav: ['Suvoq (qum)', 'hb_plaster', [224, 194, 146], 2], tfir: ['Naqsh (firuza)', 'hb_paint', [36, 170, 190], 1], tblu: ['Naqsh (lojuvard)', 'hb_paint', [24, 64, 140], 1],
+    wd: ['Yog‘och (to‘q)', 'hb_planks', [132, 92, 60], 1.2], gl: ['Oyna fasad (ko‘k)', 'hb_glass', [150, 196, 226], 1], gl2: ['Oyna fasad (yashil)', 'hb_glass', [150, 210, 196], 1],
+    pan: ['Panel (kulrang)', 'hb_concrete', [210, 208, 202], 2], pan2: ['Panel (och sariq)', 'hb_plaster', [236, 226, 196], 2], whs: ['Oq tosh', 'hb_stone', [240, 236, 226], 1.5],
+    grn: ['Maysazor', 'hb_plaster', [96, 150, 80], 2], wat: ['Suv', 'hb_paint', [62, 140, 192], 1], clay: ['Loy (paxsa)', 'hb_plaster', [205, 170, 120], 2], wdl: ['Yog‘och (och)', 'hb_planks', [200, 160, 110], 1.2],
+    wmw: ['Marmar (oq)', 'hb_marble', [250, 248, 244], 1.5], red: ['Gumbaz (qizil)', 'hb_paint', [188, 78, 60], 1], dk: ['Shisha (to‘q)', 'hb_glass', [90, 120, 150], 1], sil: ['Kumush', 'hb_metal', [200, 206, 214], 1]
+};
+const um = (P, k) => { const d = UM[k]; let m = P.mats.find(x => x.name === d[0]); if (!m) { m = { id: uid(), name: d[0], tex: d[1], color: d[2].concat(255), tile: d[3] }; P.mats.push(m); } return m.id; };
+let UZ0; const UZ = { R2, cl, um, MC };
+window.UZ = UZ;
+
+/* ---- qavatlar jadvali: z balandlikda chegara kafolatlash ---- */
+UZ0 = { depth: 0 };
+const lvInit = (P, hs) => { if (UZ0.depth > 0) { let z = 0; for (const h of hs) { z += h; ensureZ(P, z); } return; } P.levels = hs.map((h, i) => ({ name: (i + 1) + '-qavat', h })); };
+const renameLv = P => P.levels.forEach((l, i) => { if (!l.name || /^\d+-qavat$/.test(l.name)) l.name = (i + 1) + '-qavat'; });
+function ensureZ(P, z) {
+    z = R2(z); const L = P.levels; let acc = 0;
+    for (let k = 0; k < L.length; k++) {
+        if (Math.abs(acc - z) < 0.002) return k;
+        const top = acc + L[k].h;
+        if (z > acc + 0.002 && z < top - 0.002) {
+            const hk = L[k].h, h1 = R2(z - acc), h2 = R2(hk - h1);
+            for (const w of P.walls) if (w.lv === k && !(w.h > 0)) w.h = hk;
+            for (const c of P.cols) if (c.lv === k && !(c.h > 0)) c.h = hk;
+            for (const s of P.stairs) if (s.lv === k && !(s.rise > 0)) s.rise = hk;
+            for (const r of P.roofs) if (r.lv === k) r.dz = R2((r.dz || 0) + hk - h1);
+            for (const key of Object.values(LISTS)) for (const o of (P[key] || [])) if (o.lv > k) o.lv++;
+            L[k].h = h1; L.splice(k + 1, 0, { name: '', h: h2 }); renameLv(P); return k + 1;
+        }
+        acc = top;
+    }
+    if (z > acc + 0.002) L.push({ name: '', h: R2(z - acc) });
+    L.push({ name: '', h: 3 }); renameLv(P); return L.length - 1;
+}
+UZ.lvInit = lvInit; UZ.UZ0 = UZ0; UZ.ensureZ = ensureZ;
+
+/* ---- ansambl: quruvchi funksiyani siljitib / burib joylash ---- */
+function place(P, fn, dx, dy, rot) {
+    const K = ['walls', 'slabs', 'roofs', 'stairs', 'cols'], n = {}; K.forEach(k => n[k] = P[k].length);
+    UZ0.depth++; try { fn(P); } finally { UZ0.depth--; }
+    rot = ((rot | 0) % 4 + 4) % 4; if (!rot && !dx && !dy) return;
+    const c = [1, 0, -1, 0][rot], s = [0, 1, 0, -1][rot], tp = (x, y) => [R2(c * x - s * y + dx), R2(s * x + c * y + dy)];
+    const rc = o => { const a = tp(o.x1, o.y1), b = tp(o.x2, o.y2); o.x1 = Math.min(a[0], b[0]); o.x2 = Math.max(a[0], b[0]); o.y1 = Math.min(a[1], b[1]); o.y2 = Math.max(a[1], b[1]); };
+    for (const w of P.walls.slice(n.walls)) { const a = tp(w.x1, w.y1), b = tp(w.x2, w.y2); w.x1 = a[0]; w.y1 = a[1]; w.x2 = b[0]; w.y2 = b[1]; }
+    for (const q of P.slabs.slice(n.slabs)) { rc(q); if (q.hole) { const a = tp(q.hole[0], q.hole[1]), b = tp(q.hole[2], q.hole[3]); q.hole = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])]; } }
+    for (const r of P.roofs.slice(n.roofs)) { rc(r); r.dir = ((r.dir | 0) + 3 * rot) % 4; }
+    for (const t of P.stairs.slice(n.stairs)) { const a = tp(t.x, t.y); t.x = a[0]; t.y = a[1]; t.dir = ((t.dir | 0) + 3 * rot) % 4; }
+    for (const k of P.cols.slice(n.cols)) { const a = tp(k.x, k.y); k.x = a[0]; k.y = a[1]; }
+}
+UZ.place = place;
+
+/* ---- kichik yordamchilar ---- */
+const op = (w, type, x, y, ex) => { // xavfsiz eshik/oyna: devor ichiga sig‘masa yoki bir-biriga tegsa qo‘shilmaydi
+    const d = OPDEF[type], ew = (ex && ex.w) || d.w, L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1), c = Math.hypot(x - w.x1, y - w.y1);
+    if (c - ew / 2 < 0.12 || c + ew / 2 > L - 0.12) return null;
+    for (const o of w.ops) if (Math.abs(o.c - c) < (o.w + ew) / 2 + 0.12) return null;
+    const H = w.h > 0 ? w.h : 3; const o = mkOp(type, c); Object.assign(o, ex || {});
+    if (o.sill + o.h > H - 0.1) { if (type === 'window') o.h = Math.max(0.4, H - 0.1 - o.sill); else o.h = Math.min(o.h, H - 0.1); }
+    w.ops.push(o); return o;
+};
+const wlen = w => Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+const mid = w => [(w.x1 + w.x2) / 2, (w.y1 + w.y2) / 2];
+const col = (P, x, y, k, r, h, m, shape) => { const c = mkCol(R2(x), R2(y), k, { r: R2(r), h: R2(h), m, shape: shape || 'round' }); P.cols.push(c); return c; };
+function slab(P, x1, y1, x2, y2, z, t, mT, mS, ex) { const s = mkSlab(R2(Math.min(x1, x2)), R2(Math.min(y1, y2)), R2(Math.max(x1, x2)), R2(Math.max(y1, y2)), 0, Object.assign({ t, dz: R2(z), mT, mS: mS == null ? mT : mS, mB: mS == null ? mT : mS }, ex || {})); P.slabs.push(s); return s; }
+function box(P, x1, y1, x2, y2, k, h, o) {
+    o = o || {}; const ws = addRoom(x1, y1, x2, y2, k, { floor: false, t: o.t });
+    for (const w of ws) { w.h = h; if (o.mA != null) w.mA = o.mA; if (o.mB != null) w.mB = o.mB; }
+    if (o.floor) { const T = (o.t || WALL_T) / 2, s = mkSlab(Math.min(x1, x2) - T, Math.min(y1, y2) - T, Math.max(x1, x2) + T, Math.max(y1, y2) + T, k); if (o.fm != null) s.mT = o.fm; P.slabs.push(s); }
+    return ws;
+}
+const wall = (P, x1, y1, x2, y2, k, h, ex) => { const w = mkWall(x1, y1, x2, y2, k, Object.assign({ h }, ex || {})); P.walls.push(w); return w; };
+function pitched(P, type, x1, y1, x2, y2, z, ex) { // z — tom asosi balandligi
+    let k = 0, acc = 0; for (let i = 0; i < P.levels.length; i++) { if (acc < z - 0.002) k = i; acc += P.levels[i].h; }
+    const r = mkRoof(x1, y1, x2, y2, k, Object.assign({ type, dz: R2(z - lvZ(P, k) - lvH(P, k)) }, ex || {})); P.roofs.push(r); return r;
+}
+/* gumbaz: ichma-ich silindrlar (pog‘onali) */
+function dome(P, cx, cy, R, k, m, o) {
+    o = o || {}; const n = o.n || cl(Math.round(R * 1.7), 6, 12), ky = o.ky || 1;
+    for (let i = 0; i < n; i++) { const a0 = i / n * Math.PI / 2, a1 = (i + 1) / n * Math.PI / 2, r = R * Math.cos(a0); if (r < 0.07) break; col(P, cx, cy, k, r, Math.max(0.06, R * Math.sin(a1) * ky), (o.m2 && i % 2) ? o.m2 : m); }
+    if (o.fin !== false) { const g = um(P, 'gld'), top = R * ky; col(P, cx, cy, k, Math.max(0.09, R * 0.05), top + Math.max(0.5, R * 0.35), g); col(P, cx, cy, k, Math.max(0.16, R * 0.1), top + Math.max(0.2, R * 0.08), g); }
+}
+function crown(P, cx, cy, R, z, o) { // ustun (baraban) + gumbaz
+    o = o || {}; const hd = o.hd != null ? o.hd : R * 0.9, md = o.md != null ? o.md : um(P, 'tfir'), mm = o.m != null ? o.m : um(P, 'blu');
+    if (hd > 0.05) { const kd = ensureZ(P, z); col(P, cx, cy, kd, R * 0.97, hd, md); if (o.nb) { for (let i = 0; i < o.nb; i++) { const a = i / o.nb * Math.PI * 2; col(P, cx + Math.cos(a) * R * 0.97, cy + Math.sin(a) * R * 0.97, kd, 0.12, hd + 0.25, um(P, 'gld')); } } }
+    const k2 = ensureZ(P, z + hd); dome(P, cx, cy, R, k2, mm, o);
+}
+/* minora: pog‘onali tarqoq tana, bezak belbog‘lari, balkon, fonus va qalpoq */
+function minaret(P, x, y, H, r0, o) {
+    o = o || {}; const r1 = o.r1 || r0 * 0.62, mS = o.m != null ? o.m : um(P, 'pax'), mB = o.mb != null ? o.mb : um(P, 'tfir'), mC = o.mc != null ? o.mc : um(P, 'blu'), n = o.n || cl(Math.round(H / 2.4), 7, 14), hg = H * 0.8;
+    if (o.plinth !== false) col(P, x, y, 0, r0 * 1.55, Math.max(0.8, H * 0.04), mS, 'square');
+    for (let i = 0; i < n; i++) col(P, x, y, 0, r0 + (r1 - r0) * i / (n - 1), hg * (i + 1) / n, (i % 3 === 1) ? mB : mS);
+    const k = ensureZ(P, hg), hl = H * 0.1; col(P, x, y, k, r1 * 1.5, 0.9, mS); col(P, x, y, k, r1 * 0.95, hl, mB);
+    const ns = 6; for (let i = 0; i < ns; i++) col(P, x, y, k, r1 * 1.12 * (1 - i / ns) + 0.1, hl + 0.3 + (H * 0.1) * (i + 1) / ns, mC);
+    col(P, x, y, k, 0.07, hl + H * 0.1 + 1.1, um(P, 'gld'));
+}
+/* peshtoq: ikki ustun + ustki plita */
+function pishtaq(P, cx, y, pw, Hp, dh, o) {
+    o = o || {}; const mt = o.m != null ? o.m : um(P, 'tfir'), mt2 = o.m2 != null ? o.m2 : um(P, 'tblu'), pr = o.pr || Math.max(0.8, pw * 0.14), dep = o.dep || 1.8;
+    for (const sx of [-1, 1]) { col(P, cx + sx * (pw / 2 + pr * 0.1), y, 0, pr, Hp, mt, 'square'); }
+    const x1 = cx - pw / 2 - pr * 1.1, x2 = cx + pw / 2 + pr * 1.1;
+    slab(P, x1, y - dep / 2, x2, y + dep / 2, Hp, Math.max(0.6, Hp - dh), mt, mt2);
+    slab(P, x1 + pr * 0.6, y - dep / 2 - 0.15, x2 - pr * 0.6, y + dep / 2 + 0.15, Hp + (o.cap || 1.4), 1.0, mt2, mt);
+}
+/* gumbazli kub (maqbara, masjid zali, minora asosi) */
+function domedBlock(P, cx, cy, S, o) {
+    o = Object.assign({}, o); for (const key of ['wm', 'rm', 'tm', 'tm2', 'dm', 'm', 'm2', 'fm']) if (typeof o[key] === 'string') o[key] = um(P, o[key]); if (o.corner && typeof o.corner.mc === 'string') o.corner = Object.assign({}, o.corner, { mc: um(P, o.corner.mc) });
+    const H = o.H, t = o.t || 0.9, x0 = cx - S / 2, y0 = cy - S / 2, x1 = cx + S / 2, y1 = cy + S / 2, mw = o.wm != null ? o.wm : um(P, 'pax');
+    const ws = box(P, x0, y0, x1, y1, 0, H, { t, mA: mw, mB: MC.cream });
+    slab(P, x0 - 0.3, y0 - 0.3, x1 + 0.3, y1 + 0.3, 0, 0.35, o.fm != null ? o.fm : MC.stone);
+    op(ws[3], 'door', cx, y0, { w: o.dw || 2.2, h: Math.min(o.dh || 3.4, H - 0.4), sill: 0 });
+    if (o.win !== false) { for (const w of [ws[0], ws[2], ws[1]]) { const m = mid(w); op(w, 'window', m[0], m[1], { w: 1.0, h: Math.min(2.0, H * 0.35), sill: Math.min(H * 0.45, 3), bars: 3 }); } }
+    slab(P, x0 - 0.5, y0 - 0.5, x1 + 0.5, y1 + 0.5, H + 0.35, 0.45, o.rm != null ? o.rm : mw, mw);
+    if (o.pt) pishtaq(P, cx, y0, Math.min(o.pt, S * 0.5), H + (o.ph != null ? o.ph : 1.8), Math.min(o.dh || 3.4, H - 0.4) + 0.5, { m: o.tm, m2: o.tm2 });
+    const R = o.R || S * 0.36; crown(P, cx, cy, Math.min(R, S / 2 - 0.2), H + 0.3, { hd: o.hd, md: o.dm, m: o.m, m2: o.m2, ky: o.ky, nb: o.nb });
+    if (o.corner) { const g = o.corner; for (const sx of [-1, 1]) for (const sy of [-1, 1]) { col(P, cx + sx * (S / 2 - 0.1), cy + sy * (S / 2 - 0.1), 0, g.r || 0.7, H + (g.h || 1.6), g.mc != null ? g.mc : mw); crown(P, cx + sx * (S / 2 - 0.1), cy + sy * (S / 2 - 0.1), (g.r || 0.7) + 0.2, H + (g.h || 1.6), { hd: 0.01, m: o.m, n: 6 }); } }
+    return ws;
+}
+UZ.op = op; UZ.box = box; UZ.col = col; UZ.slab = slab; UZ.wall = wall; UZ.dome = dome; UZ.crown = crown; UZ.minaret = minaret; UZ.pishtaq = pishtaq; UZ.domedBlock = domedBlock; UZ.pitched = pitched; UZ.mid = mid; UZ.wlen = wlen;
+
+/* ---- poligon halqa (aylana bino): soat strelkasi bo‘yicha, A tomoni — tashqi ---- */
+function ring(P, cx, cy, R, n, k, h, o) {
+    o = o || {}; const ws = [], a0 = o.a0 == null ? Math.PI / 2 + Math.PI / n : o.a0;
+    for (let i = 0; i < n; i++) {
+        const A = a0 - i * 2 * Math.PI / n, B = a0 - (i + 1) * 2 * Math.PI / n;
+        const w = mkWall(R2(cx + R * Math.cos(A)), R2(cy + R * Math.sin(A)), R2(cx + R * Math.cos(B)), R2(cy + R * Math.sin(B)), k, { h, t: o.t || 0.3, mA: o.mA != null ? o.mA : P.def.wallA, mB: o.mB != null ? o.mB : P.def.wallB, ops: [] }); P.walls.push(w); ws.push(w);
+    }
+    return ws;
+}
+UZ.ring = ring;
+
+/* =====================  MADRASA  ===================== */
+function madrasa(P, o) {
+    const w = o.w, d = o.d, F = o.fl || 1, H = o.H || 4.2, T = o.ring || 6.5, Ht = F * H, cw0 = o.cw || 4.6, pw = o.pw || 7, x0 = -w / 2, x1 = w / 2, y0 = -d / 2, y1 = d / 2;
+    lvInit(P, new Array(F).fill(H)); ensureZ(P, Ht);
+    const mw = um(P, o.wall || 'pax'), mc = MC.cream, mt = um(P, o.tile || 'tfir'), mt2 = um(P, 'tblu'), nx = Math.max(2, Math.round(w / cw0)), ny = Math.max(2, Math.round((d - 2 * T) / cw0)), cwx = w / nx, cwy = (d - 2 * T) / ny;
+    slab(P, x0 - 0.5, y0 - 0.5, x1 + 0.5, y1 + 0.5, 0, 0.4, MC.stone);
+    for (let k = 0; k < F; k++) {
+        const kk = ensureZ(P, k * H), out = box(P, x0, y0, x1, y1, kk, H, { t: 0.8, mA: mw, mB: mc }), inn = box(P, x0 + T, y0 + T, x1 - T, y1 - T, kk, H, { t: 0.5, mA: mc, mB: mw });
+        if (k > 0) { const s = slab(P, x0, y0, x1, y1, k * H, 0.25, MC.parquet, MC.cream); s.hole = [x0 + T, y0 + T, x1 - T, y1 - T]; }
+        for (let i = 1; i < nx; i++) { const x = x0 + i * cwx; if (Math.abs(x) >= pw / 2 + 0.6) wall(P, x, y0 + 0.4, x, y0 + T - 0.25, kk, H, { t: 0.3, mA: mc, mB: mc }); if (Math.abs(x) >= T * 0.62 || o.dome === false) wall(P, x, y1 - T + 0.25, x, y1 - 0.4, kk, H, { t: 0.3, mA: mc, mB: mc }); }
+        for (let j = 1; j < ny; j++) { const y = y0 + T + j * cwy; if (Math.abs(y) < 1.4) continue; wall(P, x0 + 0.4, y, x0 + T - 0.25, y, kk, H, { t: 0.3, mA: mc, mB: mc }); wall(P, x1 - T + 0.25, y, x1 - 0.4, y, kk, H, { t: 0.3, mA: mc, mB: mc }); }
+        /* hujra eshiklari / derazalar (hovli tomonda) */
+        const dop = (wl, tt, a, b, fixed, hor) => { for (let i = 0; i < tt; i++) { const c = a + (i + 0.5) * b; const x = hor ? c : fixed, y = hor ? fixed : c; if (k === 0) op(wl, 'door', x, y, { w: 1.3, h: Math.min(2.6, H - 0.5), sill: 0 }); else op(wl, 'window', x, y, { w: 1.1, h: 1.7, sill: 0.8, bars: 2 }); } };
+        dop(inn[3], nx, x0, cwx, y0 + T, true); dop(inn[1], nx, x0, cwx, y1 - T, true); dop(inn[0], ny, y0 + T, cwy, x0 + T, false); dop(inn[2], ny, y0 + T, cwy, x1 - T, false);
+        /* tashqi derazalar */
+        const sill = Math.max(1.4, H - 2.2);
+        for (let i = 0; i < nx; i++) { const c = x0 + (i + 0.5) * cwx; if (Math.abs(c) < pw / 2 + 0.5) continue; if (k === F - 1) { op(out[3], 'window', c, y0, { w: 0.8, h: 1.1, sill, bars: 2 }); op(out[1], 'window', c, y1, { w: 0.8, h: 1.1, sill, bars: 2 }); } }
+        for (let j = 0; j < ny; j++) { const c = y0 + T + (j + 0.5) * cwy; if (k === F - 1) { op(out[0], 'window', x0, c, { w: 0.8, h: 1.1, sill, bars: 2 }); op(out[2], 'window', x1, c, { w: 0.8, h: 1.1, sill, bars: 2 }); } }
+        if (k === 0) { op(out[3], 'door', 0, y0, { w: Math.min(3.8, pw - 1.4), h: Math.min(4.0, H - 0.2), sill: 0 }); op(inn[3], 'door', 0, y0 + T, { w: Math.min(3.8, pw - 1.4), h: Math.min(4.0, H - 0.2), sill: 0 }); }
+        if (k === 0 && o.iwans !== false) { op(inn[1], 'door', 0, y1 - T, { w: 3.4, h: Math.min(3.8, H - 0.3), sill: 0 }); op(inn[0], 'door', x0 + T, 0, { w: 3.0, h: Math.min(3.6, H - 0.3), sill: 0 }); op(inn[2], 'door', x1 - T, 0, { w: 3.0, h: Math.min(3.6, H - 0.3), sill: 0 }); }
+    }
+    slab(P, x0 - 0.4, y0 - 0.4, x1 + 0.4, y0 + T + 0.3, Ht, 0.35, MC.stone, mw); slab(P, x0 - 0.4, y1 - T - 0.3, x1 + 0.4, y1 + 0.4, Ht, 0.35, MC.stone, mw);
+    slab(P, x0 - 0.4, y0 + T, x0 + T + 0.3, y1 - T, Ht, 0.35, MC.stone, mw); slab(P, x1 - T - 0.3, y0 + T, x1 + 0.4, y1 - T, Ht, 0.35, MC.stone, mw);
+    pishtaq(P, 0, y0, pw, Ht + (o.ph == null ? 2.4 : o.ph), Math.min(4.0, H - 0.2) + 0.7, { m: mt, m2: mt2 });
+    if (o.fdome) for (const sx of [-1, 1]) { const cx = sx * (pw / 2 + 1.4 + o.fdome); crown(P, cx, y0 + T / 2, o.fdome, Ht + 0.35, { m: um(P, o.dm || 'blu'), md: mt, ky: o.ky || 1.2, m2: o.dm2 ? um(P, o.dm2) : null }); }
+    if (o.dome !== false) crown(P, 0, y1 - T / 2, Math.min(T / 2 - 0.2, o.R || 3.6), Ht + 0.35, { m: um(P, o.dm || 'blu'), md: mt, ky: o.ky || 1.15, m2: o.dm2 ? um(P, o.dm2) : null, hd: 1.4 });
+    if (o.dome2) { for (const sx of [-1, 1]) crown(P, sx * (w / 2 - T / 2), y1 - T / 2, Math.min(T / 2 - 0.3, 3.0), Ht + 0.35, { m: um(P, o.dm || 'blu'), md: mt, hd: 1.0 }); }
+    const mh = Ht + (o.mh || 11), mr = o.mr || 1.35;
+    if (o.min) { for (const p of o.min === 4 ? [[x0, y0], [x1, y0], [x0, y1], [x1, y1]] : [[x0, y0], [x1, y0]]) minaret(P, p[0], p[1], mh, mr, { mb: mt, mc: um(P, o.dm || 'blu') }); }
+    if (o.tower) for (const sx of [-1, 1]) col(P, sx * (pw / 2 + pw * 0.14 + 3.5), y0 - 0.2, 0, 1.3, Ht + 2.2, mt, 'square');
+    if (o.court) { const tc = um(P, 'wat'); slab(P, -2.2, -2.2, 2.2, 2.2, 0.02, 0.3, tc, MC.stone); }
+}
+UZ.madrasa = madrasa;
+
+/* =====================  MASJID  ===================== */
+function hallMosque(P, o) { // ustunli zal (Juma masjidi), yog‘och ustunlar
+    const w = o.w, d = o.d, H = o.H || 5, cx = o.cx || 6, cy = o.cy || 5, x0 = -w / 2, x1 = w / 2, y0 = -d / 2, y1 = d / 2, mw = um(P, o.wall || 'pax'), wd = um(P, 'wd');
+    lvInit(P, [H]); ensureZ(P, H);
+    const ws = box(P, x0, y0, x1, y1, 0, H, { t: 0.9, mA: mw, mB: MC.cream, floor: true, fm: MC.parquet });
+    op(ws[3], 'door', 0, y0, { w: 2.6, h: 3.6, sill: 0 }); op(ws[3], 'door', w / 4, y0, { w: 1.4, h: 2.4, sill: 0 }); op(ws[3], 'door', -w / 4, y0, { w: 1.4, h: 2.4, sill: 0 });
+    for (let i = 1; i < 4; i++) { op(ws[0], 'window', x0, y0 + d * i / 4, { w: 0.9, h: 0.9, sill: 3.4, bars: 2 }); op(ws[2], 'window', x1, y0 + d * i / 4, { w: 0.9, h: 0.9, sill: 3.4, bars: 2 }); }
+    for (let i = 0; i < cx; i++) for (let j = 0; j < cy; j++) col(P, x0 + 2 + (w - 4) * (i + 0.5) / cx, y0 + 2 + (d - 4) * (j + 0.5) / cy, 0, 0.22, H, wd);
+    const s = slab(P, x0 - 0.5, y0 - 0.5, x1 + 0.5, y1 + 0.5, H + 0.4, 0.4, um(P, 'clay'), mw); s.hole = [-w * 0.18, -d * 0.12, w * 0.18, d * 0.12];
+    if (o.mih) { op(ws[1], 'window', 0, y1, { w: 1.8, h: 2.6, sill: 0.4, bars: 0 }); }
+    if (o.min) minaret(P, x1 + 3, y0 + 2, o.min, 1.3, { mb: um(P, 'tfir'), mc: um(P, 'blu') });
+    if (o.ayv) { for (let i = 0; i <= o.ayv; i++) col(P, x0 + 1 + (w - 2) * i / o.ayv, y0 - 2.6, 0, 0.2, H - 0.8, wd); slab(P, x0 + 0.5, y0 - 3, x1 - 0.5, y0 - 0.4, H - 0.8, 0.3, um(P, 'clay'), um(P, 'wd')); slab(P, x0 + 0.5, y0 - 3, x1 - 0.5, y0, 0.0, 0.3, MC.stone); }
+}
+UZ.hallMosque = hallMosque;
+function ayvonMosque(P, o) { // Bolo-Hovuz uslubi: baland yog‘och ayvon + hovuz + minora
+    const n = o.n || 10, sp = o.sp || 3.0, Hc = o.H || 6, w = (n - 1) * sp, wd = um(P, 'wd'), mw = um(P, o.wall || 'pax');
+    lvInit(P, [Hc]); ensureZ(P, Hc);
+    const x0 = -w / 2 - 1.6, x1 = w / 2 + 1.6, y0 = 0, y1 = o.d || 9;
+    const ws = box(P, x0, y0 + 4.4, x1, y1 + 4.4, 0, Hc, { t: 0.7, mA: mw, mB: MC.cream, floor: true, fm: MC.parquet });
+    op(ws[3], 'door', 0, y0 + 4.4, { w: 1.6, h: 3.4, sill: 0 }); for (let i = 1; i < 4; i++) { op(ws[3], 'window', x0 + (x1 - x0) * i / 4 + 0.01, y0 + 4.4, { w: 1.2, h: 1.6, sill: 1.4, bars: 3 }); }
+    for (let i = 0; i < n; i++) { col(P, -w / 2 + i * sp, y0 + 0.4, 0, 0.26, Hc - 0.4, wd); col(P, -w / 2 + i * sp, y0 + 0.4, 0, 0.1, Hc - 0.4, wd); }
+    slab(P, x0 - 0.3, y0 - 0.4, x1 + 0.3, y0 + 4.4, Hc - 0.4, 0.4, um(P, 'wdl'), wd); slab(P, x0, y0 - 0.2, x1, y0 + 4.4, 0, 0.5, MC.stone);
+    slab(P, x0 - 0.5, y0 + 4.4 - 0.4, x1 + 0.5, y1 + 4.4 + 0.5, Hc + 0.4, 0.4, um(P, 'clay'), mw);
+    slab(P, -w / 2 - 5, -12, w / 2 + 5, -3, 0.02, 0.3, um(P, 'wat'), MC.stone);
+    if (o.min !== 0) minaret(P, x1 + 5, y0 + 6, o.min || 18, 1.2, { mb: um(P, 'tfir'), mc: um(P, 'blu') });
+}
+UZ.ayvonMosque = ayvonMosque;
+function grandMosque(P, o) { // Bibi-Xonim / Kalon: katta hovli, atrofida arkali galereya, katta gumbaz
+    const w = o.w, d = o.d, x0 = -w / 2, x1 = w / 2, y0 = -d / 2, y1 = d / 2, T = o.ring || 4.5, Hh = o.H || 6, mw = um(P, o.wall || 'pax'), mt = um(P, 'tfir');
+    lvInit(P, [Hh]); ensureZ(P, Hh);
+    slab(P, x0 - 0.5, y0 - 0.5, x1 + 0.5, y1 + 0.5, 0, 0.4, MC.stone);
+    const out = box(P, x0, y0, x1, y1, 0, Hh, { t: 0.9, mA: mw, mB: MC.cream }), inn = box(P, x0 + T, y0 + T, x1 - T, y1 - T, 0, Hh * 0.8, { t: 0.5, mA: MC.cream, mB: mw });
+    op(out[3], 'door', 0, y0, { w: 4.4, h: 4.6, sill: 0 }); op(inn[3], 'door', 0, y0 + T, { w: 4.4, h: 4.6, sill: 0 });
+    for (let i = 0; i < 6; i++) { const f = (i + 0.5) / 6; for (const wl of [inn[3], inn[1]]) { const y = wl === inn[3] ? y0 + T : y1 - T; if (Math.abs((x0 + T) + (w - 2 * T) * f) > 3) op(wl, 'window', (x0 + T) + (w - 2 * T) * f, y, { w: 1.6, h: Hh * 0.55, sill: 0.5, bars: 0 }); } }
+    for (let j = 0; j < 4; j++) { const f = (j + 0.5) / 4; op(inn[0], 'window', x0 + T, (y0 + T) + (d - 2 * T) * f, { w: 1.6, h: Hh * 0.55, sill: 0.5, bars: 0 }); op(inn[2], 'window', x1 - T, (y0 + T) + (d - 2 * T) * f, { w: 1.6, h: Hh * 0.55, sill: 0.5, bars: 0 }); }
+    slab(P, x0 - 0.4, y0 - 0.4, x1 + 0.4, y1 + 0.4, Hh, 0.4, mw, mw).hole = [x0 + T, y0 + T, x1 - T, y1 - T];
+    pishtaq(P, 0, y0, 9, Hh + 5, 5.4, { pr: 1.4 });
+    const Rm = o.R || Math.min(w, d) * 0.2; domedBlock(P, 0, y1 - T - Rm * 1.2, Rm * 2.4, { H: Hh * 0.9, R: Rm, hd: Rm * 0.7, ky: 1.25, wm: mw, dm: mt, m: um(P, 'blu'), m2: um(P, 'fir'), dw: 3, dh: 3.6, pt: 0, win: false, nb: 0 });
+    if (o.side) for (const sx of [-1, 1]) crown(P, sx * (w / 2 - T / 2), 0, T / 2 - 0.3, Hh + 0.4, { m: um(P, 'fir'), md: mt, hd: 1.0 });
+    for (const p of o.min === 2 ? [[x0, y0], [x1, y0]] : [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) minaret(P, p[0], p[1], Hh + (o.mh || 14), 1.5, { mb: mt, mc: um(P, 'blu') });
+}
+UZ.grandMosque = grandMosque;
+
+/* =====================  MAQBARA ===================== */
+function mausoleum(P, o) {
+    lvInit(P, [o.H || 8]); domedBlock(P, 0, 0, o.S || 9, Object.assign({ H: o.H || 8, pt: o.pt || 0 }, o));
+    if (o.min) for (const p of [[-1, -1], [1, -1]]) minaret(P, p[0] * (o.S / 2 + 1.2), p[1] * (o.S / 2 + 1.2), o.min, 1.0, { mb: um(P, 'tfir'), mc: um(P, 'blu') });
+}
+UZ.mausoleum = mausoleum;
+function minaretStand(P, o) { lvInit(P, [3]); minaret(P, 0, 0, o.H, o.r, { r1: o.r1, mb: um(P, o.mb || 'tfir'), mc: um(P, o.mc || 'blu'), m: um(P, o.m || 'pax'), n: o.n }); if (o.mosq) { } }
+UZ.minaretStand = minaretStand;
+})();
+
+/* ===== O‘zbekiston modellari kutubxonasi (uz2: baland binolar, uylar, qal‘alar, shahar obidalari, ansambllar, ro‘yxat) ===== */
+(function () {
+const U = window.UZ, { um, lvInit, ensureZ, place, op, box, col, slab, wall, dome, crown, minaret, pishtaq, domedBlock, pitched, ring, mid, wlen, R2, cl } = U;
+const rnd = seed => { let s = (seed * 2654435761 + 12345) >>> 0; return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; };
+const lathe = (P, cx, cy, z, prof) => { for (const [h, r, m] of prof) { const k = ensureZ(P, z); col(P, cx, cy, k, r, h, m); z += h; } return z; };
+
+/* =====================  BALAND BINO  ===================== */
+function tower(P, o) {
+    const fh = o.fh || 3.6, tiers = o.tiers; let N = 0; tiers.forEach(t => N += t.n);
+    lvInit(P, new Array(N).fill(fh)); ensureZ(P, N * fh);
+    const wm = um(P, o.wm || 'whs'); let k0 = 0, first = true;
+    const T0 = tiers[0]; slab(P, (T0.ox || 0) - T0.w / 2 - 3, (T0.oy || 0) - T0.d / 2 - 3, (T0.ox || 0) + T0.w / 2 + 3, (T0.oy || 0) + T0.d / 2 + 3, 0, 0.4, MC.concrete);
+    for (const t of tiers) {
+        const cx = t.ox || 0, cy = t.oy || 0, w = t.w, d = t.d, gm = um(P, t.gm || o.gm || 'gl'), win = t.win || o.win || 'ribbon', rd = t.round;
+        for (let i = 0; i < t.n; i++) {
+            const kk = ensureZ(P, (k0 + i) * fh); let ws;
+            if (rd) { ws = ring(P, cx, cy, w / 2, rd, kk, fh, { t: 0.3, mA: gm, mB: MC.white }); const R = w / 2; slab(P, cx - R, cy - R, cx + R, cy + R, (k0 + i) * fh, 0.25, MC.concrete); }
+            else ws = box(P, cx - w / 2, cy - d / 2, cx + w / 2, cy + d / 2, kk, fh, { t: 0.3, mA: gm, mB: MC.white, floor: true, fm: MC.concrete });
+            if (first && i === 0) { const w3 = ws[rd ? Math.floor(rd / 2) : 3]; const m = mid(w3); op(w3, 'door', m[0], m[1], { w: Math.min(3.2, wlen(w3) - 1), h: Math.min(2.9, fh - 0.5), sill: 0 }); }
+            for (const w1 of ws) {
+                const L = wlen(w1), m = mid(w1), sh = fh - 1.25;
+                if (win === 'ribbon') op(w1, 'window', m[0], m[1], { w: L - (rd ? 0.5 : 1.4), h: sh, sill: 0.75, bars: 0 });
+                else if (win === 'grid') { const n = Math.max(1, Math.floor(L / 3.2)); for (let j = 0; j < n; j++) { const f = (j + 0.5) / n, x = w1.x1 + (w1.x2 - w1.x1) * f, y = w1.y1 + (w1.y2 - w1.y1) * f; op(w1, 'window', x, y, { w: 1.5, h: Math.min(1.6, sh), sill: 0.9, bars: 2 }); } }
+                else { const n = Math.max(1, Math.floor(L / 2.2)); for (let j = 0; j < n; j++) { const f = (j + 0.5) / n, x = w1.x1 + (w1.x2 - w1.x1) * f, y = w1.y1 + (w1.y2 - w1.y1) * f; op(w1, 'window', x, y, { w: 0.9, h: sh, sill: 0.7, bars: 0 }); } }
+            }
+        }
+        if (o.fins) for (const sx of [-1, 1]) for (const sy of [-1, 1]) if (!rd) col(P, cx + sx * (w / 2 + 0.05), cy + sy * (d / 2 + 0.05), ensureZ(P, k0 * fh), 0.5, t.n * fh + 0.4, wm, 'square');
+        if (o.band) for (let i = 0; i < t.n; i += o.band) { if (i > 0 && !rd) slab(P, cx - w / 2 - 0.25, cy - d / 2 - 0.25, cx + w / 2 + 0.25, cy + d / 2 + 0.25, (k0 + i) * fh + 0.2, 0.45, wm); }
+        k0 += t.n; first = false;
+    }
+    const tl = tiers[tiers.length - 1], cx = tl.ox || 0, cy = tl.oy || 0, zt = N * fh, kt = ensureZ(P, zt), rr = Math.min(tl.w, tl.d) / 2;
+    slab(P, cx - tl.w / 2 - 0.2, cy - tl.d / 2 - 0.2, cx + tl.w / 2 + 0.2, cy + tl.d / 2 + 0.2, zt + 0.4, 0.4, wm);
+    const cr = o.crown || 'flat';
+    if (cr === 'spire') { const sp = o.spire || 20, m = um(P, 'sil'); for (let i = 0; i < 8; i++) col(P, cx, cy, kt, Math.max(0.12, rr * 0.3 * (1 - i / 8)), 1.2 + sp * (i + 1) / 8 * 0.55, i % 2 ? m : wm); col(P, cx, cy, kt, 0.12, sp + 4, m); }
+    else if (cr === 'pyr') pitched(P, 'hip', cx - tl.w / 2, cy - tl.d / 2, cx + tl.w / 2, cy + tl.d / 2, zt + 0.4, { pitch: 52, ov: 0.3, m: um(P, o.rm || 'gld'), mG: wm, mU: wm });
+    else if (cr === 'dome') crown(P, cx, cy, rr * 0.85, zt + 0.4, { m: um(P, 'gld'), md: wm, hd: 2.4, ky: 1.1 });
+    else if (cr === 'step') { col(P, cx, cy, kt, rr * 0.7, 5, wm, 'square'); col(P, cx, cy, kt, rr * 0.42, 9, um(P, o.gm || 'gl'), 'square'); col(P, cx, cy, kt, rr * 0.18, 14 + (o.spire || 6), um(P, 'sil'), 'square'); }
+    else { box(P, cx - tl.w / 2, cy - tl.d / 2, cx + tl.w / 2, cy + tl.d / 2, kt, 1.1, { t: 0.25, mA: wm, mB: wm }); if (o.spire) col(P, cx, cy, kt, 0.2, o.spire, um(P, 'sil')); }
+}
+function tvTower(P, o) {
+    const H = o.H || 150, s = H / 150, wm = um(P, 'whs'), gm = um(P, 'gl'), m = um(P, 'sil'), gld = um(P, 'tfir'), zp = H * 0.57;
+    lvInit(P, [3]); slab(P, -28 * s - 6, -28 * s - 6, 28 * s + 6, 28 * s + 6, 0, 0.5, MC.concrete); slab(P, -18 * s, -18 * s, 18 * s, 18 * s, 0.9, 1.0, MC.stone);
+    const n = 14; for (let i = 0; i < n; i++) col(P, 0, 0, 0, (6.2 - 3.0 * i / (n - 1)) * s, zp * (i + 1) / n + 8 * s, wm);
+    col(P, 0, 0, 0, 3.2 * s, zp + 12 * s, wm);
+    const pr = [[1.6, 4.2, wm], [1.4, 8.5, gm], [2.4, 10.5, gm], [1.4, 10.0, wm], [1.6, 8.0, gm], [1.6, 5.2, wm]];
+    lathe(P, 0, 0, zp, pr.map(a => [a[0] * s * 1.15, a[1] * s * 1.45, a[2]]));
+    const zm = zp + 12 * s * 1.15; col(P, 0, 0, 0, 1.6 * s, H * 0.8, m); col(P, 0, 0, 0, 1.0 * s, H * 0.9, m); col(P, 0, 0, 0, 0.55 * s, H * 0.97, gld); col(P, 0, 0, 0, 0.25 * s, H, m);
+}
+
+/* =====================  SOVET PANEL UYLARI  ===================== */
+function panel(P, o) {
+    const secs = o.secs || 2, F = o.fl || 5, H = 2.8, sw = o.sw || 11.8, d = o.d || 11, W = secs * sw, x0 = -W / 2, y0 = 0, y1 = d, mp = um(P, o.pm || 'pan');
+    lvInit(P, new Array(F).fill(H)); ensureZ(P, F * H);
+    slab(P, x0 - 2, -3, x0 + W + 2, d + 3, 0, 0.4, MC.concrete);
+    for (let k = 0; k < F; k++) {
+        const kk = ensureZ(P, k * H), ws = box(P, x0, y0, x0 + W, y1, kk, H, { t: 0.3, mA: mp, mB: MC.cream, floor: true, fm: MC.parquet });
+        for (let i = 1; i < secs; i++) wall(P, x0 + i * sw, y0 + 0.2, x0 + i * sw, y1 - 0.2, kk, H, { t: 0.25, mA: MC.cream, mB: MC.cream });
+        for (let i = 0; i < secs; i++) {
+            const c = x0 + (i + 0.5) * sw;
+            if (k === 0) { op(ws[3], 'door', c, y0, { w: 1.5, h: 2.2, sill: 0 }); op(ws[1], 'door', c, y1, { w: 1.2, h: 2.1, sill: 0 }); slab(P, c - 1.7, y0 - 1.4, c + 1.7, y0, 2.45, 0.18, MC.concrete); col(P, c - 1.6, y0 - 1.3, 0, 0.08, 2.4, MC.metal); col(P, c + 1.6, y0 - 1.3, 0, 0.08, 2.4, MC.metal); }
+            for (const dx of [-3.9, 3.9]) { op(ws[3], 'window', c + dx, y0, { w: 1.5, h: 1.4, sill: 0.95, bars: 2 }); op(ws[1], 'window', c + dx, y1, { w: 1.3, h: 1.3, sill: 1.0, bars: 2 }); }
+            op(ws[3], 'window', c, y0 + 0.0, { w: 0.9, h: 0.9, sill: 1.3, bars: 0 }); if (o.bal && k > 0) { const bx = c + 3.9; slab(P, bx - 1.5, y0 - 1.25, bx + 1.5, y0, k * H, 0.16, MC.concrete); wall(P, bx - 1.5, y0 - 1.25, bx + 1.5, y0 - 1.25, kk, 1.0, { t: 0.08, mA: um(P, 'whs'), mB: um(P, 'whs') }); }
+        }
+        for (const sx of [0, 2]) { const w1 = ws[sx]; const m = mid(w1); op(w1, 'window', m[0], m[1], { w: 1.2, h: 1.3, sill: 1.0, bars: 0 }); }
+    }
+    const z = F * H; if (o.roof === 'gable') pitched(P, 'gable', x0 - 0.5, y0 - 0.5, x0 + W + 0.5, y1 + 0.5, z, { pitch: 13, dir: 0, ov: 0.3, m: MC.rmGy || P.def.roof }); else slab(P, x0 - 0.3, y0 - 0.3, x0 + W + 0.3, y1 + 0.3, z + 0.35, 0.35, MC.concrete);
+}
+
+/* =====================  UY-HOVLI  ===================== */
+function hovli(P, o) {
+    const w = o.w || 24, d = o.d || 30, hw = o.hw || 14, hd = o.hd || 6.5, F = o.fl || 1, H = o.H || 3.1, rooms = o.rooms || 3, x0 = -w / 2, x1 = w / 2, y0 = 0, y1 = d;
+    lvInit(P, new Array(F).fill(H)); ensureZ(P, F * H);
+    const mw = um(P, o.wall || 'sav'), mf = um(P, o.fence || 'clay'), wd = um(P, 'wd'), hx0 = -hw / 2 + (o.hxo || 0), hx1 = hx0 + hw, hy1 = y1 - 1.4, hy0 = hy1 - hd;
+    slab(P, x0, y0, x1, y1, 0, 0.3, MC.stone);
+    const fw = (a, b, c, e) => wall(P, a, b, c, e, 0, 2.2, { t: 0.3, mA: mf, mB: mf });
+    const fs = fw(x1, y0, x0, y0); fw(x0, y0, x0, y1); fw(x0, y1, x1, y1); fw(x1, y1, x1, y0);
+    const gw = o.gate || 3.2; op(fs, 'door', 0, y0, { w: gw, h: 2.1, sill: 0 }); for (const sx of [-1, 1]) col(P, sx * (gw / 2 + 0.35), y0, 0, 0.35, 2.7, mf, 'square'); slab(P, -gw / 2 - 0.7, y0 - 0.3, gw / 2 + 0.7, y0 + 0.3, 2.9, 0.25, mf, wd);
+    const ws = box(P, hx0, hy0, hx1, hy1, 0, H, { t: 0.35, mA: mw, mB: MC.cream, floor: true, fm: MC.parquet });
+    for (let i = 1; i < rooms; i++) { const x = hx0 + hw * i / rooms, pw = wall(P, x, hy0 + 0.2, x, hy1 - 0.2, 0, H, { t: 0.15, mA: MC.cream, mB: MC.cream }); op(pw, 'door', x, hy0 + hd * 0.5, { w: 0.9, h: 2.1, sill: 0 }); }
+    for (let i = 0; i < rooms; i++) { const c = hx0 + hw * (i + 0.5) / rooms; if (i === (rooms >> 1)) op(ws[3], 'door', c, hy0, { w: 1.1, h: 2.2, sill: 0 }); else op(ws[3], 'window', c, hy0, { w: 1.4, h: 1.4, sill: 0.8, bars: 2 }); op(ws[1], 'window', c, hy1, { w: 1.0, h: 1.0, sill: 1.1, bars: 2 }); }
+    if (F === 2) {
+        const k1 = ensureZ(P, H), w2 = box(P, hx0, hy0, hx1, hy1, k1, H, { t: 0.35, mA: mw, mB: MC.cream, floor: true, fm: MC.parquet });
+        for (let i = 1; i < rooms; i++) { const x = hx0 + hw * i / rooms, pw = wall(P, x, hy0 + 0.2, x, hy1 - 0.2, k1, H, { t: 0.15, mA: MC.cream, mB: MC.cream }); op(pw, 'door', x, hy0 + hd * 0.5, { w: 0.9, h: 2.1, sill: 0 }); }
+        for (let i = 0; i < rooms; i++) { const c = hx0 + hw * (i + 0.5) / rooms; if (i === (rooms >> 1)) op(w2[3], 'door', c, hy0, { w: 1.1, h: 2.2, sill: 0 }); else op(w2[3], 'window', c, hy0, { w: 1.5, h: 1.5, sill: 0.8, bars: 2 }); op(w2[1], 'window', c, hy1, { w: 1.0, h: 1.0, sill: 1.1, bars: 2 }); }
+        const st = mkStair(hx0 + 1.1, hy0 + hd / 2, 0, { dir: 0, w: 1.0, len: Math.min(3.4, hd - 1.4), rise: H }); P.stairs.push(st); cutStairHole(st);
+    }
+    const ad = o.ayv ? 2.8 : 0;
+    if (o.ayv) {
+        const n = Math.max(3, Math.round(hw / 2.7) + 1);
+        for (let i = 0; i < n; i++) col(P, hx0 + 0.15 + (hw - 0.3) * i / (n - 1), hy0 - ad + 0.2, 0, 0.13, H - 0.12, wd);
+        slab(P, hx0 - 0.4, hy0 - ad - 0.2, hx1 + 0.4, hy0 + 0.05, H - 0.02, 0.2, wd, wd); slab(P, hx0, hy0 - ad, hx1, hy0, 0.3, 0.3, MC.stone);
+        if (F === 2) { for (let i = 0; i < n; i++) col(P, hx0 + 0.15 + (hw - 0.3) * i / (n - 1), hy0 - ad + 0.2, ensureZ(P, H), 0.1, H - 0.1, wd); wall(P, hx0, hy0 - ad + 0.2, hx1, hy0 - ad + 0.2, ensureZ(P, H), 0.9, { t: 0.06, mA: wd, mB: wd }); slab(P, hx0 - 0.4, hy0 - ad - 0.2, hx1 + 0.4, hy0, 2 * H, 0.2, wd, wd); }
+    }
+    const zt = F * H, rt = o.roof || 'gable';
+    if (rt === 'flat') { slab(P, hx0 - 0.4, hy0 - 0.4 - ad * 0, hx1 + 0.4, hy1 + 0.4, zt + 0.4, 0.4, MC.concrete); } else pitched(P, rt, hx0 - 0.3, hy0 - 0.3, hx1 + 0.3, hy1 + 0.3, zt, { pitch: o.pitch || 24, dir: rt === 'shed' ? 2 : 0, ov: 0.45, m: o.rm || P.def.roof });
+    if (o.annex) { const ax1 = hx0 - 0.4, ax0 = ax1 - o.annex, a = box(P, ax0, hy0 + 0.5, ax1, hy1, 0, H, { t: 0.3, mA: mw, mB: MC.cream, floor: true, fm: MC.stone }); op(a[3], 'door', (ax0 + ax1) / 2, hy0 + 0.5, { w: 1.0, h: 2.1, sill: 0 }); op(a[3], 'window', ax0 + 1.2, hy0 + 0.5, { w: 1.0, h: 1.1, sill: 1.0, bars: 2 }); op(a[1], 'window', (ax0 + ax1) / 2, hy1, { w: 1.0, h: 1.0, sill: 1.1, bars: 1 }); pitched(P, 'shed', ax0 - 0.3, hy0 + 0.2, ax1 + 0.3, hy1 + 0.3, H, { pitch: 14, dir: 2, ov: 0.3, m: o.rm || P.def.roof }); col(P, ax0 + 1.0, hy0 - 0.5, 0, 0.45, 1.0, um(P, 'clay')); }
+    if (o.pool) { slab(P, -4, hy0 - 12, 4, hy0 - 7, 0.02, 0.45, um(P, 'wat'), MC.stone); }
+    if (o.bed) { for (const sx of [-1, 1]) slab(P, sx * 8 - 2, 4, sx * 8 + 2, 8, 0.04, 0.12, um(P, 'grn')); }
+    if (o.topchan) { const px = x1 - 5.2, py = hy0 - 6; slab(P, px - 1.8, py - 1.2, px + 1.8, py + 1.2, 0.5, 0.5, wd, um(P, 'wdl')); for (const sx of [-1, 1]) for (const sy of [-1, 1]) col(P, px + sx * 1.6, py + sy * 1.0, 0, 0.08, 2.7, wd); slab(P, px - 2.2, py - 1.6, px + 2.2, py + 1.6, 2.8, 0.15, um(P, 'wdl'), wd); }
+    if (o.garage) { const gx0 = x0 + 1.0, gx1 = gx0 + 4.4, g = box(P, gx0, y0 + 1.5, gx1, y0 + 6.5, 0, 2.7, { t: 0.25, mA: mw, mB: MC.cream, floor: true, fm: MC.concrete }); op(g[2], 'garage', gx1, y0 + 4.0, { w: 2.8, h: 2.3, sill: 0 }); slab(P, gx0 - 0.3, y0 + 1.2, gx1 + 0.3, y0 + 6.8, 2.95, 0.25, MC.concrete); }
+}
+function yurt(P, o) {
+    const R = o.R || 3.6, n = 12, h = 1.6, k = 0; lvInit(P, [h]); ensureZ(P, h); const kk = ensureZ(P, h), wm = um(P, 'whs'), clr = um(P, o.col || 'wdl');
+    const ws = ring(P, 0, 0, R, n, 0, h, { t: 0.15, mA: um(P, 'clay'), mB: MC.cream }); op(ws[0], 'door', mid(ws[0])[0], mid(ws[0])[1], { w: 1.0, h: 1.5, sill: 0 }); slab(P, -R - 0.3, -R - 0.3, R + 0.3, R + 0.3, 0, 0.3, MC.stone);
+    for (let i = 0; i < 7; i++) col(P, 0, 0, kk, R * 1.08 * (1 - i / 7) + 0.25, 0.35 + 1.9 * (i + 1) / 7, wm);
+    col(P, 0, 0, kk, 0.35, 2.75, clr);
+}
+function hammom(P, o) {
+    const w = o.w || 16, d = o.d || 9, H = 4, mw = um(P, 'pax'); lvInit(P, [H]); ensureZ(P, H);
+    const ws = box(P, -w / 2, 0, w / 2, d, 0, H, { t: 0.7, mA: mw, mB: MC.cream, floor: true, fm: MC.stone }); op(ws[3], 'door', 0, 0, { w: 1.6, h: 2.6, sill: 0 });
+    for (let i = 0; i < 3; i++) { op(ws[3], 'window', -w / 4 + (i - 1) * 3.6, 0, { w: 0.5, h: 0.5, sill: 2.4, bars: 0 }); }
+    slab(P, -w / 2 - 0.4, -0.4, w / 2 + 0.4, d + 0.4, H + 0.35, 0.4, mw, mw);
+    const n = o.n || 4; for (let i = 0; i < n; i++) crown(P, -w / 2 + (i + 0.5) * w / n, d * 0.5, Math.min(w / n / 2 - 0.2, 2.2), H + 0.35, { m: um(P, 'clay'), md: mw, hd: 0.5, fin: false });
+    crown(P, 0, d * 0.5, 3.0, H + 0.35, { m: um(P, 'pax'), md: mw, hd: 1.2, fin: false });
+}
+function bazaarDome(P, o) { // Chorsu uslubida: kvadrat bino + katta markaziy gumbaz
+    const S = o.S || 52, H = 8, x0 = -S / 2, x1 = S / 2, mw = um(P, 'sav'); lvInit(P, [H]); ensureZ(P, H);
+    const ws = box(P, x0, x0, x1, x1, 0, H, { t: 0.8, mA: mw, mB: MC.cream, floor: true, fm: MC.stone });
+    for (const w of ws) { const L = wlen(w), n = Math.floor(L / 4.2); for (let i = 0; i < n; i++) { const f = (i + 0.5) / n, x = w.x1 + (w.x2 - w.x1) * f, y = w.y1 + (w.y2 - w.y1) * f; if (i === (n >> 1)) op(w, 'door', x, y, { w: 3.0, h: 4.4, sill: 0 }); else op(w, 'window', x, y, { w: 2.2, h: 3.4, sill: 1.4, bars: 0 }); } }
+    slab(P, x0 - 0.5, x0 - 0.5, x1 + 0.5, x1 + 0.5, H + 0.4, 0.4, mw, mw); const R = o.R || S * 0.3; crown(P, 0, 0, R, H + 0.4, { m: um(P, 'fir'), md: um(P, 'tfir'), hd: 2.2, ky: 0.62, n: 12 });
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) crown(P, sx * (S / 2 - 4), sy * (S / 2 - 4), 3.2, H + 0.4, { m: um(P, 'blu'), md: um(P, 'tfir'), hd: 0.8 });
+}
+function toqi(P, o) { // savdo gumbazlari: xoch shaklidagi yo‘lak (Toqi)
+    const L = o.L || 16, W = 7, H = o.H || 5.5, S = 11, mw = um(P, 'pax'); lvInit(P, [H]); ensureZ(P, H);
+    slab(P, -S / 2 - L - 1, -S / 2 - L - 1, S / 2 + L + 1, S / 2 + L + 1, 0, 0.3, MC.stone);
+    const c = domedBlock(P, 0, 0, S, { H, wm: mw, R: 4.6, hd: 1.4, dm: um(P, 'pax'), m: um(P, 'clay'), ky: 0.9, win: false, dw: 0.01, dh: 0.2, fm: MC.stone });
+    for (const w of c) w.ops.length = 0;
+    const dh = Math.min(4.6, H - 0.6); op(c[0], 'door', -S / 2, 0, { w: 5.6, h: dh, sill: 0 }); op(c[2], 'door', S / 2, 0, { w: 5.6, h: dh, sill: 0 }); op(c[1], 'door', 0, S / 2, { w: 5.6, h: dh, sill: 0 }); op(c[3], 'door', 0, -S / 2, { w: 5.6, h: dh, sill: 0 });
+    const W2 = W / 2, wl = (a, b, cc, d2) => wall(P, a, b, cc, d2, 0, H, { t: 0.6, mA: mw, mB: MC.cream });
+    const arm = (dx, dy) => {
+        let ex;
+        if (dx) { const xa = dx > 0 ? S / 2 : -S / 2, xb = dx > 0 ? S / 2 + L : -S / 2 - L; wl(xa, W2, xb, W2); wl(xb, -W2, xa, -W2); ex = dx > 0 ? wl(xb, W2, xb, -W2) : wl(xb, -W2, xb, W2); op(ex, 'door', xb, 0, { w: 2.6, h: 3.6, sill: 0 }); slab(P, Math.min(xa, xb) - 0.5, -W2 - 0.5, Math.max(xa, xb) + 0.5, W2 + 0.5, H + 0.4, 0.4, mw, mw); for (let i = 0; i < 2; i++) crown(P, xa + (xb - xa) * (i + 0.5) / 2, 0, Math.min(3.0, W2 - 0.3), H + 0.4, { m: um(P, 'clay'), md: mw, hd: 0.5, fin: false }); }
+        else { const ya = dy > 0 ? S / 2 : -S / 2, yb = dy > 0 ? S / 2 + L : -S / 2 - L; wl(-W2, ya, -W2, yb); wl(W2, yb, W2, ya); ex = dy > 0 ? wl(-W2, yb, W2, yb) : wl(W2, yb, -W2, yb); op(ex, 'door', 0, yb, { w: 2.6, h: 3.6, sill: 0 }); slab(P, -W2 - 0.5, Math.min(ya, yb) - 0.5, W2 + 0.5, Math.max(ya, yb) + 0.5, H + 0.4, 0.4, mw, mw); for (let i = 0; i < 2; i++) crown(P, 0, ya + (yb - ya) * (i + 0.5) / 2, Math.min(3.0, W2 - 0.3), H + 0.4, { m: um(P, 'clay'), md: mw, hd: 0.5, fin: false }); }
+    };
+    arm(1, 0); arm(-1, 0); arm(0, 1); arm(0, -1);
+}
+
+/* =====================  QAL‘A  ===================== */
+function fort(P, o) {
+    const w = o.w, d = o.d, Hw = o.Hw || 9, t = 1.7, x0 = -w / 2, y0 = -d / 2, x1 = w / 2, y1 = d / 2, mw = um(P, o.wall || 'clay');
+    lvInit(P, [Hw]); ensureZ(P, Hw); const kt = ensureZ(P, Hw);
+    slab(P, x0 - 1, y0 - 1, x1 + 1, y1 + 1, 0, 0.4, MC.stone);
+    const ws = box(P, x0, y0, x1, y1, 0, Hw, { t, mA: mw, mB: mw });
+    const gw = o.gw || 4.6; op(ws[3], 'door', 0, y0, { w: gw, h: Math.min(5.8, Hw - 0.8), sill: 0 });
+    const mer = (xa, ya, xb, yb, step) => { const L = Math.hypot(xb - xa, yb - ya), n = Math.max(1, Math.floor(L / step)); for (let i = 0; i <= n; i++) { const f = i / n; col(P, xa + (xb - xa) * f, ya + (yb - ya) * f, kt, 0.32, 1.0, mw, 'square'); } };
+    mer(x0, y0, x1, y0, 2.8); mer(x0, y1, x1, y1, 2.8); mer(x0, y0, x0, y1, 2.8); mer(x1, y0, x1, y1, 2.8);
+    for (const p of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) { col(P, p[0], p[1], 0, o.br || 3.6, Hw + 2.4, mw); col(P, p[0], p[1], 0, (o.br || 3.6) * 0.8, Hw + 3.4, mw); }
+    const sp = o.sp || 24; for (const [ax, ay, bx, by] of [[x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]]) { const L = Math.hypot(bx - ax, by - ay), n = Math.floor(L / sp); for (let i = 1; i < n; i++) { const f = i / n; if (ay === y0 && by === y0 && Math.abs(ax + (bx - ax) * f) < gw) continue; col(P, ax + (bx - ax) * f, ay + (by - ay) * f, 0, 2.3, Hw + 1.6, mw); } }
+    for (const sx of [-1, 1]) { col(P, sx * (gw / 2 + 3.4), y0, 0, 3.0, Hw + 4.2, mw); crown(P, sx * (gw / 2 + 3.4), y0, 3.0, Hw + 4.2, { m: um(P, o.dm || 'red'), md: mw, hd: 0.5, ky: 0.9, fin: false }); }
+    slab(P, -gw / 2 - 0.5, y0 - 0.9, gw / 2 + 0.5, y0 + 0.9, Hw + 0.4, 0.8, mw, mw);
+    if (o.ramp) { const st = mkStair(0, y0 - 5, 0, { dir: 0, w: gw, len: 8, rise: 0.9 }); P.stairs.push(st); }
+    if (o.inner) for (const [fn, x, y, r] of o.inner) place(P, fn, x, y, r || 0);
+}
+function innerHouses(P, ox, oy, nx, ny, sp, fnh) { // ichki turar-joylar
+    for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) { const x = ox + i * sp, y = oy + j * sp, h = 3 + ((i * 7 + j * 3) % 3) * 0.5, wsx = sp * 0.55, wsy = sp * 0.45; const ws = box(P, x - wsx / 2, y - wsy / 2, x + wsx / 2, y + wsy / 2, 0, h, { t: 0.4, mA: um(P, 'clay'), mB: MC.cream, floor: true, fm: MC.stone }); op(ws[3], 'door', x, y - wsy / 2, { w: 1.0, h: 2.1, sill: 0 }); slab(P, x - wsx / 2 - 0.3, y - wsy / 2 - 0.3, x + wsx / 2 + 0.3, y + wsy / 2 + 0.3, h + 0.35, 0.35, um(P, 'clay'), um(P, 'clay')); if ((i + j) % 3 === 0) crown(P, x, y, Math.min(wsx, wsy) * 0.32, h + 0.35, { m: um(P, 'pax'), md: um(P, 'clay'), hd: 0.4, fin: false }); }
+}
+function palaceCourt(P, o) { // Xon saroyi: ayvonli xonalar hovli atrofida
+    const w = o.w, d = o.d, F = o.fl || 1, H = o.H || 5, x0 = -w / 2, y0 = 0, x1 = w / 2, y1 = d, mw = um(P, o.wall || 'sav'), wd = um(P, 'wd'), tl = um(P, 'tfir'); lvInit(P, new Array(F).fill(H)); ensureZ(P, F * H);
+    slab(P, x0 - 1, y0 - 1, x1 + 1, y1 + 1, 0, 0.4, MC.stone);
+    const ws = box(P, x0, y0, x1, y1, 0, H, { t: 0.9, mA: mw, mB: MC.cream }), in2 = box(P, x0 + o.T, y0 + o.T, x1 - o.T, y1 - o.T, 0, H, { t: 0.5, mA: MC.cream, mB: mw });
+    op(ws[3], 'door', 0, y0, { w: 3.4, h: 3.8, sill: 0 }); op(in2[3], 'door', 0, y0 + o.T, { w: 3.4, h: 3.8, sill: 0 });
+    for (const [wl, hor, fx, a, b] of [[in2[1], true, y1 - o.T, x0 + o.T, x1 - o.T], [in2[0], false, x0 + o.T, y0 + o.T, y1 - o.T], [in2[2], false, x1 - o.T, y0 + o.T, y1 - o.T]]) { const n = Math.max(2, Math.floor((b - a) / 5)); for (let i = 0; i < n; i++) { const c = a + (b - a) * (i + 0.5) / n; op(wl, i % 2 ? 'window' : 'door', hor ? c : fx, hor ? fx : c, i % 2 ? { w: 1.2, h: 1.6, sill: 0.9, bars: 2 } : { w: 1.4, h: 2.6, sill: 0 }); } }
+    const sg = ws[1]; for (let i = 0; i < 4; i++) { const c = x0 + w * (i + 0.5) / 4; op(sg, 'window', c, y1, { w: 0.9, h: 1.0, sill: H - 2.0, bars: 2 }); }
+    slab(P, x0 - 0.5, y0 - 0.5, x1 + 0.5, y1 + 0.5, H + 0.4, 0.4, mw, mw).hole = [x0 + o.T, y0 + o.T, x1 - o.T, y1 - o.T];
+    pishtaq(P, 0, y0, 6, H + 2.2, 4.4, { m: tl });
+    if (o.pool) slab(P, -4, y0 + o.T + 4, 4, y1 - o.T - 4, 0.02, 0.4, um(P, 'wat'), MC.stone);
+    if (o.min) for (const sx of [-1, 1]) minaret(P, sx * (w / 2), y0, H + o.min, 1.2, { mb: tl, mc: um(P, 'blu') });
+    if (o.dome) crown(P, 0, y1 - o.T / 2, o.T / 2 - 0.3, H + 0.4, { m: um(P, o.dm || 'blu'), md: tl, hd: 1.0 });
+}
+
+/* =====================  SHAHAR OBIDALARI  ===================== */
+function theatre(P, o) { // Navoiy teatri uslubi: ustunli peshayvon
+    const w = o.w || 44, d = o.d || 30, H = o.H || 11, nc = o.nc || 8, mw = um(P, o.wall || 'sav'), wm = um(P, 'wmw'); lvInit(P, [H]); ensureZ(P, H);
+    slab(P, -w / 2 - 4, -d / 2 - 12, w / 2 + 4, d / 2 + 4, 0, 0.4, MC.stone);
+    const ws = box(P, -w / 2, -d / 2, w / 2, d / 2, 0, H, { t: 0.9, mA: mw, mB: MC.cream, floor: true, fm: MC.marble });
+    for (let i = 0; i < 4; i++) { const f = (i + 0.5) / 4, x = -w / 2 + w * f; op(ws[3], 'door', x, -d / 2, { w: 1.8, h: 3.6, sill: 0 }); }
+    for (let i = 0; i < 5; i++) { const x = -w / 2 + w * (i + 0.5) / 5; op(ws[3], 'window', x + w / 10 * 0.0, -d / 2, { w: 1.2, h: 2.4, sill: 5.2, bars: 0 }); }
+    for (const w1 of [ws[0], ws[2]]) { const n = 4; for (let i = 0; i < n; i++) { const m = mid(w1), y = -d / 2 + d * (i + 0.5) / n; op(w1, 'window', m[0], y, { w: 1.2, h: 2.6, sill: 3.0, bars: 0 }); } }
+    const pw = w * 0.8, pd = o.pd || 7;
+    for (let i = 0; i < nc; i++) col(P, -pw / 2 + pw * i / (nc - 1), -d / 2 - pd + 0.5, 0, 0.55, H - 1.2, wm);
+    slab(P, -pw / 2 - 1, -d / 2 - pd - 0.5, pw / 2 + 1, -d / 2 + 0.3, H - 1.2, 1.1, wm, wm); slab(P, -pw / 2, -d / 2 - pd, pw / 2, -d / 2, 0.3, 0.3, MC.marble);
+    pitched(P, 'gable', -pw / 2 - 1, -d / 2 - pd - 0.5, pw / 2 + 1, -d / 2 + 0.3, H - 0.1, { pitch: 14, dir: 1, ov: 0.2, m: um(P, 'whs') });
+    slab(P, -w / 2 - 0.6, -d / 2 - 0.6, w / 2 + 0.6, d / 2 + 0.6, H + 0.4, 0.4, mw, mw); crown(P, 0, d * 0.1, Math.min(w, d) * 0.28, H + 0.4, { m: um(P, 'wmw'), md: mw, hd: 2.4, ky: 0.8 });
+}
+function hall(P, o) { // katta zal: shisha fasad + ustunlar (Xalqlar do‘stligi saroyi uslubi)
+    const w = o.w || 60, d = o.d || 36, H = o.H || 16, nc = o.nc || 10; lvInit(P, [H]); ensureZ(P, H);
+    const gm = um(P, 'gl'), wm = um(P, 'whs'); slab(P, -w / 2 - 6, -d / 2 - 14, w / 2 + 6, d / 2 + 6, 0, 0.4, MC.stone);
+    const ws = box(P, -w / 2, -d / 2, w / 2, d / 2, 0, H, { t: 0.6, mA: gm, mB: MC.white, floor: true, fm: MC.marble });
+    op(ws[3], 'window', 0, -d / 2, { w: w - 6, h: H - 3.5, sill: 3.0, bars: 0 }); for (const x of [-w / 4, w / 4, 0]) op(ws[3], 'door', x, -d / 2, { w: 3.2, h: 3.0, sill: 0 }); for (const w1 of [ws[0], ws[2]]) { const m = mid(w1); op(w1, 'window', m[0], m[1], { w: d - 8, h: H - 5, sill: 2.4, bars: 0 }); }
+    for (let i = 0; i < nc; i++) col(P, -w / 2 + 2 + (w - 4) * i / (nc - 1), -d / 2 - 4, 0, 0.6, H, wm);
+    slab(P, -w / 2 - 1, -d / 2 - 5, w / 2 + 1, -d / 2 + 0.3, H + 0.5, 1.2, wm, wm);
+    slab(P, -w / 2 - 1, -d / 2 - 1, w / 2 + 1, d / 2 + 1, H + 1.2, 0.7, wm, wm);
+    if (o.dome) crown(P, 0, 0, Math.min(w, d) * 0.3, H + 1.2, { m: um(P, o.dome), md: wm, hd: 1.6, ky: 0.55, fin: false });
+}
+function arena(P, o) { // aylana bino: poligon + gumbaz / tom
+    const R = o.R || 36, n = o.n || 24, H = o.H || 16, gm = um(P, o.gm || 'whs'); lvInit(P, [H]); ensureZ(P, H);
+    slab(P, -R - 6, -R - 6, R + 6, R + 6, 0, 0.4, MC.stone);
+    const ws = ring(P, 0, 0, R, n, 0, H, { t: 0.7, mA: gm, mB: MC.white }); slab(P, -R, -R, R, R, 0, 0.3, MC.concrete);
+    ws.forEach((w, i) => { const m = mid(w); if (i % 4 === 0) op(w, 'door', m[0], m[1], { w: 3.0, h: 3.2, sill: 0 }); else op(w, 'window', m[0], m[1], { w: Math.min(wlen(w) - 1.2, 6), h: H * 0.4, sill: H * 0.4, bars: 0 }); });
+    if (o.roof === 'dome') crown(P, 0, 0, R * 0.98, H, { m: um(P, o.dm || 'sil'), md: gm, hd: 1.2, ky: o.ky || 0.28, fin: false, n: 12 });
+    if (o.ring2) { const r2 = ring(P, 0, 0, R * 0.7, n, 0, H * 0.45, { t: 0.5, mA: gm, mB: gm }); }
+}
+function stadium(P, o) { // poligon tribunalar
+    const R = o.R || 52, n = o.n || 32, H = o.H || 20; lvInit(P, [H]); ensureZ(P, H); const gm = um(P, 'whs'), sm = um(P, o.sm || 'blu');
+    slab(P, -R - 8, -R - 8, R + 8, R + 8, 0, 0.4, MC.stone); slab(P, -R * 0.62, -R * 0.62, R * 0.62, R * 0.62, 0.02, 0.2, um(P, 'grn'));
+    const w1 = ring(P, 0, 0, R, n, 0, H, { t: 0.8, mA: gm, mB: MC.white }), r2 = ring(P, 0, 0, R * 0.86, n, 0, H * 0.7, { t: 0.5, mA: sm, mB: sm }), r3 = ring(P, 0, 0, R * 0.74, n, 0, H * 0.4, { t: 0.5, mA: sm, mB: sm });
+    w1.forEach((w, i) => { const m = mid(w); if (i % 8 === 0) op(w, 'door', m[0], m[1], { w: 3.2, h: 3.4, sill: 0 }); else if (i % 2) op(w, 'window', m[0], m[1], { w: Math.min(wlen(w) - 1, 5), h: 3, sill: 6, bars: 0 }); });
+    const z = H; for (let i = 0; i < n; i += 1) { const a = Math.PI / 2 - (i + 0.5) / n * Math.PI * 2; col(P, (R + 0.4) * Math.cos(a), (R + 0.4) * Math.sin(a), 0, 0.4, H + 4, um(P, 'sil')); }
+}
+function monument(P, o) {
+    lvInit(P, [3]); const st = MC.stone, wm = um(P, 'wmw'); const t = o.kind;
+    if (t === 'indep') {
+        for (let i = 0; i < 4; i++) slab(P, -22 + i * 3, -22 + i * 3, 22 - i * 3, 22 - i * 3, 0.3 * (i + 1), 0.3, wm, st);
+        col(P, 0, 0, 0, 3.6, 12, wm, 'square'); const gm = um(P, 'blu'), R = 7, zc = 12 + R; let z = 12; for (let i = 0; i < 10; i++) { const h = 2 * R / 10, zz = z + h / 2 - zc; const r = Math.sqrt(Math.max(0.2, R * R - zz * zz)); const kk = ensureZ(P, z); col(P, 0, 0, kk, r, h, i === 4 || i === 5 ? um(P, 'gld') : gm); z += h; }
+        lathe(P, 0, 0, z, [[3.2, 1.2, um(P, 'gld')], [2.8, 0.8, um(P, 'gld')], [0.9, 0.55, um(P, 'gld')]]);
+    } else if (t === 'arch') {
+        const mt = um(P, 'tfir'); for (const sx of [-1, 1]) col(P, sx * 11, 0, 0, 1.6, 22, wm, 'square'); for (const [z, x] of [[12, 6.2], [15, 4.2], [18, 2.2], [20.5, 0.5]]) { for (const sx of [-1, 1]) slab(P, sx * 9.4, -1.6, sx * x, 1.6, z, 2.4, wm, wm); }
+        slab(P, -12.8, -2.2, 12.8, 2.2, 25, 2, wm, mt); slab(P, -9, -1.6, 9, 1.6, 27.4, 1.4, mt, wm); slab(P, -30, -10, 30, 10, 0.2, 0.3, st);
+    } else if (t === 'temur') {
+        slab(P, -14, -14, 14, 14, 0.5, 0.5, st); slab(P, -9, -9, 9, 9, 1.2, 0.7, wm, st); col(P, 0, 0, 0, 3.2, 6, wm, 'square'); col(P, 0, 0, 0, 2.4, 7.6, wm, 'square');
+        const br = um(P, 'gld'); col(P, 0, 0, 0, 1.4, 10, br); col(P, 0, 0, 0, 0.9, 13.2, br); col(P, 0, 0, 0, 0.45, 14.0, br);
+    } else if (t === 'obelisk') {
+        slab(P, -12, -12, 12, 12, 0.4, 0.4, st); for (let i = 0; i < 12; i++) col(P, 0, 0, 0, 2.4 * (1 - i / 14), 3 + 24 * (i + 1) / 12, wm, 'square'); col(P, 0, 0, 0, 0.3, 32, um(P, 'gld'));
+    } else if (t === 'oqsaroy') {
+        const mt = um(P, 'tfir'), px = um(P, 'pax'); for (const [sx, h] of [[-1, 38], [1, 30]]) { col(P, sx * 12, 0, 0, 4.2, h, px, 'square'); col(P, sx * 12, -1.5, 0, 3.0, h * 0.7, mt, 'square'); col(P, sx * 12, 0, 0, 2.2, h + 3.5, px); } slab(P, -30, -14, 30, 14, 0.2, 0.3, st);
+    } else if (t === 'ulugbek') { // rasadxona: silindr + zinapoya
+        const ws = ring(P, 0, 0, 10, 12, 0, 12, { t: 0.8, mA: um(P, 'pax'), mB: MC.cream }); slab(P, -11, -11, 11, 11, 0, 0.4, st); op(ws[0], 'door', mid(ws[0])[0], mid(ws[0])[1], { w: 2.4, h: 3.4, sill: 0 }); crown(P, 0, 0, 9.6, 12, { m: um(P, 'pax'), md: um(P, 'pax'), hd: 0.01, ky: 0.35, fin: false });
+    }
+}
+function circus(P, o) { arena(P, { R: o.R || 30, n: 20, H: 9, gm: 'wmw', roof: 'dome', dm: o.dm || 'blu', ky: 0.5 }); }
+
+/* =====================  ANSAMBLLAR  ===================== */
+function mmad(o) { return P => U.madrasa(P, o); }
+
+/* =====================  RO‘YXATGA OLISH  ===================== */
+const T = (fam, id, name, desc, fn) => TEMPLATES.push({ id: 'uz-' + id, fam, name, desc, make(P) { fn(P); } });
+const NOTE = ' (soddalashtirilgan model)';
+const FAMS = [['uzh', 'O‘zb: madrasa va masjid'], ['uzm', 'O‘zb: maqbara va minora'], ['uzq', 'O‘zb: qal‘a va saroy'], ['uzs', 'O‘zb: shahar obidalari'], ['uzb', 'O‘zb: baland binolar'], ['uzu', 'O‘zb: uy va hovli'], ['uze', 'O‘zb: ansambllar']];
+FAMS.forEach(f => TPL_FAMS.push(f));
+window.UZ.reg = { T, NOTE, tower, tvTower, panel, hovli, yurt, hammom, bazaarDome, toqi, fort, innerHouses, palaceCourt, theatre, hall, arena, stadium, monument, circus, lathe, rnd };
+})();
+
+/* ===== O‘zbekiston modellari kutubxonasi (uz3: shablonlar ro‘yxati) ===== */
+(function () {
+const U = window.UZ, R = U.reg, { T, NOTE } = R, { um, lvInit, place } = U;
+const comp = (P, parts) => { lvInit(P, [3]); for (const [fn, x, y, r] of parts) place(P, fn, x, y, r || 0); };
+const MAD = o => P => U.madrasa(P, o), MQ = o => P => U.mausoleum(P, o), MIN = o => P => U.minaretStand(P, o), TW = o => P => R.tower(P, o), HV = o => P => R.hovli(P, o);
+const D = (s) => s + NOTE;
+
+/* ---------- MADRASALAR ---------- */
+const MADS = [
+    ['ulugbek', 'Ulug‘bek madrasasi (Samarqand, Registon)', 'Ikki qavat, katta peshtoq, 4 burchak minorasi, orqada gumbazli masjid.', { w: 34, d: 30, fl: 2, pw: 8, min: 4, mh: 10 }],
+    ['sherdor', 'Sherdor madrasasi (Samarqand, Registon)', 'Peshtoq ikki yonida qovurg‘ali katta gumbazlar, 2 minora.', { w: 36, d: 32, fl: 2, pw: 8, min: 2, fdome: 4.6, ky: 1.25, dm: 'fir', dm2: 'blu', tile: 'tblu', mh: 12 }],
+    ['tillakori', 'Tilla-Kori madrasasi (Samarqand, Registon)', 'Uzun ikki qavatli fasad, oltin tusli katta gumbaz, 2 minora.', { w: 40, d: 30, fl: 2, pw: 7, min: 2, dm: 'gld', mh: 11, R: 3.6 }],
+    ['miriarab', 'Mir-i Arab madrasasi (Buxoro)', 'Peshtoqning ikki yonida katta ko‘k gumbazlar, ikki qavatli hujralar.', { w: 34, d: 28, fl: 2, pw: 8, min: 0, fdome: 4.4, ky: 1.2, dm: 'blu' }],
+    ['abdulaziz', 'Abdulazizxon madrasasi (Buxoro)', 'Ikki qavatli, bezakli peshtoq va 2 minora.', { w: 30, d: 26, fl: 2, pw: 7, min: 2, mh: 8, tile: 'tfir' }],
+    ['kukeldosh', 'Ko‘kaldosh madrasasi (Buxoro)', 'Katta (44×36) ikki qavatli madrasa, baland peshtoq.', { w: 44, d: 36, fl: 2, pw: 10, min: 0, ph: 3.5, R: 4.2 }],
+    ['nodir', 'Nodir Devonbegi madrasasi (Buxoro)', 'Bir qavatli, keng peshtoq, firuza naqsh.', { w: 30, d: 24, fl: 1, pw: 9, min: 0, tile: 'tfir', ph: 3 }],
+    ['modari', 'Modari Xon madrasasi (Buxoro)', 'Kichik bir qavatli madrasa, markaziy gumbaz.', { w: 26, d: 22, fl: 1, pw: 6, min: 0, ph: 1.6 }],
+    ['abdullaxon', 'Abdullaxon madrasasi (Buxoro)', 'Ikki qavatli, 4 burchak minorali, qum rang g‘isht.', { w: 32, d: 28, fl: 2, pw: 7, min: 4, mh: 7, dm: 'fir' }],
+    ['amin', 'Muhammad Aminxon madrasasi (Xiva)', 'Ichan-Qala‘dagi katta ikki qavatli madrasa, 2 minora.', { w: 46, d: 36, fl: 2, pw: 9, min: 2, mh: 13, tile: 'tfir' }],
+    ['olloquli', 'Olloqulixon madrasasi (Xiva)', 'Ikki qavatli, keng hovli, bezakli peshtoq.', { w: 38, d: 32, fl: 2, pw: 8, min: 2, mh: 9 }],
+    ['islomxoja', 'Islom Xo‘ja madrasasi (Xiva)', 'Kichik ikki qavatli madrasa, minora bilan.', { w: 26, d: 22, fl: 2, pw: 6, min: 2, mh: 16, tile: 'tfir' }],
+    ['shergozi', 'Shergozixon madrasasi (Xiva)', 'Qadimiy ikki qavatli madrasa, bir minorali ko‘rinish.', { w: 32, d: 28, fl: 2, pw: 7, min: 2, mh: 6, wall: 'clay' }],
+    ['qutlug', 'Qutlug‘ Murod Inoq madrasasi (Xiva)', 'Bir qavatli, kichik, qum rang suvoq.', { w: 24, d: 20, fl: 1, pw: 6, min: 0, wall: 'sav' }],
+    ['kokaldosh_t', 'Ko‘kaldosh madrasasi (Toshkent, Chorsu)', 'Ikki qavatli, firuza gumbazli madrasa.', { w: 34, d: 30, fl: 2, pw: 8, min: 0, dm: 'fir', ph: 2.2 }],
+    ['barakxon', 'Barakxon madrasasi (Toshkent)', 'Ikki qavatli, peshtoq yonida kichik gumbazlar.', { w: 30, d: 24, fl: 2, pw: 7, min: 0, fdome: 3.4, dm: 'fir' }],
+    ['abulqosim', 'Abulqosim madrasasi (Toshkent)', 'Bir qavatli, hovlisi keng madrasa.', { w: 30, d: 26, fl: 1, pw: 6, min: 0, wall: 'sav' }],
+    ['norbutabiy', 'Norbutabiy madrasasi (Qo‘qon)', 'Bir qavatli, uzun fasadli madrasa.', { w: 38, d: 30, fl: 1, pw: 8, min: 0, ph: 2.6 }],
+    ['madrasai_mir', 'Madrasai Mir (Qo‘qon)', 'Ikki qavatli, hovuzli hovli.', { w: 32, d: 26, fl: 2, pw: 7, min: 2, mh: 8, court: true }],
+    ['kichik', 'Kichik madrasa 20×18 (bir qavat)', 'Ixcham madrasa: hujralar, hovli, peshtoq.', { w: 20, d: 18, fl: 1, pw: 5, min: 0, ring: 5.2, cw: 4.0, ph: 1.4, R: 2.4 }],
+    ['hovuzli', 'Madrasa 28×24 (hovuzli, ikki qavat)', 'Hovli o‘rtasida hovuz, 2 minora.', { w: 28, d: 24, fl: 2, pw: 6, min: 2, mh: 8, court: true, R: 3.0 }],
+    ['karvon1', 'Karvonsaroy 36×30 (ikki qavat)', 'Ikki qavatli savdo karvonsaroyi, katta darvoza, hovli.', { w: 36, d: 30, fl: 2, pw: 6, min: 0, wall: 'clay', tile: 'clay', dome: false, iwans: false, ph: 1.0 }],
+    ['karvon2', 'Karvonsaroy 28×24 (bir qavat)', 'Bir qavatli yo‘lovchilar saroyi.', { w: 28, d: 24, fl: 1, pw: 5, min: 0, wall: 'sav', tile: 'clay', dome: false, iwans: false, ph: 1.0 }]
+];
+for (const [id, nm, ds, o] of MADS) T('uzh', 'mad-' + id, nm, D(ds), MAD(o));
+
+/* ---------- MASJIDLAR ---------- */
+T('uzh', 'mas-bibi', 'Bibi-Xonim masjidi (Samarqand)', D('Katta hovli, galereya, katta ko‘k gumbaz, 4 minora, yon gumbazlar.'), P => U.grandMosque(P, { w: 60, d: 46, R: 8, side: true, mh: 16 }));
+T('uzh', 'mas-kalon', 'Kalon masjidi (Buxoro)', D('Keng hovli, atrofida galereya, markaziy gumbaz, burchak minoralari.'), P => U.grandMosque(P, { w: 56, d: 44, R: 8.5, side: true, mh: 14, min: 2 }));
+T('uzh', 'mas-juma-xiva', 'Juma masjidi (Xiva)', D('Yog‘och ustunli zal (ustunlar to‘ri), tomida yorug‘lik tuynugi, minora.'), P => U.hallMosque(P, { w: 46, d: 36, cx: 9, cy: 7, H: 5.2, min: 30 }));
+T('uzh', 'mas-juma-kichik', 'Juma masjidi (kichik, ustunli)', D('Ustunli zal, markaziy tuynuk va yonida minora.'), P => U.hallMosque(P, { w: 26, d: 20, cx: 6, cy: 4, min: 20 }));
+T('uzh', 'mas-bolo', 'Bolo-Hovuz masjidi (Buxoro)', D('Yog‘och ustunli baland ayvon, hovuz, minora.'), P => U.ayvonMosque(P, { n: 20, sp: 2.2, min: 18, H: 7 }));
+T('uzh', 'mas-ahror', 'Xo‘ja Ahror Vali masjidi (Samarqand)', D('Ayvonli, kichikroq masjid, minorasi bilan.'), P => U.ayvonMosque(P, { n: 8, sp: 3.0, min: 16, H: 5.5, d: 8 }));
+T('uzh', 'mas-jome-qoqon', 'Jome masjidi (Qo‘qon)', D('Uzun ustunli ayvon, ichida ustunli zal, baland minora.'), P => U.hallMosque(P, { w: 44, d: 26, cx: 9, cy: 4, ayv: 14, min: 30 }));
+T('uzh', 'mas-magoki', 'Magoki Attori masjidi (Buxoro)', D('Peshtoqli kichik gumbazli masjid.'), MQ({ S: 12, H: 7.5, pt: 7, R: 3.8, hd: 1.4, ky: 1.0, wm: 'sav', dm: 'tfir', m: 'blu' }));
+T('uzh', 'mas-hazrati-imom', 'Hazrati Imom masjidi (Toshkent)', D('Gumbazli zal, peshtoq va 2 baland minora.'), MQ({ S: 14, H: 9, pt: 6, R: 5, hd: 2, ky: 1.1, dm: 'tfir', m: 'fir', min: 24 }));
+T('uzh', 'mas-minor', 'Minor masjidi (Toshkent)', D('Oq marmar tusli, markaziy gumbaz va minora.'), MQ({ S: 13, H: 7.5, wm: 'wmw', dm: 'wmw', m: 'wmw', rm: 'wmw', R: 5, hd: 1.2, ky: 0.8, min: 18, win: true, pt: 5, tm: 'wmw', tm2: 'whs' }));
+T('uzh', 'mas-tillashayx', 'Tilla Shayx masjidi (Toshkent)', D('Ustunli zal, gumbaz va 2 minora.'), MQ({ S: 15, H: 8, R: 5.4, hd: 1.8, ky: 0.95, dm: 'tfir', m: 'fir', pt: 5, min: 22 }));
+T('uzh', 'mas-kokgumbaz', 'Ko‘k Gumbaz masjidi (Shahrisabz)', D('Katta ko‘k gumbazli masjid, peshtoq bilan.'), MQ({ S: 18, H: 10, R: 7.4, hd: 4, ky: 1.25, dm: 'tfir', m: 'blu', m2: 'fir', pt: 8, wm: 'sav' }));
+T('uzh', 'mas-dorut', 'Dorut Tilovat (Shahrisabz)', D('Gumbazli kub, chuqur peshtoq, firuza gumbaz.'), MQ({ S: 14, H: 8.5, R: 5.2, hd: 2.4, ky: 1.15, dm: 'tfir', m: 'fir', pt: 6 }));
+T('uzh', 'mas-mahalla1', 'Mahalla masjidi (kichik, gumbazli)', D('Kichik gumbazli masjid va minora.'), MQ({ S: 9, H: 5.6, R: 3.2, hd: 0.8, ky: 0.9, dm: 'sav', m: 'blu', min: 14, pt: 0 }));
+T('uzh', 'mas-mahalla2', 'Mahalla masjidi (ustunli)', D('Ayvonli kichik masjid.'), P => U.hallMosque(P, { w: 16, d: 12, cx: 3, cy: 3, H: 4.2, ayv: 6, min: 16 }));
+T('uzh', 'mas-mahalla3', 'Mahalla masjidi (oq, zamonaviy)', D('Oq gumbazli zamonaviy mahalla masjidi.'), MQ({ S: 11, H: 6.5, wm: 'wmw', dm: 'wmw', m: 'wmw', rm: 'wmw', R: 4.2, hd: 0.8, min: 16, pt: 4, tm: 'wmw', tm2: 'whs' }));
+
+/* ---------- MAQBARALAR ---------- */
+T('uzm', 'maq-guremir', 'Go‘ri Amir maqbarasi (Samarqand)', D('Qovurg‘ali firuza-ko‘k gumbaz, baland baraban, peshtoq burchaklarida 2 minora.'), MQ({ S: 12, H: 9, R: 5.4, hd: 5, ky: 1.35, dm: 'fir', m: 'blu', m2: 'fir', pt: 6, min: 18, nb: 8 }));
+T('uzm', 'maq-ismoil', 'Ismoil Somoniy maqbarasi (Buxoro)', D('G‘ishtli kub, past gumbaz va 4 burchak gumbazchasi.'), MQ({ S: 10, H: 8.2, R: 3.8, hd: 0.5, ky: 0.55, wm: 'pax', dm: 'pax', m: 'pax', rm: 'pax', fm: 'pax', win: true, corner: { r: 0.9, h: 1.2, mc: 'pax' } }));
+T('uzm', 'maq-imom-buxoriy', 'Imom Buxoriy maqbarasi (Samarqand)', D('Gumbazli maqbara, peshtoqli, firuza tusli.'), MQ({ S: 11, H: 8, R: 4.2, hd: 2, ky: 1.1, dm: 'tfir', m: 'fir', pt: 6 }));
+T('uzm', 'maq-naqshband', 'Bahouddin Naqshband maqbarasi (Buxoro)', D('Gumbazli maqbara va kichik minoralar.'), MQ({ S: 12, H: 8, R: 4.6, hd: 1.6, ky: 1.0, dm: 'sav', m: 'blu', pt: 6, min: 14 }));
+T('uzm', 'maq-pahlavon', 'Pahlavon Mahmud maqbarasi (Xiva)', D('Firuza baland gumbaz, peshtoqli kub.'), MQ({ S: 12, H: 8, R: 4.8, hd: 3, ky: 1.4, m: 'fir', dm: 'tblu', pt: 6, wm: 'sav' }));
+T('uzm', 'maq-sultan', 'Sultan Saodat majmuasi maqbarasi (Termiz)', D('Qum rang kichik maqbara.'), MQ({ S: 9, H: 6.4, R: 3.2, hd: 1, ky: 0.9, wm: 'clay', dm: 'clay', m: 'clay', rm: 'clay', pt: 4 }));
+T('uzm', 'maq-chashma', 'Chashma-Ayub maqbarasi (Buxoro)', D('Konussimon (cho‘ziq) gumbazli g‘isht maqbara.'), MQ({ S: 9, H: 6, R: 3.2, hd: 2, ky: 2.2, wm: 'pax', dm: 'pax', m: 'pax', rm: 'pax', win: true }));
+T('uzm', 'maq-ruhobod', 'Ruhobod maqbarasi (Samarqand)', D('Sodda kub va gumbaz.'), MQ({ S: 8, H: 7, R: 3, hd: 0.8, ky: 0.8, wm: 'pax', dm: 'pax', m: 'pax', rm: 'pax' }));
+T('uzm', 'maq-zangiota', 'Zangi-Ota maqbarasi (Toshkent)', D('Peshtoqli gumbazli maqbara.'), MQ({ S: 10, H: 8, R: 3.8, hd: 1.4, ky: 1.0, dm: 'tfir', m: 'blu', pt: 5, wm: 'sav' }));
+T('uzm', 'maq-kaffol', 'Kaffol Shoshiy maqbarasi (Toshkent)', D('Firuza gumbazli kichik maqbara.'), MQ({ S: 9, H: 7, R: 3.5, hd: 1.2, ky: 1.1, m: 'fir', dm: 'tfir', pt: 4 }));
+T('uzm', 'maq-jahongir', 'Jahongir maqbarasi (Shahrisabz)', D('G‘isht kub va past gumbaz.'), MQ({ S: 8, H: 7, R: 3, hd: 1.5, ky: 0.8, wm: 'pax', dm: 'pax', m: 'pax', rm: 'pax' }));
+T('uzm', 'maq-qusam', 'Qusam ibn Abbos maqbarasi (Shohi Zinda)', D('Peshtoqli kichik gumbazli maqbara.'), MQ({ S: 8, H: 6.5, R: 3, hd: 1.4, ky: 1.1, m: 'blu', dm: 'tfir', pt: 5 }));
+T('uzm', 'maq-chorminor', 'Chor-Minor (Buxoro)', D('To‘rt minorali kvadrat bino, har biri gumbazli.'), MQ({ S: 8, H: 8, R: 1.6, hd: 0.4, ky: 1.0, wm: 'pax', win: true, dm: 'tfir', m: 'blu', pt: 0, corner: { r: 1.25, h: 3.4, mc: 'tfir' } }));
+
+/* ---------- MINORALAR ---------- */
+T('uzm', 'min-kalon', 'Kalon minorasi (Buxoro)', D('46 m, pog‘onali g‘isht tana, belbog‘li bezak, fonus.'), MIN({ H: 46, r: 4.6 }));
+T('uzm', 'min-islomxoja', 'Islom Xo‘ja minorasi (Xiva)', D('57 m, ingichka baland, qizil-firuza belbog‘lar.'), MIN({ H: 57, r: 4.2, mb: 'tfir', m: 'sav' }));
+T('uzm', 'min-kalta', 'Kalta Minor (Xiva)', D('Yarim qolgan juda yo‘g‘on minora (firuza), ~29 m.'), MIN({ H: 29, r: 7.2, r1: 6.4, m: 'tfir', mb: 'tblu', n: 10 }));
+T('uzm', 'min-vobkent', 'Vobkent minorasi', D('~38 m, kuygan g‘isht, ixcham ko‘rinish.'), MIN({ H: 38, r: 3.6, m: 'pax', mb: 'pax' }));
+T('uzm', 'min-jarqorgon', 'Jarqo‘rg‘on minorasi (Surxondaryo)', D('~22 m, qadimiy g‘isht minora.'), MIN({ H: 22, r: 3.2, m: 'pax', mb: 'pax', mc: 'pax' }));
+T('uzm', 'min-mahalla', 'Minora 18 m (mahalla masjidi)', D('Kichik minora, firuza belbog‘.'), MIN({ H: 18, r: 1.5, m: 'sav' }));
+T('uzm', 'min-30', 'Minora 30 m (zamonaviy masjid)', D('Oq minora, ko‘k qalpoq.'), MIN({ H: 30, r: 2.0, m: 'wmw', mb: 'tfir' }));
+T('uzm', 'min-juma', 'Minora 30 m (Juma masjidi uslubi)', D('Ingichka pog‘onali minora.'), MIN({ H: 30, r: 1.8, m: 'pax', mb: 'tblu' }));
+
+/* ---------- QAL‘A VA SAROYLAR ---------- */
+T('uzq', 'qal-ark', 'Ark qal‘asi (Buxoro)', D('Baland qalin devorli qal‘a, burchak va devor burjlari, darvoza minoralari, ichida masjid va uylar.'), P => R.fort(P, { w: 64, d: 52, Hw: 11, ramp: true, sp: 20, inner: [[Q => R.innerHouses(Q, 0, 0, 3, 3, 9), -20, 6], [Q => U.mausoleum(Q, { S: 10, H: 7, R: 3.8, pt: 4, dm: 'tfir', m: 'blu' }), 14, 8]] }));
+T('uzq', 'qal-ichan', 'Ichan-Qala (Xiva, kichraytirilgan)', D('Shahar devori, 4 burj, darvozalar; ichida madrasa, minora va uylar.'), P => R.fort(P, { w: 96, d: 60, Hw: 9, sp: 16, br: 3.2, inner: [[Q => U.madrasa(Q, { w: 28, d: 22, fl: 2, pw: 6, min: 2, mh: 8, ring: 5 }), 22, 6], [Q => U.minaretStand(Q, { H: 40, r: 4, mb: 'tfir', m: 'sav' }), -10, 14], [Q => R.innerHouses(Q, 0, 0, 5, 3, 8), -38, -8]] }));
+T('uzq', 'qal-kuhnaark', 'Kuhna Ark (Xiva)', D('Xon qal‘asi: devor, darvoza, ichida saroy hovlisi.'), P => R.fort(P, { w: 60, d: 46, Hw: 10, sp: 18, ramp: true, inner: [[Q => R.palaceCourt(Q, { w: 30, d: 24, T: 5, fl: 1, wall: 'sav', pool: true }), 0, -20]] }));
+T('uzq', 'qal-toshhovli', 'Tosh-Hovli saroyi (Xiva)', D('Ayvonli hovlilar atrofida xonalar, hovuz, minora.'), P => R.palaceCourt(P, { w: 52, d: 44, T: 8, fl: 1, H: 5, wall: 'sav', pool: true, min: 12 }));
+T('uzq', 'qal-nurullaboy', 'Nurullaboy saroyi (Xiva)', D('Ikki qavatli saroy, hovuz, gumbazli zal.'), P => R.palaceCourt(P, { w: 44, d: 36, T: 7, fl: 2, H: 4.4, wall: 'sav', pool: true, dome: true, dm: 'fir' }));
+T('uzq', 'qal-qoqon', 'Xudoyorxon o‘rdasi (Qo‘qon)', D('Ikki qavatli keng saroy, bezakli peshtoq.'), P => R.palaceCourt(P, { w: 58, d: 36, T: 8, fl: 2, H: 5, wall: 'pax', pool: true, dome: true, min: 12 }));
+T('uzq', 'qal-sitorai', 'Sitorai Mohi-Xosa (Buxoro)', D('Yozgi saroy: hovli, hovuz, ayvonli xonalar.'), P => R.palaceCourt(P, { w: 44, d: 34, T: 7, fl: 1, H: 5.2, wall: 'sav', pool: true }));
+T('uzq', 'qal-oqsaroy', 'Oqsaroy peshtoqi (Shahrisabz)', D('Ikki ulkan peshtoq tayanchi — vayronalar ko‘rinishi.'), P => R.monument(P, { kind: 'oqsaroy' }));
+T('uzq', 'qal-ayoz', 'Ayoz-Qala (Xorazm)', D('Tog‘ ustidagi qadimiy qal‘a ko‘rinishi: devor, burjlar, darvoza.'), P => R.fort(P, { w: 44, d: 32, Hw: 8, sp: 12, br: 3.0, gw: 4 }));
+T('uzq', 'qal-toprok', 'Toprok-Qala (Xorazm)', D('Kvadrat qal‘a, burjlar bilan.'), P => R.fort(P, { w: 38, d: 30, Hw: 8, sp: 10, br: 2.8, gw: 3.8 }));
+T('uzq', 'qal-katta', 'Qal‘a 90×70 (uch qator burjli)', D('Katta shahar qal‘asi: devor burjlari, darvoza, ichida uylar.'), P => R.fort(P, { w: 90, d: 70, Hw: 11, sp: 14, br: 4, inner: [[Q => R.innerHouses(Q, 0, 0, 6, 4, 9), -25, -12]] }));
+T('uzq', 'qal-kichik', 'Qal‘a 40×30 (kichik)', D('Kichik chegara qal‘asi.'), P => R.fort(P, { w: 40, d: 30, Hw: 7, sp: 12, br: 2.6, gw: 3.6 }));
+
+/* ---------- SHAHAR OBIDALARI ---------- */
+T('uzs', 'shr-chorsu', 'Chorsu bozori (Toshkent)', D('Kvadrat bino va markaziy katta firuza gumbaz; atrofida kichik gumbazlar.'), P => R.bazaarDome(P, { S: 52 }));
+T('uzs', 'shr-toqi-zargaron', 'Toqi Zargaron (Buxoro)', D('Xoch shaklidagi savdo yo‘laklari, kesishmada gumbaz, har yo‘lakda gumbazlar.'), P => R.toqi(P, { L: 16 }));
+T('uzs', 'shr-toqi-telpak', 'Toqi Telpakfurushon (Buxoro)', D('Savdo gumbazi — kichik xoch yo‘lak.'), P => R.toqi(P, { L: 12, H: 5 }));
+T('uzs', 'shr-toqi-sarrafon', 'Toqi Sarrafon (Buxoro)', D('Savdo gumbazi — uzunroq yo‘laklar.'), P => R.toqi(P, { L: 20, H: 5.5 }));
+T('uzs', 'shr-navoiy', 'Navoiy teatri (Toshkent)', D('Ustunli peshayvon, uchburchak frontton, markaziy gumbazli zal.'), P => R.theatre(P, { w: 44, d: 30, H: 11, nc: 8 }));
+T('uzs', 'shr-teatr-kichik', 'Teatr 30×22 (ustunli)', D('Kichik teatr binosi.'), P => R.theatre(P, { w: 30, d: 22, H: 8, nc: 6, pd: 5 }));
+T('uzs', 'shr-dostlik', 'Xalqlar do‘stligi saroyi uslubida zal', D('Shisha fasadli katta zal, ustunlar, tekis tom.'), P => R.hall(P, { w: 64, d: 38, H: 16, nc: 10 }));
+T('uzs', 'shr-humo', 'Humo Arena uslubida muz saroyi', D('24 qirrali aylana bino, past gumbazsimon tom.'), P => R.arena(P, { R: 38, n: 24, H: 16, roof: 'dome', dm: 'sil', ky: 0.3 }));
+T('uzs', 'shr-paxtakor', 'Paxtakor stadioni uslubida', D('Poligon stadion: tashqi devor, ikki tribuna, maysazor maydon.'), P => R.stadium(P, { R: 52, n: 32, H: 20 }));
+T('uzs', 'shr-bunyodkor', 'Bunyodkor stadioni uslubida', D('Poligon stadion, firuza tribunalar.'), P => R.stadium(P, { R: 58, n: 36, H: 22, sm: 'fir' }));
+T('uzs', 'shr-mustaqillik', 'Mustaqillik monumenti (soddalashtirilgan)', D('Pog‘onali asos, ustun, shar va yuqorida haykal ustuni.'), P => R.monument(P, { kind: 'indep' }));
+T('uzs', 'shr-ezgulik', 'Ezgulik arkasi (soddalashtirilgan)', D('Ikki tayanch va pog‘onali (korbel) arka, yuqorida to‘sin.'), P => R.monument(P, { kind: 'arch' }));
+T('uzs', 'shr-temur', 'Amir Temur monumenti (xiyobon)', D('Pog‘onali poydevor, tosh poydevor va haykal ustuni.'), P => R.monument(P, { kind: 'temur' }));
+T('uzs', 'shr-obelisk', 'Obelisk (xotira ustuni)', D('To‘rtburchak pog‘onali obelisk, oltin uchi.'), P => R.monument(P, { kind: 'obelisk' }));
+T('uzs', 'shr-teleminora', 'Toshkent teleminorasi (kichraytirilgan 150 m)', D('Tana, qabul qilish gumbazi (shayba) va mayoq — haqiqiyning ~40%.'), P => R.tvTower(P, { H: 150 }));
+T('uzs', 'shr-sirk', 'Toshkent sirki uslubida (gumbazli)', D('Aylana bino va katta gumbaz.'), P => R.circus(P, { R: 30, dm: 'blu' }));
+T('uzs', 'shr-rasadxona', 'Ulug‘bek rasadxonasi (aylana asos)', D('Silindrsimon bino va past gumbaz.'), P => R.monument(P, { kind: 'ulugbek' }));
+
+/* ---------- BALAND BINOLAR ---------- */
+const TOWERS = [];
+const rg = R.rnd;
+const names = ['Toshkent-Siti uslubida shisha minora', 'Amir Temur ko‘chasi uslubida ofis minorasi', 'Mustaqillik shoh ko‘chasi uslubida bino', 'Yunusobod uslubida minora', 'Mirobod uslubida biznes markaz', 'Chilonzor uslubida baland bino'];
+let ti = 0; const addT = (nm, ds, o) => T('uzb', 'bin-' + (++ti), nm, D(ds), TW(o));
+/* shisha plitalar va minoralar */
+const GL = ['gl', 'gl2', 'dk'];
+for (const [fl, w, d, cr, gm, win] of [[14, 32, 20, 'flat', 'gl', 'ribbon'], [18, 28, 22, 'spire', 'gl', 'ribbon'], [22, 26, 18, 'flat', 'gl2', 'ribbon'], [26, 24, 24, 'step', 'gl', 'ribbon'], [30, 22, 22, 'spire', 'dk', 'ribbon'], [34, 24, 20, 'step', 'gl2', 'ribbon'], [40, 22, 22, 'spire', 'gl', 'ribbon'], [44, 26, 26, 'spire', 'dk', 'ribbon']]) {
+    addT('Shisha minora ' + fl + ' qavat (Toshkent-Siti uslubi)', 'Shisha fasadli ' + fl + ' qavatli ofis minorasi: ' + w + '×' + d + ' m, podium va ' + (cr === 'spire' ? 'shpil' : cr === 'step' ? 'pog‘onali tepa' : 'tekis tom') + '.', { tiers: [{ n: 2, w: w + 14, d: d + 10, gm: 'whs', win: 'grid' }, { n: fl, w, d }], gm, fins: true, band: 0, crown: cr, spire: 16, wm: 'whs', win });
+}
+/* pog‘onali (setback) minoralar */
+for (const [a, b, c, cr] of [[10, 10, 8, 'pyr'], [12, 14, 10, 'step'], [16, 12, 10, 'spire'], [8, 12, 12, 'dome']]) {
+    addT('Pog‘onali minora ' + (a + b + c) + ' qavat (' + (cr === 'pyr' ? 'oltin tomli' : cr === 'dome' ? 'gumbazli' : cr === 'step' ? 'pog‘onali tepa' : 'shpilli') + ')', 'Uch bosqichli (setback) minora, yuqoriga torayib boradi.', { tiers: [{ n: a, w: 40, d: 28 }, { n: b, w: 30, d: 21 }, { n: c, w: 20, d: 14 }], gm: 'gl', crown: cr, spire: 14, wm: 'whs', fins: true, win: 'ribbon', rm: 'gld' });
+}
+/* dumaloq minoralar */
+for (const [fl, R2, cr, gm] of [[20, 26, 'dome', 'gl'], [28, 22, 'spire', 'dk'], [16, 30, 'flat', 'gl2'], [34, 20, 'step', 'gl']]) {
+    addT('Aylana minora ' + fl + ' qavat', 'Silindr (16 qirrali) shisha minora: diametri ' + R2 + ' m.', { tiers: [{ n: 2, w: R2 + 12, d: R2 + 12, round: 16, gm: 'whs', win: 'grid' }, { n: fl, w: R2, d: R2, round: 16 }], gm, crown: cr, spire: 14, win: 'ribbon' });
+}
+/* sovet mehmonxona / ofis plitalari */
+addT('Mehmonxona 16 qavat (1970-yillar uslubi, “O‘zbekiston” mehmonxonasiga o‘xshash)', 'Uzun plita shaklida, ritmik derazali baland mehmonxona; podiumli.', { tiers: [{ n: 2, w: 74, d: 30, win: 'grid', gm: 'pan2' }, { n: 14, w: 66, d: 16, win: 'grid', gm: 'pan2' }], wm: 'pan', gm: 'pan2', crown: 'flat', fh: 3.2, band: 0 });
+addT('Ofis binosi 12 qavat (sovet uslubi)', 'Panel fasadli, qator derazali ofis binosi.', { tiers: [{ n: 12, w: 46, d: 18, win: 'grid', gm: 'pan' }], wm: 'pan', gm: 'pan', crown: 'flat', fh: 3.2 });
+addT('Hokimiyat binosi 8 qavat (ustunli)', 'Yirik ustunlar, tekis tom, keng fasad.', { tiers: [{ n: 8, w: 60, d: 28, win: 'grid', gm: 'whs' }], wm: 'whs', gm: 'whs', crown: 'flat', fh: 4, fins: true });
+T('uzb', 'bin-' + (++ti), 'Egizak minoralar (umumiy podium, 2×24 qavat)', D('Ikki bir xil shisha minora, ularni bog‘lovchi podium.'), P => { lvInit(P, [3.6]); place(P, Q => { R.tower(Q, { tiers: [{ n: 3, w: 60, d: 26, gm: 'whs', win: 'grid' }], gm: 'whs', crown: 'flat', fins: false }); }, 0, 0, 0); for (const sx of [-1, 1]) place(P, Q => R.tower(Q, { tiers: [{ n: 24, w: 20, d: 20 }], gm: 'gl', crown: 'spire', spire: 12, fins: true }), sx * 18, 0, 0); });
+T('uzb', 'bin-' + (++ti), 'Minora 60 qavat (rekord, 215 m)', D('Juda baland ingichka shisha minora, shpil bilan.'), TW({ tiers: [{ n: 3, w: 40, d: 40, gm: 'whs', win: 'grid' }, { n: 57, w: 24, d: 24 }], gm: 'gl', crown: 'spire', spire: 24, fins: true, win: 'ribbon' }));
+T('uzb', 'bin-' + (++ti), 'Minora 38 qavat (oltin tomli)', D('Piramidal oltin tomli ofis minorasi.'), TW({ tiers: [{ n: 2, w: 40, d: 40, gm: 'whs', win: 'grid' }, { n: 36, w: 22, d: 22 }], gm: 'gl2', crown: 'pyr', rm: 'gld', fins: true, win: 'ribbon' }));
+T('uzb', 'bin-' + (++ti), 'Minora 30 qavat (sakkizburchak)', D('Sakkiz qirrali shisha minora, gumbazli tepa.'), TW({ tiers: [{ n: 2, w: 34, d: 34, round: 8, gm: 'whs', win: 'grid' }, { n: 28, w: 24, d: 24, round: 8 }], gm: 'gl', crown: 'dome', win: 'ribbon' }));
+T('uzb', 'bin-' + (++ti), 'Biznes markazi 10 qavat (podiumli)', D('O‘rtacha ofis binosi, katta podium.'), TW({ tiers: [{ n: 2, w: 50, d: 32, gm: 'whs', win: 'grid' }, { n: 8, w: 36, d: 24 }], gm: 'gl', crown: 'flat', fins: true }));
+T('uzb', 'bin-' + (++ti), 'Turar-joy minorasi 25 qavat (balandroq)', D('Yashil-shisha turar-joy minorasi, 3 pog‘ona.'), TW({ tiers: [{ n: 8, w: 30, d: 20, win: 'grid' }, { n: 9, w: 26, d: 18, win: 'grid' }, { n: 8, w: 20, d: 16, win: 'grid' }], gm: 'gl2', crown: 'step', fins: true, wm: 'whs', band: 4 }));
+T('uzb', 'bin-' + (++ti), 'Bank binosi 20 qavat (marmar fasad)', D('Marmar fasadli bank va ofis binosi.'), TW({ tiers: [{ n: 20, w: 34, d: 24, gm: 'wmw', win: 'grid' }], gm: 'wmw', wm: 'wmw', crown: 'flat', fins: true }));
+
+/* ---------- SOVET PANEL UYLARI ---------- */
+const PAN = [['5 qavatli panel uy (4 kirish, xrushchyovka uslubi)', { secs: 4, fl: 5, roof: 'gable' }], ['5 qavatli panel uy (2 kirish)', { secs: 2, fl: 5, roof: 'gable', pm: 'pan2' }], ['9 qavatli panel uy (3 kirish, balkonli)', { secs: 3, fl: 9, bal: true }], ['9 qavatli minora uy (1 kirish)', { secs: 1, fl: 9, bal: true, sw: 14 }], ['9 qavatli panel uy (6 kirish)', { secs: 6, fl: 9, bal: true, pm: 'pan2' }], ['12 qavatli panel uy (2 kirish)', { secs: 2, fl: 12, bal: true }], ['16 qavatli panel uy (2 kirish)', { secs: 2, fl: 16, bal: true, pm: 'pan2' }], ['3 qavatli eski uy (2 kirish)', { secs: 2, fl: 3, roof: 'gable', pm: 'pan2' }]];
+for (const [nm, o] of PAN) T('uzb', 'pan-' + (++ti), nm, D('Sovet davri yirik panelli turar-joy: kirish soyabonlari, derazalar, tekis/qiya tom.'), P => R.panel(P, o));
+
+/* ---------- UYLAR VA HOVLILAR ---------- */
+const HOUSES = [
+    ['Toshkent hovli uyi (sinch, 3 xona, ayvonli)', { w: 24, d: 30, hw: 15, hd: 6.5, rooms: 3, ayv: true, roof: 'gable', wall: 'sav', pool: true, topchan: true, bed: true }],
+    ['Samarqand hovli uyi (g‘isht, 4 xona)', { w: 26, d: 32, hw: 16, hd: 7, rooms: 4, ayv: true, roof: 'hip', wall: 'pax', annex: 6, topchan: true }],
+    ['Buxoro hovli uyi (loy suvoq, ayvon)', { w: 22, d: 28, hw: 13, hd: 6, rooms: 3, ayv: true, roof: 'flat', wall: 'clay', fence: 'clay', pool: true }],
+    ['Xiva hovli uyi (past, ayvonli)', { w: 22, d: 26, hw: 12, hd: 6, rooms: 3, ayv: true, roof: 'flat', wall: 'clay', annex: 5 }],
+    ['Qo‘qon hovli uyi (ikki qavatli)', { w: 26, d: 32, hw: 14, hd: 7, rooms: 3, fl: 2, ayv: true, roof: 'gable', wall: 'sav', pool: true }],
+    ['Namangan hovli uyi (ikki qavatli, garajli)', { w: 28, d: 34, hw: 16, hd: 7.5, rooms: 4, fl: 2, ayv: true, roof: 'hip', wall: 'pax', garage: true, bed: true }],
+    ['Andijon hovli uyi (4 xona, tom qiya)', { w: 26, d: 30, hw: 16, hd: 7, rooms: 4, ayv: true, roof: 'gable', wall: 'sav', annex: 6, topchan: true }],
+    ['Farg‘ona hovli uyi (kichik)', { w: 20, d: 24, hw: 11, hd: 6, rooms: 2, ayv: true, roof: 'shed', wall: 'sav' }],
+    ['Qarshi hovli uyi (past, keng)', { w: 28, d: 28, hw: 18, hd: 6.5, rooms: 4, ayv: true, roof: 'flat', wall: 'clay', pool: true, topchan: true }],
+    ['Termiz hovli uyi (loy, yassi tom)', { w: 22, d: 26, hw: 14, hd: 6, rooms: 3, ayv: false, roof: 'flat', wall: 'clay', annex: 5 }],
+    ['Jizzax hovli uyi (3 xona)', { w: 22, d: 28, hw: 13, hd: 6.4, rooms: 3, ayv: true, roof: 'gable', wall: 'sav', bed: true }],
+    ['Guliston hovli uyi (garajli)', { w: 24, d: 30, hw: 14, hd: 7, rooms: 3, ayv: false, roof: 'hip', wall: 'pax', garage: true }],
+    ['Navoiy hovli uyi (ikki qavatli, ayvonli)', { w: 26, d: 32, hw: 15, hd: 7, rooms: 3, fl: 2, ayv: true, roof: 'hip', wall: 'sav', pool: true }],
+    ['Urganch hovli uyi (past, keng)', { w: 24, d: 28, hw: 15, hd: 6.4, rooms: 3, ayv: true, roof: 'flat', wall: 'sav', annex: 5, topchan: true }],
+    ['Nukus hovli uyi (loy, yassi)', { w: 22, d: 26, hw: 12, hd: 6, rooms: 3, ayv: false, roof: 'flat', wall: 'clay', fence: 'clay' }],
+    ['Shahrisabz hovli uyi (g‘isht, ayvon)', { w: 24, d: 30, hw: 14, hd: 6.5, rooms: 3, ayv: true, roof: 'gable', wall: 'pax', topchan: true, bed: true }],
+    ['Marg‘ilon hovli uyi (ikki qavatli, bezakli)', { w: 28, d: 32, hw: 16, hd: 7, rooms: 4, fl: 2, ayv: true, roof: 'hip', wall: 'sav', pool: true, topchan: true }],
+    ['Chirchiq hovli uyi (zamonaviy, tekis tom)', { w: 26, d: 30, hw: 16, hd: 7.5, rooms: 3, fl: 2, ayv: false, roof: 'flat', wall: 'whs', garage: true, bed: true }],
+    ['Angren hovli uyi (kichik)', { w: 18, d: 22, hw: 10, hd: 5.8, rooms: 2, ayv: true, roof: 'gable', wall: 'sav' }],
+    ['Kattaqo‘rg‘on hovli uyi (3 xona, hovuzli)', { w: 24, d: 30, hw: 14, hd: 6.5, rooms: 3, ayv: true, roof: 'hip', wall: 'sav', pool: true, bed: true }]
+];
+for (const [nm, o] of HOUSES) T('uzu', 'uy-' + (++ti), nm, D('Devor bilan o‘ralgan hovli, darvoza, ayvonli uy, hovli bezaklari.'), HV(o));
+T('uzu', 'uy-buxoro-mehmon', 'Buxoro mehmonxonasi (2 qavat, ichki hovli)', D('Ixcham ikki qavatli mehmon uyi: hovlisi hovuzli, pastki qavat hujralar.'), MAD({ w: 22, d: 20, fl: 2, pw: 4.6, min: 0, ring: 5, cw: 4.2, wall: 'sav', tile: 'clay', dome: false, iwans: false, ph: 0.8, court: true }));
+T('uzu', 'uy-yurta1', 'Yurta (kichik, 7 m)', D('Ko‘chmanchilar uyi: 12 qirrali devor va konussimon tom.'), P => R.yurt(P, { R: 3.5 }));
+T('uzu', 'uy-yurta2', 'Yurta (katta, 10 m)', D('Katta yurta, oq tomli.'), P => R.yurt(P, { R: 5.0 }));
+T('uzu', 'uy-yurta3', 'Yurta (qoraqalpoq, 8 m)', D('Yurta, och rangli tomli.'), P => R.yurt(P, { R: 4.0, col: 'wd' }));
+T('uzu', 'uy-choyxona1', 'Choyxona (ayvonli, hovuzli, 6 ustun)', D('Yog‘och ustunli keng ayvon, hovuz va xona.'), P => U.ayvonMosque(P, { n: 6, sp: 3.2, min: 0, H: 4.6, d: 6 }));
+T('uzu', 'uy-choyxona2', 'Choyxona (katta, 12 ustun)', D('Uzun ayvonli katta choyxona.'), P => U.ayvonMosque(P, { n: 12, sp: 3.0, min: 0, H: 5, d: 8 }));
+T('uzu', 'uy-choyxona3', 'Choyxona (kichik, 4 ustun)', D('Mahalla choyxonasi.'), P => U.ayvonMosque(P, { n: 4, sp: 3.0, min: 0, H: 4.2, d: 5 }));
+T('uzu', 'uy-hammom1', 'Hammom (4 gumbazli, Buxoro uslubi)', D('G‘isht hammom: tomida kichik gumbazlar.'), P => R.hammom(P, { w: 16, d: 9, n: 4 }));
+T('uzu', 'uy-hammom2', 'Hammom (6 gumbazli, katta)', D('Uzun hammom binosi.'), P => R.hammom(P, { w: 24, d: 10, n: 6 }));
+T('uzu', 'uy-hammom3', 'Hammom (2 gumbazli, kichik)', D('Kichik hammom.'), P => R.hammom(P, { w: 10, d: 7, n: 2 }));
+T('uzu', 'uy-tim', 'Tim (yopiq savdo yo‘lagi)', D('Gumbazli yopiq bozor yo‘lagi.'), P => R.toqi(P, { L: 10, H: 4.8 }));
+
+/* ---------- ANSAMBLLAR ---------- */
+const MADS_BY = Object.fromEntries(MADS.map(m => [m[0], m[3]]));
+T('uze', 'ans-registon', 'Registon ansambli (3 madrasa maydon atrofida)', D('Ulug‘bek, Sherdor va Tilla-Kori madrasalari bir maydonga qaragan.'), P => comp(P, [[Q => U.madrasa(Q, MADS_BY.ulugbek), -52, 0, 1], [Q => U.madrasa(Q, MADS_BY.sherdor), 52, 0, 3], [Q => U.madrasa(Q, MADS_BY.tillakori), 0, 52, 0]]));
+T('uze', 'ans-poikalon', 'Poi Kalon ansambli (Buxoro)', D('Kalon minorasi, Kalon masjidi va Mir-i Arab madrasasi.'), P => comp(P, [[Q => U.grandMosque(Q, { w: 56, d: 44, R: 8.5, side: true, mh: 14, min: 2 }), 0, 40, 0], [Q => U.madrasa(Q, MADS_BY.miriarab), 0, -40, 2], [Q => U.minaretStand(Q, { H: 46, r: 4.6 }), -45, 0, 0]]));
+T('uze', 'ans-lyabi', 'Lyabi-Hovuz ansambli (Buxoro)', D('Markazda katta hovuz, atrofida Ko‘kaldosh va Nodir Devonbegi madrasalari.'), P => comp(P, [[Q => { U.slab(Q, -22, -18, 22, 18, 0.02, 0.5, um(Q, 'wat'), MC.stone); }, 0, 0, 0], [Q => U.madrasa(Q, MADS_BY.kukeldosh), 0, 52, 0], [Q => U.madrasa(Q, MADS_BY.nodir), 48, 0, 1], [Q => U.madrasa(Q, MADS_BY.modari), -48, 0, 3]]));
+T('uze', 'ans-shohizinda', 'Shohi-Zinda ko‘chasi (Samarqand uslubi)', D('Ikki tomonda qatorlashgan 10 ta gumbazli maqbara va kirish peshtoqi.'), P => comp(P, (() => { const L = []; const ks = [[7, 6.2, 'fir'], [8, 6.6, 'blu'], [7, 6.4, 'fir'], [9, 7, 'blu'], [7, 6.2, 'fir']]; ks.forEach((k, i) => { const y = i * 11 - 22; L.push([Q => U.mausoleum(Q, { S: k[0], H: k[1], R: k[0] * 0.36, hd: 1.6, ky: 1.15, dm: 'tfir', m: k[2], pt: k[0] - 2 }), -8, y, 1]); L.push([Q => U.mausoleum(Q, { S: k[0], H: k[1], R: k[0] * 0.36, hd: 1.6, ky: 1.15, dm: 'tfir', m: k[2] === 'fir' ? 'blu' : 'fir', pt: k[0] - 2 }), 8, y, 3]); }); L.push([Q => { U.slab(Q, -3, -26, 3, 26, 0.02, 0.2, MC.stone); U.pishtaq(Q, 0, -27, 7, 10, 4.5, {}); }, 0, 0, 0]); return L; })()));
+T('uze', 'ans-toshkent-siti', 'Toshkent-Siti uslubidagi minoralar majmuasi (5 minora)', D('Beshta turli balandlikdagi shisha minora umumiy maydonda.'), P => comp(P, [[Q => R.tower(Q, { tiers: [{ n: 24, w: 22, d: 22 }], gm: 'gl', crown: 'spire', spire: 14, fins: true }), -32, 18, 0], [Q => R.tower(Q, { tiers: [{ n: 32, w: 24, d: 24 }], gm: 'gl2', crown: 'step', fins: true }), 4, 22, 0], [Q => R.tower(Q, { tiers: [{ n: 18, w: 22, d: 30 }], gm: 'dk', crown: 'flat' }), 38, 16, 0], [Q => R.tower(Q, { tiers: [{ n: 14, w: 34, d: 24, gm: 'whs', win: 'grid' }], gm: 'whs', crown: 'flat' }), -18, -22, 0], [Q => R.tower(Q, { tiers: [{ n: 28, w: 20, d: 20, round: 14 }], gm: 'gl', crown: 'dome' }), 24, -24, 0]]));
+T('uze', 'ans-ichan', 'Ichan-Qala ansambli (Xiva, madrasa va minoralar)', D('Kalta Minor, Islom Xo‘ja minorasi va Muhammad Aminxon madrasasi yonma-yon.'), P => comp(P, [[Q => U.madrasa(Q, MADS_BY.amin), 0, 0, 0], [Q => U.minaretStand(Q, { H: 29, r: 7.2, r1: 6.4, m: 'tfir', mb: 'tblu', n: 10 }), -34, -6, 0], [Q => U.minaretStand(Q, { H: 57, r: 4.2, mb: 'tfir', m: 'sav' }), 40, 40, 0], [Q => U.madrasa(Q, MADS_BY.islomxoja), 52, 0, 0]]));
+T('uze', 'ans-hazrati', 'Hazrati Imom majmuasi (Toshkent)', D('Barakxon madrasasi, Hazrati Imom va Tilla Shayx masjidlari, Kaffol Shoshiy maqbarasi.'), P => comp(P, [[Q => U.madrasa(Q, MADS_BY.barakxon), 0, 0, 0], [Q => U.mausoleum(Q, { S: 15, H: 8, R: 5.4, hd: 1.8, dm: 'tfir', m: 'fir', pt: 5, min: 22 }), 38, 6, 3], [Q => U.mausoleum(Q, { S: 14, H: 9, pt: 6, R: 5, hd: 2, ky: 1.1, dm: 'tfir', m: 'fir', min: 24 }), -38, 6, 1], [Q => U.mausoleum(Q, { S: 9, H: 7, R: 3.5, hd: 1.2, m: 'fir', dm: 'tfir', pt: 4 }), 0, 38, 2]]));
+T('uze', 'ans-mahalla', 'Mahalla ko‘chasi (6 ta hovli uyi va masjid)', D('Ko‘cha bo‘ylab qator hovlilar, oxirida mahalla masjidi.'), P => comp(P, [[Q => { U.slab(Q, -90, -9, 90, -1, 0.0, 0.3, MC.concrete); }, 0, 0, 0], ...[[-60, 'sav'], [-30, 'pax'], [0, 'sav'], [30, 'clay'], [60, 'sav']].map(([x, wl], i) => [Q => R.hovli(Q, { w: 24, d: 28, hw: 14, hd: 6.4, rooms: 3, ayv: true, roof: i % 2 ? 'hip' : 'gable', wall: wl, fl: i === 2 ? 2 : 1, bed: true }), x, 0, 0]), [Q => U.mausoleum(Q, { S: 9, H: 5.6, R: 3.2, hd: 0.8, dm: 'sav', m: 'blu', min: 14 }), 86, -14, 0]]));
+T('uze', 'ans-chorsu', 'Chorsu bozori majmuasi (Toshkent)', D('Chorsu gumbazi, Ko‘kaldosh madrasasi va savdo yo‘laklari.'), P => comp(P, [[Q => R.bazaarDome(Q, { S: 52 }), 0, 0, 0], [Q => U.madrasa(Q, MADS_BY.kokaldosh_t), 0, 60, 0], [Q => R.toqi(Q, { L: 12, H: 5 }), 60, -10, 0]]));
+T('uze', 'ans-bibi', 'Bibi-Xonim majmuasi (Samarqand)', D('Katta masjid, qarshisida ikki maqbara.'), P => comp(P, [[Q => U.grandMosque(Q, { w: 60, d: 46, R: 8, side: true, mh: 16 }), 0, 30, 0], [Q => U.mausoleum(Q, { S: 12, H: 8, R: 4.8, hd: 3, ky: 1.3, dm: 'tfir', m: 'blu', pt: 6 }), -22, -28, 0], [Q => U.mausoleum(Q, { S: 10, H: 7, R: 3.8, hd: 2, ky: 1.1, dm: 'tfir', m: 'fir', pt: 5 }), 22, -28, 0]]));
+T('uze', 'ans-mustaqillik', 'Mustaqillik maydoni (Toshkent): arka, monument va zal', D('Ezgulik arkasi, Mustaqillik monumenti va katta zal bir maydonda.'), P => comp(P, [[Q => R.monument(Q, { kind: 'indep' }), 0, 0, 0], [Q => R.monument(Q, { kind: 'arch' }), 0, -70, 0], [Q => R.hall(Q, { w: 64, d: 38, H: 16 }), 0, 80, 0]]));
+})();
+
 async function init() {
     renderTools(); init3d(); initMapOverlay(); resizePlan(); new ResizeObserver(() => resizePlan()).observe(cv.parentElement);
     let restored = false; try { const raw = localStorage.getItem('hb_autosave_v1'); if (raw) { const o = JSON.parse(raw); if (o && o.P && o.P.walls && o.P.walls.length) { await openProject(o); restored = true; toast('Oxirgi loyiha tiklandi.'); } } } catch (e) { /* buzilgan saqlash */ }
