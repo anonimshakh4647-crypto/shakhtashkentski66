@@ -638,6 +638,30 @@
                 <button class="btn btn-export cv-ex" data-k="glb" type="button" disabled>Export .GLB</button>
                 <button class="btn cv-ex" data-k="png" type="button" disabled>Teksturalar .PNG</button>
             </div>
+            <details class="cv-det" id="cvMapBox">
+                <summary>GTA SA xaritasiga qo‘shish (COL · IDE · IPL)</summary>
+                <div class="cv-grid">
+                    <label class="cv-f"><span>Model / TXD nomi (kichik harf, ≤20)</span><input type="text" id="cvMapName" maxlength="20" placeholder="myhouse"></label>
+                    <label class="cv-f"><span>Obyekt ID (boshqa mod bilan to‘qnashmasin)</span><input type="number" id="cvMapId" min="1" max="19999" value="18631"></label>
+                    <label class="cv-f"><span>Joy X</span><input type="number" id="cvMapX" step="any" value="0"></label>
+                    <label class="cv-f"><span>Joy Y</span><input type="number" id="cvMapY" step="any" value="0"></label>
+                    <label class="cv-f"><span>Joy Z (yer balandligi)</span><input type="number" id="cvMapZ" step="any" value="0"></label>
+                    <label class="cv-f"><span>Ko‘rinish masofasi</span><input type="number" id="cvMapDraw" min="10" max="3000" value="300"></label>
+                    <label class="cv-f"><span>IDE flags</span><input type="number" id="cvMapFlags" min="0" value="0"></label>
+                    <label class="cv-f"><span>COL turi</span><select id="cvColMode"><option value="auto">Avto (mesh, og‘ir bo‘lsa qutilar)</option><option value="mesh">Mesh (uy ichiga kirsa bo‘ladi)</option><option value="boxes">Har obyekt qutisi (yengil)</option><option value="box">Bitta quti (eng yengil, ichiga kirib bo‘lmaydi)</option></select></label>
+                    <label class="cv-f"><span>COL: mayda detal chegarasi (m)</span><input type="number" id="cvColMin" min="0" step="0.1" value="0.5"></label>
+                    <label class="cv-f"><span>COL: maks. uchburchak</span><input type="number" id="cvColMax" min="100" max="65000" step="500" value="30000"></label>
+                    <label class="cv-f"><span>COL: sirt materiali (0 = default)</span><input type="number" id="cvColSurf" min="0" max="255" value="0"></label>
+                </div>
+                <div class="opt-row"><label class="chk" title="Paketda uy pastki o‘rta nuqtasi (0,0,0) ga keltiriladi — IPL dagi joy aynan shu nuqta bo‘ladi"><input type="checkbox" id="cvMapCenter" checked> Paketda uyni pastki markazga keltirish</label></div>
+                <div class="export-grid cv-exports">
+                    <button class="btn btn-export cv-ex" data-k="col" type="button" disabled>Export .COL</button>
+                    <button class="btn btn-export cv-ex" data-k="ide" type="button" disabled>Export .IDE</button>
+                    <button class="btn btn-export cv-ex" data-k="ipl" type="button" disabled>Export .IPL</button>
+                    <button class="btn btn-export cv-ex" data-k="map" type="button" disabled title="DFF + TXD + COL + IDE + IPL + qo‘llanma — bitta ZIP">GTA xarita paketi (.ZIP)</button>
+                </div>
+                <p class="note">To‘liq to‘plam uchun <b>GTA xarita paketi</b> ni bosing: ichida DFF, TXD, COL, IDE, IPL va <code>gta.dat</code> ga qo‘shiladigan qatorlar yozilgan qo‘llanma bor. COL bo‘lmasa uy “arvoh” bo‘ladi.</p>
+            </details>
             <button class="btn" id="cvClear" type="button">Konvertorni tozalash (1–5 ga qaytish)</button>
             <p class="note"><b>.BLEND:</b> brauzer haqiqiy .blend yoza olmaydi, shuning uchun model ichiga joylangan <code>.py</code> skript beriladi — Blenderda ishga tushirsangiz o‘sha model <code>.blend</code> bo‘lib saqlanadi.</p>
             <details class="cv-det">
@@ -5388,6 +5412,125 @@ function buildTxd(model, keys, o) {
     void W; return { bytes: out, info };
 }
 
+/* ---------- GTA SA xarita: COL3 / IDE / IPL ---------- */
+const gtaName = s => (String(s || 'myhouse').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 20)) || 'myhouse';
+
+/* modelni (nusxada) pastki-markazga keltiradi: X/Y markazi 0, eng past nuqta Z=0 */
+function centeredCopy(model, name) {
+    const bb = bounds(model.meshes), cx = (bb.min[0] + bb.max[0]) / 2, cy = (bb.min[1] + bb.max[1]) / 2, cz = bb.min[2];
+    const meshes = model.meshes.map(m => { const pos = new Float32Array(m.pos.length); for (let i = 0; i < pos.length; i += 3) { pos[i] = m.pos[i] - cx; pos[i + 1] = m.pos[i + 1] - cy; pos[i + 2] = m.pos[i + 2] - cz; } return Object.assign({}, m, { pos }); });
+    const b2 = bounds(meshes), size = [b2.max[0] - b2.min[0], b2.max[1] - b2.min[1], b2.max[2] - b2.min[2]];
+    return Object.assign({}, model, { name: name || model.name, meshes, bb: b2, size, L: Math.max(size[0], size[1], size[2]) });
+}
+
+function colMeshData(model, minSize) {
+    const verts = [], faces = [], map = new Map(); let skipped = 0, over = false;
+    const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+    for (const m of model.meshes) {
+        const P = m.pos, n = P.length / 3; let a0 = [Infinity, Infinity, Infinity], a1 = [-Infinity, -Infinity, -Infinity];
+        for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) { const v = P[i * 3 + k]; if (v < a0[k]) a0[k] = v; if (v > a1[k]) a1[k] = v; }
+        if (Math.hypot(a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]) < minSize) { skipped += m.idx.length / 3; continue; }
+        const q = new Int32Array(n * 3); for (let i = 0; i < n * 3; i++) { const v = Math.round(P[i] * 128); if (v > 32767 || v < -32768) over = true; q[i] = v; }
+        const loc = new Int32Array(n).fill(-1);
+        const vid = i => { if (loc[i] >= 0) return loc[i]; const key = q[i * 3] + ',' + q[i * 3 + 1] + ',' + q[i * 3 + 2]; let id = map.get(key); if (id === undefined) { id = verts.length / 3; map.set(key, id); verts.push(q[i * 3], q[i * 3 + 1], q[i * 3 + 2]); } return loc[i] = id; };
+        for (let t = 0; t < m.idx.length / 3; t++) {
+            const i0 = m.idx[t * 3], i1 = m.idx[t * 3 + 1], i2 = m.idx[t * 3 + 2];
+            const a = i0 * 3, b = i1 * 3, c = i2 * 3;
+            if ((q[a] === q[b] && q[a + 1] === q[b + 1] && q[a + 2] === q[b + 2]) || (q[b] === q[c] && q[b + 1] === q[c + 1] && q[b + 2] === q[c + 2]) || (q[a] === q[c] && q[a + 1] === q[c + 1] && q[a + 2] === q[c + 2])) continue;
+            const ux = q[b] - q[a], uy = q[b + 1] - q[a + 1], uz = q[b + 2] - q[a + 2], vx = q[c] - q[a], vy = q[c + 1] - q[a + 1], vz = q[c + 2] - q[a + 2];
+            if (!(uy * vz - uz * vy) && !(uz * vx - ux * vz) && !(ux * vy - uy * vx)) continue; // chiziqqa aylangan
+            faces.push(vid(i0), vid(i1), vid(i2));
+        }
+        for (let k = 0; k < 3; k++) { if (a0[k] < mn[k]) mn[k] = a0[k]; if (a1[k] > mx[k]) mx[k] = a1[k]; }
+    }
+    return { verts, faces, nF: faces.length / 3, nV: verts.length / 3, skipped, over, min: mn, max: mx };
+}
+
+/* COL3 (GTA SA). o: { name, id, mode: auto|mesh|boxes|box, minSize, maxTris, surface } */
+function exportCol(model, o) {
+    o = Object.assign({ name: model.name, id: 0, mode: 'auto', minSize: 0.5, maxTris: 30000, surface: 0 }, o || {});
+    const surface = clamp(o.surface | 0, 0, 255), name = gtaName(o.name);
+    let mode = o.mode, info = '', boxes = [], md = null;
+    const meshBoxes = minSize => {
+        const out = []; for (const m of model.meshes) {
+            const P = m.pos, mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+            for (let i = 0; i < P.length; i += 3) for (let k = 0; k < 3; k++) { const v = P[i + k]; if (v < mn[k]) mn[k] = v; if (v > mx[k]) mx[k] = v; }
+            if (isFinite(mn[0]) && Math.hypot(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) >= minSize) out.push({ min: mn, max: mx });
+        } return out;
+    };
+    if (mode === 'auto') {
+        let ms = Math.max(0.1, o.minSize); md = null;
+        for (let k = 0; k < 6; k++, ms *= 2) { const t = colMeshData(model, ms); if (t.nF > 0 && t.nF <= o.maxTris && t.nV < 65535) { md = t; info = 'mesh (mayda detal < ' + ms.toFixed(2) + ' m tashlandi)'; break; } }
+        if (md) mode = 'mesh'; else { mode = 'boxes'; info = 'mesh juda og\'ir bo\'ldi — har obyekt qutisi'; }
+    } else if (mode === 'mesh') { md = colMeshData(model, o.minSize); info = 'mesh'; }
+    if (mode === 'mesh') {
+        if (md.over) throw new Error('COL mesh: model ±255 m dan katta — COL mesh koordinatalari shu chegarada (markazga keltiring yoki "quti" rejimini tanlang).');
+        if (md.nF > 65535 || md.nV > 65535) throw new Error('COL mesh: ' + md.nF + ' uchburchak / ' + md.nV + ' vertex — chegara 65535. Mayda detal o\'lchamini oshiring yoki "Avto" / "Qutilar" rejimini tanlang.');
+        if (!md.nF) throw new Error('COL mesh: to\'qnashuv uchun uchburchak qolmadi (mayda detal chegarasini kamaytiring).');
+    } else if (mode === 'boxes') { boxes = meshBoxes(Math.max(0, o.minSize)); if (!boxes.length) boxes = [{ min: model.bb.min.slice(), max: model.bb.max.slice() }]; info = info || ('har obyekt qutisi, ' + boxes.length + ' ta'); }
+    else { boxes = [{ min: model.bb.min.slice(), max: model.bb.max.slice() }]; info = 'bitta quti'; }
+    if (boxes.length > 65535) boxes.length = 65535;
+    // bounds
+    let mn, mx;
+    if (mode === 'mesh') { mn = [0, 1, 2].map(k => Infinity); mx = [0, 1, 2].map(k => -Infinity); for (let i = 0; i < md.verts.length; i += 3) for (let k = 0; k < 3; k++) { const v = md.verts[i + k] / 128; if (v < mn[k]) mn[k] = v; if (v > mx[k]) mx[k] = v; } }
+    else { mn = [Infinity, Infinity, Infinity]; mx = [-Infinity, -Infinity, -Infinity]; for (const b of boxes) for (let k = 0; k < 3; k++) { if (b.min[k] < mn[k]) mn[k] = b.min[k]; if (b.max[k] > mx[k]) mx[k] = b.max[k]; } }
+    const ctr = [0, 1, 2].map(k => (mn[k] + mx[k]) / 2), rad = Math.hypot(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) / 2;
+    const nB = boxes.length, nV = mode === 'mesh' ? md.nV : 0, nF = mode === 'mesh' ? md.nF : 0;
+    const HDR = 120, offBoxes = HDR, offVerts = offBoxes + nB * 28, vBytes = nV * 6, offFaces = offVerts + vBytes + ((4 - (vBytes % 4)) % 4), total = offFaces + nF * 8;
+    const buf = new ArrayBuffer(total), dv = new DataView(buf), u8 = new Uint8Array(buf);
+    u8.set(TE.encode('COL3'), 0); dv.setUint32(4, total - 8, true);
+    for (let i = 0; i < 22 && i < name.length; i++) u8[8 + i] = name.charCodeAt(i);
+    dv.setUint16(30, o.id & 0xFFFF, true);
+    let p = 32; for (const v of [...mn, ...mx, ...ctr, rad]) { dv.setFloat32(p, v, true); p += 4; }
+    dv.setUint16(72, 0, true); dv.setUint16(74, nB, true); dv.setUint16(76, nF, true); dv.setUint8(78, 0); dv.setUint8(79, 0);
+    dv.setUint32(80, 2, true); // flags: bo'sh emas
+    dv.setUint32(84, offBoxes - 4, true); dv.setUint32(88, offBoxes - 4, true); dv.setUint32(92, offVerts - 4, true); // sfera, quti, chiziq
+    dv.setUint32(96, offVerts - 4, true); dv.setUint32(100, offFaces - 4, true); dv.setUint32(104, 0, true); // vertex, yuza, tekislik(ishlatilmaydi)
+    dv.setUint32(108, 0, true); dv.setUint32(112, 0, true); dv.setUint32(116, 0, true); // soya mesh yo'q
+    p = offBoxes; for (const b of boxes) { for (const v of [...b.min, ...b.max]) { dv.setFloat32(p, v, true); p += 4; } dv.setUint8(p, surface); dv.setUint8(p + 1, 0); dv.setUint8(p + 2, 0); dv.setUint8(p + 3, 0); p += 4; }
+    if (mode === 'mesh') {
+        p = offVerts; for (let i = 0; i < md.verts.length; i++) { dv.setInt16(p, md.verts[i], true); p += 2; }
+        p = offFaces; for (let t = 0; t < nF; t++) { dv.setUint16(p, md.faces[t * 3], true); dv.setUint16(p + 2, md.faces[t * 3 + 1], true); dv.setUint16(p + 4, md.faces[t * 3 + 2], true); dv.setUint8(p + 6, surface); dv.setUint8(p + 7, 0); p += 8; }
+    }
+    return { bytes: u8, mode, info, nBoxes: nB, nFaces: nF, nVerts: nV, name };
+}
+
+function exportIde(o) {
+    const L = ['# IT SHAKH 3D Model Studio — GTA SA IDE', 'objs', [o.id, o.name, o.txd, o.draw, o.flags].join(', '), 'end', ''];
+    return L.join('\r\n');
+}
+function exportIpl(o) {
+    const f = v => String(Math.round(v * 10000) / 10000);
+    const L = ['# IT SHAKH 3D Model Studio — GTA SA IPL', 'inst', [o.id, o.name, o.interior || 0, f(o.x), f(o.y), f(o.z), 0, 0, 0, 1, -1].join(', '), 'end', ''];
+    return L.join('\r\n');
+}
+function mapReadme(o) {
+    const d = 'DATA\\MAPS\\' + o.name;
+    return [
+        'GTA San Andreas — xarita paketi: ' + o.name, '',
+        'Fayllar:',
+        '  ' + o.name + '.dff  — model',
+        '  ' + o.name + '.txd  — teksturalar (nomi IDE dagi TXD nomi bilan bir xil)',
+        '  ' + o.name + '.col  — to\'qnashuv (shu bo\'lmasa uy "arvoh" bo\'ladi: odam va mashina ichidan o\'tib ketadi)',
+        '  ' + o.name + '.ide  — obyekt ta\'rifi (ID ' + o.id + ')',
+        '  ' + o.name + '.ipl  — xaritadagi joyi: X ' + o.x + '  Y ' + o.y + '  Z ' + o.z, '',
+        'O\'rnatish (PC, GTA SA):',
+        '1) ' + o.name + '.ide, .ipl, .col fayllarini ' + d + '\\ papkasiga qo\'ying (papkani o\'zingiz yarating).',
+        '2) data\\gta.dat faylining oxiriga (boshqa IDE/IPL/COLFILE qatorlari yoniga) shularni qo\'shing:',
+        '     IDE ' + d + '\\' + o.name + '.ide',
+        '     IPL ' + d + '\\' + o.name + '.ipl',
+        '     COLFILE 0 ' + d + '\\' + o.name + '.col',
+        '3) ' + o.name + '.dff va ' + o.name + '.txd ni models\\gta3.img ichiga IMG Tool bilan qo\'shing',
+        '   (yoki modloader ishlatsangiz, ularni modloader papkasiga tashlash kifoya).', '',
+        'Eslatmalar:',
+        '- ID ' + o.id + ' boshqa moddagi ID bilan to\'qnashmasligi kerak (SA chegarasi: 20000 dan kichik).',
+        '- Uyning pastki o\'rta nuqtasi IPL dagi koordinataga qo\'yiladi; Z — yer balandligi.',
+        '- IPL dagi X/Y/Z ni o\'yindagi koordinataga moslab o\'zgartiring (matn muharririda).',
+        '- COL: ' + o.colInfo,
+        '- Bu paket brauzerda yig\'ildi; o\'yinning o\'zida sinab ko\'rilmagan — kamchilik chiqsa xabar bering.', ''
+    ].join('\r\n');
+}
+
 /* ===== Konvertor: yuklash, qayta ishlash, ko'rsatish, eksport tugmalari ===== */
 const $ = id => document.getElementById(id);
 const S = { raw: [], tex: new Map(), model: null, names: [], warn: [], pivot: null, saved: null, busy: false };
@@ -5611,6 +5754,8 @@ async function doExport(kind) {
             }
             dl(toBlob(bytes), base + '.dff');
             setMsg('DFF saqlandi: ' + (bytes.length / 1048576).toFixed(2) + ' MB · ' + m.nV.toLocaleString() + ' vertex · ' + m.nT.toLocaleString() + ' uchburchak · ' + r.parts + ' ta geometriya · ' + m.mats.length + ' material.' + tail);
+        } else if (kind === 'col' || kind === 'ide' || kind === 'ipl' || kind === 'map') {
+            await doGta(kind, m);
         } else if (kind === '3ds') {
             const r = export3ds(m, { crease });
             if (r.keys.length) { const z = zipStore([{ name: base + '.3ds', data: r.bytes }, ...(await texPngs(m, r.keys))]); dl(z, base + '_3ds.zip'); setMsg('3DS + ' + r.keys.length + ' tekstura ZIP qilib saqlandi.'); }
@@ -5635,6 +5780,37 @@ async function doExport(kind) {
     finally { S.busy = false; document.body.classList.remove('cv-busy'); }
 }
 
+/* ---------- GTA SA xarita ---------- */
+function mapOpts(m) {
+    const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) ? v : d; };
+    const name = gtaName($('cvMapName').value.trim() || m.name);
+    return { name, txd: name, id: Math.max(1, Math.min(19999, num('cvMapId', 18631) | 0)), x: num('cvMapX', 0), y: num('cvMapY', 0), z: num('cvMapZ', 0), draw: Math.max(10, num('cvMapDraw', 300) | 0), flags: Math.max(0, num('cvMapFlags', 0) | 0), interior: 0,
+        colMode: $('cvColMode').value, minSize: Math.max(0, num('cvColMin', 0.5)), maxTris: Math.max(100, Math.min(65000, num('cvColMax', 30000) | 0)), surface: num('cvColSurf', 0) | 0 };
+}
+async function doGta(kind, m) {
+    const o = mapOpts(m);
+    const colOf = mm => exportCol(mm, { name: o.name, id: o.id, mode: o.colMode, minSize: o.minSize, maxTris: o.maxTris, surface: o.surface });
+    const colMsg = c => 'COL (' + c.info + (c.nFaces ? ', ' + c.nFaces.toLocaleString() + ' uchburchak' : '') + (c.nBoxes ? ', ' + c.nBoxes + ' quti' : '') + ', ' + (c.bytes.length / 1024).toFixed(1) + ' KB)';
+    if (kind === 'col') { const c = colOf(m); dl(toBlob(c.bytes), o.name + '.col'); setMsg('COL saqlandi: ' + colMsg(c) + '. DFF ham xuddi shu modeldan eksport qilingan bo\'lishi kerak.'); return; }
+    if (kind === 'ide') { dl(toBlob(TE.encode(exportIde(o)), 'text/plain'), o.name + '.ide'); setMsg('IDE saqlandi: ' + o.id + ', ' + o.name + ', ' + o.txd + ', ' + o.draw + ', ' + o.flags); return; }
+    if (kind === 'ipl') { dl(toBlob(TE.encode(exportIpl(o)), 'text/plain'), o.name + '.ipl'); setMsg('IPL saqlandi: joy ' + o.x + ', ' + o.y + ', ' + o.z + ' (ID ' + o.id + ').'); return; }
+    // to'liq paket
+    const mm = $('cvMapCenter').checked ? centeredCopy(m, o.name) : Object.assign({}, m, { name: o.name });
+    const dff = exportDff(mm, { single: $('cvDffMode').value === 'single', prelit: $('cvDffPrelit').checked });
+    const col = colOf(mm), files = [];
+    files.push({ name: o.name + '.dff', data: dff.bytes });
+    const have = dff.keys.filter(k => S.tex.has(k)); let txdMsg = '';
+    if (have.length) { const t = buildTxd({ tex: S.tex }, have, { fmt: $('cvTxdFmt').value, pot: $('cvTxdPot').checked, maxSize: parseInt($('cvTxdMax').value, 10) || 2048 }); files.push({ name: o.name + '.txd', data: t.bytes }); txdMsg = have.length + ' tekstura (TXD)'; }
+    else if (dff.keys.length) txdMsg = 'TEKSTURA RASMLARI YO\'Q — TXD qo\'shilmadi';
+    else txdMsg = 'modelda tekstura yo\'q — TXD kerak emas';
+    files.push({ name: o.name + '.col', data: col.bytes });
+    files.push({ name: o.name + '.ide', data: TE.encode(exportIde(o)) }, { name: o.name + '.ipl', data: TE.encode(exportIpl(o)) });
+    files.push({ name: 'README.txt', data: TE.encode(mapReadme(Object.assign({ colInfo: col.info }, o))) });
+    const z = zipStore(files); dl(z, o.name + '_gta_xarita.zip');
+    const miss = dff.keys.length - have.length;
+    setMsg('GTA xarita paketi saqlandi (' + (z.size / 1048576).toFixed(2) + ' MB): DFF · ' + txdMsg + ' · ' + colMsg(col) + ' · IDE · IPL · README. ID ' + o.id + ', joy ' + o.x + ', ' + o.y + ', ' + o.z + '.' + (miss > 0 && have.length ? ' ' + miss + ' ta tekstura rasmi topilmadi.' : ''), miss > 0 && !have.length);
+}
+
 /* ---------- ulash ---------- */
 (function init() {
     const fi = $('cvFile'), dz = $('cvDrop');
@@ -5651,7 +5827,7 @@ async function doExport(kind) {
     if (oldIn) oldIn.addEventListener('change', releaseOld);
     if (oldDz) oldDz.addEventListener('drop', releaseOld);
     updateInfo();
-    window.CVCONV = { S, loadFiles, doExport, buildModel, rebuild, parseTxdBuf, exportDff, exportObj, export3ds, exportStl, exportGlb, exportBlendScript, buildTxd, importObj, importStl, importPly, import3ds, importDxf, importDff, importWrl, importFbx, importDae, importGltf, importUsda, unzip, zipStore, decodeImage };
+    window.CVCONV = { S, exportCol, exportIde, exportIpl, centeredCopy, loadFiles, doExport, buildModel, rebuild, parseTxdBuf, exportDff, exportObj, export3ds, exportStl, exportGlb, exportBlendScript, buildTxd, importObj, importStl, importPly, import3ds, importDxf, importDff, importWrl, importFbx, importDae, importGltf, importUsda, unzip, zipStore, decodeImage };
 })();
 
 })();
