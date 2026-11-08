@@ -26,6 +26,14 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;padding:8px 14px 10p
 .app-tabs button{padding:7px 20px;border-radius:9px;border:1px solid rgba(56,189,248,.3);background:rgba(11,18,32,.6);color:var(--text-color);font:700 12px monospace;letter-spacing:1px;cursor:pointer}
 .app-tabs button.active{background:linear-gradient(90deg,var(--accent),#7c4dff);color:#001018;border-color:transparent}
 .hidden{display:none!important}
+.om-act{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.open-any{display:inline-flex;align-items:center;gap:8px;padding:7px 18px;border-radius:9px;border:1px solid rgba(56,189,248,.5);background:rgba(56,189,248,.12);color:var(--accent);font:700 12px monospace;letter-spacing:1px;cursor:pointer;box-shadow:0 0 18px rgba(56,189,248,.18)}
+.open-any:hover{background:rgba(56,189,248,.24)}.open-any small{font:400 10.5px monospace;opacity:.75;letter-spacing:.5px}
+.om-hint{font-size:11px;color:#94a3b8}
+#dropVeil{position:fixed;inset:0;z-index:3000;display:none;align-items:center;justify-content:center;background:rgba(4,10,24,.82);backdrop-filter:blur(3px);pointer-events:none}
+#dropVeil.on{display:flex}
+#dropVeil div{padding:34px 48px;border:2px dashed var(--accent);border-radius:18px;background:rgba(11,18,32,.9);color:#fff;font:700 18px var(--ui);text-align:center;box-shadow:0 0 50px rgba(56,189,248,.35)}
+#dropVeil small{display:block;margin-top:8px;font:400 12px var(--ui);color:#94a3b8}
 /* ===== app window ===== */
 .app{flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;color:var(--oftx);border-radius:10px;overflow:hidden;border:1px solid rgba(56,189,248,.35);font-size:13px;position:relative}
 .app button{font-family:inherit}
@@ -200,9 +208,13 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;padding:8px 14px 10p
 <main>
   <div class="om-top">
     <h1>Excel &amp; Word Online<small>fayllar qurilmangizdan chiqmaydi — hammasi brauzerda</small></h1>
+    <div class="om-act">
+      <button type="button" class="open-any" id="openAny" title="Excel yoki Word faylini kompyuterdan ochish (yangi va eski formatlar)">📂 FAYL OCHISH <small>xlsx · xls · ods · docx · doc · odt · rtf</small></button>
+      <span class="om-hint">yoki faylni shu sahifaga tashlang</span>
     <div class="app-tabs">
       <button class="active" id="tabExcel" data-app="excel">📊 EXCEL</button>
       <button id="tabWord" data-app="word">📄 WORD</button>
+    </div>
     </div>
   </div>
   <section id="excelApp" class="app">
@@ -216,6 +228,7 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;padding:8px 14px 10p
     <div class="wd" id="wdHost"></div>
   </section>
 </main>
+<div id="dropVeil"><div>📂 Faylni shu yerga tashlang<small>Excel: xlsx, xls, xlsb, ods, csv · Word: docx, doc, odt, rtf — mos ilovada o‘zi ochiladi</small></div></div>
 <script>
 window.OF=window.OF||{};
 /* >>> js/10_formula.js */
@@ -3956,6 +3969,1424 @@ function install(X,env){
 OF.GridActions=install;
 })(window.OF=window.OF||{});
 
+/* >>> js/16_legacy.js */
+/* ===== eski va qo‘shimcha formatlar: OLE2, .xls (BIFF5/8), .xlsb, .ods/.fods, SpreadsheetML ===== */
+(function(OF){
+'use strict';
+const F=OF.F,M=OF.M,Z=OF.Z;
+const L=OF.L=OF.L||{};
+const key=(r,c)=>r*M.MC+c;
+const extOf=n=>(String(n).split('.').pop()||'').toLowerCase();
+const latin1=u=>{let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return s};
+const CPMAP={932:'shift_jis',936:'gbk',949:'euc-kr',950:'big5',10000:'macintosh',65001:'utf-8',1200:'utf-16le'};
+const cpLabel=cp=>CPMAP[cp]||(cp&&cp!==1252?'windows-'+cp:'windows-1252');
+const dec=(label,u)=>{try{return new TextDecoder(label).decode(u)}catch(e){return latin1(u)}};
+const u16s=u=>new TextDecoder('utf-16le').decode(u);
+L.dec=dec;L.cpLabel=cpLabel;L.latin1=latin1;L.u16s=u16s;L.extOf=extOf;
+
+/* ---------- OLE2 (Compound File) ---------- */
+function oleOpen(buf){
+  const u=buf instanceof Uint8Array?buf:new Uint8Array(buf);
+  const sig=[0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1];
+  if(u.length<512)throw new Error('OLE2 fayl emas');
+  for(let i=0;i<8;i++)if(u[i]!==sig[i])throw new Error('OLE2 fayl emas');
+  const dv=new DataView(u.buffer,u.byteOffset,u.byteLength);
+  const ss=1<<dv.getUint16(30,true),mss=1<<dv.getUint16(32,true);
+  const dirStart=dv.getUint32(48,true),miniCut=dv.getUint32(56,true),miniStart=dv.getUint32(60,true),difStart=dv.getUint32(68,true),nDif=dv.getUint32(72,true);
+  const OK=s=>s<=0xFFFFFFF9;
+  const so=n=>(n+1)*ss;
+  const fatSecs=[];
+  for(let i=0;i<109;i++){const s=dv.getUint32(76+i*4,true);if(OK(s))fatSecs.push(s)}
+  let d=difStart;
+  for(let k=0;k<nDif&&OK(d);k++){const o=so(d);if(o+ss>u.length)break;for(let i=0;i<ss/4-1;i++){const s=dv.getUint32(o+i*4,true);if(OK(s))fatSecs.push(s)}d=dv.getUint32(o+ss-4,true)}
+  const per=ss/4;const fat=new Uint32Array(fatSecs.length*per).fill(0xFFFFFFFF);
+  fatSecs.forEach((s,k)=>{const o=so(s);if(o+ss>u.length)return;for(let i=0;i<per;i++)fat[k*per+i]=dv.getUint32(o+i*4,true)});
+  const chain=(start,tbl)=>{const out=[];let s=start,g=0;while(OK(s)&&g++<=tbl.length){out.push(s);s=tbl[s]}return out};
+  const readBig=(start,size)=>{const cs=chain(start,fat);const out=new Uint8Array(cs.length*ss);cs.forEach((s,i)=>{const o=so(s);if(o<u.length)out.set(u.subarray(o,Math.min(o+ss,u.length)),i*ss)});return size==null?out:out.subarray(0,Math.min(size,out.length))};
+  const dir=readBig(dirStart);const dd=new DataView(dir.buffer,dir.byteOffset,dir.byteLength);
+  const ents=[];
+  for(let o=0;o+128<=dir.length;o+=128){const nl=dd.getUint16(o+64,true);const type=dir[o+66];const name=nl>=2?u16s(dir.subarray(o,o+Math.min(nl,64)-2)):'';ents.push({name,type,l:dd.getUint32(o+68,true),r:dd.getUint32(o+72,true),c:dd.getUint32(o+76,true),start:dd.getUint32(o+116,true),size:dd.getUint32(o+120,true)})}
+  if(!ents.length)throw new Error('OLE2 katalogi bo‘sh');
+  const root=ents[0];let mini=null,minifat=null;
+  const ensureMini=()=>{if(mini)return;mini=readBig(root.start,root.size);const mf=readBig(miniStart);minifat=new Uint32Array(mf.buffer.slice(mf.byteOffset,mf.byteOffset+mf.length-(mf.length%4)))};
+  const readEnt=e=>{
+    if(e.size<miniCut){ensureMini();const cs=chain(e.start,minifat);const out=new Uint8Array(cs.length*mss);cs.forEach((s,i)=>{const o=s*mss;if(o<mini.length)out.set(mini.subarray(o,Math.min(o+mss,mini.length)),i*mss)});return out.subarray(0,e.size)}
+    return readBig(e.start,e.size);
+  };
+  const map=new Map();const seen=new Set();const stack=[root.c];
+  while(stack.length){const i=stack.pop();if(i>=ents.length||seen.has(i))continue;seen.add(i);const e=ents[i];if(e.type===2&&!map.has(e.name))map.set(e.name,e);stack.push(e.l,e.r)}
+  return{names:[...map.keys()],has:n=>map.has(n),get:n=>{const e=map.get(n);return e?readEnt(e):null}};
+}
+L.oleOpen=oleOpen;
+
+/* ---------- BIFF (.xls) ---------- */
+const FUNCS={};
+('0:COUNT,1:IF,2:ISNA,3:ISERROR,4:SUM,5:AVERAGE,6:MIN,7:MAX,8:ROW,9:COLUMN,10:NA,11:NPV,12:STDEV,13:DOLLAR,14:FIXED,15:SIN,16:COS,17:TAN,18:ATAN,19:PI,20:SQRT,21:EXP,22:LN,23:LOG10,24:ABS,25:INT,26:SIGN,27:ROUND,28:LOOKUP,29:INDEX,30:REPT,31:MID,32:LEN,33:VALUE,34:TRUE,35:FALSE,36:AND,37:OR,38:NOT,39:MOD,46:VAR,48:TEXT,56:PV,57:FV,58:NPER,59:PMT,60:RATE,62:IRR,63:RAND,64:MATCH,65:DATE,66:TIME,67:DAY,68:MONTH,69:YEAR,70:WEEKDAY,71:HOUR,72:MINUTE,73:SECOND,74:NOW,75:AREAS,76:ROWS,77:COLUMNS,78:OFFSET,82:SEARCH,83:TRANSPOSE,86:TYPE,97:ATAN2,98:ASIN,99:ACOS,100:CHOOSE,101:HLOOKUP,102:VLOOKUP,105:ISREF,109:LOG,111:CHAR,112:LOWER,113:UPPER,114:PROPER,115:LEFT,116:RIGHT,117:EXACT,118:TRIM,119:REPLACE,120:SUBSTITUTE,121:CODE,124:FIND,126:ISERR,127:ISTEXT,128:ISNUMBER,129:ISBLANK,130:T,131:N,140:DATEVALUE,141:TIMEVALUE,148:INDIRECT,162:CLEAN,169:COUNTA,183:PRODUCT,184:FACT,190:ISNONTEXT,193:STDEVP,194:VARP,197:TRUNC,198:ISLOGICAL,212:ROUNDUP,213:ROUNDDOWN,216:RANK,219:ADDRESS,220:DAYS360,221:TODAY,227:MEDIAN,228:SUMPRODUCT,229:SINH,230:COSH,231:TANH,232:ASINH,233:ACOSH,234:ATANH,261:ERROR.TYPE,269:AVEDEV,276:COMBIN,279:EVEN,285:FLOOR,288:CEILING,298:ODD,299:PERMUT,307:CORREL,311:INTERCEPT,313:RSQ,315:SLOPE,318:DEVSQ,319:GEOMEAN,320:HARMEAN,321:SUMSQ,325:LARGE,326:SMALL,327:QUARTILE,328:PERCENTILE,330:MODE,336:CONCATENATE,337:POWER,342:RADIANS,343:DEGREES,344:SUBTOTAL,345:SUMIF,346:COUNTIF,347:COUNTBLANK,351:DATEDIF,354:ROMAN,359:HYPERLINK,361:AVERAGEA,362:MAXA,363:MINA').split(',').forEach(s=>{const i=s.indexOf(':');FUNCS[+s.slice(0,i)]=s.slice(i+1)});
+const FIXARGS={2:1,3:1,10:0,15:1,16:1,17:1,18:1,19:0,20:1,21:1,22:1,23:1,24:1,25:1,26:1,27:2,30:2,31:3,32:1,33:1,34:0,35:0,38:1,39:2,63:0,65:3,66:3,67:1,68:1,69:1,71:1,72:1,73:1,74:0,75:1,76:1,77:1,83:1,86:1,97:2,98:1,99:1,111:1,112:1,113:1,114:1,117:2,118:1,119:4,120:3,121:1,126:1,127:1,128:1,129:1,130:1,131:1,140:1,141:1,162:1,184:1,190:1,198:1,212:2,213:2,221:0,229:1,230:1,231:1,232:1,233:1,234:1,261:1,276:2,279:1,285:2,288:2,298:1,299:2,337:2,342:1,343:1,346:2,347:1,105:1,148:2,313:2,311:2,315:2,307:2};
+const PAL=['000000','FFFFFF','FF0000','00FF00','0000FF','FFFF00','FF00FF','00FFFF','800000','008000','000080','808000','800080','008080','C0C0C0','808080','9999FF','993366','FFFFCC','CCFFFF','660066','FF8080','0066CC','CCCCFF','000080','FF00FF','FFFF00','00FFFF','800080','800000','008080','0000FF','00CCFF','CCFFFF','CCFFCC','FFFF99','99CCFF','FF99CC','CC99FF','FFCC99','3366FF','33CCCC','99CC00','FFCC00','FF9900','FF6600','666699','969696','003366','339966','003300','333300','993300','993366','333399','333333'];
+// PAL[0..7] = icv 0..7 ; PAL[8..] = icv 8.. (ikkala holat bir xil jadval)
+const NFB={0:'General',1:'0',2:'0.00',3:'#,##0',4:'#,##0.00',5:'$#,##0',6:'$#,##0',7:'$#,##0.00',8:'$#,##0.00',9:'0%',10:'0.00%',11:'0.00E+00',12:'# ?/?',13:'# ??/??',14:'dd.mm.yyyy',15:'d-mmm-yy',16:'d-mmm',17:'mmm-yy',18:'h:mm AM/PM',19:'h:mm:ss AM/PM',20:'h:mm',21:'h:mm:ss',22:'dd.mm.yyyy hh:mm',37:'#,##0 ;(#,##0)',38:'#,##0 ;[Red](#,##0)',39:'#,##0.00;(#,##0.00)',40:'#,##0.00;[Red](#,##0.00)',41:'#,##0',42:'$#,##0',43:'#,##0.00',44:'$#,##0.00',45:'mm:ss',46:'[h]:mm:ss',47:'mmss.0',48:'##0.0E+0',49:'@'};
+const BDR=['','thin','medium','dashed','dotted','thick','double','hair','mediumDashed','dashDot','mediumDashDot','dashDotDot','mediumDashDotDot','slantDashDot'];
+const ERRS={0x00:'#NULL!',0x07:'#DIV/0!',0x0F:'#VALUE!',0x17:'#REF!',0x1D:'#NAME?',0x24:'#NUM!',0x2A:'#N/A'};
+const mkErr=c=>new F.Err(ERRS[c]||'#VALUE!');
+
+function decompile(t,cr,cc,ctx){
+  const dv=new DataView(t.buffer,t.byteOffset,t.byteLength);
+  const st=[];let p=0;const A=F.addr;
+  const shName=ix=>{const x=ctx.xti[ix];if(!x||x.first!==x.last)return null;const n=ctx.sheetNames[x.first];return n==null?null:F.sheetPrefix(n)};
+  const refAt=(q,rel)=>{ // BIFF8 ref: row u16, col u16
+    let r=dv.getUint16(q,true);const cw=dv.getUint16(q+2,true);let c=cw&0x3FFF;const rr=!!(cw&0x8000),rc=!!(cw&0x4000);
+    if(rel){if(rr)r=(cr+(r<<16>>16))&0xFFFF;if(rc)c=(cc+((c&0xFF)<<24>>24))&0xFF}
+    return A(r,c,rr?0:1,rc?0:1);
+  };
+  const areaAt=(q,rel)=>{
+    let r1=dv.getUint16(q,true),r2=dv.getUint16(q+2,true);const w1=dv.getUint16(q+4,true),w2=dv.getUint16(q+6,true);let c1=w1&0x3FFF,c2=w2&0x3FFF;
+    const rr1=!!(w1&0x8000),rc1=!!(w1&0x4000),rr2=!!(w2&0x8000),rc2=!!(w2&0x4000);
+    if(rel){if(rr1)r1=(cr+(r1<<16>>16))&0xFFFF;if(rr2)r2=(cr+(r2<<16>>16))&0xFFFF;if(rc1)c1=(cc+((c1&0xFF)<<24>>24))&0xFF;if(rc2)c2=(cc+((c2&0xFF)<<24>>24))&0xFF}
+    return A(r1,c1,rr1?0:1,rc1?0:1)+':'+A(r2,c2,rr2?0:1,rc2?0:1);
+  };
+  const pop=()=>{if(!st.length)throw 0;return st.pop()};
+  const bin=op=>{const b=pop(),a=pop();st.push(a+op+b)};
+  try{
+    while(p<t.length){
+      const id=t[p++];
+      const base=id>=0x20?(id&0x1F)|0x20:id;
+      switch(base){
+        case 0x01:{ // ptgExp
+          const sr=dv.getUint16(p,true),sc=dv.getUint16(p+2,true);p+=4;
+          const sh=ctx.shared.find(x=>cr>=x.r1&&cr<=x.r2&&cc>=x.c1&&cc<=x.c2);
+          if(!sh||t.length!==5||ctx.depth>0)return null;
+          ctx.depth++;const s=decompile(sh.rgce,cr,cc,ctx);ctx.depth--;return s;
+        }
+        case 0x03:bin('+');break;case 0x04:bin('-');break;case 0x05:bin('*');break;case 0x06:bin('/');break;case 0x07:bin('^');break;case 0x08:bin('&');break;
+        case 0x09:bin('<');break;case 0x0A:bin('<=');break;case 0x0B:bin('=');break;case 0x0C:bin('>=');break;case 0x0D:bin('>');break;case 0x0E:bin('<>');break;
+        case 0x0F:bin(' ');break;case 0x10:bin(',');break;case 0x11:bin(':');break;
+        case 0x12:st.push('+'+pop());break;case 0x13:st.push('-'+pop());break;case 0x14:st.push(pop()+'%');break;case 0x15:st.push('('+pop()+')');break;
+        case 0x16:st.push('');break;
+        case 0x17:{const n=t[p],fl=t[p+1];p+=2;let s;if(fl&1){s=u16s(t.subarray(p,p+n*2));p+=n*2}else{s=latin1(t.subarray(p,p+n));p+=n}st.push('"'+s.replace(/"/g,'""')+'"');break}
+        case 0x19:{ // ptgAttr
+          const g=t[p];
+          if(g&0x04){const n=dv.getUint16(p+1,true);p+=3+(n+1)*2;break}
+          if(g&0x10){p+=3;st.push('SUM('+pop()+')');break}
+          p+=3;break;
+        }
+        case 0x1C:st.push(ERRS[t[p]]||'#VALUE!');p+=1;break;
+        case 0x1D:st.push(t[p]?'TRUE':'FALSE');p+=1;break;
+        case 0x1E:st.push(String(dv.getUint16(p,true)));p+=2;break;
+        case 0x1F:{const x=dv.getFloat64(p,true);p+=8;st.push(String(x));break}
+        case 0x21:{const fid=dv.getUint16(p,true);p+=2;const n=FIXARGS[fid],nm=FUNCS[fid];if(n==null||!nm)return null;const args=[];for(let i=0;i<n;i++)args.unshift(pop());st.push(nm+'('+args.join(',')+')');break}
+        case 0x22:{const n=t[p]&0x7F,fid=dv.getUint16(p+1,true)&0x7FFF;p+=3;const nm=FUNCS[fid];if(!nm||fid===255)return null;const args=[];for(let i=0;i<n;i++)args.unshift(pop());st.push(nm+'('+args.join(',')+')');break}
+        case 0x23:{const ix=dv.getUint32(p,true);p+=4;const nm=ctx.names[ix-1];if(!nm)return null;st.push(nm);break}
+        case 0x24:st.push(refAt(p,false));p+=4;break;
+        case 0x25:st.push(areaAt(p,false));p+=8;break;
+        case 0x2C:st.push(refAt(p,true));p+=4;break;
+        case 0x2D:st.push(areaAt(p,true));p+=8;break;
+        case 0x3A:{const pre=shName(dv.getUint16(p,true));if(pre==null)return null;p+=2;st.push(pre+refAt(p,false));p+=4;break}
+        case 0x3B:{const pre=shName(dv.getUint16(p,true));if(pre==null)return null;p+=2;st.push(pre+areaAt(p,false));p+=8;break}
+        case 0x29:p+=2;break; // ptgMemFunc: ichki ifoda
+        default:return null;
+      }
+    }
+  }catch(e){return null}
+  return st.length===1?st[0]:null;
+}
+
+function readXls(buf,opts){
+  opts=opts||{};
+  const ole=buf&&buf.get?buf:oleOpen(buf);
+  const w=ole.get('Workbook')||ole.get('Book');
+  if(!w)throw new Error('Excel kitobi (Workbook) oqimi topilmadi');
+  const dv=new DataView(w.buffer,w.byteOffset,w.byteLength);
+  if(w.length<8||dv.getUint16(0,true)!==0x0809)throw new Error('Bu .xls ning juda eski varianti (Excel 2–4) — qo‘llab-quvvatlanmaydi');
+  const biff8=dv.getUint16(4,true)>=0x0600;
+  const wb=new M.Workbook();wb.hist.suspend=true;
+  let cp=1252,date1904=false;const sheetsInfo=[],sstSegs=[],fonts=[],xfs=[],fmts={},pal=PAL.slice(),xti=[],names=[],ctx={xti,sheetNames:[],names:[],shared:[],depth:0};
+  const rec=p=>{if(p+4>w.length)return null;const id=dv.getUint16(p,true),len=dv.getUint16(p+2,true);return{id,p:p+4,len,next:p+4+len}};
+  const lab=()=>cpLabel(cp);
+  /* --- globals --- */
+  let p=0,first=true;
+  for(;;){
+    const r=rec(p);if(!r)break;p=r.next;
+    if(first){first=false;continue}
+    const d=r.p;
+    if(r.id===0x0A)break;
+    switch(r.id){
+      case 0x2F:throw new Error('Fayl parol bilan himoyalangan (shifrlangan) — avval Excelda parolni olib tashlang');
+      case 0x42:cp=dv.getUint16(d,true);break;
+      case 0x22:date1904=dv.getUint16(d,true)===1;break;
+      case 0x85:{
+        const pos=dv.getUint32(d,true),hs=w[d+4],dt=w[d+5];let name;
+        if(biff8){const n=w[d+6],fl=w[d+7];name=fl&1?u16s(w.subarray(d+8,d+8+n*2)):latin1(w.subarray(d+8,d+8+n))}
+        else{const n=w[d+6];name=dec(lab(),w.subarray(d+7,d+7+n))}
+        sheetsInfo.push({pos,hs,dt,name});break}
+      case 0xFC:{ // SST + CONTINUE
+        const segs=[w.subarray(d,d+r.len)];
+        for(;;){const n=rec(p);if(!n||n.id!==0x3C)break;segs.push(w.subarray(n.p,n.next));p=n.next}
+        sstSegs.push(...segs);break}
+      case 0x31:{ // FONT
+        const hgt=dv.getUint16(d,true),gr=dv.getUint16(d+2,true),icv=dv.getUint16(d+4,true),bls=dv.getUint16(d+6,true),sss=dv.getUint16(d+8,true),uls=w[d+10];
+        let nm='';if(biff8){const n=w[d+14],fl=w[d+15];nm=fl&1?u16s(w.subarray(d+16,d+16+n*2)):latin1(w.subarray(d+16,d+16+n))}else{const n=w[d+14];nm=dec(lab(),w.subarray(d+15,d+15+n))}
+        fonts.push({fs:hgt/20,b:bls>=700,i:!!(gr&2),st:!!(gr&8),u:uls>0,icv,sss,ff:nm});break}
+      case 0x41E:{const id=dv.getUint16(d,true);let s;if(biff8){const n=dv.getUint16(d+2,true),fl=w[d+4];s=fl&1?u16s(w.subarray(d+5,d+5+n*2)):latin1(w.subarray(d+5,d+5+n))}else{const n=w[d+2];s=dec(lab(),w.subarray(d+3,d+3+n))}fmts[id]=s;break}
+      case 0xE0:{
+        const x={ifnt:dv.getUint16(d,true),ifmt:dv.getUint16(d+2,true)};
+        if(biff8&&r.len>=20){
+          const al=w[d+6];x.ha=al&7;x.wrap=!!(al&8);x.va=(al>>4)&7;x.ind=w[d+8]&15;
+          const b1=dv.getUint32(d+10,true),b2=dv.getUint32(d+14,true),f=dv.getUint16(d+18,true);
+          x.bL=b1&15;x.bR=(b1>>4)&15;x.bT=(b1>>8)&15;x.bB=(b1>>12)&15;x.cL=(b1>>16)&127;x.cR=(b1>>23)&127;
+          x.cT=b2&127;x.cB=(b2>>7)&127;x.fls=(b2>>>26)&63;x.fg=f&127;x.bgc=(f>>7)&127;
+        }
+        xfs.push(x);break}
+      case 0x92:{const n=dv.getUint16(d,true);for(let i=0;i<n;i++)pal[8+i]=[w[d+2+i*4],w[d+3+i*4],w[d+4+i*4]].map(x=>x.toString(16).padStart(2,'0')).join('').toUpperCase();break}
+      case 0x17:{const n=dv.getUint16(d,true);for(let i=0;i<n;i++)xti.push({sb:dv.getUint16(d+2+i*6,true),first:dv.getUint16(d+4+i*6,true),last:dv.getUint16(d+6+i*6,true)});break}
+      case 0x18:{ // NAME
+        if(!biff8)break;
+        const gr=dv.getUint16(d,true),cch=w[d+3],cce=dv.getUint16(d+4,true),itab=dv.getUint16(d+8,true);
+        const l1=w[d+10],l2=w[d+11],l3=w[d+12],l4=w[d+13];
+        if(gr&0x20||itab!==0){names.push(null);break}
+        const fl=w[d+14];let q=d+15,nm;if(fl&1){nm=u16s(w.subarray(q,q+cch*2));q+=cch*2}else{nm=latin1(w.subarray(q,q+cch));q+=cch}
+        names.push({name:nm,rgce:w.subarray(q,q+cce)});break}
+    }
+  }
+  // fon indeksi: 4 mavjud emas
+  const fontAt=i=>fonts[i>3?i-1:i]||{};
+  const f0=fontAt(0);
+  /* SST */
+  const sst=[];
+  if(sstSegs.length){
+    let si=0,cur=sstSegs[0],pos=8;const cu=new DataView(cur.buffer,cur.byteOffset,cur.byteLength).getUint32(4,true);
+    const nxt=()=>{si++;cur=sstSegs[si];pos=0;return!!cur};
+    const b=()=>{while(cur&&pos>=cur.length){if(!nxt())return 0}return cur[pos++]};
+    const w16=()=>b()|(b()<<8);const d32=()=>(w16()|(w16()<<16))>>>0;
+    const skip=n=>{while(n>0&&cur){const k=Math.min(n,cur.length-pos);pos+=k;n-=k;if(n>0&&!nxt())break}};
+    for(let i=0;i<cu&&cur;i++){
+      const cch=w16(),fl=b();let runs=0,ext=0;if(fl&8)runs=w16();if(fl&4)ext=d32();
+      let hi=fl&1,s='',n=cch;
+      while(n>0&&cur){
+        if(pos>=cur.length){if(!nxt())break;hi=cur[pos++]&1;continue}
+        const avail=cur.length-pos;
+        if(hi){const k=Math.min(n,avail>>1);if(k===0){pos=cur.length;continue}s+=u16s(cur.subarray(pos,pos+k*2));pos+=k*2;n-=k}
+        else{const k=Math.min(n,avail);s+=latin1(cur.subarray(pos,pos+k));pos+=k;n-=k}
+      }
+      skip(runs*4+ext);sst.push(s);
+    }
+  }
+  /* uslublar */
+  const colorOf=icv=>{if(icv==null||icv>=0x7FFF||icv===64||icv===65)return null;const c=pal[icv];return c?'#'+c:null};
+  const xfCache=[];
+  const xfStyle=i=>{
+    if(xfCache[i]!=null)return xfCache[i];
+    const x=xfs[i];if(!x)return xfCache[i]=0;
+    const o={};const f=fontAt(x.ifnt);
+    if(f.b)o.b=1;if(f.i)o.i=1;if(f.u)o.u=1;if(f.st)o.st=1;
+    if(f.fs&&f.fs!==f0.fs)o.fs=f.fs;if(f.ff&&f.ff!==f0.ff)o.ff=f.ff;
+    const fc=colorOf(f.icv);if(fc&&fc!=='#000000')o.fc=fc;
+    if(x.ifmt){const nf=fmts[x.ifmt]||NFB[x.ifmt];if(nf&&!/^general$/i.test(nf))o.nf=nf}
+    if(x.fls>0){const c=colorOf(x.fg);if(c&&c!=='#FFFFFF')o.bg=c}
+    const ha=['','left','center','right','left','justify','center'][x.ha||0];if(ha)o.ha=ha;
+    if(biff8){if(x.va===1)o.va='middle';else if(x.va===0)o.va='top'}
+    if(x.wrap)o.wrap=1;if(x.ind)o.ind=x.ind;
+    for(const[k,sk,ck]of[['bL','bL','cL'],['bR','bR','cR'],['bT','bT','cT'],['bB','bB','cB']]){const s=BDR[x[sk]||0];if(s)o[k]={st:s,c:colorOf(x[ck])||'#000000'}}
+    return xfCache[i]=Object.keys(o).length?wb.styleId(o):0;
+  };
+  /* --- varaqlar --- */
+  for(const info of sheetsInfo){
+    if(info.dt!==0)continue; // faqat ishchi varaqlar
+    const sh=new M.Sheet(wb,info.name||('Varaq'+(wb.sheets.length+1)));wb.sheets.push(sh);ctx.sheetNames.push(info.name);
+    if(info.hs===1||info.hs===2)sh.hidden=true;
+  }
+  // sheetNames: BOUNDSHEET tartibi bo‘yicha indekslanadi (jadvallardan tashqari varaqlar ham hisobga olinadi)
+  ctx.sheetNames=sheetsInfo.map(s=>s.name);
+  ctx.names=names.map(n=>n?n.name:null);
+  let shi=0;
+  for(const info of sheetsInfo){
+    if(info.dt!==0)continue;
+    const sh=wb.sheets[shi++];
+    let q=info.pos,depth=0,started=false;const pend=[];let lastF=null;
+    let frozen=false,px=0,py=0;
+    const cells=sh.cells;
+    const put=(r,c,xf,v)=>{const s=xfStyle(xf);if(v==null&&!s)return;if(v==null&&s&&false)return;cells.set(key(r,c),{v,f:null,s})};
+    const num=(r,c,xf,x)=>{const s=xfStyle(xf);if(date1904&&F.isDateFmt(wb.styles[s].nf))x+=1462;cells.set(key(r,c),{v:x,f:null,s})};
+    for(;;){
+      const r=rec(q);if(!r)break;q=r.next;const d=r.p;
+      if(r.id===0x0809){depth++;if(depth>1)continue;started=true;continue}
+      if(!started)continue;
+      if(r.id===0x0A){depth--;if(depth<=0)break;continue}
+      if(depth>1)continue;
+      switch(r.id){
+        case 0x0203:{const row=dv.getUint16(d,true),col=dv.getUint16(d+2,true);num(row,col,dv.getUint16(d+4,true),dv.getFloat64(d+6,true));break}
+        case 0x027E:{const row=dv.getUint16(d,true),col=dv.getUint16(d+2,true);num(row,col,dv.getUint16(d+4,true),rk(dv.getUint32(d+6,true)));break}
+        case 0xBD:{const row=dv.getUint16(d,true);let c=dv.getUint16(d+2,true);const n=(r.len-6)/6|0;for(let i=0;i<n;i++){num(row,c+i,dv.getUint16(d+4+i*6,true),rk(dv.getUint32(d+6+i*6,true)))}break}
+        case 0x0201:{const row=dv.getUint16(d,true),col=dv.getUint16(d+2,true);put(row,col,dv.getUint16(d+4,true),null);break}
+        case 0xBE:{const row=dv.getUint16(d,true);const c=dv.getUint16(d+2,true);const n=(r.len-6)/2|0;for(let i=0;i<n;i++)put(row,c+i,dv.getUint16(d+4+i*2,true),null);break}
+        case 0xFD:{const row=dv.getUint16(d,true),col=dv.getUint16(d+2,true);const s=sst[dv.getUint32(d+6,true)];put(row,col,dv.getUint16(d+4,true),s==null?'':s);break}
+        case 0x0204:{const row=dv.getUint16(d,true),col=dv.getUint16(d+2,true),xf=dv.getUint16(d+4,true),n=dv.getUint16(d+6,true);let s;if(biff8){const fl=w[d+8];s=fl&1?u16s(w.subarray(d+9,d+9+n*2)):latin1(w.subarray(d+9,d+9+n))}else s=dec(lab(),w.subarray(d+8,d+8+n));put(row,col,xf,s);break}
+        case 0x0205:{const row=dv.getUint16(d,true),col=dv.getUint16(d+2,true),xf=dv.getUint16(d+4,true);put(row,col,xf,w[d+7]?mkErr(w[d+6]):!!w[d+6]);break}
+        case 0x0006:{
+          const row=dv.getUint16(d,true),col=dv.getUint16(d+2,true),xf=dv.getUint16(d+4,true);
+          let val;
+          if(w[d+12]===0xFF&&w[d+13]===0xFF){const t=w[d+6];val=t===0?'\0STR':t===1?!!w[d+8]:t===2?mkErr(w[d+8]):''}
+          else{val=dv.getFloat64(d+6,true);if(date1904&&F.isDateFmt(wb.styles[xfStyle(xf)].nf))val+=1462}
+          const cce=dv.getUint16(d+20,true);
+          lastF={row,col,xf,val,rgce:w.slice(d+22,d+22+cce)};pend.push(lastF);break}
+        case 0x0207:{ // STRING (formula natijasi)
+          if(lastF&&lastF.val==='\0STR'){const n=dv.getUint16(d,true);let s;if(biff8){const fl=w[d+2];s=fl&1?u16s(w.subarray(d+3,d+3+n*2)):latin1(w.subarray(d+3,d+3+n))}else s=dec(lab(),w.subarray(d+2,d+2+n));
+            // CONTINUE bo‘lsa — qisqartirilgan bo‘lishi mumkin
+            lastF.val=s}
+          break}
+        case 0x04BC:{const r1=dv.getUint16(d,true),r2=dv.getUint16(d+2,true),c1=w[d+4],c2=w[d+5],cce=dv.getUint16(d+8,true);ctx.shared.push({r1,r2,c1,c2,rgce:w.slice(d+10,d+10+cce)});break}
+        case 0xE5:{const n=dv.getUint16(d,true);for(let i=0;i<n;i++){const o=d+2+i*8;sh.merges.push({r1:dv.getUint16(o,true),r2:dv.getUint16(o+2,true),c1:dv.getUint16(o+4,true),c2:dv.getUint16(o+6,true)})}break}
+        case 0x7D:{const c1=dv.getUint16(d,true),c2=Math.min(dv.getUint16(d+2,true),c1+1000),wd=dv.getUint16(d+4,true),fl=dv.getUint16(d+8,true);const cpx=Math.round(wd/256*7);for(let c=c1;c<=c2;c++){if(fl&1)sh.colW.set(c,0);else if(cpx!==sh.defColW&&wd>0)sh.colW.set(c,cpx)}break}
+        case 0x0208:{const row=dv.getUint16(d,true),ht=dv.getUint16(d+6,true),gr=dv.getUint16(d+12,true);if(gr&0x20)sh.rowH.set(row,0);else if(gr&0x40&&!(ht&0x8000)){const px=Math.round((ht&0x7FFF)/15);if(Math.abs(px-sh.defRowH)>1)sh.rowH.set(row,px)}break}
+        case 0x023E:{const gr=dv.getUint16(d,true);sh.showGrid=!!(gr&2);frozen=!!(gr&8);break}
+        case 0x0041:{px=dv.getUint16(d,true);py=dv.getUint16(d+2,true);break}
+        case 0x55:{const chars=dv.getUint16(d,true);sh.defColW=Math.max(40,Math.round(chars*7+5));break}
+        case 0x225:{const ht=dv.getUint16(d+2,true);if(ht)sh.defRowH=Math.max(18,Math.round(ht/15));break}
+      }
+    }
+    if(frozen&&(px||py))sh.freeze={r:py,c:px};
+    // formulalar
+    for(const f of pend){
+      let v=f.val==='\0STR'?'':f.val;
+      const s=xfStyle(f.xf);
+      const fx=f.rgce.length?decompile(f.rgce,f.row,f.col,ctx):null;
+      if(fx!=null){cells.set(key(f.row,f.col),{v:null,f:fx,s,k:v})}
+      else cells.set(key(f.row,f.col),{v,f:null,s});
+    }
+    for(const k of cells.keys()){const x=cells.get(k);if(x.f!=null&&M.SPILL_FN.test(x.f))sh.arrayCells.add(k)}
+  }
+  names.forEach(n=>{if(!n)return;const f=decompile(n.rgce,0,0,ctx);if(f&&!/#REF!/.test(f)&&!/^_xlnm/.test(n.name))wb.names[n.name.toUpperCase()]={name:n.name,f}});
+  if(!wb.sheets.length)wb.addSheet('Varaq1');
+  wb.active=0;wb.hist.suspend=false;wb.gen++;
+  return wb;
+}
+function rk(v){
+  let x;
+  if(v&2){x=v>>2}else{const b=new DataView(new ArrayBuffer(8));b.setUint32(4,(v&0xFFFFFFFC)>>>0,true);x=b.getFloat64(0,true)}
+  return v&1?x/100:x;
+}
+L.readXls=readXls;
+
+/* ---------- .xlsb (BIFF12) — qiymatlar, formulasiz ---------- */
+async function readXlsb(buf){
+  const zip=Z&&Z.zipRead?await Z.zipRead(buf):null;
+  const wb=new M.Workbook();wb.hist.suspend=true;
+  const recs=function*(u){ // yield {id,d}
+    const dv=new DataView(u.buffer,u.byteOffset,u.byteLength);let p=0;
+    while(p<u.length){
+      let id=u[p++];if(id&0x80){id=(id&0x7F)|(u[p++]<<7)}
+      let len=0,sh=0;for(let i=0;i<4;i++){const b=u[p++];len|=(b&0x7F)<<sh;sh+=7;if(!(b&0x80))break}
+      yield{id,d:u.subarray(p,p+len),dv:new DataView(u.buffer,u.byteOffset+p,Math.min(len,u.length-p))};p+=len;
+    }
+  };
+  const wstr=(u,o)=>{let n=new DataView(u.buffer,u.byteOffset).getUint32(o,true);if(n===0xFFFFFFFF)n=0;return[u16s(u.subarray(o+4,o+4+n*2)),o+4+n*2]};
+  // munosabatlar
+  const relsTxt=await zip.text('xl/_rels/workbook.bin.rels');
+  const rels={};if(relsTxt){const dd=new DOMParser().parseFromString(relsTxt,'application/xml');for(const r of dd.getElementsByTagName('Relationship'))rels[r.getAttribute('Id')]=r.getAttribute('Target')}
+  const book=await zip.read('xl/workbook.bin');const infos=[];
+  let date1904=false;
+  for(const r of recs(book)){
+    if(r.id===153){date1904=!!(r.dv.getUint32(0,true)&1)}
+    if(r.id===156){const state=r.dv.getUint32(0,true);const[rid,o2]=wstr(r.d,8);const[nm]=wstr(r.d,o2);infos.push({state,rid,name:nm})}
+  }
+  const sst=[];
+  if(zip.has('xl/sharedStrings.bin')){const u=await zip.read('xl/sharedStrings.bin');for(const r of recs(u)){if(r.id===19){const[s]=wstr(r.d,1);sst.push(s)}}}
+  // uslublar (faqat sonlar formatini aniqlash uchun)
+  const xfNf=[];const fmtMap={};
+  if(zip.has('xl/styles.bin')){
+    const u=await zip.read('xl/styles.bin');let inXF=false;
+    for(const r of recs(u)){
+      if(r.id===44){const id=r.dv.getUint16(0,true);const[s]=wstr(r.d,2);fmtMap[id]=s}
+      else if(r.id===617)inXF=true;else if(r.id===618)inXF=false;
+      else if(r.id===47&&inXF){xfNf.push(r.dv.getUint16(2,true))}
+    }
+  }
+  const nfOf=xf=>{const id=xfNf[xf];if(!id)return null;const nf=fmtMap[id]||NFB[id];return nf&&nf!=='General'?nf:null};
+  const rkv=rk;
+  for(const info of infos){
+    const tg=rels[info.rid];if(!tg)continue;
+    const path=tg.replace(/^\//,'').startsWith('xl/')?tg.replace(/^\//,''):'xl/'+tg;
+    const sh=new M.Sheet(wb,info.name);wb.sheets.push(sh);if(info.state)sh.hidden=true;
+    if(!zip.has(path))continue;
+    const u=await zip.read(path);let row=0;
+    const setv=(c,xf,v)=>{const nf=nfOf(xf);let s=0;if(nf)s=wb.styleId({nf});if(date1904&&typeof v==='number'&&nf&&F.isDateFmt(nf))v+=1462;sh.cells.set(key(row,c),{v,f:null,s})};
+    for(const r of recs(u)){
+      const dv=r.dv;
+      switch(r.id){
+        case 0:row=dv.getUint32(0,true);break;
+        case 2:setv(dv.getUint32(0,true),dv.getUint32(4,true)&0xFFFFFF,rkv(dv.getUint32(8,true)));break;
+        case 3:case 11:setv(dv.getUint32(0,true),dv.getUint32(4,true)&0xFFFFFF,mkErr(r.d[8]));break;
+        case 4:case 10:setv(dv.getUint32(0,true),dv.getUint32(4,true)&0xFFFFFF,!!r.d[8]);break;
+        case 5:case 9:setv(dv.getUint32(0,true),dv.getUint32(4,true)&0xFFFFFF,dv.getFloat64(8,true));break;
+        case 6:case 8:{const[s]=wstr(r.d,8);setv(dv.getUint32(0,true),dv.getUint32(4,true)&0xFFFFFF,s);break}
+        case 7:setv(dv.getUint32(0,true),dv.getUint32(4,true)&0xFFFFFF,sst[dv.getUint32(8,true)]??'');break;
+        case 176:sh.merges.push({r1:dv.getUint32(0,true),r2:dv.getUint32(4,true),c1:dv.getUint32(8,true),c2:dv.getUint32(12,true)});break;
+      }
+    }
+  }
+  if(!wb.sheets.length)wb.addSheet('Varaq1');
+  wb.active=0;wb.hist.suspend=false;wb.gen++;return wb;
+}
+L.readXlsb=readXlsb;
+
+/* ---------- ODS / FODS ---------- */
+const parseXml=t=>{const d=new DOMParser().parseFromString(t,'application/xml');if(d.getElementsByTagName('parsererror').length)throw new Error('XML buzilgan');return d};
+const kids=(el,tag)=>{const o=[];if(el)for(const c of el.children)if(c.nodeName===tag)o.push(c);return o};
+const kid=(el,tag)=>{if(el)for(const c of el.children)if(c.nodeName===tag)return c;return null};
+L.parseXml=parseXml;L.kids=kids;L.kid=kid;
+const attr=(el,n)=>el?el.getAttribute(n):null;
+function odfLen(v){ // pt ga
+  if(!v)return null;const m=/^(-?[\d.]+)(pt|cm|mm|in|px|pc)?$/.exec(v.trim());if(!m)return null;const n=parseFloat(m[1]);
+  switch(m[2]||'pt'){case'pt':return n;case'cm':return n*28.3465;case'mm':return n*2.83465;case'in':return n*72;case'px':return n*0.75;case'pc':return n*12}return null;
+}
+L.odfLen=odfLen;
+/* styles: {name:{family,parent,text:{},para:{},cell:{},col:{},row:{},dataStyle}} */
+function odfStyles(docs){
+  const st={},numst={},liststyles={};
+  for(const doc of docs){
+    if(!doc)continue;
+    for(const el of doc.getElementsByTagName('style:default-style')){
+      const fam=el.getAttribute('style:family');const o={name:'default',family:fam,parent:null,dataStyle:null,text:{},para:{},cell:{},col:{},row:{},tbl:{}};
+      const read=(tag,dst)=>{const e=kid(el,tag);if(e)for(const a of e.attributes)dst[a.name]=a.value};
+      read('style:text-properties',o.text);read('style:paragraph-properties',o.para);read('style:table-cell-properties',o.cell);
+      st['default:'+fam]=o;
+    }
+    for(const el of doc.getElementsByTagName('style:style')){
+      const nm=el.getAttribute('style:name');if(!nm)continue;
+      const o={name:nm,family:el.getAttribute('style:family'),parent:el.getAttribute('style:parent-style-name'),dataStyle:el.getAttribute('style:data-style-name'),text:{},para:{},cell:{},col:{},row:{},tbl:{}};
+      const read=(tag,dst)=>{const e=kid(el,tag);if(e)for(const a of e.attributes)dst[a.name]=a.value};
+      read('style:text-properties',o.text);read('style:paragraph-properties',o.para);read('style:table-cell-properties',o.cell);read('style:table-column-properties',o.col);read('style:table-row-properties',o.row);read('style:table-properties',o.tbl);
+      st[(o.family||'')+':'+nm]=o;
+    }
+    for(const tag of['number:number-style','number:percentage-style','number:currency-style','number:date-style','number:time-style','number:text-style','number:boolean-style']){
+      for(const el of doc.getElementsByTagName(tag)){const nm=el.getAttribute('style:name');if(nm)numst[nm]=el}
+    }
+    for(const el of doc.getElementsByTagName('text:list-style')){const nm=el.getAttribute('style:name');if(nm)liststyles[nm]=el}
+  }
+  return{st,numst,liststyles};
+}
+L.odfStyles=odfStyles;
+function odfNumFmt(el){
+  if(!el)return null;const tag=el.nodeName;
+  const lit=e=>(e.textContent||'').replace(/"/g,'');
+  if(tag==='number:date-style'||tag==='number:time-style'){
+    let s='';
+    for(const c of el.children){
+      const n=c.nodeName,long=c.getAttribute('number:style')==='long';
+      if(n==='number:day')s+=long?'dd':'d';
+      else if(n==='number:month'){if(c.getAttribute('number:textual')==='true')s+=long?'mmmm':'mmm';else s+=long?'mm':'m'}
+      else if(n==='number:year')s+=long?'yyyy':'yy';
+      else if(n==='number:day-of-week')s+=long?'dddd':'ddd';
+      else if(n==='number:hours')s+=long?'hh':'h';
+      else if(n==='number:minutes')s+=long?'mm':'m';
+      else if(n==='number:seconds')s+=long?'ss':'s';
+      else if(n==='number:am-pm')s+=' AM/PM';
+      else if(n==='number:text')s+=lit(c);
+    }
+    return s||null;
+  }
+  const num=kid(el,'number:number')||kid(el,'number:scientific-number')||kid(el,'number:fraction');
+  let core='0';
+  if(num){
+    const dp=+(num.getAttribute('number:decimal-places')||0);const grp=num.getAttribute('number:grouping')==='true';const mi=+(num.getAttribute('number:min-integer-digits')||1);
+    core=(grp?'#,##'+'0'.repeat(Math.max(1,mi)):'0'.repeat(Math.max(1,mi)))+(dp?'.'+'0'.repeat(dp):'');
+    if(num.nodeName==='number:scientific-number')core+='E+00';
+  }
+  if(tag==='number:percentage-style')return core+'%';
+  if(tag==='number:currency-style'){
+    const sym=kid(el,'number:currency-symbol');const s=sym?sym.textContent:'';
+    const before=el.firstElementChild&&el.firstElementChild.nodeName==='number:currency-symbol';
+    return before&&s?'"'+s+'"'+core:s?core+' "'+s+'"':core;
+  }
+  return core==='0'&&!num?null:core;
+}
+L.odfNumFmt=odfNumFmt;
+
+/* ODF formula -> Excel formula (oddiy hollar); topilmasa null */
+function odfFormula(src,shNames){
+  if(!src)return null;let s=String(src).trim();
+  if(/^of:=/i.test(s))s=s.slice(4);else if(/^=/.test(s))s=s.slice(1);else if(/^[a-z]+:=/i.test(s))return null;
+  let out='',i=0;
+  while(i<s.length){
+    const ch=s[i];
+    if(ch==='"'){let j=i+1;while(j<s.length){if(s[j]==='"'){if(s[j+1]==='"'){j+=2;continue}break}j++}out+=s.slice(i,j+1);i=j+1;continue}
+    if(ch==='['){
+      const j=s.indexOf(']',i);if(j<0)return null;
+      const parts=s.slice(i+1,j).split(':').map(p=>{
+        let m=/^(\$?)(?:'((?:[^']|'')+)'|([^.'\s]+))?\.(\$?[A-Za-z]{1,3}\$?\d+)$/.exec(p.trim());
+        if(!m)return null;
+        const sheet=m[2]!=null?m[2].replace(/''/g,"'"):m[3];
+        return{sheet,ref:m[4]};
+      });
+      if(parts.some(x=>!x)||parts.length>2)return null;
+      const sh=parts[0].sheet;
+      let t=(sh?F.sheetPrefix(sh):'')+parts[0].ref;
+      if(parts[1])t+=':'+parts[1].ref;
+      out+=t;i=j+1;continue;
+    }
+    if(ch===';'){out+=',';i++;continue}
+    out+=ch;i++;
+  }
+  return out;
+}
+L.odfFormula=odfFormula;
+
+function readOdsDoc(content,styles,settings){
+  // content: Document (content.xml yoki flat); styles: Document|null
+  const wb=new M.Workbook();wb.hist.suspend=true;
+  const S=odfStyles([styles,content]);
+  const body=kid(kid(content.documentElement,'office:body')||content.documentElement,'office:spreadsheet');
+  if(!body)throw new Error('Jadval (office:spreadsheet) topilmadi');
+  const cellStyleCache=new Map();
+  let _dc=null;
+  const defCell=()=>{if(_dc)return _dc;_dc={};const d=S.st['default:table-cell'];const t=(d&&d.text)||{};const dd=S.st['table-cell:Default'];const t2=(dd&&dd.text)||{};
+    const g=(k,f)=>t2[k]||t[k];const fs=odfLen(g('fo:font-size'));if(fs)_dc.fs=Math.round(fs*10)/10;const ff=g('style:font-name')||g('fo:font-family');if(ff)_dc.ff=ff.replace(/'/g,'');return _dc};
+  const styleChain=(name,fam)=>{const out=[];let n=name,g=0;while(n&&g++<10){const s=S.st[fam+':'+n];if(!s)break;out.unshift(s);n=s.parent}return out};
+  const cellStyleId=name=>{
+    if(!name)return 0;if(cellStyleCache.has(name))return cellStyleCache.get(name);
+    const ch=styleChain(name,'table-cell');const o={};let ds=null;
+    for(const s of ch){
+      const t=s.text,pr=s.para,cl=s.cell;
+      if(t['fo:font-weight']){if(t['fo:font-weight']==='bold'||+t['fo:font-weight']>=700)o.b=1;else delete o.b}
+      if(t['fo:font-style']){if(t['fo:font-style']==='italic')o.i=1;else delete o.i}
+      if(t['style:text-underline-style']){if(t['style:text-underline-style']!=='none')o.u=1;else delete o.u}
+      if(t['style:text-line-through-style']){if(t['style:text-line-through-style']!=='none')o.st=1;else delete o.st}
+      if(t['fo:color']&&/^#/.test(t['fo:color'])&&t['fo:color'].toLowerCase()!=='#000000')o.fc=t['fo:color'].toUpperCase();
+      const fs=odfLen(t['fo:font-size']);if(fs)o.fs=Math.round(fs*10)/10;
+      const ff=t['style:font-name']||t['fo:font-family'];if(ff)o.ff=ff.replace(/'/g,'');
+      if(cl['fo:background-color']){if(/^#/.test(cl['fo:background-color']))o.bg=cl['fo:background-color'].toUpperCase();else delete o.bg}
+      const al=pr['fo:text-align'];if(al){o.ha={start:'left',left:'left',end:'right',right:'right',center:'center',justify:'justify'}[al]||undefined;if(!o.ha)delete o.ha}
+      const va=cl['style:vertical-align'];if(va){o.va=va==='middle'?'middle':va==='top'?'top':va==='bottom'?'bottom':undefined;if(!o.va)delete o.va}
+      if(cl['fo:wrap-option']==='wrap')o.wrap=1;
+      for(const[k,a]of[['bT','fo:border-top'],['bB','fo:border-bottom'],['bL','fo:border-left'],['bR','fo:border-right']]){
+        const v=cl[a]||cl['fo:border'];if(v!=null){if(v==='none')delete o[k];else{const m=/^([\d.]+)(pt|cm|mm|in)?\s+(solid|double|dashed|dotted)?\s*(#[0-9a-fA-F]{6})?/.exec(v);if(m){const wpt=odfLen(m[1]+(m[2]||'pt'));o[k]={st:m[3]==='double'?'double':m[3]==='dashed'?'dashed':m[3]==='dotted'?'dotted':wpt>=2?'thick':wpt>=1.2?'medium':'thin',c:(m[4]||'#000000').toUpperCase()}}}}
+      }
+      if(s.dataStyle)ds=s.dataStyle;
+    }
+    if(ds){const nf=odfNumFmt(S.numst[ds]);if(nf)o.nf=nf}
+    const dp=defCell();
+    if(o.ff&&(o.ff==='Calibri'||o.ff===dp.ff))delete o.ff;
+    if(o.fs&&(o.fs===11||o.fs===dp.fs))delete o.fs;
+    if(o.va==='bottom')delete o.va;
+    const id=Object.keys(o).length?wb.styleId(o):0;cellStyleCache.set(name,id);return id;
+  };
+  const date2serial=s=>{
+    const m=/^(-?\d{4,})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?)?/.exec(s);if(!m)return null;
+    let v=F.dateToSerial(+m[1],+m[2],+m[3]);if(m[4]!=null)v+=(+m[4]*3600+(+m[5])*60+(+m[6]))/86400;return{v,hasTime:m[4]!=null};
+  };
+  const time2serial=s=>{const m=/^PT(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?$/.exec(s);if(!m)return null;return((+m[1]||0)*3600+(+m[2]||0)*60+(parseFloat(m[3])||0))/86400};
+  const sheetNames=kids(body,'table:table').map(t=>t.getAttribute('table:name'));
+  for(const tbl of kids(body,'table:table')){
+    const sh=new M.Sheet(wb,tbl.getAttribute('table:name')||('Varaq'+(wb.sheets.length+1)));wb.sheets.push(sh);
+    const ts=S.st['table:'+tbl.getAttribute('table:style-name')];
+    if(ts&&ts.tbl['table:display']==='false')sh.hidden=true;
+    // ustunlar
+    let ci=0;
+    const colEls=[];
+    const walkCols=el=>{for(const c of el.children){if(c.nodeName==='table:table-column')colEls.push(c);else if(c.nodeName==='table:table-column-group'||c.nodeName==='table:table-header-columns'||c.nodeName==='table:table-columns')walkCols(c)}};walkCols(tbl);
+    const colDefaultStyle=[];
+    for(const c of colEls){
+      const rep=Math.min(+(c.getAttribute('table:number-columns-repeated')||1),1024);
+      const cs=S.st['table-column:'+c.getAttribute('table:style-name')];const wpt=cs?odfLen(cs.col['style:column-width']):null;
+      const hid=c.getAttribute('table:visibility')==='collapse'||c.getAttribute('table:visibility')==='filter';
+      for(let k=0;k<rep;k++){
+        if(hid)sh.colW.set(ci,0);else if(wpt){const px=Math.round(wpt*4/3);if(px!==sh.defColW)sh.colW.set(ci,px)}
+        colDefaultStyle[ci]=c.getAttribute('table:default-cell-style-name');ci++;
+      }
+    }
+    // qatorlar
+    let ri=0;
+    const rowEls=[];
+    const walkRows=el=>{for(const c of el.children){if(c.nodeName==='table:table-row')rowEls.push(c);else if(c.nodeName==='table:table-row-group'||c.nodeName==='table:table-header-rows'||c.nodeName==='table:table-rows')walkRows(c)}};walkRows(tbl);
+    for(const row of rowEls){
+      const rrep=+(row.getAttribute('table:number-rows-repeated')||1);
+      const rs=S.st['table-row:'+row.getAttribute('table:style-name')];
+      const rh=rs?odfLen(rs.row['style:row-height']||rs.row['style:min-row-height']):null;
+      const rowHid=row.getAttribute('table:visibility')==='collapse'||row.getAttribute('table:visibility')==='filter';
+      let c=0;const cellsOut=[];
+      for(const ce of row.children){
+        const nm=ce.nodeName;if(nm!=='table:table-cell'&&nm!=='table:covered-table-cell')continue;
+        const crep=+(ce.getAttribute('table:number-columns-repeated')||1);
+        const vt=ce.getAttribute('office:value-type');
+        const form=ce.getAttribute('table:formula');
+        let v=null,nfAuto=null;
+        if(nm==='table:table-cell'){
+          if(vt==='float'||vt==='percentage'||vt==='currency'){v=parseFloat(ce.getAttribute('office:value'));if(isNaN(v))v=null;if(vt==='percentage')nfAuto='0%';}
+          else if(vt==='date'){const d=date2serial(ce.getAttribute('office:date-value')||'');if(d){v=d.v;nfAuto=d.hasTime?'dd.mm.yyyy hh:mm':'dd.mm.yyyy'}}
+          else if(vt==='time'){const d=time2serial(ce.getAttribute('office:time-value')||'');if(d!=null){v=d;nfAuto='hh:mm:ss'}}
+          else if(vt==='boolean'){v=ce.getAttribute('office:boolean-value')==='true'}
+          else if(vt==='string'){
+            const sv=ce.getAttribute('office:string-value');
+            if(sv!=null)v=sv;else{const ps=kids(ce,'text:p');v=ps.map(p=>textOf(p)).join('\n')}
+          }else if(!vt){const ps=kids(ce,'text:p');if(ps.length){v=ps.map(p=>textOf(p)).join('\n');if(v==='')v=null}}
+          if(vt==='string'&&form&&/^of:=/i.test(form)&&v==null)v='';
+        }
+        const cstyle=ce.getAttribute('table:style-name')||colDefaultStyle[c];
+        let sid=cellStyleId(cstyle);
+        if(nfAuto){const cur=wb.styles[sid];if(!cur.nf||cur.nf==='General')sid=wb.patchStyle(sid,{nf:nfAuto})}
+        const rsp=+(ce.getAttribute('table:number-rows-spanned')||1),csp=+(ce.getAttribute('table:number-columns-spanned')||1);
+        const has=v!=null||form||sid;
+        if(has&&!(crep>64&&v==null&&!form)){
+          for(let k=0;k<Math.min(crep,64);k++)cellsOut.push({c:c+k,v,form:k===0?form:null,sid,rsp:k===0?rsp:1,csp:k===0?csp:1,vt});
+        }
+        c+=crep;
+      }
+      const hasData=cellsOut.some(x=>x.v!=null||x.form);
+      if(!hasData&&!rh&&!rowHid&&cellsOut.every(x=>!x.sid)){ri+=rrep;continue}
+      const reps=Math.min(rrep,hasData?100:5);
+      for(let k=0;k<reps;k++){
+        const r=ri+k;
+        for(const x of cellsOut){
+          let f=null;
+          if(x.form){f=odfFormula(x.form,sheetNames);if(f!=null){try{F.parse(f)}catch(e){f=null}}}
+          if(f!=null)sh.cells.set(key(r,x.c),{v:null,f,s:x.sid,k:x.v});
+          else if(x.v!=null||x.sid)sh.cells.set(key(r,x.c),{v:x.v,f:null,s:x.sid});
+          if(k===0&&(x.rsp>1||x.csp>1))sh.merges.push({r1:r,c1:x.c,r2:r+x.rsp-1,c2:x.c+x.csp-1});
+        }
+        if(rowHid)sh.rowH.set(r,0);else if(rh){const px=Math.round(rh*4/3);if(Math.abs(px-sh.defRowH)>1)sh.rowH.set(r,px)}
+      }
+      ri+=rrep;
+    }
+    for(const k of sh.cells.keys()){const x=sh.cells.get(k);if(x.f!=null&&M.SPILL_FN.test(x.f))sh.arrayCells.add(k)}
+    const modeOf=m=>{const c=new Map();for(const v of m.values())if(v>0)c.set(v,(c.get(v)||0)+1);let best=null,bn=0;for(const[k,n]of c)if(n>bn){best=k;bn=n}return best};
+    const mw=modeOf(sh.colW);if(mw&&mw>=40){sh.defColW=mw;for(const[k,v]of[...sh.colW])if(v===mw)sh.colW.delete(k)}
+    const mh=modeOf(sh.rowH);if(mh&&mh>=18){sh.defRowH=mh;for(const[k,v]of[...sh.rowH])if(v===mh)sh.rowH.delete(k)}
+  }
+  if(settings){ // qotirilgan sohalar va faol varaq
+    try{
+      const ent=[...settings.getElementsByTagName('config:config-item-map-entry')];
+      const val=(e,n)=>{for(const c of e.children)if(c.nodeName==='config:config-item'&&c.getAttribute('config:name')===n)return c.textContent;return null};
+      for(const e of ent){
+        const nm=e.getAttribute('config:name');const sh=wb.sheets.find(s=>s.name===nm);if(!sh)continue;
+        const hm=val(e,'HorizontalSplitMode'),vm=val(e,'VerticalSplitMode');
+        const hp=+(val(e,'HorizontalSplitPosition')||0),vp=+(val(e,'VerticalSplitPosition')||0);
+        if((hm==='2'&&hp)||(vm==='2'&&vp))sh.freeze={r:vm==='2'?vp:0,c:hm==='2'?hp:0};
+      }
+      for(const c of settings.getElementsByTagName('config:config-item')){if(c.getAttribute('config:name')==='ActiveTable'){const i=wb.sheets.findIndex(s=>s.name===c.textContent);if(i>=0){wb.active=i;if(wb.sheets[i].hidden)wb.active=0}break}}
+    }catch(e){}
+  }
+  if(!wb.sheets.length)wb.addSheet('Varaq1');
+  if(!settings||wb.active>=wb.sheets.length)wb.active=0;
+  wb.hist.suspend=false;wb.gen++;return wb;
+}
+function textOf(p){
+  let s='';
+  (function walk(n){
+    for(const c of n.childNodes){
+      if(c.nodeType===3)s+=c.nodeValue;
+      else if(c.nodeType===1){const nm=c.nodeName;
+        if(nm==='text:s')s+=' '.repeat(+(c.getAttribute('text:c')||1));
+        else if(nm==='text:tab')s+='\t';else if(nm==='text:line-break')s+='\n';
+        else if(nm==='text:note'||nm==='office:annotation')continue;
+        else walk(c)}
+    }
+  })(p);
+  return s;
+}
+L.textOf=textOf;
+L.readOds=async buf=>{
+  const zip=await Z.zipRead(buf);
+  const ct=await zip.text('content.xml');if(!ct)throw new Error('content.xml topilmadi');
+  const st=zip.has('styles.xml')?parseXml(await zip.text('styles.xml')):null;
+  let se=null;try{if(zip.has('settings.xml'))se=parseXml(await zip.text('settings.xml'))}catch(e){}
+  return readOdsDoc(parseXml(ct),st,se);
+};
+L.readFods=text=>readOdsDoc(parseXml(text),null);
+
+/* ---------- SpreadsheetML 2003 (.xml) ---------- */
+L.readSpreadsheetML=text=>{
+  const d=parseXml(text);const wb=new M.Workbook();wb.hist.suspend=true;
+  const all=(el,ln)=>[...el.getElementsByTagName('*')].filter(x=>x.localName===ln);
+  const at=(el,n)=>el.getAttribute('ss:'+n)??el.getAttribute(n);
+  for(const ws of all(d.documentElement,'Worksheet')){
+    const sh=new M.Sheet(wb,at(ws,'Name')||('Varaq'+(wb.sheets.length+1)));wb.sheets.push(sh);
+    const tb=[...ws.children].find(x=>x.localName==='Table');if(!tb)continue;
+    let ri=-1;
+    for(const row of tb.children){
+      if(row.localName!=='Row')continue;
+      const idx=at(row,'Index');ri=idx?+idx-1:ri+1;let ci=-1;
+      for(const cell of row.children){
+        if(cell.localName!=='Cell')continue;
+        const cx=at(cell,'Index');ci=cx?+cx-1:ci+1;
+        const data=[...cell.children].find(x=>x.localName==='Data');
+        const ma=+(at(cell,'MergeAcross')||0),md=+(at(cell,'MergeDown')||0);
+        if(data){
+          const ty=at(data,'Type');const tx=data.textContent;let v=tx,nf=null;
+          if(ty==='Number'){v=parseFloat(tx)}
+          else if(ty==='Boolean')v=tx==='1'||/true/i.test(tx);
+          else if(ty==='DateTime'){const dd=F.parseDateStr(tx.replace('T',' ').replace(/\.\d+$/,'').replace(/Z$/,''));if(dd!=null){v=dd;nf=/T00:00:00/.test(tx)?'dd.mm.yyyy':'dd.mm.yyyy hh:mm'}}
+          else if(ty==='Error')v=new F.Err(tx);
+          sh.cells.set(key(ri,ci),{v,f:null,s:nf?wb.styleId({nf}):0});
+        }
+        if(ma||md)sh.merges.push({r1:ri,c1:ci,r2:ri+md,c2:ci+ma});
+        ci+=ma;
+      }
+    }
+  }
+  if(!wb.sheets.length)throw new Error('Varaq topilmadi');
+  wb.active=0;wb.hist.suspend=false;wb.gen++;return wb;
+};
+})(window.OF=window.OF||{});
+
+/* ===== hujjat formatlari: .rtf, .odt/.fodt, .doc (Word 97–2003) + format aniqlash ===== */
+(function(OF){
+'use strict';
+const F=OF.F,Z=OF.Z,L=OF.L;
+const {latin1,dec,cpLabel,u16s,kid,kids,parseXml,odfLen,odfStyles,oleOpen,textOf}=L;
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const escA=s=>esc(s).replace(/"/g,'&quot;');
+const b64=u=>{let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)};
+
+/* ---------- umumiy model -> HTML ---------- */
+// run: {t,b,i,u,st,sup,sub,fs,fc,bg,ff,link} | {img,w,h} | {br:1}
+// para: {runs,align,li,fi,h,list}
+function mode(map){let best=null,bn=0;for(const[k,n]of map)if(n>bn){best=k;bn=n}return best}
+function renderModel(blocks){
+  const cf=new Map(),cn=new Map();
+  const count=p=>{for(const r of p.runs){if(r.t==null)continue;const n=r.t.length;if(r.fs)cf.set(r.fs,(cf.get(r.fs)||0)+n);if(r.ff)cn.set(r.ff,(cn.get(r.ff)||0)+n)}};
+  for(const b of blocks){if(b.k==='p')count(b.p);else if(b.k==='table')for(const row of b.rows)for(const c of row)for(const p of c.paras)count(p)}
+  const baseFs=mode(cf),baseFf=mode(cn);
+  const run=r=>{
+    if(r.br)return'<br>';
+    if(r.img)return'<img src="'+r.img+'"'+(r.w?' width="'+Math.round(r.w)+'"':'')+(r.h?' height="'+Math.round(r.h)+'"':'')+'>';
+    let h=esc(r.t).replace(/\t/g,'&emsp;').replace(/\n/g,'<br>');
+    const sty=[];
+    if(r.fc&&r.fc.toLowerCase()!=='#000000')sty.push('color:'+r.fc);
+    if(r.bg)sty.push('background-color:'+r.bg);
+    if(r.fs&&r.fs!==baseFs)sty.push('font-size:'+r.fs+'pt');
+    if(r.ff&&r.ff!==baseFf)sty.push('font-family:'+r.ff.replace(/["<>;:]/g,''));
+    if(sty.length)h='<span style="'+sty.join(';')+'">'+h+'</span>';
+    if(r.b)h='<b>'+h+'</b>';if(r.i)h='<i>'+h+'</i>';if(r.u)h='<u>'+h+'</u>';if(r.st)h='<s>'+h+'</s>';
+    if(r.sup)h='<sup>'+h+'</sup>';else if(r.sub)h='<sub>'+h+'</sub>';
+    if(r.link&&/^(https?:|mailto:|tel:|#)/i.test(r.link))h='<a href="'+escA(r.link)+'">'+h+'</a>';
+    return h;
+  };
+  const para=(p,tag)=>{
+    tag=tag||(p.h?'h'+p.h:'p');
+    const sty=[];if(p.align&&p.align!=='left')sty.push('text-align:'+p.align);
+    if(p.li>0.5)sty.push('margin-left:'+Math.round(p.li)+'pt');
+    if(p.fi&&Math.abs(p.fi)>0.5)sty.push('text-indent:'+Math.round(p.fi)+'pt');
+    const inner=p.runs.map(run).join('');
+    return'<'+tag+(sty.length?' style="'+sty.join(';')+'"':'')+'>'+(inner||'<br>')+'</'+tag+'>';
+  };
+  let out='',listOpen=null;
+  const closeList=()=>{if(listOpen){out+='</'+listOpen+'>';listOpen=null}};
+  for(const b of blocks){
+    if(b.k==='p'&&b.p.list){
+      if(listOpen!==b.p.list){closeList();out+='<'+b.p.list+'>';listOpen=b.p.list}
+      out+=para(b.p,'li');continue;
+    }
+    closeList();
+    if(b.k==='p')out+=para(b.p);
+    else if(b.k==='pb')out+='<hr class="pgbrk">';
+    else if(b.k==='table'){
+      const w=Math.max(...b.rows.map(r=>r.length));
+      out+='<table class="bordered" style="width:100%"><tbody>';
+      for(const row of b.rows){
+        out+='<tr>';
+        for(const c of row){out+='<td'+(c.span>1?' colspan="'+c.span+'"':'')+'>'+(c.paras.length?c.paras.map(p=>para(p)).join(''):'<p><br></p>')+'</td>'}
+        for(let k=row.reduce((a,c)=>a+(c.span||1),0);k<w;k++)out+='<td><p><br></p></td>';
+        out+='</tr>';
+      }
+      out+='</tbody></table><p><br></p>';
+    }
+  }
+  closeList();
+  return out||'<p><br></p>';
+}
+L.renderModel=renderModel;
+
+/* ---------- RTF ---------- */
+const CHARSET_CP={0:null,1:null,77:10000,128:932,129:949,130:1361,134:936,136:950,161:1253,162:1254,163:1258,177:1255,178:1256,186:1257,204:1251,222:874,238:1250};
+function readRtf(bytes){
+  const s=latin1(bytes);const n=s.length;
+  let i=0;
+  const D={cp:1252,deff:0,fonts:{},colors:[],styleNames:{},curStyle:null,page:{},fld:'',pic:null,curFont:null,colTmp:{r:0,g:0,b:0,any:false},listTxt:'',inList:false};
+  let st={skip:0,uc:1,ucSkip:0,b:0,i:0,u:0,st:0,sup:0,sub:0,fs:null,cf:0,hl:0,font:null,dest:null,link:null};
+  const stack=[];
+  const blocks=[];let pend=[];let pendLabel=null;
+  let pp={align:null,li:0,fi:0,outline:null,ls:false,intbl:false,style:null};
+  let cur={runs:[]};
+  let rowCells=[],curCell={paras:[],span:1},tblRows=[],rowActive=false;
+  const fontInfo=idx=>D.fonts[idx]||{};
+  const colorOf=idx=>D.colors[idx]||null;
+  const curLabel=()=>{const f=fontInfo(st.font!=null?st.font:D.deff);const cs=f.charset;const cp=cs!=null&&CHARSET_CP[cs]?CHARSET_CP[cs]:D.cp;return cpLabel(cp)};
+  const emitText=t=>{
+    if(!t)return;
+    if(st.dest==='listtext'){D.listTxt+=t;return}
+    if(st.dest==='fldinst'){D.fld+=t;return}
+    if(st.dest==='fonttbl'){fontText(t);return}
+    if(st.dest==='colortbl'){return}
+    if(st.skip||st.dest)return;
+    const f=fontInfo(st.font!=null?st.font:D.deff);
+    const r={t,b:st.b,i:st.i,u:st.u,st:st.st,sup:st.sup,sub:st.sub,fs:st.fs?st.fs/2:null,fc:st.cf?colorOf(st.cf):null,bg:st.hl?colorOf(st.hl):null,ff:f.name||null,link:st.link};
+    const last=cur.runs[cur.runs.length-1];
+    if(last&&last.t!=null&&['b','i','u','st','sup','sub','fs','fc','bg','ff','link'].every(k=>last[k]===r[k]))last.t+=t;else cur.runs.push(r);
+  };
+  const fontText=t=>{ // fonttbl: nom yig‘ish
+    const f=D.fonts[D.curFont];if(!f)return;
+    const parts=t.split(';');
+    f.name=(f.name||'')+parts[0];
+  };
+  const flushBytes=()=>{
+    if(!pend.length)return;
+    const u=Uint8Array.from(pend);pend=[];
+    if(st.dest==='colortbl')return;
+    emitText(dec(pendLabel||'windows-1252',u));
+  };
+  const endPara=()=>{
+    flushBytes();
+    const p={runs:cur.runs,align:pp.align,li:pp.li/20,fi:pp.fi/20,h:0,list:null};
+    if(pp.outline!=null&&pp.outline>=0&&pp.outline<6)p.h=pp.outline+1;
+    else if(pp.style!=null){const nm=D.styleNames[pp.style]||'';const hm=/^(heading|заголовок|sarlavha)\s*(\d)/i.exec(nm.trim());if(hm)p.h=Math.min(+hm[2],6);else if(/^title$/i.test(nm.trim())){p.h=1;if(!p.align)p.align='center'}}
+    if(D.listTxt||pp.ls){const t=D.listTxt.trim();p.list=/^(\(?\d+[.)]?|\(?[a-zA-Z]{1,4}[.)])$/.test(t)?'ol':'ul'}
+    D.listTxt='';
+    cur={runs:[]};
+    if(rowActive||pp.intbl){curCell.paras.push(p)}
+    else{flushTable();blocks.push({k:'p',p})}
+  };
+  const flushTable=()=>{if(tblRows.length){blocks.push({k:'table',rows:tblRows});tblRows=[]}};
+  const cellEnd=()=>{
+    flushBytes();
+    if(cur.runs.length||!curCell.paras.length){const p={runs:cur.runs,align:pp.align,li:0,fi:0,h:0,list:null};curCell.paras.push(p);cur={runs:[]}}
+    rowCells.push(curCell);curCell={paras:[],span:1};
+  };
+  const rowEnd=()=>{if(curCell.paras.length||cur.runs.length)cellEnd();if(rowCells.length)tblRows.push(rowCells);rowCells=[];rowActive=false};
+  const KNOWN_STAR=new Set(['fldinst','shppict']);
+  const SKIP_DEST=new Set(['info','header','headerl','headerr','headerf','footer','footerl','footerr','footerf','footnote','pgdsctbl','listtable','listoverridetable','rsidtbl','generator','xmlnstbl','themedata','colorschememapping','latentstyles','datastore','mmathPr','pnseclvl','bkmkstart','bkmkend','ftnsep','ftnsepc','aftnsep','aftnsepc','template','revtbl','filetbl','operator','nonshppict','objdata','objclass','objname','blipuid','datafield','fchars','lchars','shpinst','factoidname','userprops','private','wgrffmtfilter','pnseclvl','upr','falt','panose','fname','ftnsepc','protusertbl','ignoreme','trowd_skip','nextfile','sp','sn','sv','lsdlockedexcept','pgptbl','xe','tc','txe','rxe','ixe','tcn','pntxta','pntxtb']);
+  const unic=cp=>{
+    if(cp<0)cp+=65536;
+    emitText(String.fromCodePoint(cp));
+  };
+  const hexVal=h=>parseInt(h,16);
+  const ctl=(w,hasN,N)=>{
+    const num=hasN?N:null;
+    const star=st.star;st.star=false;
+    // maqsad (destination) so‘zlari
+    if(st.skip===0&&st.justOpened){
+      st.justOpened=false;
+      if(star&&!KNOWN_STAR.has(w)){st.skip=1;return}
+      if(SKIP_DEST.has(w)){st.skip=1;return}
+      if(st.dest==null){
+        if(w==='fonttbl'){st.dest='fonttbl';return}
+        if(w==='stylesheet'){st.dest='stylesheet';D.curStyle=null;return}
+        if(w==='colortbl'){st.dest='colortbl';D.colTmp={r:0,g:0,b:0,any:false};return}
+        if(w==='listtext'||w==='pntext'){st.dest='listtext';return}
+        if(w==='fldinst'){st.dest='fldinst';return}
+        if(w==='pict'){st.dest='pict';D.pic={type:null,hex:'',w:0,h:0};return}
+        if(w==='fldrslt'){const m=/HYPERLINK\s+(?:\\[a-z]\s+)*"([^"]+)"/i.exec(D.fld);st.link=m?m[1]:null;return}
+        if(w==='field'){D.fld='';return}
+      }
+    }
+    st.justOpened=false;
+    if(st.skip)return;
+    if(st.dest==='fonttbl'){
+      if(w==='f'){D.curFont=num;D.fonts[num]=D.fonts[num]||{name:'',charset:null}}
+      else if(w==='fcharset'&&D.fonts[D.curFont])D.fonts[D.curFont].charset=num;
+      return;
+    }
+    if(st.dest==='stylesheet'){
+      if(w==='s'){D.curStyle=num;D.styleNames[num]=''}else if(w==='cs'||w==='ds'||w==='ts'){D.curStyle=null}
+      return;
+    }
+    if(st.dest==='colortbl'){
+      if(w==='red'){D.colTmp.r=num;D.colTmp.any=true}else if(w==='green'){D.colTmp.g=num;D.colTmp.any=true}else if(w==='blue'){D.colTmp.b=num;D.colTmp.any=true}
+      return;
+    }
+    if(st.dest==='pict'){
+      const P=D.pic;
+      if(w==='pngblip')P.type='png';else if(w==='jpegblip')P.type='jpeg';else if(w==='emfblip'||w==='wmetafile'||w==='macpict'||w==='pmmetafile'||w==='dibitmap'||w==='wbitmap')P.type=P.type||'unsupported';
+      else if(w==='picwgoal')P.w=num/15;else if(w==='pichgoal')P.h=num/15;
+      return;
+    }
+    switch(w){
+      case'ansicpg':if(num)D.cp=num;break;
+      case'deff':D.deff=num;break;
+      case'uc':st.uc=num==null?1:num;break;
+      case'u':{flushBytes();unic(num);st.ucSkip=st.uc;break}
+      case'par':case'sect':if(w==='sect')break;endPara();break;
+      case'line':flushBytes();if(!st.dest&&!st.skip)cur.runs.push({br:1});break;
+      case'tab':emitText('\t');break;
+      case'page':case'pagebb':flushBytes();if(cur.runs.length)endPara();flushTable();blocks.push({k:'pb'});break;
+      case'emdash':emitText('—');break;case'endash':emitText('–');break;case'bullet':emitText('•');break;
+      case'lquote':emitText('‘');break;case'rquote':emitText('’');break;case'ldblquote':emitText('“');break;case'rdblquote':emitText('”');break;
+      case'emspace':case'enspace':case'qmspace':emitText(' ');break;
+      case'plain':st.b=0;st.i=0;st.u=0;st.st=0;st.sup=0;st.sub=0;st.fs=null;st.cf=0;st.hl=0;st.font=null;break;
+      case'b':st.b=num===0?0:1;break;case'i':st.i=num===0?0:1;break;
+      case'ul':case'uld':case'uldb':case'ulw':case'ulth':case'ulwave':st.u=num===0?0:1;break;case'ulnone':st.u=0;break;
+      case'strike':case'striked1':st.st=num===0?0:1;break;
+      case'super':st.sup=1;st.sub=0;break;case'sub':st.sub=1;st.sup=0;break;case'nosupersub':st.sup=0;st.sub=0;break;
+      case'fs':st.fs=num;break;
+      case'cf':st.cf=num||0;break;
+      case'highlight':case'cb':case'chcbpat':if(num)st.hl=num;else st.hl=0;break;
+      case'f':st.font=num;break;
+      case'pard':pp={align:null,li:0,fi:0,outline:null,ls:false,intbl:false,style:null};break;
+      case'ql':pp.align='left';break;case'qc':pp.align='center';break;case'qr':pp.align='right';break;case'qj':pp.align='justify';break;
+      case'li':pp.li=Math.max(0,num||0);break;case'fi':pp.fi=num||0;break;
+      case'outlinelevel':pp.outline=num;break;
+      case's':pp.style=num;break;
+      case'ls':pp.ls=true;break;
+      case'intbl':pp.intbl=true;break;
+      case'trowd':rowActive=true;rowCells=[];curCell={paras:[],span:1};break;
+      case'cell':cellEnd();break;
+      case'row':rowEnd();break;
+      case'paperw':D.page.w=num;break;case'paperh':D.page.h=num;break;
+      case'margl':D.page.l=num;break;case'margr':D.page.r=num;break;case'margt':D.page.t=num;break;case'margb':D.page.b=num;break;
+      case'landscape':D.page.land=true;break;
+      case'bin':{ // ikkilik ma’lumot
+        const cnt=num||0;
+        if(st.dest==='pict'&&D.pic){let h='';for(let k=0;k<cnt;k++)h+=(s.charCodeAt(i+k)&255).toString(16).padStart(2,'0');D.pic.hex+=h}
+        i+=cnt;break}
+    }
+  };
+  const closeGroup=()=>{
+    flushBytes();
+    if(st.dest==='pict'&&D.pic){
+      const P=D.pic;D.pic=null;
+      if((P.type==='png'||P.type==='jpeg')&&P.hex.length>16){
+        const u=new Uint8Array(P.hex.length>>1);for(let k=0;k<u.length;k++)u[k]=hexVal(P.hex.substr(k*2,2));
+        const prev=stack[stack.length-1];
+        cur.runs.push({img:'data:image/'+P.type+';base64,'+b64(u),w:P.w,h:P.h});
+      }
+    }
+    if(st.dest==='listtext'&&false){}
+    if(st.dest==='colortbl'){}
+  };
+  while(i<n){
+    const ch=s[i];
+    if(ch==='{'){
+      flushBytes();if(st.dest==='stylesheet')D.curStyle=0;stack.push(st);st={...st,justOpened:true,star:false};
+      // dest va skip meros bo‘ladi; ucSkip ham
+      i++;continue;
+    }
+    if(ch==='}'){
+      closeGroup();
+      st=stack.pop()||st;st.justOpened=false;i++;continue;
+    }
+    if(ch==='\\'){
+      i++;if(i>=n)break;
+      const c=s[i];
+      if(/[a-zA-Z]/.test(c)){
+        let j=i;while(j<n&&/[a-zA-Z]/.test(s[j]))j++;
+        const w=s.slice(i,j);
+        let hasN=false,N=0;
+        if(s[j]==='-'||/\d/.test(s[j]||'')){let k=j;if(s[k]==='-')k++;while(k<n&&/\d/.test(s[k]))k++;if(k>j){hasN=true;N=parseInt(s.slice(j,k),10);j=k}}
+        if(s[j]===' ')j++;
+        i=j;
+        if(w==='u'&&false){}
+        ctl(w,hasN,N);continue;
+      }
+      i++;
+      if(c==='\''){ // \'hh
+        const hx=s.substr(i,2);i+=2;
+        if(st.ucSkip>0){st.ucSkip--;continue}
+        if(st.skip||st.dest==='colortbl')continue;
+        const lbl=curLabel();
+        if(pend.length&&pendLabel!==lbl)flushBytes();
+        pendLabel=lbl;pend.push(hexVal(hx));continue;
+      }
+      if(c==='*'){st.star=true;continue}
+      flushBytes();
+      if(c==='\\'||c==='{'||c==='}'){if(st.ucSkip>0)st.ucSkip--;else emitText(c);continue}
+      if(c==='~'){emitText(' ');continue}
+      if(c==='-'||c==='|'||c===':')continue;
+      if(c==='_'){emitText('-');continue}
+      if(c==='\r'||c==='\n'){if(c==='\r'&&s[i]==='\n')i++;endPara();continue}
+      continue;
+    }
+    if(ch==='\r'||ch==='\n'){i++;continue}
+    // oddiy belgi
+    if(st.ucSkip>0){st.ucSkip--;i++;continue}
+    if(st.justOpened)st.justOpened=false;
+    if(st.dest==='colortbl'&&ch===';'){
+      D.colors.push(D.colTmp.any?'#'+[D.colTmp.r,D.colTmp.g,D.colTmp.b].map(x=>(x||0).toString(16).padStart(2,'0')).join('').toUpperCase():null);D.colTmp={r:0,g:0,b:0,any:false};i++;continue}
+    if(st.dest==='fonttbl'){ if(ch===';'){D.curFont=D.curFont;i++;continue} }
+    if(st.dest==='pict'){ if(/[0-9a-fA-F]/.test(ch))D.pic.hex+=ch;i++;continue }
+    if(ch.charCodeAt(0)>127){
+      if(st.skip||st.dest){i++;continue}
+      const lbl=curLabel();if(pend.length&&pendLabel!==lbl)flushBytes();pendLabel=lbl;pend.push(ch.charCodeAt(0));i++;continue;
+    }
+    flushBytes();
+    // matn bo‘lagini yig‘ish
+    let j=i;while(j<n&&!'{}\\\r\n'.includes(s[j])&&s.charCodeAt(j)<=127)j++;
+    let t=s.slice(i,j);i=j;
+    if(st.ucSkip>0){const k=Math.min(st.ucSkip,t.length);t=t.slice(k);st.ucSkip-=k}
+    if(st.dest==='fonttbl'){fontText(t.replace(/;/g,''));continue}
+    if(st.dest==='stylesheet'){if(D.curStyle!=null)D.styleNames[D.curStyle]=(D.styleNames[D.curStyle]||'')+t.replace(/;/g,'');continue}
+    emitText(t);
+  }
+  flushBytes();
+  if(cur.runs.length||!blocks.length)endPara();
+  if(rowCells.length||curCell.paras.length){rowEnd()}
+  flushTable();
+  let page=null;
+  if(D.page.w&&D.page.h){
+    const tw=x=>Math.round(x/56.693*10)/10;
+    let w=tw(D.page.w),h=tw(D.page.h);
+    if(D.page.land&&w<h){const t=w;w=h;h=t}
+    page={w,h,m:{t:tw(D.page.t==null?1440:D.page.t),b:tw(D.page.b==null?1440:D.page.b),l:tw(D.page.l==null?1800:D.page.l),r:tw(D.page.r==null?1800:D.page.r)}};
+  }
+  return{html:renderModel(blocks),page};
+}
+L.readRtf=readRtf;
+
+/* ---------- ODT / FODT ---------- */
+async function readOdt(buf,flatText){
+  let zip=null,content,styles=null;
+  if(flatText!=null){content=parseXml(flatText)}
+  else{
+    zip=await Z.zipRead(buf);
+    const ct=await zip.text('content.xml');if(!ct)throw new Error('content.xml topilmadi');
+    content=parseXml(ct);styles=zip.has('styles.xml')?parseXml(await zip.text('styles.xml')):null;
+  }
+  const S=odfStyles([styles,content]);
+  // rasmlar
+  const imgs={};
+  const MIME={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',bmp:'image/bmp',svg:'image/svg+xml'};
+  if(zip){
+    for(const im of content.getElementsByTagName('draw:image')){
+      const hr=im.getAttribute('xlink:href');if(!hr||imgs[hr]!==undefined||/^(https?:|#)/.test(hr))continue;
+      const ext=(hr.split('.').pop()||'').toLowerCase();
+      if(!MIME[ext]){imgs[hr]=null;continue}
+      try{const u=await zip.read(hr);imgs[hr]=u?'data:'+MIME[ext]+';base64,'+b64(u):null}catch(e){imgs[hr]=null}
+    }
+  }else{
+    for(const im of content.getElementsByTagName('draw:image')){
+      const hr=im.getAttribute('xlink:href');const bin=kid(im,'office:binary-data');
+      if(bin&&hr==null){const key='__b'+Object.keys(imgs).length;im.setAttribute('xlink:href',key);imgs[key]='data:image/png;base64,'+bin.textContent.replace(/\s+/g,'')}
+    }
+  }
+  const chain=(name,fam)=>{const out=[];let nm=name,g=0;while(nm&&g++<12){const s=S.st[fam+':'+nm];if(!s)break;out.unshift(s);nm=s.parent}return out};
+  const propsOf=(name,fam)=>{
+    const o={};
+    const dflt=S.st['default:'+fam];
+    for(const s of (dflt?[dflt]:[]).concat(chain(name,fam))){
+      const t=s.text,p=s.para;
+      if(t['fo:font-weight']){if(t['fo:font-weight']==='bold'||+t['fo:font-weight']>=700)o.b=1;else o.b=0}
+      if(t['fo:font-style']){o.i=t['fo:font-style']==='italic'?1:0}
+      if(t['style:text-underline-style']){o.u=t['style:text-underline-style']!=='none'?1:0}
+      if(t['style:text-line-through-style']){o.st=t['style:text-line-through-style']!=='none'?1:0}
+      if(t['fo:color']&&/^#/.test(t['fo:color']))o.fc=t['fo:color'].toUpperCase();
+      if(t['fo:background-color']){o.bg=/^#/.test(t['fo:background-color'])?t['fo:background-color'].toUpperCase():null}
+      const fs=odfLen(t['fo:font-size']);if(fs)o.fs=Math.round(fs*2)/2;
+      const ff=t['style:font-name']||t['fo:font-family'];if(ff)o.ff=ff.replace(/['"]/g,'');
+      const tp=t['style:text-position'];if(tp){const m=/^(super|sub|[-\d.]+%)/.exec(tp);if(m){o.sup=m[1]==='super'||(parseFloat(m[1])>0)?1:0;o.sub=m[1]==='sub'||(parseFloat(m[1])<0)?1:0}}
+      const al=p['fo:text-align'];if(al)o.align={start:'left',left:'left',end:'right',right:'right',center:'center',justify:'justify'}[al]||null;
+      const ml=odfLen(p['fo:margin-left']);if(ml!=null)o.li=ml;
+      const ti=odfLen(p['fo:text-indent']);if(ti!=null)o.fi=ti;
+      if(p['fo:break-before']==='page')o.pb=1;
+    }
+    return o;
+  };
+  // asosiy shrift/o‘lcham (Standard uslubidan) — keraksiz takrorni kamaytirish
+  const base=propsOf('Standard','paragraph');
+  const wrap=(h,o)=>{
+    const sty=[];
+    if(o.fc&&o.fc!=='#000000')sty.push('color:'+o.fc);
+    if(o.bg)sty.push('background-color:'+o.bg);
+    if(o.fs&&o.fs!==base.fs)sty.push('font-size:'+o.fs+'pt');
+    if(o.ff&&o.ff!==base.ff)sty.push('font-family:'+o.ff.replace(/[<>;:]/g,''));
+    if(sty.length)h='<span style="'+sty.join(';')+'">'+h+'</span>';
+    if(o.b)h='<b>'+h+'</b>';if(o.i)h='<i>'+h+'</i>';if(o.u)h='<u>'+h+'</u>';if(o.st)h='<s>'+h+'</s>';
+    if(o.sup)h='<sup>'+h+'</sup>';else if(o.sub)h='<sub>'+h+'</sub>';
+    return h;
+  };
+  const inline=(el,pstyle)=>{
+    let out='';
+    for(const c of el.childNodes){
+      if(c.nodeType===3){out+=esc(c.nodeValue);continue}
+      if(c.nodeType!==1)continue;
+      const nm=c.nodeName;
+      if(nm==='text:span'){out+=wrap(inline(c),propsOf(c.getAttribute('text:style-name'),'text'))}
+      else if(nm==='text:a'){const hr=c.getAttribute('xlink:href');const inner=inline(c);out+=hr&&/^(https?:|mailto:|tel:|#)/i.test(hr)?'<a href="'+escA(hr)+'">'+inner+'</a>':inner}
+      else if(nm==='text:s')out+='&nbsp;'.repeat(+(c.getAttribute('text:c')||1));
+      else if(nm==='text:tab')out+='&emsp;';
+      else if(nm==='text:line-break')out+='<br>';
+      else if(nm==='draw:frame'||nm==='draw:custom-shape'||nm==='draw:g'){
+        const im=c.getElementsByTagName('draw:image')[0];
+        if(im){const src=imgs[im.getAttribute('xlink:href')];if(src){const w=odfLen(c.getAttribute('svg:width')),h=odfLen(c.getAttribute('svg:height'));out+='<img src="'+src+'"'+(w?' width="'+Math.round(w*4/3)+'"':'')+(h?' height="'+Math.round(h*4/3)+'"':'')+'>'}}
+        else{const tb=c.getElementsByTagName('text:p')[0];if(tb)out+=inline(tb)}
+      }
+      else if(nm==='text:note'||nm==='office:annotation'||nm==='text:bookmark'||nm==='text:bookmark-start'||nm==='text:bookmark-end'||nm==='text:soft-page-break'||nm==='text:sequence-decls'||nm==='text:tracked-changes')continue;
+      else out+=inline(c);
+    }
+    return out;
+  };
+  const block=(el,ctx)=>{
+    let out='';
+    for(const c of el.children){
+      const nm=c.nodeName;
+      if(nm==='text:h'||nm==='text:p'){
+        const sn=c.getAttribute('text:style-name');const o=propsOf(sn,'paragraph');
+        if(o.pb)out+='<hr class="pgbrk">';
+        let lvl=nm==='text:h'?Math.min(6,Math.max(1,+(c.getAttribute('text:outline-level')||1))):0;
+        let tag=lvl?'h'+lvl:'p';
+        if(ctx&&ctx.li&&nm==='text:p'){tag='li'}
+        const sty=[];
+        if(o.align&&o.align!=='left')sty.push('text-align:'+o.align);
+        if(o.li>0.5&&!(ctx&&ctx.li))sty.push('margin-left:'+Math.round(o.li)+'pt');
+        if(o.fi&&Math.abs(o.fi)>0.5)sty.push('text-indent:'+Math.round(o.fi)+'pt');
+        let inner=inline(c);
+        const po={...o};delete po.pb;
+        // paragraf uslubidagi belgi formatlari (faqat tegishli bo‘lsa)
+        inner=wrap(inner||'',{b:o.b,i:o.i,u:o.u,st:o.st,fc:o.fc,bg:null,fs:lvl?null:o.fs,ff:null});
+        out+='<'+tag+(sty.length?' style="'+sty.join(';')+'"':'')+'>'+(inner||'<br>')+'</'+tag+'>';
+      }
+      else if(nm==='text:list'){
+        const sn=c.getAttribute('text:style-name');const ls=sn&&S.liststyles[sn];
+        const lv=ls&&ls.firstElementChild;const tag=lv&&lv.nodeName==='text:list-level-style-number'?'ol':'ul';
+        out+='<'+tag+'>';
+        for(const it of c.children){
+          if(it.nodeName!=='text:list-item'&&it.nodeName!=='text:list-header')continue;
+          let h='',firstP=true;
+          for(const k of it.children){
+            if(k.nodeName==='text:list'){h+=block({children:[k]},null)}
+            else{h+=(firstP?'':'<br>')+block({children:[k]},{li:1}).replace(/^<li[^>]*>/,'').replace(/<\/li>$/,'');firstP=false}
+          }
+          out+='<li>'+h+'</li>';
+        }
+        out+='</'+tag+'>';
+      }
+      else if(nm==='table:table'){
+        const rows=[];
+        const walkRows=e=>{for(const r of e.children){if(r.nodeName==='table:table-row')rows.push(r);else if(/^table:table-(row-group|header-rows|rows)$/.test(r.nodeName))walkRows(r)}};walkRows(c);
+        let bordered=false;
+        const fcell=c.getElementsByTagName('table:table-cell')[0];
+        if(fcell){const cs=S.st['table-cell:'+fcell.getAttribute('table:style-name')];if(cs){const b=cs.cell['fo:border']||cs.cell['fo:border-top']||cs.cell['fo:border-bottom'];bordered=!!b&&b!=='none'&&!/^0(\.0+)?(cm|mm|pt|in)/.test(b)}}
+        out+='<table'+(bordered?' class="bordered"':'')+' style="width:100%"><tbody>';
+        for(const r of rows){
+          out+='<tr>';
+          for(const cell of r.children){
+            if(cell.nodeName==='table:covered-table-cell')continue;
+            if(cell.nodeName!=='table:table-cell')continue;
+            const cs=+(cell.getAttribute('table:number-columns-spanned')||1),rs=+(cell.getAttribute('table:number-rows-spanned')||1);
+            const rep=Math.min(+(cell.getAttribute('table:number-columns-repeated')||1),50);
+            for(let k=0;k<rep;k++)out+='<td'+(cs>1?' colspan="'+cs+'"':'')+(rs>1?' rowspan="'+rs+'"':'')+'>'+(block(cell,null)||'<p><br></p>')+'</td>';
+          }
+          out+='</tr>';
+        }
+        out+='</tbody></table><p><br></p>';
+      }
+      else if(nm==='text:section'||nm==='text:index-body'||nm==='text:table-of-content'||nm==='text:alphabetical-index'||nm==='text:illustration-index'||nm==='text:table-index'||nm==='text:user-index'||nm==='text:bibliography'||nm==='text:index-title'){out+=block(c,ctx)}
+      else if(nm==='draw:frame'){out+='<p>'+inline({childNodes:[c]})+'</p>'}
+    }
+    return out;
+  };
+  const body=kid(content.documentElement,'office:body')||content.documentElement;
+  const txt=kid(body,'office:text');
+  if(!txt)throw new Error('Matn (office:text) topilmadi');
+  let html=block(txt,null);
+  // sahifa o‘lchami
+  let page=null;
+  const pl=(styles||content).getElementsByTagName('style:page-layout-properties')[0];
+  if(pl){
+    const mm=v=>{const pt=odfLen(v);return pt==null?null:Math.round(pt/2.83465*10)/10};
+    const w=mm(pl.getAttribute('fo:page-width')),h=mm(pl.getAttribute('fo:page-height'));
+    if(w&&h)page={w,h,m:{t:mm(pl.getAttribute('fo:margin-top'))??25.4,b:mm(pl.getAttribute('fo:margin-bottom'))??25.4,l:mm(pl.getAttribute('fo:margin-left'))??25.4,r:mm(pl.getAttribute('fo:margin-right'))??25.4}};
+  }
+  return{html:html||'<p><br></p>',page};
+}
+L.readOdt=buf=>readOdt(buf,null);
+L.readFodt=text=>readOdt(null,text);
+
+/* ---------- .doc (Word 97–2003, ikkilik) ---------- */
+function parseSprms(u,fn){
+  let p=0;
+  while(p+2<=u.length){
+    const op=u[p]|(u[p+1]<<8);p+=2;const spra=op>>13;let len;
+    switch(spra){case 0:case 1:len=1;break;case 2:case 4:case 5:len=2;break;case 3:len=4;break;case 6:len=op===0xD608?((u[p]|(u[p+1]<<8))+1):(u[p]+1);break;case 7:len=3;break;default:len=1}
+    if(p+len>u.length+0&&false)break;
+    fn(op,u.subarray(p,p+len));p+=len;
+  }
+}
+const ICO=[null,'#000000','#0000FF','#00FFFF','#00FF00','#FF00FF','#FF0000','#FFFF00','#FFFFFF','#000080','#008080','#008000','#800080','#800000','#808000','#808080','#C0C0C0'];
+function readDoc(buf){
+  const ole=buf&&buf.get?buf:oleOpen(buf);
+  const wd=ole.get('WordDocument');if(!wd)throw new Error('WordDocument oqimi topilmadi');
+  const dv=new DataView(wd.buffer,wd.byteOffset,wd.byteLength);
+  const wIdent=dv.getUint16(0,true),nFib=dv.getUint16(2,true),flags=dv.getUint16(10,true);
+  if(wIdent!==0xA5EC&&wIdent!==0xA5DC)throw new Error('Word hujjati emas');
+  if(flags&0x100)throw new Error('Fayl parol bilan himoyalangan (shifrlangan) — avval Wordda parolni olib tashlang');
+  // ---- Word 6/95
+  if(wIdent===0xA5DC||nFib<0x00C1){
+    const fcMin=dv.getUint32(0x18,true),fcMac=dv.getUint32(0x1C,true);
+    const text=dec('windows-1252',wd.subarray(fcMin,fcMac));
+    return{html:plainToHtml(text),page:null,note:'Eski Word 6/95 formati: faqat matn ochildi (formatlashsiz).'};
+  }
+  const tbl=ole.get((flags&0x200)?'1Table':'0Table')||ole.get('0Table')||ole.get('1Table');
+  if(!tbl)throw new Error('Jadval oqimi (0Table/1Table) topilmadi');
+  const tdv=new DataView(tbl.buffer,tbl.byteOffset,tbl.byteLength);
+  // FIB
+  let q=32;const csw=dv.getUint16(q,true);q+=2+csw*2;
+  const cslw=dv.getUint16(q,true);const rgLw=q+2;
+  const ccpText=dv.getUint32(rgLw+12,true);
+  q=rgLw+cslw*4;const rgFc=q+2;
+  const pair=i=>({fc:dv.getUint32(rgFc+i*8,true),lcb:dv.getUint32(rgFc+i*8+4,true)});
+  const clx=pair(33);
+  // ---- CLX -> bo‘laklar
+  let p=clx.fc;const end=clx.fc+clx.lcb;const pieces=[];
+  while(p<end&&p<tbl.length){
+    const t=tbl[p];
+    if(t===1){p+=3+tdv.getUint16(p+1,true);continue}
+    if(t===2){
+      const lcb=tdv.getUint32(p+1,true);p+=5;const n=((lcb-4)/12)|0;
+      const cps=[];for(let i=0;i<=n;i++)cps.push(tdv.getUint32(p+i*4,true));
+      const pb=p+(n+1)*4;
+      for(let i=0;i<n;i++){const fc=tdv.getUint32(pb+i*8+2,true);const comp=!!(fc&0x40000000);const off=comp?(fc&0x3FFFFFFF)/2:fc;pieces.push({cs:cps[i],ce:cps[i+1],off,comp})}
+      break;
+    }
+    break;
+  }
+  if(!pieces.length)throw new Error('Matn bo‘laklari (piece table) topilmadi');
+  const total=Math.min(ccpText,pieces[pieces.length-1].ce);
+  let T='';
+  for(const pc of pieces){
+    if(pc.cs>=total)break;
+    const cnt=Math.min(pc.ce,total)-pc.cs;
+    T+=pc.comp?dec('windows-1252',wd.subarray(pc.off,pc.off+cnt)):u16s(wd.subarray(pc.off,pc.off+cnt*2));
+  }
+  const fc2cp=fc=>{
+    for(const pc of pieces){
+      const len=pc.ce-pc.cs;const bytes=pc.comp?len:len*2;
+      if(fc>=pc.off&&fc<=pc.off+bytes)return pc.cs+(pc.comp?fc-pc.off:(fc-pc.off)/2);
+    }
+    return null;
+  };
+  // ---- belgi formati (CHPX)
+  const chars=[]; // {s,e,fmt}
+  let papOk=false;const paps=[];const stiOf={};
+  try{
+    const c=pair(12);
+    if(c.lcb>=12){
+      const n=((c.lcb-4)/8)|0;
+      for(let i=0;i<n;i++){
+        const pn=tdv.getUint32(c.fc+(n+1)*4+i*4,true)&0x3FFFFF;const base=pn*512;if(base+512>wd.length)continue;
+        const crun=wd[base+511];
+        for(let k=0;k<crun;k++){
+          const fs=dv.getUint32(base+k*4,true),fe=dv.getUint32(base+(k+1)*4,true);const o=wd[base+(crun+1)*4+k];if(!o)continue;
+          const off=base+o*2;const cb=wd[off];const sp=wd.subarray(off+1,off+1+cb);
+          const cs=fc2cp(fs),ce=fc2cp(fe);if(cs==null||ce==null||ce<=cs)continue;
+          const f={};
+          parseSprms(sp,(op,v)=>{
+            switch(op){
+              case 0x0835:f.b=v[0]===1||v[0]===0x81;break;
+              case 0x0836:f.i=v[0]===1||v[0]===0x81;break;
+              case 0x0837:f.st=v[0]===1||v[0]===0x81;break;
+              case 0x2A3E:f.u=v[0]!==0;break;
+              case 0x4A43:f.fs=(v[0]|(v[1]<<8))/2;break;
+              case 0x2A42:f.fc=ICO[v[0]]||null;break;
+              case 0x6870:if(v[3]!==0xFF)f.fc='#'+[v[0],v[1],v[2]].map(x=>x.toString(16).padStart(2,'0')).join('').toUpperCase();break;
+              case 0x2A48:f.sup=v[0]===1;f.sub=v[0]===2;break;
+              case 0x2A0C:f.bg=ICO[v[0]]||null;break;
+            }
+          });
+          chars.push({s:cs,e:ce,f});
+        }
+      }
+      chars.sort((a,b)=>a.s-b.s);
+    }
+  }catch(e){chars.length=0}
+  // ---- uslublar (STSH) — sarlavhalarni aniqlash uchun
+  try{
+    const sh=pair(1);
+    if(sh.lcb>4){
+      const cbStshi=tdv.getUint16(sh.fc,true);const cbBase=tdv.getUint16(sh.fc+2+2,true);
+      let o=sh.fc+2+cbStshi;const endS=sh.fc+sh.lcb;let istd=0;
+      while(o+2<=endS&&o<tbl.length){
+        const cb=tdv.getUint16(o,true);o+=2;
+        if(cb>=2){const sti=tdv.getUint16(o,true)&0x0FFF;stiOf[istd]=sti;
+          let nm='';try{const nl=tdv.getUint16(o+cbBase,true);nm=u16s(tbl.subarray(o+cbBase+2,o+cbBase+2+nl*2))}catch(e){}
+          if(nm)stiOf['n'+istd]=nm}
+        o+=cb+(cb&1);istd++;
+      }
+    }
+  }catch(e){}
+  // ---- paragraf xossalari (PAPX)
+  try{
+    const c=pair(13);
+    if(c.lcb>=12){
+      const n=((c.lcb-4)/8)|0;
+      for(let i=0;i<n;i++){
+        const pn=tdv.getUint32(c.fc+(n+1)*4+i*4,true)&0x3FFFFF;const base=pn*512;if(base+512>wd.length)continue;
+        const crun=wd[base+511];
+        for(let k=0;k<crun;k++){
+          const fs=dv.getUint32(base+k*4,true),fe=dv.getUint32(base+(k+1)*4,true);
+          const o=wd[base+(crun+1)*4+k*13];if(!o)continue;
+          let off=base+o*2;let cb=wd[off],sz,data;
+          if(cb===0){sz=wd[off+1]*2;data=off+2}else{sz=cb*2-1;data=off+1}
+          if(data+sz>wd.length)continue;
+          const g=wd.subarray(data,data+sz);const istd=g[0]|(g[1]<<8);
+          const pr={istd};
+          parseSprms(g.subarray(2),(op,v)=>{
+            switch(op){
+              case 0x2461:case 0x2403:pr.jc=v[0];break;
+              case 0x2416:pr.intbl=v[0]===1;break;
+              case 0x2417:pr.ttp=v[0]===1;break;
+              case 0x845E:case 0x840F:pr.li=(v[0]|(v[1]<<8))<<16>>16;break;
+              case 0x8460:case 0x8411:pr.fi=(v[0]|(v[1]<<8))<<16>>16;break;
+              case 0x460B:pr.ilfo=(v[0]|(v[1]<<8))<<16>>16;break;
+              case 0x2407:pr.pbb=v[0]===1;break;
+            }
+          });
+          const cs=fc2cp(fs),ce=fc2cp(fe);if(cs==null||ce==null)continue;
+          paps.push({s:cs,e:ce,pr});
+        }
+      }
+      paps.sort((a,b)=>a.s-b.s);papOk=paps.length>0;
+    }
+  }catch(e){paps.length=0;papOk=false}
+  const findIv=(arr,cp)=>{let lo=0,hi=arr.length-1,r=-1;while(lo<=hi){const m=(lo+hi)>>1;if(arr[m].s<=cp){r=m;lo=m+1}else hi=m-1}return r>=0&&cp<arr[r].e?arr[r]:null};
+  // ---- HTML yig‘ish
+  const blocks=[];let cur={runs:[]};
+  let cell={paras:[],span:1},rowCells=[],rows=[],inTbl=false;
+  const flushTable=()=>{if(rows.length){blocks.push({k:'table',rows});rows=[]}};
+  let fieldStack=[];
+  const ciIdx={v:0};
+  const fmtAt=cp=>{const iv=findIv(chars,cp);return iv?iv.f:null};
+  const pushCh=(cp,ch)=>{
+    const top=fieldStack[fieldStack.length-1];
+    if(top&&top.phase===0){top.instr+=ch;return}
+    const f=fmtAt(cp)||{};
+    const link=[...fieldStack].reverse().map(x=>x.link).find(Boolean)||null;
+    const r={t:ch,b:!!f.b,i:!!f.i,u:!!f.u,st:!!f.st,sup:!!f.sup,sub:!!f.sub,fs:f.fs||null,fc:f.fc||null,bg:f.bg||null,ff:null,link};
+    const last=cur.runs[cur.runs.length-1];
+    if(last&&last.t!=null&&['b','i','u','st','sup','sub','fs','fc','bg','link'].every(k=>last[k]===r[k]))last.t+=ch;else cur.runs.push(r);
+  };
+  const mkPara=(cp)=>{
+    const iv=papOk?findIv(paps,cp):null;const pr=iv?iv.pr:{};
+    const p={runs:cur.runs,align:[null,'center','right','justify'][pr.jc||0]||null,li:(pr.li||0)/20,fi:(pr.fi||0)/20,h:0,list:null};
+    const sti=stiOf[pr.istd];
+    if(sti>=1&&sti<=9)p.h=Math.min(sti,6);
+    else if(sti===62||sti===63||/^title$/i.test(stiOf['n'+pr.istd]||'')){p.h=1;if(!p.align)p.align='center'}
+    else if(/^(heading|заголовок|sarlavha)\s*(\d)/i.test(stiOf['n'+pr.istd]||''))p.h=Math.min(+RegExp.$2,6);
+    if(pr.ilfo>0&&!p.h&&!pr.intbl){p.list='ul';p.li=Math.max(0,p.li-18)}
+    cur={runs:[]};
+    return{p,pr};
+  };
+  let prevCellEnd=false;
+  for(let cp=0;cp<T.length;cp++){
+    const ch=T[cp],code=ch.charCodeAt(0);
+    if(code===0x0D){
+      const{p,pr}=mkPara(cp);
+      if(pr.intbl||(!papOk&&inTbl&&false)){cell.paras.push(p);inTbl=true}
+      else{flushTable();inTbl=false;if(pr.pbb)blocks.push({k:'pb'});blocks.push({k:'p',p})}
+      prevCellEnd=false;continue;
+    }
+    if(code===7){
+      const iv=papOk?findIv(paps,cp):null;const pr=iv?iv.pr:null;
+      const empty=!cur.runs.length;
+      const isRowEnd=pr?!!pr.ttp:(empty&&prevCellEnd);
+      if(isRowEnd){
+        if(rowCells.length||cell.paras.length){if(cell.paras.length||!empty){/* yarim qolgan katak yo‘q */}rows.push(rowCells);rowCells=[];cell={paras:[],span:1}}
+        cur={runs:[]};inTbl=true;prevCellEnd=false;continue;
+      }
+      const{p}=mkPara(cp);cell.paras.push(p);rowCells.push(cell);cell={paras:[],span:1};inTbl=true;prevCellEnd=true;continue;
+    }
+    prevCellEnd=false;
+    if(code===0x13){fieldStack.push({phase:0,instr:'',link:null});continue}
+    if(code===0x14){const f=fieldStack[fieldStack.length-1];if(f){f.phase=1;const m=/HYPERLINK\s+(?:\\[a-z]\s+)*"([^"]+)"/i.exec(f.instr);if(m)f.link=m[1]}continue}
+    if(code===0x15){fieldStack.pop();continue}
+    if(fieldStack.length&&fieldStack[fieldStack.length-1].phase===0){fieldStack[fieldStack.length-1].instr+=ch;continue}
+    if(code===0x0C){ // sahifa/bo‘lim uzilishi
+      if(cur.runs.length){const{p}=mkPara(cp);blocks.push({k:'p',p})}
+      flushTable();blocks.push({k:'pb'});continue}
+    if(code===0x0B){cur.runs.push({br:1});continue}
+    if(code===0x09){pushCh(cp,'\t');continue}
+    if(code===0x1E){pushCh(cp,'-');continue}
+    if(code<0x20||code===0x1F)continue;
+    pushCh(cp,ch);
+  }
+  if(cur.runs.length){const{p}=mkPara(T.length);blocks.push({k:'p',p})}
+  if(rowCells.length){rows.push(rowCells)}
+  flushTable();
+  // bo‘sh qoldiq: oxirgi bo‘sh abzaslarni olib tashlash
+  while(blocks.length>1){const b=blocks[blocks.length-1];if(b.k==='p'&&!b.p.runs.length)blocks.pop();else break}
+  return{html:renderModel(blocks),page:null,note:papOk?null:'Formatlash qisman o‘qildi.'};
+}
+function plainToHtml(t){return t.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').map(l=>'<p>'+(l?esc(l.replace(/[\x00-\x08\x0b-\x1f]/g,'')):'<br>')+'</p>').join('')}
+L.readDoc=readDoc;
+
+/* ---------- format aniqlash ---------- */
+const bytesCache=new WeakMap();
+L.bytes=async file=>{let b=bytesCache.get(file);if(!b){b=new Uint8Array(await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsArrayBuffer(file)}));bytesCache.set(file,b)}return b};
+const UNSUP={xls4:'Excel 2–4 (juda eski .xls)',wxml:'Word 2003 XML (.xml)',ppt:'PowerPoint (.ppt)',pptx:'PowerPoint (.pptx)',odp:'OpenDocument taqdimot (.odp)',pdf:'PDF',zip:'ZIP arxiv',numbers:'Apple Numbers (.numbers)',pages:'Apple Pages (.pages)',key:'Apple Keynote',vsd:'Visio',msg:'Outlook xabari',mdb:'Access bazasi',unknown:'noma’lum format'};
+L.UNSUP=UNSUP;
+const APP={xlsx:'excel',xls:'excel',xlsb:'excel',ods:'excel',fods:'excel',sxml:'excel',csv:'excel',tsv:'excel',json:'excel',docx:'word',doc:'word',odt:'word',fodt:'word',rtf:'word',md:'word'};
+L.detect=async file=>{
+  const ext=L.extOf(file.name);
+  const u=await L.bytes(file);
+  const res=(kind,extra)=>Object.assign({kind,ext,app:APP[kind]||null,unsupported:UNSUP[kind]?kind:null},extra||{});
+  const m4=(a,b,c,d)=>u[0]===a&&u[1]===b&&u[2]===c&&u[3]===d;
+  if(m4(0xD0,0xCF,0x11,0xE0)){
+    try{const ole=oleOpen(u);
+      if(ole.has('Workbook')||ole.has('Book'))return res('xls',{ole});
+      if(ole.has('WordDocument'))return res('doc',{ole});
+      if(ole.has('PowerPoint Document'))return res('ppt');
+      if(ole.has('__properties_version1.0')||ole.names.some(n=>/^__substg1/.test(n)))return res('msg');
+    }catch(e){return res('unknown',{error:e.message})}
+    return res('unknown');
+  }
+  if(m4(0x50,0x4B,0x03,0x04)||m4(0x50,0x4B,0x05,0x06)){
+    try{
+      const zip=await Z.zipRead(u);
+      if(zip.has('xl/workbook.xml'))return res('xlsx',{zip});
+      if(zip.has('xl/workbook.bin'))return res('xlsb',{zip});
+      if(zip.has('word/document.xml'))return res('docx',{zip});
+      if(zip.has('ppt/presentation.xml'))return res('pptx');
+      if(zip.has('mimetype')){const mt=(await zip.text('mimetype')||'').trim();
+        if(/spreadsheet/.test(mt))return res('ods',{zip});if(/text/.test(mt))return res('odt',{zip});if(/presentation/.test(mt))return res('odp');}
+      if(zip.names.some(n=>/^Index\/.*\.iwa$/i.test(n)||n==='Index.zip')){return res(ext==='numbers'?'numbers':ext==='key'?'key':'pages')}
+      if(ext==='ods')return res('ods',{zip});if(ext==='odt')return res('odt',{zip});
+    }catch(e){}
+    return res('zip');
+  }
+  if(m4(0x25,0x50,0x44,0x46))return res('pdf');
+  if(u[0]===0x09&&(u[1]===0x00||u[1]===0x02||u[1]===0x04)&&u[3]===0&&u.length>8&&u[2]>=4&&u[2]<=16)return res('xls4');
+  // matn ko‘rinishidagi turlar
+  let head='';
+  const hb=u.subarray(0,Math.min(u.length,6000));
+  if(hb[0]===0xFF&&hb[1]===0xFE)head=dec('utf-16le',hb.subarray(2));else if(hb[0]===0xFE&&hb[1]===0xFF)head=dec('utf-16be',hb.subarray(2));
+  else head=dec('utf-8',hb.subarray(hb[0]===0xEF&&hb[1]===0xBB&&hb[2]===0xBF?3:0));
+  const h=head.replace(/^\s+/,'');
+  if(/^\{\\rtf/i.test(h))return res('rtf');
+  if(/^<\?xml[\s\S]{0,400}?<Workbook[\s\S]{0,600}?urn:schemas-microsoft-com:office:spreadsheet/i.test(h)||/^<Workbook[\s\S]{0,600}?urn:schemas-microsoft-com:office:spreadsheet/i.test(h))return res('sxml');
+  if(/<office:document\b/.test(h)){if(/opendocument\.spreadsheet/.test(h))return res('fods');if(/opendocument\.text/.test(h))return res('fodt')}
+  if(/<w:wordDocument\b/i.test(h))return res('wxml');
+  if(/^(<!doctype html|<html|<head|<body|<table|<meta|<\?xml)/i.test(h)||(/<(html|table|body)[\s>]/i.test(h)&&h.startsWith('<'))){
+    const toExcel=['xls','xlsx','xlsm','xlt','ods'].includes(ext);
+    return res('html',{app:toExcel?'excel':['doc','docx','dot','odt','rtf'].includes(ext)?'word':null});
+  }
+  // oddiy matn: kengaytma bo‘yicha
+  if(ext==='csv')return res('csv');if(ext==='tsv')return res('tsv');
+  if(ext==='json')return res('json');
+  if(ext==='md'||ext==='markdown')return res('md');
+  if(['xls','xlsx','xlsm','xlt','ods','xlsb'].includes(ext)){
+    const first=h.split('\n')[0]||'';return res(first.includes('\t')?'tsv':'csv');
+  }
+  if(['doc','docx','dot','dotx','odt','rtf','wps'].includes(ext))return res('txt',{app:'word'});
+  // ikkilik yoki noma’lum
+  let bin=0;for(let k=0;k<Math.min(u.length,2000);k++){const c=u[k];if(c===0||(c<8)||(c>13&&c<32&&c!==27))bin++}
+  if(bin>20)return res('unknown');
+  if(ext==='html'||ext==='htm')return res('html');
+  if(['txt','text','log','csv','tsv','dat','prn','ini','cfg',''].includes(ext)||!/^[a-z0-9]{1,5}$/.test(ext)&&false)return res('txt');
+  return res('unknown');
+};
+L.APP=APP;
+})(window.OF=window.OF||{});
+/* ---------- umumiy yordamchilar ---------- */
+(function(OF){
+const L=OF.L;
+L.ACCEPT='.xlsx,.xlsm,.xltx,.xls,.xlt,.xlsb,.ods,.fods,.csv,.tsv,.json,.docx,.dotx,.docm,.doc,.dot,.odt,.fodt,.rtf,.txt,.md,.markdown,.html,.htm,.xml';
+L.unsupportedMsg=(file,info)=>{
+  const nm=L.UNSUP[info.unsupported]||'noma’lum format';
+  let hint='Uni Excel/Word/LibreOffice’da .xlsx, .docx yoki .csv qilib saqlab, qayta oching.';
+  if(info.unsupported==='pdf')hint='PDF faylni Word’da ochib .docx qilib saqlang yoki matnini ko‘chirib joylang.';
+  else if(info.unsupported==='ppt'||info.unsupported==='pptx'||info.unsupported==='odp')hint='Bu ilova faqat jadval va matn hujjatlari uchun.';
+  else if(info.unsupported==='unknown'||info.unsupported==='zip')hint=(info.error?info.error+'. ':'')+'Fayl turi aniqlanmadi yoki buzilgan.';
+  return'«'+file.name+'» — '+nm+' qo‘llab-quvvatlanmaydi. '+hint;
+};
+})(window.OF=window.OF||{});
+
 /* >>> js/30_word.js */
 /* ===== Word editor core: editing commands, tables, images, find, history, sanitizer ===== */
 (function(OF){
@@ -4640,21 +6071,27 @@ function init(){
   }
   function printDoc(){W.applyPage();setTimeout(()=>window.print(),50)}
   const exportItems=()=>[{label:'Word (.docx)',icon:'save',key:'Ctrl+S',cb:saveDocx},{label:'PDF / chop etish',icon:'print',key:'Ctrl+P',cb:printDoc},{label:'HTML sahifa (.html)',cb:()=>download(fileName+'.html',htmlDoc(),'text/html')},{label:'Matn (.txt)',cb:()=>download(fileName+'.txt',W.doc.innerText.replace(/​/g,''),'text/plain;charset=utf-8')},{label:'Markdown (.md)',cb:()=>download(fileName+'.md',htmlToMd(W.exportRoot()),'text/markdown;charset=utf-8')}];
-  async function openFiles(){const fs=await pickFile('.docx,.txt,.md,.markdown,.html,.htm,.rtf');if(fs.length)openFile(fs[0])}
+  async function openFiles(){const fs=await pickFile(OF.L.ACCEPT);if(fs.length)openFile(fs[0])}
   async function openFile(file){
-    const ext=(file.name.split('.').pop()||'').toLowerCase();const base=file.name.replace(/\.[^.]+$/,'');const busy=toast('«'+file.name+'» ochilmoqda…',null,60000);
+    const base=file.name.replace(/\.[^.]+$/,'');const busy=toast('«'+file.name+'» ochilmoqda…',null,60000);
     try{
-      let html='',page=null,header='',footer='',pn=false;
-      if(ext==='docx'||ext==='dotx'||ext==='docm'){const r=await OF.D.readDocx(await readBuf(file));html=r.html;page=r.page;header=r.header||'';footer=r.footer||'';pn=!!(r.page&&r.page.pageNum);if(r.page)delete r.page.pageNum}
-      else if(ext==='doc'||ext==='odt'||ext==='pages'){busy.remove();toast('Eski .'+ext+' formati qo‘llab-quvvatlanmaydi. Faylni Word’da «.docx» qilib saqlab, qayta oching.','err',9000);return}
-      else if(ext==='md'||ext==='markdown')html=mdToHtml(await readText(file));
-      else if(ext==='html'||ext==='htm')html=W.sanitize(await readText(file));
-      else if(ext==='rtf'){busy.remove();toast('RTF qo‘llab-quvvatlanmaydi. .docx yoki .txt ishlating.','err',7000);return}
+      const info=await OF.L.detect(file);
+      if(info.unsupported){busy.remove();toast(OF.L.unsupportedMsg(file,info),'err',10000);return}
+      if(info.app==='excel'&&OF.openAny){busy.remove();return OF.openAny([file])}
+      const u8=await OF.L.bytes(file);const kind=info.kind;
+      let html='',page=null,header='',footer='',pn=false,note=null;
+      if(kind==='docx'){const r=await OF.D.readDocx(u8);html=r.html;page=r.page;header=r.header||'';footer=r.footer||'';pn=!!(r.page&&r.page.pageNum);if(r.page)delete r.page.pageNum}
+      else if(kind==='doc'){const r=OF.L.readDoc(info.ole||u8);html=W.sanitize(r.html);note=r.note}
+      else if(kind==='rtf'){const r=OF.L.readRtf(u8);html=W.sanitize(r.html);page=r.page}
+      else if(kind==='odt'){const r=await OF.L.readOdt(u8);html=W.sanitize(r.html);page=r.page}
+      else if(kind==='fodt'){const r=await OF.L.readFodt(await readText(file));html=W.sanitize(r.html);page=r.page}
+      else if(kind==='md')html=mdToHtml(await readText(file));
+      else if(kind==='html')html=W.sanitize(await readText(file));
       else{const t=(await readText(file)).replace(/\r\n/g,'\n');html=t.split('\n').map(l=>'<p>'+(l?esc(l):'<br>')+'</p>').join('')}
       busy.remove();
       if(page&&page.w&&page.h){W.page=Object.assign({size:'custom',orient:'portrait',m:{t:25.4,r:25.4,b:25.4,l:25.4}},page);W.page.m=Object.assign({t:25.4,r:25.4,b:25.4,l:25.4},page.m||{});const k=Object.keys(PAGES()).find(k=>{const[a,b]=PAGES()[k];const w=Math.min(W.page.w,W.page.h),hh=Math.max(W.page.w,W.page.h);return Math.abs(a-w)<1.5&&Math.abs(b-hh)<1.5});W.page.size=k||'custom'}
       W.header=header;W.footer=footer;W.pageNum=pn;
-      W.applyPage();W.setHTML(html);fileName=base;title.value=fileName;W.title=fileName;dirty=false;doSave();toast('Ochildi: '+file.name);
+      W.applyPage();W.setHTML(html);fileName=base;title.value=fileName;W.title=fileName;dirty=false;doSave();toast('Ochildi: '+file.name+(['doc','rtf','odt','fodt'].includes(kind)?' — saqlashda .docx ga o‘tadi':''));if(note)setTimeout(()=>toast(note,null,7000),600);
     }catch(e){busy.remove();console.error(e);toast('Faylni ochib bo‘lmadi: '+(e.message||e),'err',8000)}
   }
   W.onFileDrop=openFile;
@@ -4668,7 +6105,7 @@ function init(){
     W.header='';W.footer='';W.pageNum=false;if(k==='letter'||k==='resume'){W.page.m={t:20,b:20,l:25,r:15}}else W.page.m={t:25.4,b:25.4,l:25.4,r:25.4};
     W.applyPage();W.setHTML(TEMPLATES[k]);fileName=k==='letter'?'Rasmiy xat':k==='resume'?'Rezyume':'Hujjat1';title.value=fileName;markDirty();
   }
-  fileBtn.addEventListener('click',()=>menu(fileBtn,[{label:'Yangi hujjat',icon:'file',cb:()=>template('blank')},{label:'Ochish… (.docx, .txt, .md, .html)',icon:'open',cb:openFiles},{sep:1},{label:'Saqlash (.docx)',icon:'save',key:'Ctrl+S',cb:saveDocx},{title:'Eksport'},...exportItems().slice(1),{sep:1},{title:'Namunalar'},{label:'Rasmiy xat',cb:()=>template('letter')},{label:'Rezyume',cb:()=>template('resume')},{sep:1},{label:'Klaviatura yorliqlari va yordam',icon:'help',cb:helpDialog}]));
+  fileBtn.addEventListener('click',()=>menu(fileBtn,[{label:'Yangi hujjat',icon:'file',cb:()=>template('blank')},{label:'Ochish… (.docx, .doc, .odt, .rtf, .txt, .md, .html)',icon:'open',cb:openFiles},{sep:1},{label:'Saqlash (.docx)',icon:'save',key:'Ctrl+S',cb:saveDocx},{title:'Eksport'},...exportItems().slice(1),{sep:1},{title:'Namunalar'},{label:'Rasmiy xat',cb:()=>template('letter')},{label:'Rezyume',cb:()=>template('resume')},{sep:1},{label:'Klaviatura yorliqlari va yordam',icon:'help',cb:helpDialog}]));
   /* drag & drop */
   const app=$('#wordApp');let dropEl=null;
   app.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();if(!dropEl){dropEl=h('div',{class:'drop'},'Faylni shu yerga tashlang');app.appendChild(dropEl)}}});
@@ -4872,20 +6309,29 @@ function init(){
     tgl('filter',X.sh.filter);tgl('showF',X.showFormulas);
   }
   /* ---------- file I/O ---------- */
-  async function openFiles(){const fs=await pickFile('.xlsx,.xlsm,.csv,.tsv,.txt,.json,.html,.htm');if(fs.length)openFile(fs[0])}
+  async function openFiles(){const fs=await pickFile(OF.L.ACCEPT);if(fs.length)openFile(fs[0])}
   async function openFile(file){
-    const ext=(file.name.split('.').pop()||'').toLowerCase();const base=file.name.replace(/\.[^.]+$/,'');
+    const base=file.name.replace(/\.[^.]+$/,'');
     const busy=toast('«'+file.name+'» ochilmoqda…',null,60000);
     try{
-      let nw;
-      if(ext==='xlsx'||ext==='xlsm'||ext==='xltx'){nw=await OF.X.readXlsx(await readBuf(file),p=>{busy.textContent='Ochilmoqda… '+Math.round(p*100)+'%'})}
-      else if(ext==='xls'||ext==='ods'||ext==='numbers'){busy.remove();toast('Eski .'+ext+' formati qo‘llab-quvvatlanmaydi. Faylni Excel/LibreOffice’da «.xlsx» yoki .csv qilib saqlab, qayta oching.','err',9000);return}
-      else if(ext==='json'){const t=await readText(file);const j=JSON.parse(t);nw=jsonToWb(j,base)}
-      else if(ext==='html'||ext==='htm'){nw=htmlToWb(await readText(file),base)}
-      else{const t=await readText(file);const d=ext==='tsv'?'\t':null;const{rows}=M.parseCSV(t,d);nw=new M.Workbook();const s=nw.addSheet(base.slice(0,31)||'Varaq1');M.importRows(s,rows,0,0);nw.hist.clear()}
+      const info=await OF.L.detect(file);
+      if(info.unsupported){busy.remove();toast(OF.L.unsupportedMsg(file,info),'err',10000);return}
+      if(info.app==='word'&&OF.openAny){busy.remove();return OF.openAny([file])}
+      const u8=await OF.L.bytes(file);const kind=info.kind;let nw;
+      if(kind==='xlsx')nw=await OF.X.readXlsx(u8,p=>{busy.textContent='Ochilmoqda… '+Math.round(p*100)+'%'});
+      else if(kind==='xls')nw=OF.L.readXls(info.ole||u8);
+      else if(kind==='xlsb')nw=await OF.L.readXlsb(u8);
+      else if(kind==='ods')nw=await OF.L.readOds(u8);
+      else if(kind==='fods')nw=OF.L.readFods(await readText(file));
+      else if(kind==='sxml')nw=OF.L.readSpreadsheetML(await readText(file));
+      else if(kind==='json'){const t=await readText(file);const j=JSON.parse(t);nw=jsonToWb(j,base)}
+      else if(kind==='html'){nw=htmlToWb(await readText(file),base)}
+      else{const t=await readText(file);const d=kind==='tsv'?'\t':null;const{rows}=M.parseCSV(t,d);nw=new M.Workbook();const s=nw.addSheet(base.slice(0,31)||'Varaq1');M.importRows(s,rows,0,0);nw.hist.clear()}
       busy.remove();
-      imported=ext==='xlsx'||ext==='xlsm'||ext==='xltx';setWb(nw,base);dirty=false;toast('Ochildi: '+file.name+' ('+nw.sheets.length+' varaq)');
-    }catch(e){busy.remove();console.error(e);toast('Faylni ochib bo‘lmadi: '+(e.message||e),'err',8000)}
+      const conv=['xls','xlsb','ods','fods','sxml'].includes(kind);
+      imported=conv||kind==='xlsx';setWb(nw,base);dirty=false;
+      toast('Ochildi: '+file.name+' ('+nw.sheets.length+' varaq)'+(conv?' — saqlashda .xlsx ga o‘tadi':''));
+    }catch(e){busy.remove();console.error(e);toast('Faylni ochib bo‘lmadi: '+(e.message||e),'err',9000)}
   }
   function jsonToWb(j,base){
     if(j&&j.v===1&&j.sheets&&j.styles){const nw=M.Workbook.fromJSON(j);return nw}
@@ -4950,7 +6396,7 @@ function init(){
   /* ---------- file menu ---------- */
   fileBtn.addEventListener('click',()=>{
     menu(fileBtn,[{label:'Yangi kitob',icon:'file',cb:async()=>{if(dirty&&!(await OF.UI.confirm('Joriy kitobdagi saqlanmagan o‘zgarishlar yo‘qoladi. Davom etasizmi?','Yangi kitob','Yangi kitob')))return;setWb(newWb(),'Kitob1');dirty=false;doSave()}},
-      {label:'Ochish… (.xlsx, .csv, .json, .html)',icon:'open',key:'',cb:openFiles},{sep:1},
+      {label:'Ochish… (.xlsx, .xls, .ods, .csv, .json, .html)',icon:'open',key:'',cb:openFiles},{sep:1},
       {label:'Saqlash (.xlsx)',icon:'save',key:'Ctrl+S',cb:saveXlsx},{title:'Eksport'},...exportItems().slice(1,-2),{sep:1},
       {title:'Namunalar'},{label:'Oylik byudjet',cb:()=>template('budget')},{label:'Sotuvlar hisoboti (diagramma bilan)',cb:()=>template('sales')},{label:'Hisob-faktura',cb:()=>template('invoice')},{sep:1},
       {label:'Chop etish / PDF',icon:'print',key:'Ctrl+P',cb:printSheet},{label:'Klaviatura yorliqlari va yordam',icon:'help',cb:showHelp}]);
@@ -5030,7 +6476,49 @@ function showApp(app,noHash){
   document.title=x?'IT SHAKH | Excel Online':'IT SHAKH | Word Online';
   setTimeout(()=>{if(x){OF.xl&&OF.xl.focus&&OF.xl.focus();OF.xl&&OF.xl.draw()}else OF.wd&&OF.wd.focus&&OF.wd.focus()},30);
 }
+/* ----- bitta joydan ochish: fayl turiga qarab Excel yoki Word ochiladi ----- */
+async function appFor(f){
+  let info;try{info=await OF.L.detect(f)}catch(e){return{app:null,why:'o‘qib bo‘lmadi'}}
+  if(info.unsupported)return{app:null,why:OF.L.UNSUP[info.unsupported]||info.unsupported};
+  if(info.app)return{app:info.app};
+  return{app:curApp()};
+}
+const curApp=()=>$('#excelApp').classList.contains('hidden')?'word':'excel';
+async function openAny(files){
+  files=[...files];if(!files.length)return;
+  const routed=[];for(const f of files)routed.push({f,...await appFor(f)});
+  const bad=routed.filter(x=>!x.app);
+  if(bad.length)OF.UI.toast('Bu tur qo‘llab-quvvatlanmaydi: '+bad.slice(0,3).map(x=>x.f.name+' ('+x.why+')').join(', '),'err',7000);
+  const good=routed.filter(x=>x.app);if(!good.length)return;
+  const first={};for(const x of good){if(!first[x.app])first[x.app]=x.f}
+  const order=[good[0].app,good[0].app==='excel'?'word':'excel'].filter(a=>first[a]);
+  if(good.length>Object.keys(first).length)OF.UI.toast('Har bir ilovada faqat bitta fayl ochiladi (birinchisi).',null,3500);
+  for(const a of order.slice().reverse()){ // oxirida birinchi faylning ilovasi ko‘rinib qoladi
+    showApp(a);await new Promise(r=>setTimeout(r,60));
+    const app=a==='excel'?OF.ExcelApp:OF.WordApp;
+    if(app&&app.openFile)await app.openFile(first[a]);else OF.UI.toast('Ilova hali yuklanmadi, qayta urinib ko‘ring.','err');
+  }
+}
+OF.openAny=openAny;
+function wireOpenAny(){
+  const b=$('#openAny');
+  if(b)b.addEventListener('click',async()=>{const fs=await OF.UI.pickFile(OF.L.ACCEPT,true);if(fs.length)openAny(fs)});
+  const veil=$('#dropVeil');let depth=0;
+  const hasFiles=e=>e.dataTransfer&&[...(e.dataTransfer.types||[])].includes('Files');
+  window.addEventListener('dragenter',e=>{if(!hasFiles(e))return;depth++;veil.classList.add('on')},true);
+  window.addEventListener('dragleave',e=>{if(!hasFiles(e))return;depth=Math.max(0,depth-1);if(!depth)veil.classList.remove('on')},true);
+  window.addEventListener('dragover',e=>{if(hasFiles(e))e.preventDefault()},true); // brauzer faylni o‘zi ochib yubormasin
+  window.addEventListener('drop',e=>{
+    depth=0;veil.classList.remove('on');
+    if(!hasFiles(e))return;
+    const fs=[...e.dataTransfer.files];if(!fs.length)return;
+    // rasm Word ichiga qo‘yilsa — Word o‘zi hal qiladi
+    if(curApp()==='word'&&fs.every(f=>/^image\//.test(f.type)))return; // rasm: Word ichiga qo‘yiladi
+    e.preventDefault();e.stopPropagation();openAny(fs);
+  },true);
+}
 function boot(){
+  wireOpenAny();
   document.querySelectorAll('.app-tabs button').forEach(b=>b.addEventListener('click',()=>showApp(b.dataset.app)));
   try{OF.initExcel()}catch(e){console.error(e);alert('Excel yuklanmadi: '+e.message)}
   try{OF.initWord&&OF.initWord()}catch(e){console.error(e)}
