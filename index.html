@@ -396,6 +396,13 @@
 .us-mh{font:700 11px monospace;letter-spacing:2px;color:var(--accent);margin:4px 0 8px}
 
 .us-ad-empty{text-align:center;color:#64748b !important;padding:20px !important}
+.us-on{color:#34d399;font-weight:700;text-shadow:0 0 10px rgba(52,211,153,.55)}.us-off{color:#94a3b8}
+.us-vpn{display:inline-block;margin-left:4px;padding:1px 5px;border:1px solid rgba(251,191,36,.6);border-radius:5px;color:#fbbf24;font:700 9px monospace}
+.us-kv div.us-gh{grid-column:1/-1;background:none;border:0;border-bottom:1px solid rgba(56,189,248,.25);border-radius:0;padding:10px 0 4px;margin-top:6px;font:700 11px monospace;letter-spacing:2px;color:var(--accent)}
+.us-kv div.us-wide{grid-column:1/-1}
+.us-kv b.us-bad{color:#fbbf24}
+.us-chip{display:inline-block;margin:2px 6px 2px 0;padding:3px 9px;border:1px solid rgba(56,189,248,.35);border-radius:999px;background:rgba(56,189,248,.08);font-style:normal;font-weight:600;font-size:12px;word-break:normal}
+.us-chip em{font-style:normal;color:var(--accent)}
 
 
 /* IT SHAKH — Tools dropdown smooth scroll */
@@ -1069,6 +1076,7 @@ body.file-modal-active{overflow:hidden;}
   <div id="leaderboard-card">
     <div class="leader-top">
       <div><b id="us-total">0</b><span>JAMI</span></div>
+      <div><b id="us-online">–</b><span>ONLINE HOZIR</span></div>
       <div><b id="us-today">–</b><span>BUGUN KIRGAN</span></div>
       <div><b id="us-sus">–</b><span>SHUBHALI</span></div>
       <div><b id="us-last">–</b><span>OXIRGI KIRISH</span></div>
@@ -1077,10 +1085,11 @@ body.file-modal-active{overflow:hidden;}
       <input id="us-ad-q" type="search" placeholder="Ism, email, IP, davlat, qurilma bo'yicha qidirish..." autocomplete="off">
       <button id="us-ad-sus" type="button">⚠ SHUBHALILAR</button>
       <button id="us-ad-refresh" type="button">↻ YANGILASH</button>
-      <button id="us-ad-csv" type="button">⬇ CSV</button>
+      <button id="us-ad-xlsx" type="button" title="Joylashuv ustiga bosilsa Google Xaritada ochiladi">⬇ EXCEL (.xlsx)</button>
+      <button id="us-ad-csv" type="button" title="CSV: joylashuv =HYPERLINK formulasi bilan">⬇ CSV</button>
     </div>
     <div id="us-ad-msg">Yuklanmoqda...</div>
-    <div class="us-ad-wrap"><table class="us-ad-table"><thead><tr><th>#</th><th>Ism</th><th>Email</th><th>Joylashuv</th><th>Davlat / shahar</th><th>IP</th><th>Qurilma</th><th>Brauzer</th><th>Oxirgi kirish</th><th>Kirish</th><th></th></tr></thead><tbody id="us-ad-body"></tbody></table></div>
+    <div class="us-ad-wrap"><table class="us-ad-table"><thead><tr><th>#</th><th>Ism</th><th>Email</th><th>Joylashuv</th><th>Davlat / shahar</th><th>IP</th><th>Qurilma</th><th>Brauzer</th><th>Holat</th><th>Faol vaqt</th><th>Oxirgi kirish</th><th>Kirish</th><th></th></tr></thead><tbody id="us-ad-body"></tbody></table></div>
   </div>
 </div>
 <div id="us-modal" hidden>
@@ -1090,7 +1099,7 @@ body.file-modal-active{overflow:hidden;}
     <div id="us-mwarn"></div>
     <div id="us-mgrid" class="us-kv"></div>
     <div class="us-mh">KIRISHLAR TARIXI (oxirgi 50 ta)</div>
-    <div class="us-ad-wrap"><table class="us-ad-table"><thead><tr><th>Vaqt</th><th>IP</th><th>Davlat / shahar</th><th>Qurilma</th><th>Brauzer / OS</th></tr></thead><tbody id="us-mhist"><tr><td colspan="5" class="us-ad-empty">Yuklanmoqda...</td></tr></tbody></table></div>
+    <div class="us-ad-wrap"><table class="us-ad-table"><thead><tr><th>Vaqt</th><th>IP</th><th>Davlat / shahar</th><th>Qurilma</th><th>Brauzer / OS</th><th>VPN</th><th>Manba</th></tr></thead><tbody id="us-mhist"><tr><td colspan="7" class="us-ad-empty">Yuklanmoqda...</td></tr></tbody></table></div>
   </div>
 </div>
 
@@ -1133,20 +1142,42 @@ async function usJson(url,ms){
  const c=new AbortController(),t=setTimeout(()=>c.abort(),ms||4500);
  try{const r=await fetch(url,{signal:c.signal});if(!r.ok)throw 0;return await r.json();}finally{clearTimeout(t);}
 }
-async function usCollectMeta(){
- const n=navigator,p=usParseUA(n.userAgent),m={ua:n.userAgent,browser:p.browser,os:p.os,device:p.device};
- try{m.lang=(n.languages&&n.languages.length?n.languages:[n.language]).join(',');}catch(e){}
- try{m.tz=Intl.DateTimeFormat().resolvedOptions().timeZone;}catch(e){}
- try{m.screen=screen.width+'x'+screen.height+'@'+(window.devicePixelRatio||1);}catch(e){}
- m.webdriver=!!n.webdriver;m.deviceId=usDeviceId();
- try{ // telefon rusumi (Android: Chrome/Edge/Samsung); iPhone modelini brauzer bermaydi
-  if(n.userAgentData&&n.userAgentData.getHighEntropyValues){
-   const h=await n.userAgentData.getHighEntropyValues(['model','platformVersion']);
-   if(h.model){m.model=h.model;if(/Telefon|Planshet/.test(m.device))m.device=m.device.replace(/\s*\(.*\)$/,'')+' ('+h.model+')';}
-   if(h.platformVersion&&/Android/.test(m.os))m.os='Android '+h.platformVersion.split('.')[0];
-  }
+/* sahifa ochilganda manba (referrer) va UTM bir marta eslab qolinadi */
+(function(){
+ try{if(sessionStorage.getItem('it_shakh_ref0'))return;
+  let ref='direct';
+  try{if(document.referrer){const h=new URL(document.referrer);ref=h.host===location.host?'internal':(h.host+(h.pathname.length>1?h.pathname:'')).slice(0,100);}}catch(e){}
+  const q=new URLSearchParams(location.search),utm=['utm_source','utm_medium','utm_campaign'].map(k=>q.get(k)).filter(Boolean).join('/').slice(0,100);
+  sessionStorage.setItem('it_shakh_ref0',JSON.stringify({ref:ref,utm:utm}));
  }catch(e){}
- try{ // IP va joylashuv: birinchi xizmat ishlamasa, ikkinchisi
+})();
+function usTimeout(p,ms){return Promise.race([p,new Promise(r=>setTimeout(()=>r(null),ms))]);}
+function usNet(){
+ try{const c=navigator.connection||navigator.mozConnection||navigator.webkitConnection;if(!c)return '';
+  const a=[];if(c.type)a.push(c.type);if(c.effectiveType)a.push(c.effectiveType);if(c.downlink!=null)a.push(c.downlink+'Mbps');if(c.rtt!=null)a.push(c.rtt+'ms');if(c.saveData)a.push('saveData');
+  return a.join(' · ');}catch(e){return ''}
+}
+function usGpu(){
+ try{const cv=document.createElement('canvas'),gl=cv.getContext('webgl')||cv.getContext('experimental-webgl');if(!gl)return '';
+  const x=gl.getExtension('WEBGL_debug_renderer_info'),r=x?gl.getParameter(x.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER);
+  const l=gl.getExtension('WEBGL_lose_context');if(l)l.loseContext();
+  return String(r||'').slice(0,120);}catch(e){return ''}
+}
+async function usBattery(){ // faqat Chromium (Chrome/Edge/Android); Safari va Firefox bermaydi
+ try{if(!navigator.getBattery)return '';const b=await usTimeout(navigator.getBattery(),1500);if(!b)return '';return Math.round(b.level*100)+'% '+(b.charging?'⚡':'🔋');}catch(e){return ''}
+}
+async function usAdblock(){ // reklama filtri yashiradigan "o'lja" element
+ try{const d=document.createElement('div');d.className='adsbox ad-banner ad_unit pub_300x250 textads banner-ad';d.style.cssText='position:absolute;left:-9999px;top:-9999px;width:10px;height:10px;';d.innerHTML='&nbsp;';
+  document.body.appendChild(d);await new Promise(r=>setTimeout(r,150));
+  const cs=getComputedStyle(d),bad=d.offsetHeight===0||cs.display==='none'||cs.visibility==='hidden';d.remove();return bad?'yes':'no';}catch(e){return ''}
+}
+async function usIncognito(){ // taxminiy: inkognito rejimda brauzer xotira kvotasini juda kichik beradi
+ try{if(navigator.storage&&navigator.storage.estimate){const e=await usTimeout(navigator.storage.estimate(),1500);if(e&&e.quota)return e.quota<130*1024*1024?'yes':'no';}}catch(e){}
+ return '';
+}
+async function usIpInfo(){ // IP va joylashuv: birinchi xizmat ishlamasa, ikkinchisi
+ const m={};
+ try{
   const a=await usJson('https://ipwho.is/');
   if(a&&a.success!==false&&a.ip){m.ip=a.ip;m.country=a.country||'';m.city=[a.city,a.region].filter(Boolean).join(', ');m.isp=(a.connection&&(a.connection.isp||a.connection.org))||'';m.ipLat=a.latitude;m.ipLng=a.longitude;m.ipTz=(a.timezone&&a.timezone.id)||'';}
   else throw 0;
@@ -1155,14 +1186,52 @@ async function usCollectMeta(){
  }
  return m;
 }
+async function usIpSec(){ // VPN / proksi / Tor / hosting / mobil tarmoq belgilari (ipapi.is). Javob bo'lmasa bo'sh qoladi
+ try{const s=await usJson('https://api.ipapi.is/');
+  if(!s||typeof s!=='object'||(s.is_vpn==null&&s.is_proxy==null&&s.is_datacenter==null))return null;
+  const f=[];if(s.is_vpn)f.push('vpn');if(s.is_proxy)f.push('proxy');if(s.is_tor)f.push('tor');if(s.is_datacenter)f.push('datacenter');if(s.is_mobile)f.push('mobile');if(s.is_abuser)f.push('abuser');
+  const asn=s.asn&&s.asn.asn?('AS'+s.asn.asn+' '+(s.asn.org||'')).trim():'';
+  return{flags:f,asn:asn};}catch(e){return null}
+}
+async function usCollectMeta(){
+ const n=navigator,p=usParseUA(n.userAgent),m={ua:n.userAgent,browser:p.browser,os:p.os,device:p.device};
+ try{m.lang=(n.languages&&n.languages.length?n.languages:[n.language]).join(',');}catch(e){}
+ try{m.tz=Intl.DateTimeFormat().resolvedOptions().timeZone;}catch(e){}
+ try{m.screen=screen.width+'x'+screen.height+'@'+(window.devicePixelRatio||1);}catch(e){}
+ m.webdriver=!!n.webdriver;m.deviceId=usDeviceId();
+ try{m.cpu=n.hardwareConcurrency?String(n.hardwareConcurrency):'';m.ram=n.deviceMemory?String(n.deviceMemory):'';m.touch=String(n.maxTouchPoints||0);}catch(e){}
+ m.net=usNet();m.gpu=usGpu();m.cookies=n.cookieEnabled?'yes':'no';
+ try{m.scheme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}catch(e){}
+ try{m.pwa=(matchMedia('(display-mode: standalone)').matches||n.standalone)?'yes':'no';}catch(e){}
+ try{m.viewport=innerWidth+'x'+innerHeight;m.tzOff=String(new Date().getTimezoneOffset());}catch(e){}
+ try{const r=JSON.parse(sessionStorage.getItem('it_shakh_ref0')||'null');if(r){m.ref=r.ref||'';m.utm=r.utm||'';}}catch(e){}
+ try{ // telefon rusumi (Android: Chrome/Edge/Samsung); iPhone modelini brauzer bermaydi
+  if(n.userAgentData&&n.userAgentData.getHighEntropyValues){
+   const h=await n.userAgentData.getHighEntropyValues(['model','platformVersion']);
+   if(h.model){m.model=h.model;if(/Telefon|Planshet/.test(m.device))m.device=m.device.replace(/\s*\(.*\)$/,'')+' ('+h.model+')';}
+   if(h.platformVersion&&/Android/.test(m.os))m.os='Android '+h.platformVersion.split('.')[0];
+  }
+ }catch(e){}
+ const r=await Promise.all([usBattery(),usAdblock(),usIncognito(),usIpInfo(),usIpSec()]);
+ m.battery=r[0];m.adblock=r[1];m.incog=r[2];Object.assign(m,r[3]);
+ let f=r[4]?r[4].flags.slice():null;
+ if(r[4]&&r[4].asn)m.asn=r[4].asn;
+ if(!f&&m.isp&&/vpn|hosting|data ?center|cloud|digitalocean|amazon|aws|ovh|hetzner|m247|vultr|linode|leaseweb|choopa|contabo/i.test(m.isp))f=['hosting?']; // zaxira: faqat provayder nomi bo'yicha taxmin
+ if(f&&/cellular/.test(m.net||'')&&f.indexOf('mobile')<0)f.push('mobile');
+ if(f)m.vpn=f.join(',')||'none';
+ return m;
+}
 /* kirish qayd etiladi (faqat USERS_API_URL berilganda). Server Google tokenini o'zi tekshiradi. */
 async function registerLogin(credential){
  if(!USERS_API_URL||!credential)return;
- try{
-  const meta=await usCollectMeta();
-  await fetch(USERS_API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'login',credential:credential,meta:meta})});
-  setTimeout(()=>{if(window.usReload)window.usReload();},2000);
- }catch(e){}
+ const job=(async()=>{
+  try{
+   const meta=await usCollectMeta();
+   await fetch(USERS_API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'login',credential:credential,meta:meta})});
+   setTimeout(()=>{if(window.usReload)window.usReload();},2000);
+  }catch(e){}
+ })();
+ window.__usLoginP=job;return job;
 }
 window.registerLogin=registerLogin;
 (function(){ // oldin kirgan, tokeni hali amal qiladigan foydalanuvchi — bugun bir marta qayd etiladi
@@ -1176,17 +1245,62 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
 /* ---------- admin paneli ---------- */
 (function(){
  const $=id=>document.getElementById(id);
- let all=[],susOnly=false,shown=false,loaded=false;
- const FIELDS=[['email','Email'],['name','Ism'],['firstLogin','Birinchi kirish'],['lastLogin','Oxirgi kirish'],['logins','Kirishlar soni'],['ip','IP manzil'],['country','Davlat'],['city','Shahar / viloyat'],['isp','Provayder'],['device','Qurilma'],['model','Telefon rusumi'],['os','Operatsion tizim'],['browser','Brauzer'],['lang','Tizim tili'],['tz','Vaqt mintaqasi'],['screen','Ekran'],['geo','GPS joylashuv'],['geoAt','GPS yuborilgan vaqt'],['geoStatus','GPS holati'],['ipTz','IP vaqt mintaqasi'],['deviceId','Qurilma ID'],['flags','Belgilar'],['userAgent','User-Agent']];
+ let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200;
+ /* batafsil oyna: ['#', sarlavha] — bo'lim sarlavhasi; qolganlari [kalit, nom] */
+ const FIELDS=[['#','FAOLLIK'],['lastSeen','Oxirgi faollik'],['activeSec','Saytda faol bo‘lgan vaqt'],['sessions','Tashriflar soni (sessiya)'],['avgSess','O‘rtacha tashrif davomiyligi'],['pages','Ko‘rilgan bo‘limlar'],['tools','Ochilgan asbob / sahifalar'],
+  ['#','SHAXS VA KIRISH'],['email','Email'],['name','Ism'],['firstLogin','Birinchi kirish'],['lastLogin','Oxirgi kirish'],['logins','Kirishlar soni'],['ref','Qayerdan kelgan'],['utm','Kampaniya (UTM)'],
+  ['#','JOYLASHUV VA TARMOQ'],['geo','GPS joylashuv'],['geoAt','GPS yuborilgan vaqt'],['geoStatus','GPS holati'],['ipmap','IP bo‘yicha joy'],['ip','IP manzil'],['country','Davlat'],['city','Shahar / viloyat'],['ipTz','IP vaqt mintaqasi'],['isp','Provayder'],['asn','ASN (tarmoq egasi)'],['vpn','VPN / proksi tekshiruvi'],['net','Ulanish turi'],
+  ['#','QURILMA'],['device','Qurilma'],['model','Telefon rusumi'],['os','Operatsion tizim'],['browser','Brauzer'],['cpu','Protsessor yadrolari'],['ram','Xotira (RAM)'],['gpu','Videokarta (GPU)'],['touch','Sensorli ekran'],['battery','Batareya'],['screen','Ekran'],['viewport','Brauzer oynasi'],['scheme','Rang rejimi'],
+  ['#','BRAUZER SOZLAMALARI'],['lang','Tillar'],['tz','Vaqt mintaqasi'],['tzOff','UTC siljishi'],['adblock','Reklama bloker'],['incog','Inkognito rejim (taxminiy)'],['cookies','Cookie'],['pwa','O‘rnatilgan ilova (PWA)'],
+  ['#','TEXNIK'],['deviceId','Qurilma ID'],['flags','Belgilar'],['userAgent','User-Agent']];
  function expMs(c){try{return JSON.parse(atob(c.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000}catch(e){return 0}}
  function isAdmin(){const u=getGoogleUser();return !!(u&&String(u.email||'').toLowerCase()===USERS_ADMIN);}
+ const TZ5=3600000*5;
  function fmt(iso){const t=Date.parse(iso);return t?new Date(t).toLocaleString('uz-UZ',{timeZone:'Asia/Tashkent',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'–';}
- function ago(iso){const t=Date.parse(iso);if(!t)return '';const s=Math.max(0,Math.floor((Date.now()-t)/1000));if(s<60)return 'hozir';if(s<3600)return Math.floor(s/60)+' daq oldin';if(s<86400)return Math.floor(s/3600)+' soat oldin';return Math.floor(s/86400)+' kun oldin';}
+ function fmtX(iso){const t=Date.parse(iso);return t?new Date(t+TZ5).toISOString().slice(0,16).replace('T',' '):'';} // jadval uchun: YYYY-MM-DD HH:mm (Toshkent)
+ function nowMs(){return Date.now()+srvOff;}
+ function ago(iso){const t=Date.parse(iso);if(!t)return '';const s=Math.max(0,Math.floor((nowMs()-t)/1000));if(s<60)return 'hozir';if(s<3600)return Math.floor(s/60)+' daq oldin';if(s<86400)return Math.floor(s/3600)+' soat oldin';return Math.floor(s/86400)+' kun oldin';}
+ function isOn(r){const t=Date.parse(r.lastSeen);return !!t&&nowMs()-t<onlineSec*1000;}
+ function dur(sec){sec=Math.round(Number(sec)||0);if(sec<=0)return '–';if(sec<60)return sec+' soniya';const m=Math.floor(sec/60);if(m<60)return m+' daq';const h=Math.floor(m/60);return h+' soat '+(m%60)+' daq';}
+ function counts(s,top){let o={};try{o=JSON.parse(s||'{}')||{};}catch(e){}const a=Object.keys(o).map(k=>[k,Number(o[k])||0]).sort((x,y)=>y[1]-x[1]);return a;}
+ function countsTxt(s){const a=counts(s);return a.length?a.map(x=>x[0]+' ×'+x[1]).join(', '):'';}
+ const YN={yes:'Ha',no:'Yo‘q'};
+ const VPN_N={vpn:'VPN',proxy:'Proksi',tor:'Tor',datacenter:'Datacenter / hosting','hosting?':'Hosting (taxmin)',mobile:'Mobil tarmoq',abuser:'Zararli IP (spam/hujum tarixi)'};
+ function vpnTxt(r){const v=String(r.vpn||'').trim();if(!v)return '';if(v==='none')return 'Toza (VPN/proksi belgisi topilmadi)';return v.split(',').map(x=>VPN_N[x]||x).join(', ');}
+ function vpnBad(r){return String(r.vpn||'').split(',').some(x=>x==='vpn'||x==='proxy'||x==='tor'||x==='datacenter'||x==='hosting?');}
+ function utcTxt(r){if(r.tzOff===''||r.tzOff==null||isNaN(Number(r.tzOff)))return '';const o=-Number(r.tzOff),h=Math.trunc(o/60),mm=Math.abs(o%60);return 'UTC'+(o>=0?'+':'−')+Math.abs(h)+(mm?':'+String(mm).padStart(2,'0'):'');}
+ function mapLink(lat,lng){return 'https://www.google.com/maps?q='+Number(lat)+','+Number(lng);}
+ function hasGps(r){return r.lat!==''&&r.lng!==''&&r.lat!=null&&r.lng!=null&&isFinite(+r.lat)&&isFinite(+r.lng);}
+ function hasIpLoc(r){return r.ipLat!==''&&r.ipLng!==''&&r.ipLat!=null&&r.ipLng!=null&&isFinite(+r.ipLat)&&isFinite(+r.ipLng);}
+ function avgSess(r){const s=Number(r.sessions)||0;return s>0&&Number(r.activeSec)>0?Math.round(Number(r.activeSec)/s):0;}
+ /* bitta qiymatning odam o'qiydigan ko'rinishi (batafsil oyna va eksport uchun) */
+ function val(k,r){
+  switch(k){
+   case 'firstLogin':case 'lastLogin':return r[k]?fmt(r[k]):'';
+   case 'lastSeen':return r.lastSeen?fmt(r.lastSeen)+' ('+(isOn(r)?'hozir online':ago(r.lastSeen))+')':'';
+   case 'activeSec':return Number(r.activeSec)>0?dur(r.activeSec):'';
+   case 'avgSess':return avgSess(r)?dur(avgSess(r)):'';
+   case 'pages':case 'tools':return countsTxt(r[k]);
+   case 'ref':return r.ref==='direct'?'To‘g‘ridan-to‘g‘ri (havolasiz)':(r.ref==='internal'?'Sayt ichidan':r.ref||'');
+   case 'vpn':return vpnTxt(r);
+   case 'asn':case 'net':case 'gpu':case 'battery':case 'utm':case 'viewport':return r[k]||'';
+   case 'cpu':return r.cpu?r.cpu+' ta yadro':'';
+   case 'ram':return r.ram?(Number(r.ram)>=8?'8 GB yoki ko‘proq':r.ram+' GB')+' (brauzer taxmini)':'';
+   case 'touch':return r.touch===''||r.touch==null?'':(Number(r.touch)>0?'Bor (' +r.touch+' nuqta)':'Yo‘q');
+   case 'scheme':return r.scheme==='dark'?'Qorong‘i':(r.scheme==='light'?'Yorug‘':'');
+   case 'adblock':case 'incog':case 'cookies':case 'pwa':return YN[r[k]]||'';
+   case 'tzOff':return utcTxt(r);
+   case 'geoStatus':return r.geoStatus==='ok'?'Yuborilgan':(r.geoStatus==='denied'?'Rad etilgan':(r.geoStatus||''));
+   case 'geoAt':return r.geoAt?fmt(r.geoAt):'';
+   case 'lang':return String(r.lang||'').replace(/,/g,', ');
+   default:return r[k]==null?'':String(r[k]).trim();
+  }
+ }
  function msg(t,html){const m=$('us-ad-msg');if(html)m.innerHTML=t;else m.textContent=t||'';}
  function relogin(){try{sessionStorage.setItem('it_shakh_open_admin','1');localStorage.removeItem('it_shakh_google_user');}catch(e){}location.reload();}
  function reloginMsg(t){msg(t+' <button type="button" id="us-ad-relogin" class="us-ad-relogin">Qayta kirish</button>',true);$('us-ad-relogin').onclick=relogin;}
  function where(r){return [r.country,r.city].filter(Boolean).join(' / ')||'–';}
- /* shubhali belgilar: bir qurilma/IP da ko'p akkaunt, avtomatlashtirilgan brauzer */
+ /* shubhali belgilar */
  function analyze(){
   const byDev={},byIp={};
   all.forEach(r=>{if(r.deviceId)(byDev[r.deviceId]=byDev[r.deviceId]||[]).push(r.email);if(r.ip)(byIp[r.ip]=byIp[r.ip]||[]).push(r.email);});
@@ -1194,22 +1308,27 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    if(r.deviceId&&byDev[r.deviceId].length>1)w.push('Bir qurilmada '+byDev[r.deviceId].length+' ta akkaunt: '+byDev[r.deviceId].join(', '));
    if(r.ip&&byIp[r.ip].length>1)w.push('Bir IP dan '+byIp[r.ip].length+' ta akkaunt: '+byIp[r.ip].join(', '));
    if(/webdriver/.test(r.flags||''))w.push('Avtomatlashtirilgan brauzer (bot) belgisi');
+   if(vpnBad(r))w.push('IP manzil '+vpnTxt(r)+' deb belgilangan'+(r.asn?' ('+r.asn+')':''));
    if(r.tz&&r.ipTz&&r.tz!==r.ipTz)w.push('VPN/proksi ehtimoli: qurilma vaqti '+r.tz+', IP esa '+r.ipTz+' ('+(r.country||'?')+')');
-   if(r.lat&&r.lng&&r.ipLat&&r.ipLng){const d=usKm(+r.lat,+r.lng,+r.ipLat,+r.ipLng);if(d>250)w.push('GPS va IP joylashuvi mos emas: ~'+Math.round(d)+' km farq (VPN/proksi ehtimoli)');}
+   if(hasGps(r)&&hasIpLoc(r)){const d=usKm(+r.lat,+r.lng,+r.ipLat,+r.ipLng);if(d>250)w.push('GPS va IP joylashuvi mos emas: ~'+Math.round(d)+' km farq (VPN/proksi ehtimoli)');}
+   if(/swiftshader|llvmpipe|virtualbox|vmware|basic render|parallels|microsoft basic|software/i.test(r.gpu||''))w.push('Virtual mashina yoki emulyator ehtimoli (videokarta: '+r.gpu+')');
+   if(/^Telefon|^Planshet/.test(r.device||'')&&r.touch==='0')w.push('Telefon deb ko‘rsatilgan, lekin sensorli ekran yo‘q (brauzer ma’lumoti soxtalashtirilgan bo‘lishi mumkin)');
    if(r.geoStatus==='denied')w.push('Joylashuvni yuborishni rad etgan');
    r._w=w;});
  }
+ function statusCell(r){if(isOn(r))return '<span class="us-on">● online</span>';const a=ago(r.lastSeen);return a?'<span class="us-off" title="'+esc(fmt(r.lastSeen))+'">'+esc(a)+'</span>':'<span class="us-off">–</span>';}
  function render(){
   analyze();
   const q=$('us-ad-q').value.trim().toLowerCase();
-  const rows=all.filter(r=>(!susOnly||r._w.length)&&(!q||[r.name,r.email,r.ip,r.country,r.city,r.device,r.model,r.browser,r.os,r.isp].join(' ').toLowerCase().includes(q)));
-  const tk=new Date(Date.now()+5*3600000).toISOString().slice(0,10);
+  const rows=all.filter(r=>(!susOnly||r._w.length)&&(!q||[r.name,r.email,r.ip,r.country,r.city,r.device,r.model,r.browser,r.os,r.isp,r.asn,r.gpu,r.vpn,r.ref].join(' ').toLowerCase().includes(q)));
+  const tk=new Date(Date.now()+TZ5).toISOString().slice(0,10);
   $('us-total').textContent=all.length;
-  $('us-today').textContent=all.filter(r=>Date.parse(r.lastLogin)&&new Date(Date.parse(r.lastLogin)+5*3600000).toISOString().slice(0,10)===tk).length;
+  $('us-online').textContent=all.filter(isOn).length;
+  $('us-today').textContent=all.filter(r=>Date.parse(r.lastLogin)&&new Date(Date.parse(r.lastLogin)+TZ5).toISOString().slice(0,10)===tk).length;
   $('us-sus').textContent=all.filter(r=>r._w.length).length;
   $('us-last').textContent=all.length?ago(all[0].lastLogin):'–';
   $('us-ad-sus').classList.toggle('on',susOnly);
-  $('us-ad-body').innerHTML=rows.map((r,i)=>`<tr data-e="${esc(r.email)}" class="${r._w.length?'us-sus':''}"><td>${i+1}</td><td><span class="us-ad-n"><img src="${r.picture?esc(r.picture):'logo.png'}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='logo.png';">${esc(r.name)}</span></td><td>${esc(r.email)}</td><td>${r.lat&&r.lng?'<a class="us-map" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+encodeURIComponent(r.lat+','+r.lng)+'" onclick="event.stopPropagation()">📍 xaritada</a>':(r.geoStatus==='denied'?'<span style="color:#fbbf24">rad etgan</span>':'–')}</td><td>${esc(where(r))}</td><td>${esc(r.ip||'–')}</td><td>${esc(r.device||'–')}</td><td>${esc(r.browser||'–')}</td><td title="${esc(fmt(r.lastLogin))}">${esc(ago(r.lastLogin))||esc(fmt(r.lastLogin))}</td><td>${Number(r.logins)||0}</td><td>${r._w.length?'⚠':''}</td></tr>`).join('')||'<tr><td colspan="11" class="us-ad-empty">Hech narsa topilmadi.</td></tr>';
+  $('us-ad-body').innerHTML=rows.map((r,i)=>`<tr data-e="${esc(r.email)}" class="${r._w.length?'us-sus':''}"><td>${i+1}</td><td><span class="us-ad-n"><img src="${r.picture?esc(r.picture):'logo.png'}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='logo.png';">${esc(r.name)}</span></td><td>${esc(r.email)}</td><td>${hasGps(r)?'<a class="us-map" target="_blank" rel="noopener" href="'+esc(mapLink(r.lat,r.lng))+'" onclick="event.stopPropagation()">📍 xaritada</a>':(r.geoStatus==='denied'?'<span style="color:#fbbf24">rad etgan</span>':'–')}</td><td>${esc(where(r))}</td><td>${esc(r.ip||'–')}${vpnBad(r)?' <span class="us-vpn" title="'+esc(vpnTxt(r))+'">VPN?</span>':''}</td><td>${esc(r.device||'–')}</td><td>${esc(r.browser||'–')}</td><td>${statusCell(r)}</td><td>${esc(dur(r.activeSec))}</td><td title="${esc(fmt(r.lastLogin))}">${esc(ago(r.lastLogin))||esc(fmt(r.lastLogin))}</td><td>${Number(r.logins)||0}</td><td>${r._w.length?'⚠':''}</td></tr>`).join('')||'<tr><td colspan="13" class="us-ad-empty">Hech narsa topilmadi.</td></tr>';
   msg('Jami: '+all.length+' ta'+((q||susOnly)?' • topildi: '+rows.length:'')+' • qatorni bosing — to\'liq ma\'lumot');
  }
  function jsonp(params,cb,fail){
@@ -1226,7 +1345,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   if(!u||!u.credential||expMs(u.credential)<Date.now()+15000){reloginMsg('Xavfsizlik uchun Google sessiyasi tugagan.');return;}
   msg('Yuklanmoqda...');
   jsonp('action=admin&credential='+encodeURIComponent(u.credential),d=>{
-   if(d&&d.ok){all=d.users||[];loaded=true;render();}
+   if(d&&d.ok){all=d.users||[];loaded=true;const st=Date.parse(d.now);srvOff=st?st-Date.now():0;if(d.onlineSec)onlineSec=Number(d.onlineSec)||200;render();}
    else if(d&&d.error==='token')reloginMsg('Google sessiyasi eskirgan.');
    else if(d&&d.error==='forbidden')msg('Bu ma\'lumot faqat admin uchun.');
    else msg('Server eski versiyada: Apps Script ni yangilab, "New version" deploy qiling.');
@@ -1235,16 +1354,22 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
  window.usReload=()=>{if(shown)load();};
  function openUser(email){
   const r=all.find(x=>x.email===email);if(!r)return;
-  $('us-mhead').innerHTML=`<div class="us-mtitle"><img src="${r.picture?esc(r.picture):'logo.png'}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='logo.png';"><div><b>${esc(r.name)}</b><span>${esc(r.email)}</span></div></div>`;
+  $('us-mhead').innerHTML=`<div class="us-mtitle"><img src="${r.picture?esc(r.picture):'logo.png'}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='logo.png';"><div><b>${esc(r.name)} ${isOn(r)?'<span class="us-on">● online</span>':''}</b><span>${esc(r.email)}</span></div></div>`;
   $('us-mwarn').innerHTML=r._w.map(w=>'<div class="us-warn">⚠ '+esc(w)+'</div>').join('');
-  $('us-mgrid').innerHTML=FIELDS.map(([k,l])=>{if(k==='geo'){const ok=r.lat&&r.lng;return '<div><span>'+esc(l)+'</span><b>'+(ok?'<a class="us-map" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+encodeURIComponent(r.lat+','+r.lng)+'">📍 '+esc(r.lat+', '+r.lng)+'</a> (±'+esc(Math.round(Number(r.geoAcc)||0))+' m)':'–')+'</b></div>';}let v=r[k];if(k==='firstLogin'||k==='lastLogin')v=fmt(v)+' ('+(v||'')+')';return '<div><span>'+esc(l)+'</span><b>'+(esc(v)||'–')+'</b></div>';}).join('');
-  $('us-mhist').innerHTML='<tr><td colspan="5" class="us-ad-empty">Yuklanmoqda...</td></tr>';
+  $('us-mgrid').innerHTML=FIELDS.map(([k,l])=>{
+   if(k==='#')return '<div class="us-gh">'+esc(l)+'</div>';
+   if(k==='geo'){return '<div><span>'+esc(l)+'</span><b>'+(hasGps(r)?'<a class="us-map" target="_blank" rel="noopener" href="'+esc(mapLink(r.lat,r.lng))+'">📍 '+esc(r.lat+', '+r.lng)+'</a> (±'+esc(Math.round(Number(r.geoAcc)||0))+' m)':'–')+'</b></div>';}
+   if(k==='ipmap'){return '<div><span>'+esc(l)+'</span><b>'+(hasIpLoc(r)?'<a class="us-map" target="_blank" rel="noopener" href="'+esc(mapLink(r.ipLat,r.ipLng))+'">🌐 '+esc(r.ipLat+', '+r.ipLng)+'</a> (taxminiy)':'–')+'</b></div>';}
+   if(k==='vpn'){const t=val(k,r);return '<div><span>'+esc(l)+'</span><b class="'+(vpnBad(r)?'us-bad':'')+'">'+(esc(t)||'–')+'</b></div>';}
+   if(k==='pages'||k==='tools'){const a=counts(r[k]);return '<div class="us-wide"><span>'+esc(l)+'</span><b>'+(a.length?a.map(x=>'<i class="us-chip">'+esc(x[0])+' <em>×'+x[1]+'</em></i>').join(''):'–')+'</b></div>';}
+   return '<div><span>'+esc(l)+'</span><b>'+(esc(val(k,r))||'–')+'</b></div>';}).join('');
+  $('us-mhist').innerHTML='<tr><td colspan="7" class="us-ad-empty">Yuklanmoqda...</td></tr>';
   $('us-modal').hidden=false;document.body.style.overflow='hidden';
   const u=getGoogleUser();if(!u||!u.credential)return;
   jsonp('action=adminlog&email='+encodeURIComponent(email)+'&credential='+encodeURIComponent(u.credential),d=>{
    const h=(d&&d.ok&&d.history)||[];
-   $('us-mhist').innerHTML=h.length?h.map(x=>`<tr><td>${esc(fmt(x.time))}</td><td>${esc(x.ip||'–')}</td><td>${esc(where(x))}</td><td>${esc(x.device||'–')}</td><td>${esc([x.browser,x.os].filter(Boolean).join(' / ')||'–')}</td></tr>`).join(''):'<tr><td colspan="5" class="us-ad-empty">Tarix yo\'q.</td></tr>';
-  },t=>{$('us-mhist').innerHTML='<tr><td colspan="5" class="us-ad-empty">'+esc(t)+'</td></tr>';});
+   $('us-mhist').innerHTML=h.length?h.map(x=>`<tr><td>${esc(fmt(x.time))}</td><td>${esc(x.ip||'–')}</td><td>${esc(where(x))}</td><td>${esc(x.device||'–')}</td><td>${esc([x.browser,x.os].filter(Boolean).join(' / ')||'–')}</td><td>${esc(vpnTxt(x)||'–')}</td><td>${esc(val('ref',x)||'–')}</td></tr>`).join(''):'<tr><td colspan="7" class="us-ad-empty">Tarix yo\'q.</td></tr>';
+  },t=>{$('us-mhist').innerHTML='<tr><td colspan="7" class="us-ad-empty">'+esc(t)+'</td></tr>';});
  }
  function closeModal(){$('us-modal').hidden=true;document.body.style.overflow='';}
  $('us-ad-body').addEventListener('click',e=>{const tr=e.target.closest('tr[data-e]');if(tr)openUser(tr.dataset.e);});
@@ -1253,12 +1378,78 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
  $('us-ad-q').addEventListener('input',render);
  $('us-ad-sus').onclick=()=>{susOnly=!susOnly;render();};
  $('us-ad-refresh').onclick=load;
- $('us-ad-csv').onclick=()=>{
-  const q=c=>'"'+String(c==null?'':c).replace(/"/g,'""')+'"';
-  const cols=FIELDS.map(f=>f[0]==='geo'?'lat':f[0]);
-  const csv='﻿'+FIELDS.map(f=>f[0]==='geo'?'GPS (lat)':f[1]).join(',')+'\n'+all.map(r=>cols.map(k=>q(r[k])).join(',')).join('\n');
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='foydalanuvchilar.csv';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
- };
+
+ /* ---------- EKSPORT: Excel (.xlsx) — joylashuv bosiladigan havola; CSV — =HYPERLINK formula ---------- */
+ /* ustun: [sarlavha, funksiya(r) -> qiymat | {v, link} ] ; son bo'lsa Excel'da son bo'lib saqlanadi */
+ const num=v=>{const n=Number(v);return v===''||v==null||!isFinite(n)?'':n;};
+ const COLS=[
+  ['Ism',r=>r.name],['Email',r=>r.email],
+  ['Joylashuv (GPS) — bosing',r=>hasGps(r)?{v:'📍 xaritada',link:mapLink(r.lat,r.lng)}:(r.geoStatus==='denied'?'rad etgan':'')],
+  ['Joylashuv (IP) — bosing',r=>hasIpLoc(r)?{v:'🌐 IP xaritada',link:mapLink(r.ipLat,r.ipLng)}:''],
+  ['GPS kenglik',r=>hasGps(r)?num(r.lat):''],['GPS uzunlik',r=>hasGps(r)?num(r.lng):''],['GPS aniqlik (m)',r=>hasGps(r)?Math.round(Number(r.geoAcc)||0):''],['GPS vaqti',r=>r.geoAt?fmtX(r.geoAt):''],
+  ['Davlat',r=>r.country],['Shahar / viloyat',r=>r.city],['IP',r=>r.ip],['Provayder',r=>r.isp],['ASN',r=>r.asn],['VPN / proksi',r=>vpnTxt(r)],['Ulanish',r=>r.net],
+  ['Holat',r=>isOn(r)?'online':(r.lastSeen?ago(r.lastSeen):'')],['Oxirgi faollik',r=>r.lastSeen?fmtX(r.lastSeen):''],['Faol vaqt (daq)',r=>Number(r.activeSec)>0?Math.round(Number(r.activeSec)/6)/10:''],['Tashriflar',r=>num(r.sessions)],['O‘rtacha tashrif (daq)',r=>avgSess(r)?Math.round(avgSess(r)/6)/10:''],
+  ['Ko‘rilgan bo‘limlar',r=>countsTxt(r.pages)],['Ochilgan asboblar',r=>countsTxt(r.tools)],
+  ['Birinchi kirish',r=>r.firstLogin?fmtX(r.firstLogin):''],['Oxirgi kirish',r=>r.lastLogin?fmtX(r.lastLogin):''],['Kirishlar soni',r=>Number(r.logins)||0],['Qayerdan kelgan',r=>val('ref',r)],['UTM',r=>r.utm],
+  ['Qurilma',r=>r.device],['Rusum',r=>r.model],['OS',r=>r.os],['Brauzer',r=>r.browser],['CPU yadro',r=>num(r.cpu)],['RAM (GB)',r=>num(r.ram)],['GPU',r=>r.gpu],['Sensor (nuqta)',r=>num(r.touch)],['Batareya',r=>r.battery],['Ekran',r=>r.screen],['Oyna',r=>r.viewport],['Rang rejimi',r=>val('scheme',r)],
+  ['Tillar',r=>val('lang',r)],['Vaqt mintaqasi',r=>r.tz],['UTC',r=>utcTxt(r)],['Reklama bloker',r=>val('adblock',r)],['Inkognito (taxmin)',r=>val('incog',r)],['Cookie',r=>val('cookies',r)],['PWA',r=>val('pwa',r)],
+  ['Shubhali belgilar',r=>(r._w||[]).join(' | ')],['Qurilma ID',r=>r.deviceId],['User-Agent',r=>r.userAgent]];
+ const xe=s=>String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+ const colL=i=>{let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26);}return s;};
+ let crcT=null;
+ function crc32(d){if(!crcT){crcT=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;crcT[n]=c>>>0;}}
+  let c=0xFFFFFFFF;for(let i=0;i<d.length;i++)c=crcT[(c^d[i])&255]^(c>>>8);return(c^0xFFFFFFFF)>>>0;}
+ function zip(files){ // siqilmagan (store) ZIP
+  const enc=new TextEncoder(),parts=[],cd=[];let off=0;
+  files.forEach(f=>{const nm=enc.encode(f.name),data=f.data,crc=crc32(data),sz=data.length;
+   const lh=new DataView(new ArrayBuffer(30));lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint16(8,0,true);lh.setUint16(10,0,true);lh.setUint16(12,0x21,true);lh.setUint32(14,crc,true);lh.setUint32(18,sz,true);lh.setUint32(22,sz,true);lh.setUint16(26,nm.length,true);lh.setUint16(28,0,true);
+   parts.push(new Uint8Array(lh.buffer),nm,data);
+   const ch=new DataView(new ArrayBuffer(46));ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint16(8,0x0800,true);ch.setUint16(10,0,true);ch.setUint16(12,0,true);ch.setUint16(14,0x21,true);ch.setUint32(16,crc,true);ch.setUint32(20,sz,true);ch.setUint32(24,sz,true);ch.setUint16(28,nm.length,true);ch.setUint32(42,off,true);
+   cd.push(new Uint8Array(ch.buffer),nm);off+=30+nm.length+sz;});
+  let cdl=0;cd.forEach(p=>cdl+=p.length);
+  const e=new DataView(new ArrayBuffer(22));e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cdl,true);e.setUint32(16,off,true);
+  return new Blob(parts.concat(cd,[new Uint8Array(e.buffer)]),{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+ }
+ function buildXlsx(rows){
+  const enc=new TextEncoder(),W=[];
+  COLS.forEach((c,i)=>{let w=Math.min(46,Math.max(c[0].length+3,9));rows.forEach(r=>{const x=c[1](r),t=x&&typeof x==='object'?x.v:x;const l=String(t==null?'':t).length;if(l+2>w)w=Math.min(46,l+2);});W.push(w);});
+  let sd='<row r="1" ht="22" customHeight="1">'+COLS.map((c,i)=>'<c r="'+colL(i)+'1" s="1" t="inlineStr"><is><t xml:space="preserve">'+xe(c[0])+'</t></is></c>').join('')+'</row>';
+  const links=[];
+  rows.forEach((r,ri)=>{const R=ri+2;
+   sd+='<row r="'+R+'">'+COLS.map((c,i)=>{
+    let x=c[1](r);if(x==null||x==='')return '';const ref=colL(i)+R;
+    if(typeof x==='object'){links.push([ref,x.link]);return '<c r="'+ref+'" s="2" t="inlineStr"><is><t xml:space="preserve">'+xe(x.v)+'</t></is></c>';}
+    if(typeof x==='number'&&isFinite(x))return '<c r="'+ref+'"><v>'+x+'</v></c>';
+    return '<c r="'+ref+'" t="inlineStr"><is><t xml:space="preserve">'+xe(x)+'</t></is></c>';}).join('')+'</row>';});
+  const last=colL(COLS.length-1)+(rows.length+1);
+  const sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>'+W.map((w,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>').join('')+'</cols><sheetData>'+sd+'</sheetData><autoFilter ref="A1:'+last+'"/>'+(links.length?'<hyperlinks>'+links.map((l,i)=>'<hyperlink ref="'+l[0]+'" r:id="rId'+(i+1)+'" tooltip="Google Maps\'da ochish"/>').join('')+'</hyperlinks>':'')+'</worksheet>';
+  const srel=links.length?'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+links.map((l,i)=>'<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="'+xe(l[1])+'" TargetMode="External"/>').join('')+'</Relationships>':'';
+  const F=[
+   ['[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+   ['_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+   ['xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Foydalanuvchilar" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+   ['xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+   ['xl/styles.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><u/><sz val="11"/><color rgb="FF0563C1"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0F2540"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'],
+   ['xl/worksheets/sheet1.xml',sheet]];
+  if(srel)F.push(['xl/worksheets/_rels/sheet1.xml.rels',srel]);
+  return zip(F.map(f=>({name:f[0],data:enc.encode(f[1])})));
+ }
+ function csvGuard(s){s=String(s);return /^[=+@]/.test(s)||/^-(?![\d.]+$)/.test(s)?' '+s:s;}
+ function buildCsv(rows){
+  const q=c=>'"'+String(c).replace(/"/g,'""')+'"';
+  const head=COLS.map(c=>q(c[0])).join(',');
+  const body=rows.map(r=>COLS.map(c=>{const x=c[1](r);
+   if(x==null||x==='')return '""';
+   if(typeof x==='object')return q('=HYPERLINK("'+x.link+'","'+x.v+'")'); // Excel/Sheets/LibreOffice'da bosiladigan havola
+   if(typeof x==='number')return String(x);
+   return q(csvGuard(x));}).join(',')).join('\r\n');
+  return new Blob(['﻿'+head+'\r\n'+body+'\r\n'],{type:'text/csv;charset=utf-8'});
+ }
+ function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},800);}
+ function stamp(){return new Date(Date.now()+TZ5).toISOString().slice(0,10);}
+ function exportRows(){analyze();return all.slice();}
+ $('us-ad-xlsx').onclick=()=>{if(!all.length){msg('Avval ro‘yxat yuklansin.');return;}download(buildXlsx(exportRows()),'foydalanuvchilar_'+stamp()+'.xlsx');};
+ $('us-ad-csv').onclick=()=>{if(!all.length){msg('Avval ro‘yxat yuklansin.');return;}download(buildCsv(exportRows()),'foydalanuvchilar_'+stamp()+'.csv');};
  function tick(){
   const adm=isAdmin()&&!!USERS_API_URL;$('users-section').hidden=!adm;
   if(adm&&!shown){shown=true;let f=null;try{f=sessionStorage.getItem('it_shakh_open_admin')}catch(e){}
@@ -1266,6 +1457,44 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   if(!adm)shown=false;
  }
  tick();setInterval(tick,3000);
+})();
+(function(){ /* ===== FAOLLIK: saytda faol vaqt, ko'rilgan bo'limlar, ochilgan asboblar ===== */
+ if(!USERS_API_URL)return;
+ let active=0,lastInput=Date.now(),pages={},tools={},seen={},timer=null;
+ const SK='it_shakh_sess';
+ ['pointerdown','keydown','scroll','touchstart','mousemove'].forEach(ev=>addEventListener(ev,()=>{lastInput=Date.now();},{passive:true}));
+ setInterval(()=>{if(!document.hidden&&Date.now()-lastInput<60000)active+=1;},1000); // faqat ko'rinib turgan va 1 daqiqa ichida harakat bor payt
+ function expMs(c){try{return JSON.parse(atob(c.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000}catch(e){return 0}}
+ function bump(o,k){o[k]=(o[k]||0)+1;}
+ function secName(el){return el.id==='file-center-section'?'file-center':(el.id==='users-section'?'':(el.id||(el.classList.contains('hero')?'hero':'')));}
+ try{ // ko'rilgan bo'limlar: 40% ko'rinib, 1.5 soniya turgan bo'lsa
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{const nm=secName(e.target);if(!nm)return;
+   if(e.isIntersecting&&e.intersectionRatio>=0.4){e.target.__t=setTimeout(()=>{if(!seen[nm]){seen[nm]=1;bump(pages,nm);}},1500);}
+   else clearTimeout(e.target.__t);});},{threshold:[0.4]});
+  document.querySelectorAll('section.hero,.section[id]').forEach(el=>io.observe(el));
+ }catch(e){}
+ document.addEventListener('click',e=>{ // asbob / sahifa havolasi bosildi
+  const a=e.target.closest&&e.target.closest('a[href]');if(!a)return;
+  const h=(a.getAttribute('href')||'').split(/[?#]/)[0];
+  if(/^[\w\-]+\.html$/.test(h)){bump(tools,h.replace(/\.html$/,''));send(false);}
+ },true);
+ async function send(first){
+  const u=getGoogleUser();if(!u||!u.credential||expMs(u.credential)<Date.now()+5000)return;
+  if(first&&window.__usLoginP){try{await usTimeout(window.__usLoginP,12000);}catch(e){}}
+  let start=0;try{if(!sessionStorage.getItem(SK)){start=1;sessionStorage.setItem(SK,'1');}}catch(e){}
+  const sec=Math.round(active),pg=pages,tl=tools;active-=sec;pages={};tools={};
+  if(!start&&!sec&&!Object.keys(pg).length&&!Object.keys(tl).length)return;
+  try{
+   await fetch(USERS_API_URL,{method:'POST',mode:'no-cors',keepalive:true,headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'activity',credential:u.credential,sec:sec,start:start,pages:pg,tools:tl})});
+  }catch(e){ // yuborilmadi — keyingi safar qayta uriniladi
+   active+=sec;for(const k in pg)pages[k]=(pages[k]||0)+pg[k];for(const k in tl)tools[k]=(tools[k]||0)+tl[k];
+   if(start){try{sessionStorage.removeItem(SK);}catch(x){}}
+  }
+ }
+ setTimeout(()=>send(true),6000);
+ timer=setInterval(()=>{if(!document.hidden)send(false);},120000);
+ document.addEventListener('visibilitychange',()=>{if(document.hidden)send(false);});
+ addEventListener('pagehide',()=>{send(false);});
 })();
 </script>
 
