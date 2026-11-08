@@ -1632,11 +1632,15 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
  function hide(){const d=$('bk-modal');if(!d)return;d.remove();showing=false;document.body.style.overflow=$('pf-modal')?'hidden':'';}
  async function tick(){
   if(checking||!USERS_API_URL)return;
-  const u=me();if(!u||!u.email)return;
+  const u=me();if(!u||!u.email||!u.credential)return;
   if(String(u.email).toLowerCase()===USERS_ADMIN)return; // admin hech qachon tekshirilmaydi, hech qachon bloklanmaydi
   if($('google-login-screen'))return;
-  const valid=u.credential&&expMs(u.credential)>Date.now()+10000;if(!valid)return; // sessiya tugagan: joylashuv skripti qayta kirishni so'raydi
-  checking=true;const r=await api({action:'me',credential:u.credential},9000);checking=false;
+  // MUHIM: Google tokeni ~1 soatda eskiradi, lekin sayt o'zi localStorage'dagi "kirgan" holatni shu muddatdan
+  // qat'i nazar ko'rsataveradi. Shuning uchun token eskirgan bo'lsa ham bloklashni tekshirish davom etadi —
+  // faqat 'blockstat' orqali (tokenni Google'da tasdiqlamay, ichidagi email'ni o'qib). Aks holda eskirgan
+  // tokenli bloklangan foydalanuvchi tekshiruvdan abadiy chetlanib, saytdan erkin foydalanaverardi.
+  const valid=expMs(u.credential)>Date.now()+10000;
+  checking=true;const r=await api({action:valid?'me':'blockstat',credential:u.credential},9000);checking=false;
   if(r&&r.ok&&r.blocked)return show();
   if(r&&r.ok&&!r.blocked&&showing)return hide(); // blokdan chiqarilgan bo'lsa ekran avtomatik olib tashlanadi
  }
