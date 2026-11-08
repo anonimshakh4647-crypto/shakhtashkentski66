@@ -1307,7 +1307,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
 (function(){
  const $=id=>document.getElementById(id);
  const REQ_VER='msg2'; // bloklash + adminga xabar + admin javobi funksiyalari shu versiyadan boshlab ishlaydi
- let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false,msgs=[],msgTick=0;
+ let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false,msgs=[],msgTick=0,replyDrafts={};
  /* batafsil oyna: ['#', sarlavha] — bo'lim sarlavhasi; qolganlari [kalit, nom] */
  const FIELDS=[['#','FAOLLIK'],['lastSeen','Oxirgi faollik'],['activeSec','Saytda faol bo‘lgan vaqt'],['sessions','Tashriflar soni (sessiya)'],['avgSess','O‘rtacha tashrif davomiyligi'],['pages','Ko‘rilgan bo‘limlar'],['tools','Ochilgan asbob / sahifalar'],
   ['#','SHAXS VA KIRISH'],['email','Email'],['name','Ism'],['firstLogin','Birinchi kirish'],['lastLogin','Oxirgi kirish'],['logins','Kirishlar soni'],['ref','Qayerdan kelgan'],['utm','Kampaniya (UTM)'],
@@ -1423,6 +1423,9 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
  /* ---------- ADMINGA XABARLAR ---------- */
  function renderMessages(){
   const list=$('msg-list'),badge=$('msg-badge');if(!list)return;
+  // yozayotgan matn va kursor o'rni saqlanadi — ro'yxat qayta chizilganda (yangi xabar kelganda) yo'qolib ketmasin
+  const af=document.activeElement,inHere=af&&af.tagName==='TEXTAREA'&&list.contains(af);
+  const afId=inHere?af.closest('.msg-item').dataset.id:null,afSel=inHere?[af.selectionStart,af.selectionEnd]:null;
   const unread=msgs.filter(m=>!m.read).length;
   if(badge){if(unread){badge.hidden=false;badge.textContent=unread+' yangi';}else badge.hidden=true;}
   if(!msgs.length){list.innerHTML='<div class="us-ad-empty">Xabarlar yo\'q.</div>';return;}
@@ -1431,15 +1434,24 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    +'<div class="msg-text">'+esc(m.message)+'</div>'
    +(m.read?'':'<button type="button" class="msg-ok" data-id="'+esc(m.id)+'">✓ O‘qildi deb belgilash</button>')
    +(m.reply?'<div class="msg-reply"><b>SIZNING JAVOBINGIZ'+(m.replyAt?' ('+esc(ago(m.replyAt)||fmt(m.replyAt))+')':'')+':</b><div>'+esc(m.reply)+'</div></div>':'')
-   +'<div class="msg-replybox"><textarea placeholder="'+(m.reply?'Qo‘shimcha javob yozish...':'Javob yozish...')+'" maxlength="800"></textarea><button type="button" class="msg-replybtn" data-id="'+esc(m.id)+'">Yuborish</button></div>'
+   +'<div class="msg-replybox"><textarea placeholder="'+(m.reply?'Qo‘shimcha javob yozish...':'Javob yozish...')+'" maxlength="800">'+esc(replyDrafts[m.id]||'')+'</textarea><button type="button" class="msg-replybtn" data-id="'+esc(m.id)+'">Yuborish</button></div>'
    +'<div class="msg-replymsg"></div>'
    +'</div>').join('');
+  if(afId){
+   const ta2=list.querySelector('.msg-item[data-id="'+CSS.escape(afId)+'"] textarea');
+   if(ta2){ta2.focus();try{ta2.setSelectionRange(afSel[0],afSel[1]);}catch(e){}}
+  }
  }
  function loadMessages(){
   const u=getGoogleUser();if(!u||!u.credential)return;
   jsonp('action=messages&credential='+encodeURIComponent(u.credential),d=>{if(d&&d.ok){msgs=d.messages||[];renderMessages();}},()=>{});
  }
  const msgList=$('msg-list');
+ if(msgList)msgList.addEventListener('input',e=>{ // yozilayotgan javob qoralamasi — qayta render bo'lganda (yangi xabar kelsa va h.k.) yo'qolib ketmasin
+  const ta=e.target.closest('textarea');if(!ta)return;
+  const item=ta.closest('.msg-item');if(!item)return;
+  if(ta.value)replyDrafts[item.dataset.id]=ta.value;else delete replyDrafts[item.dataset.id];
+ });
  if(msgList)msgList.addEventListener('click',e=>{
   const b=e.target.closest('.msg-ok');
   if(b){const id=b.dataset.id,u=getGoogleUser();if(!u||!u.credential)return;
@@ -1458,7 +1470,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    rb.disabled=true;ta.disabled=true;rm.textContent='Yuborilmoqda...';
    jsonp('action=msgreply&id='+encodeURIComponent(id)+'&text='+encodeURIComponent(text)+'&credential='+encodeURIComponent(u.credential),d=>{
     rb.disabled=false;ta.disabled=false;
-    if(d&&d.ok&&d.done==='msgreply'){const m=msgs.find(x=>x.id===id);if(m){m.reply=text;m.replyAt=new Date().toISOString();m.replySeen='';}renderMessages();}
+    if(d&&d.ok&&d.done==='msgreply'){const m=msgs.find(x=>x.id===id);if(m){m.reply=text;m.replyAt=new Date().toISOString();m.replySeen='';}delete replyDrafts[id];renderMessages();}
     else if(d&&d.error==='empty')rm.textContent='Javob bo\'sh bo\'lmasin.';
     else if(d&&d.ok&&!d.done)rm.textContent='⚠ Apps Script yangilanmagan — "New version" deploy qiling.';
     else rm.textContent='Yuborilmadi. Qayta urinib ko\'ring.';
