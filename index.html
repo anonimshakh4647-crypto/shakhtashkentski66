@@ -359,6 +359,22 @@
 .us-ad-n{display:inline-flex;align-items:center;gap:8px;color:#fff;font-weight:600}
 .us-ad-n img{width:24px;height:24px;border-radius:50%;object-fit:cover}
 #us-admin [hidden]{display:none !important}
+#pf-modal{position:fixed;inset:0;z-index:2147483000;background:rgba(2,6,14,.9);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto}
+.pf-box{width:min(440px,100%);background:#060d1a;border:1px solid rgba(56,189,248,.4);border-radius:16px;padding:26px 24px;box-shadow:0 0 60px rgba(56,189,248,.2);text-align:center}
+.pf-ic{font-size:38px}.pf-box h2{margin:6px 0 8px;font-size:21px;color:#fff}
+.pf-box p{margin:0 0 16px;font-size:13px;line-height:1.55;color:#94a3b8}
+.pf-box label{display:block;text-align:left;font:700 11px monospace;letter-spacing:1.5px;color:var(--accent);margin-bottom:6px}
+.pf-box input{width:100%;padding:13px 14px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;font-size:16px;outline:none;margin-bottom:12px}
+.pf-box input:focus{border-color:var(--accent)}
+.pf-geo{width:100%;padding:12px;background:rgba(139,108,255,.14);border:1px solid rgba(139,108,255,.55);color:#c4b5fd;border-radius:10px;font:700 13px inherit;cursor:pointer}
+.pf-geo:hover{background:rgba(139,108,255,.26)}
+#pf-gs{min-height:20px;margin:8px 0 12px;font-size:12px;color:#94a3b8}#pf-gs.good{color:#34d399}#pf-gs.bad{color:#fbbf24}
+.pf-ok{width:100%;padding:14px;border:0;border-radius:10px;background:linear-gradient(90deg,#1fd6f5,#8b6cff);color:#04101c;font:800 14px inherit;letter-spacing:1px;cursor:pointer}
+.pf-ok:disabled{opacity:.4;cursor:not-allowed}
+#pf-err{min-height:16px;margin-top:8px;color:#f87171;font-size:12px}
+.pf-box small{display:block;margin-top:10px;color:#64748b;font-size:11px;line-height:1.5}
+.us-map{color:var(--accent);text-decoration:none}.us-map:hover{text-decoration:underline}
+
 #users-section[hidden]{display:none !important}
 #users-section .leader-top{grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
 .us-ad-bar button.on{background:rgba(251,191,36,.18);border-color:rgba(251,191,36,.6);color:#fbbf24}
@@ -1064,7 +1080,7 @@ body.file-modal-active{overflow:hidden;}
       <button id="us-ad-csv" type="button">⬇ CSV</button>
     </div>
     <div id="us-ad-msg">Yuklanmoqda...</div>
-    <div class="us-ad-wrap"><table class="us-ad-table"><thead><tr><th>#</th><th>Ism</th><th>Email</th><th>Davlat / shahar</th><th>IP</th><th>Qurilma</th><th>Brauzer</th><th>Oxirgi kirish</th><th>Kirish</th><th></th></tr></thead><tbody id="us-ad-body"></tbody></table></div>
+    <div class="us-ad-wrap"><table class="us-ad-table"><thead><tr><th>#</th><th>Ism</th><th>Email</th><th>Joylashuv</th><th>Davlat / shahar</th><th>IP</th><th>Qurilma</th><th>Brauzer</th><th>Oxirgi kirish</th><th>Kirish</th><th></th></tr></thead><tbody id="us-ad-body"></tbody></table></div>
   </div>
 </div>
 <div id="us-modal" hidden>
@@ -1123,12 +1139,19 @@ async function usCollectMeta(){
  try{m.tz=Intl.DateTimeFormat().resolvedOptions().timeZone;}catch(e){}
  try{m.screen=screen.width+'x'+screen.height+'@'+(window.devicePixelRatio||1);}catch(e){}
  m.webdriver=!!n.webdriver;m.deviceId=usDeviceId();
+ try{ // telefon rusumi (Android: Chrome/Edge/Samsung); iPhone modelini brauzer bermaydi
+  if(n.userAgentData&&n.userAgentData.getHighEntropyValues){
+   const h=await n.userAgentData.getHighEntropyValues(['model','platformVersion']);
+   if(h.model){m.model=h.model;if(/Telefon|Planshet/.test(m.device))m.device=m.device.replace(/\s*\(.*\)$/,'')+' ('+h.model+')';}
+   if(h.platformVersion&&/Android/.test(m.os))m.os='Android '+h.platformVersion.split('.')[0];
+  }
+ }catch(e){}
  try{ // IP va joylashuv: birinchi xizmat ishlamasa, ikkinchisi
   const a=await usJson('https://ipwho.is/');
-  if(a&&a.success!==false&&a.ip){m.ip=a.ip;m.country=a.country||'';m.city=[a.city,a.region].filter(Boolean).join(', ');m.isp=(a.connection&&(a.connection.isp||a.connection.org))||'';}
+  if(a&&a.success!==false&&a.ip){m.ip=a.ip;m.country=a.country||'';m.city=[a.city,a.region].filter(Boolean).join(', ');m.isp=(a.connection&&(a.connection.isp||a.connection.org))||'';m.ipLat=a.latitude;m.ipLng=a.longitude;m.ipTz=(a.timezone&&a.timezone.id)||'';}
   else throw 0;
  }catch(e){
-  try{const b=await usJson('https://ipapi.co/json/');if(b&&b.ip){m.ip=b.ip;m.country=b.country_name||'';m.city=[b.city,b.region].filter(Boolean).join(', ');m.isp=b.org||'';}}catch(e2){}
+  try{const b=await usJson('https://ipapi.co/json/');if(b&&b.ip){m.ip=b.ip;m.country=b.country_name||'';m.city=[b.city,b.region].filter(Boolean).join(', ');m.isp=b.org||'';m.ipLat=b.latitude;m.ipLng=b.longitude;m.ipTz=b.timezone||'';}}catch(e2){}
  }
  return m;
 }
@@ -1149,11 +1172,12 @@ window.registerLogin=registerLogin;
   if(p.exp*1000>Date.now()&&localStorage.getItem('it_shakh_user_reg')!==day){localStorage.setItem('it_shakh_user_reg',day);registerLogin(u.credential);}}catch(e){}
 })();
 
+function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
 /* ---------- admin paneli ---------- */
 (function(){
  const $=id=>document.getElementById(id);
  let all=[],susOnly=false,shown=false,loaded=false;
- const FIELDS=[['email','Email'],['name','Ism'],['firstLogin','Birinchi kirish'],['lastLogin','Oxirgi kirish'],['logins','Kirishlar soni'],['ip','IP manzil'],['country','Davlat'],['city','Shahar / viloyat'],['isp','Provayder'],['device','Qurilma'],['os','Operatsion tizim'],['browser','Brauzer'],['lang','Tizim tili'],['tz','Vaqt mintaqasi'],['screen','Ekran'],['deviceId','Qurilma ID'],['flags','Belgilar'],['userAgent','User-Agent']];
+ const FIELDS=[['email','Email'],['name','Ism'],['firstLogin','Birinchi kirish'],['lastLogin','Oxirgi kirish'],['logins','Kirishlar soni'],['ip','IP manzil'],['country','Davlat'],['city','Shahar / viloyat'],['isp','Provayder'],['device','Qurilma'],['model','Telefon rusumi'],['os','Operatsion tizim'],['browser','Brauzer'],['lang','Tizim tili'],['tz','Vaqt mintaqasi'],['screen','Ekran'],['geo','GPS joylashuv'],['geoAt','GPS yuborilgan vaqt'],['geoStatus','GPS holati'],['ipTz','IP vaqt mintaqasi'],['deviceId','Qurilma ID'],['flags','Belgilar'],['userAgent','User-Agent']];
  function expMs(c){try{return JSON.parse(atob(c.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000}catch(e){return 0}}
  function isAdmin(){const u=getGoogleUser();return !!(u&&String(u.email||'').toLowerCase()===USERS_ADMIN);}
  function fmt(iso){const t=Date.parse(iso);return t?new Date(t).toLocaleString('uz-UZ',{timeZone:'Asia/Tashkent',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'–';}
@@ -1170,19 +1194,22 @@ window.registerLogin=registerLogin;
    if(r.deviceId&&byDev[r.deviceId].length>1)w.push('Bir qurilmada '+byDev[r.deviceId].length+' ta akkaunt: '+byDev[r.deviceId].join(', '));
    if(r.ip&&byIp[r.ip].length>1)w.push('Bir IP dan '+byIp[r.ip].length+' ta akkaunt: '+byIp[r.ip].join(', '));
    if(/webdriver/.test(r.flags||''))w.push('Avtomatlashtirilgan brauzer (bot) belgisi');
+   if(r.tz&&r.ipTz&&r.tz!==r.ipTz)w.push('VPN/proksi ehtimoli: qurilma vaqti '+r.tz+', IP esa '+r.ipTz+' ('+(r.country||'?')+')');
+   if(r.lat&&r.lng&&r.ipLat&&r.ipLng){const d=usKm(+r.lat,+r.lng,+r.ipLat,+r.ipLng);if(d>250)w.push('GPS va IP joylashuvi mos emas: ~'+Math.round(d)+' km farq (VPN/proksi ehtimoli)');}
+   if(r.geoStatus==='denied')w.push('Joylashuvni yuborishni rad etgan');
    r._w=w;});
  }
  function render(){
   analyze();
   const q=$('us-ad-q').value.trim().toLowerCase();
-  const rows=all.filter(r=>(!susOnly||r._w.length)&&(!q||[r.name,r.email,r.ip,r.country,r.city,r.device,r.browser,r.os,r.isp].join(' ').toLowerCase().includes(q)));
+  const rows=all.filter(r=>(!susOnly||r._w.length)&&(!q||[r.name,r.email,r.ip,r.country,r.city,r.device,r.model,r.browser,r.os,r.isp].join(' ').toLowerCase().includes(q)));
   const tk=new Date(Date.now()+5*3600000).toISOString().slice(0,10);
   $('us-total').textContent=all.length;
   $('us-today').textContent=all.filter(r=>Date.parse(r.lastLogin)&&new Date(Date.parse(r.lastLogin)+5*3600000).toISOString().slice(0,10)===tk).length;
   $('us-sus').textContent=all.filter(r=>r._w.length).length;
   $('us-last').textContent=all.length?ago(all[0].lastLogin):'–';
   $('us-ad-sus').classList.toggle('on',susOnly);
-  $('us-ad-body').innerHTML=rows.map((r,i)=>`<tr data-e="${esc(r.email)}" class="${r._w.length?'us-sus':''}"><td>${i+1}</td><td><span class="us-ad-n"><img src="${r.picture?esc(r.picture):'logo.png'}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='logo.png';">${esc(r.name)}</span></td><td>${esc(r.email)}</td><td>${esc(where(r))}</td><td>${esc(r.ip||'–')}</td><td>${esc(r.device||'–')}</td><td>${esc(r.browser||'–')}</td><td title="${esc(fmt(r.lastLogin))}">${esc(ago(r.lastLogin))||esc(fmt(r.lastLogin))}</td><td>${Number(r.logins)||0}</td><td>${r._w.length?'⚠':''}</td></tr>`).join('')||'<tr><td colspan="10" class="us-ad-empty">Hech narsa topilmadi.</td></tr>';
+  $('us-ad-body').innerHTML=rows.map((r,i)=>`<tr data-e="${esc(r.email)}" class="${r._w.length?'us-sus':''}"><td>${i+1}</td><td><span class="us-ad-n"><img src="${r.picture?esc(r.picture):'logo.png'}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='logo.png';">${esc(r.name)}</span></td><td>${esc(r.email)}</td><td>${r.lat&&r.lng?'<a class="us-map" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+encodeURIComponent(r.lat+','+r.lng)+'" onclick="event.stopPropagation()">📍 xaritada</a>':(r.geoStatus==='denied'?'<span style="color:#fbbf24">rad etgan</span>':'–')}</td><td>${esc(where(r))}</td><td>${esc(r.ip||'–')}</td><td>${esc(r.device||'–')}</td><td>${esc(r.browser||'–')}</td><td title="${esc(fmt(r.lastLogin))}">${esc(ago(r.lastLogin))||esc(fmt(r.lastLogin))}</td><td>${Number(r.logins)||0}</td><td>${r._w.length?'⚠':''}</td></tr>`).join('')||'<tr><td colspan="11" class="us-ad-empty">Hech narsa topilmadi.</td></tr>';
   msg('Jami: '+all.length+' ta'+((q||susOnly)?' • topildi: '+rows.length:'')+' • qatorni bosing — to\'liq ma\'lumot');
  }
  function jsonp(params,cb,fail){
@@ -1210,7 +1237,7 @@ window.registerLogin=registerLogin;
   const r=all.find(x=>x.email===email);if(!r)return;
   $('us-mhead').innerHTML=`<div class="us-mtitle"><img src="${r.picture?esc(r.picture):'logo.png'}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='logo.png';"><div><b>${esc(r.name)}</b><span>${esc(r.email)}</span></div></div>`;
   $('us-mwarn').innerHTML=r._w.map(w=>'<div class="us-warn">⚠ '+esc(w)+'</div>').join('');
-  $('us-mgrid').innerHTML=FIELDS.map(([k,l])=>{let v=r[k];if(k==='firstLogin'||k==='lastLogin')v=fmt(v)+' ('+(v||'')+')';return '<div><span>'+esc(l)+'</span><b>'+(esc(v)||'–')+'</b></div>';}).join('');
+  $('us-mgrid').innerHTML=FIELDS.map(([k,l])=>{if(k==='geo'){const ok=r.lat&&r.lng;return '<div><span>'+esc(l)+'</span><b>'+(ok?'<a class="us-map" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+encodeURIComponent(r.lat+','+r.lng)+'">📍 '+esc(r.lat+', '+r.lng)+'</a> (±'+esc(Math.round(Number(r.geoAcc)||0))+' m)':'–')+'</b></div>';}let v=r[k];if(k==='firstLogin'||k==='lastLogin')v=fmt(v)+' ('+(v||'')+')';return '<div><span>'+esc(l)+'</span><b>'+(esc(v)||'–')+'</b></div>';}).join('');
   $('us-mhist').innerHTML='<tr><td colspan="5" class="us-ad-empty">Yuklanmoqda...</td></tr>';
   $('us-modal').hidden=false;document.body.style.overflow='hidden';
   const u=getGoogleUser();if(!u||!u.credential)return;
@@ -1228,8 +1255,8 @@ window.registerLogin=registerLogin;
  $('us-ad-refresh').onclick=load;
  $('us-ad-csv').onclick=()=>{
   const q=c=>'"'+String(c==null?'':c).replace(/"/g,'""')+'"';
-  const cols=FIELDS.map(f=>f[0]);
-  const csv='﻿'+FIELDS.map(f=>f[1]).join(',')+'\n'+all.map(r=>cols.map(k=>q(r[k])).join(',')).join('\n');
+  const cols=FIELDS.map(f=>f[0]==='geo'?'lat':f[0]);
+  const csv='﻿'+FIELDS.map(f=>f[0]==='geo'?'GPS (lat)':f[1]).join(',')+'\n'+all.map(r=>cols.map(k=>q(r[k])).join(',')).join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='foydalanuvchilar.csv';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
  };
  function tick(){
@@ -1239,6 +1266,74 @@ window.registerLogin=registerLogin;
   if(!adm)shown=false;
  }
  tick();setInterval(tick,3000);
+})();
+</script>
+
+<script>
+/* ===== MAJBURIY JOYLASHUV =====
+   Joylashuv yuborilmaguncha oyna yopilmaydi. Holat serverda (Apps Script) saqlanadi. Admin uchun chiqmaydi. */
+(function(){
+ const $=id=>document.getElementById(id);
+ let open=false,checking=false,checkedOnce=false,busy=false;
+ const me=()=>getGoogleUser();
+ const key=u=>'it_shakh_verified_'+String(u.email||'').toLowerCase();
+ function expMs(c){try{return JSON.parse(atob(c.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000}catch(e){return 0}}
+ function api(params,ms){return new Promise(res=>{
+  const cb='pf_cb_'+Date.now()+'_'+Math.floor(Math.random()*1e6),sc=document.createElement('script');let done=false;
+  const fin=v=>{if(done)return;done=true;try{delete window[cb]}catch(e){window[cb]=undefined}sc.remove();res(v);};
+  window[cb]=fin;sc.onerror=()=>fin(null);setTimeout(()=>fin(null),ms||15000);
+  sc.src=USERS_API_URL+(USERS_API_URL.includes('?')?'&':'?')+new URLSearchParams(Object.assign({callback:cb},params)).toString();document.head.appendChild(sc);});}
+ function relogin(){try{localStorage.removeItem('it_shakh_google_user')}catch(e){}location.reload();}
+ function build(){
+  if($('pf-modal'))return;
+  const d=document.createElement('div');d.id='pf-modal';
+  d.innerHTML='<div class="pf-box"><div class="pf-ic">📍</div><h2>Joylashuvni yuboring</h2>'
+   +'<p>Saytdan foydalanish uchun joylashuvingizni yuborishingiz shart. Bu firibgarlardan himoya uchun. Ma\'lumot faqat xavfsizlik maqsadida saqlanadi va boshqa foydalanuvchilarga ko\'rsatilmaydi.</p>'
+   +'<button type="button" id="pf-geo" class="pf-ok">📍 Joylashuvni yuborish</button><div id="pf-gs"></div><div id="pf-err"></div>'
+   +'<small>Brauzer so\'raganda «Ruxsat berish» (Allow) ni bosing. Davom etish bilan joylashuvingiz xavfsizlik maqsadida qayta ishlanishiga rozilik bildirasiz.</small></div>';
+  document.body.appendChild(d);document.body.style.overflow='hidden';$('pf-geo').onclick=getGeo;
+ }
+ function setGs(t,c){const g=$('pf-gs');if(!g)return;g.textContent=t;g.className=c||'';}
+ function close(){const m=$('pf-modal');if(m)m.remove();open=false;document.body.style.overflow='';}
+ function tokenOk(){const u=me();if(u&&u.credential&&expMs(u.credential)>Date.now()+10000)return u;setGs('Sessiya tugagan. Qayta kirish uchun sahifa yangilanadi...','bad');setTimeout(relogin,1500);return null;}
+ function getGeo(){
+  if(busy)return;
+  if(!navigator.geolocation){setGs('Bu qurilma/brauzerda joylashuv mavjud emas. Boshqa brauzer yoki telefon bilan kiring.','bad');return;}
+  busy=true;$('pf-geo').disabled=true;setGs('Aniqlanmoqda... brauzer so\'rovida "Ruxsat berish" ni bosing.');
+  navigator.geolocation.getCurrentPosition(async p=>{
+   const u=tokenOk();if(!u){busy=false;return;}
+   setGs('Yuborilmoqda...');
+   const r=await api({action:'geo',credential:u.credential,gstatus:'ok',lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy});
+   busy=false;if(!$('pf-geo'))return;$('pf-geo').disabled=false;
+   if(r&&r.ok&&r.verified){try{localStorage.setItem(key(u),'1')}catch(e){}return close();}
+   if(r&&r.error==='token')return relogin();
+   setGs(r?'Joylashuvni saqlab bo\'lmadi. Qayta urinib ko\'ring.':'Server bilan aloqa yo\'q. Internetni tekshirib qayta urinib ko\'ring.','bad');
+  },e=>{
+   busy=false;if(!$('pf-geo'))return;$('pf-geo').disabled=false;
+   setGs(e&&e.code===1?'Ruxsat berilmadi. Brauzer manzil satridagi qulf belgisini bosib, joylashuvga ruxsat bering va qayta urinib ko\'ring.':(e&&e.code===3?'Vaqt tugadi. Qayta urinib ko\'ring.':'Joylashuvni aniqlab bo\'lmadi. GPS/Joylashuv yoqilganini tekshiring.'),'bad');
+  },{enableHighAccuracy:true,timeout:20000,maximumAge:0});
+ }
+ async function tick(){
+  if(open||checking||!USERS_API_URL)return;
+  const u=me();if(!u||!u.email)return;
+  if(String(u.email).toLowerCase()===USERS_ADMIN)return;
+  if($('google-login-screen'))return;
+  let flag=false;try{flag=localStorage.getItem(key(u))==='1';}catch(e){}
+  const valid=u.credential&&expMs(u.credential)>Date.now()+30000;
+  if(!valid){
+   if(flag)return; // joylashuv yuborilgan, faqat sessiya eskirgan
+   let n=0;try{n=+sessionStorage.getItem('it_shakh_pf_relogin')||0;sessionStorage.setItem('it_shakh_pf_relogin',String(n+1));}catch(e){}
+   if(n<2)relogin();else{open=true;build();} // qayta kirish yordam bermasa ham oyna yopiq qoladi
+   return;
+  }
+  if(flag&&checkedOnce)return;
+  checking=true;const r=await api({action:'me',credential:u.credential},9000);checking=false;checkedOnce=true;
+  if(r&&r.ok&&(r.verified||r.admin)){try{localStorage.setItem(key(u),'1')}catch(e){}return;}
+  if(flag&&!r)return; // tarmoq xatosi: yuborgan foydalanuvchini bloklamaymiz
+  try{localStorage.removeItem(key(u))}catch(e){}
+  open=true;build(); // yuborilmagan yoki javob yo'q: oyna ochiladi
+ }
+ setTimeout(tick,1200);setInterval(tick,3000);
 })();
 </script>
 <!-- FILE CENTER MODAL -->
