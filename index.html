@@ -407,6 +407,7 @@ tr.us-blkrow td{background:rgba(248,113,113,.07)}tr.us-blkrow td:last-child{colo
 .us-blkbtn{display:inline-flex;align-items:center;gap:6px;margin:2px 0 12px;padding:8px 16px;border-radius:8px;border:1px solid rgba(248,113,113,.5);background:rgba(248,113,113,.1);color:#f87171;font:700 12.5px monospace;letter-spacing:.5px;cursor:pointer}
 .us-blkbtn:hover{background:rgba(248,113,113,.2)}.us-blkbtn.is-un{border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.1);color:#34d399}.us-blkbtn.is-un:hover{background:rgba(52,211,153,.2)}
 .us-blkbtn:disabled{opacity:.6;cursor:default}.us-blkmsg{display:inline-block;margin-left:10px;font-size:12px;color:#94a3b8}
+#us-ad-oldwarn{margin:0 0 12px;padding:10px 14px;border:1px solid rgba(251,191,36,.5);border-radius:8px;background:rgba(251,191,36,.08);color:#fbbf24;font-size:13px;line-height:1.5}
 .us-vpn{display:inline-block;margin-left:4px;padding:1px 5px;border:1px solid rgba(251,191,36,.6);border-radius:5px;color:#fbbf24;font:700 9px monospace}
 .us-kv div.us-gh{grid-column:1/-1;background:none;border:0;border-bottom:1px solid rgba(56,189,248,.25);border-radius:0;padding:10px 0 4px;margin-top:6px;font:700 11px monospace;letter-spacing:2px;color:var(--accent)}
 .us-kv div.us-wide{grid-column:1/-1}
@@ -1098,6 +1099,7 @@ body.file-modal-active{overflow:hidden;}
       <button id="us-ad-xlsx" type="button" title="Joylashuv ustiga bosilsa Google Xaritada ochiladi">⬇ EXCEL (.xlsx)</button>
       <button id="us-ad-csv" type="button" title="CSV: joylashuv =HYPERLINK formulasi bilan">⬇ CSV</button>
     </div>
+    <div id="us-ad-oldwarn" hidden></div>
     <div id="us-ad-msg">Yuklanmoqda...</div>
     <div class="us-ad-wrap"><table class="us-ad-table"><thead><tr><th>#</th><th>Ism</th><th>Email</th><th>Joylashuv</th><th>Davlat / shahar</th><th>IP</th><th>Qurilma</th><th>Brauzer</th><th>Holat</th><th>Faol vaqt</th><th>Oxirgi kirish</th><th>Kirish</th><th></th></tr></thead><tbody id="us-ad-body"></tbody></table></div>
   </div>
@@ -1256,7 +1258,8 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
 /* ---------- admin paneli ---------- */
 (function(){
  const $=id=>document.getElementById(id);
- let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200;
+ const REQ_VER='blk1'; // bloklash funksiyasi shu versiyadan boshlab ishlaydi
+ let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false;
  /* batafsil oyna: ['#', sarlavha] — bo'lim sarlavhasi; qolganlari [kalit, nom] */
  const FIELDS=[['#','FAOLLIK'],['lastSeen','Oxirgi faollik'],['activeSec','Saytda faol bo‘lgan vaqt'],['sessions','Tashriflar soni (sessiya)'],['avgSess','O‘rtacha tashrif davomiyligi'],['pages','Ko‘rilgan bo‘limlar'],['tools','Ochilgan asbob / sahifalar'],
   ['#','SHAXS VA KIRISH'],['email','Email'],['name','Ism'],['firstLogin','Birinchi kirish'],['lastLogin','Oxirgi kirish'],['logins','Kirishlar soni'],['ref','Qayerdan kelgan'],['utm','Kampaniya (UTM)'],
@@ -1332,6 +1335,9 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
  function statusCell(r){if(isBlk(r))return '<span class="us-blkTag">🚫 bloklangan</span>';if(isOn(r))return '<span class="us-on">● online</span>';const a=ago(r.lastSeen);return a?'<span class="us-off" title="'+esc(fmt(r.lastSeen))+'">'+esc(a)+'</span>':'<span class="us-off">–</span>';}
  function render(){
   analyze();
+  const ow=$('us-ad-oldwarn');
+  if(oldServer){ow.hidden=false;ow.innerHTML='⚠ <b>Apps Script yangilanmagan</b> — bloklash funksiyasi ishlamaydi. Script muharririda "Deploy → Manage deployments → ✎ → New version" bosib qayta deploy qiling, so\'ng shu sahifani yangilang.';}
+  else ow.hidden=true;
   const q=$('us-ad-q').value.trim().toLowerCase();
   const rows=all.filter(r=>(!susOnly||r._w.length)&&(!q||[r.name,r.email,r.ip,r.country,r.city,r.device,r.model,r.browser,r.os,r.isp,r.asn,r.gpu,r.vpn,r.ref].join(' ').toLowerCase().includes(q)));
   const tk=new Date(Date.now()+TZ5).toISOString().slice(0,10);
@@ -1358,7 +1364,8 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   if(!u||!u.credential||expMs(u.credential)<Date.now()+15000){reloginMsg('Xavfsizlik uchun Google sessiyasi tugagan.');return;}
   msg('Yuklanmoqda...');
   jsonp('action=admin&credential='+encodeURIComponent(u.credential),d=>{
-   if(d&&d.ok){all=d.users||[];loaded=true;const st=Date.parse(d.now);srvOff=st?st-Date.now():0;if(d.onlineSec)onlineSec=Number(d.onlineSec)||200;render();}
+   if(d&&d.ok){all=d.users||[];loaded=true;const st=Date.parse(d.now);srvOff=st?st-Date.now():0;if(d.onlineSec)onlineSec=Number(d.onlineSec)||200;
+    oldServer=d.v!==REQ_VER;render();}
    else if(d&&d.error==='token')reloginMsg('Google sessiyasi eskirgan.');
    else if(d&&d.error==='forbidden')msg('Bu ma\'lumot faqat admin uchun.');
    else msg('Server eski versiyada: Apps Script ni yangilab, "New version" deploy qiling.');
@@ -1397,10 +1404,12 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    $('us-mblk-btn').disabled=true;$('us-mblk-msg').textContent='Yuborilmoqda...';
    jsonp('action=block&email='+encodeURIComponent(r.email)+'&state='+(toBlock?'block':'unblock')+'&credential='+encodeURIComponent(u2.credential),d=>{
     $('us-mblk-btn').disabled=false;
-    if(d&&d.ok){r.blocked=toBlock?'1':'';$('us-mblk-msg').textContent='';renderBlockBtn(r);
+    if(d&&d.ok&&d.done==='block'){r.blocked=toBlock?'1':'';r.blockedAt=toBlock?new Date().toISOString():'';$('us-mblk-msg').textContent='';renderBlockBtn(r);
      $('us-mhead').querySelector('b').innerHTML=esc(r.name)+' '+(isBlk(r)?'<span class="us-blkTag">🚫 bloklangan</span>':(isOn(r)?'<span class="us-on">● online</span>':''));
      render();}
-    else $('us-mblk-msg').textContent=d&&d.error==='self'?'Admin akkauntini bloklab bo\'lmaydi.':'Bajarilmadi. Qayta urinib ko\'ring.';
+    else if(d&&d.error==='self')$('us-mblk-msg').textContent='Admin akkauntini bloklab bo\'lmaydi.';
+    else if(d&&d.ok&&!d.done)$('us-mblk-msg').textContent='⚠ Apps Script yangilanmagan — bloklash ishlamadi. "New version" deploy qiling.';
+    else $('us-mblk-msg').textContent='Bajarilmadi. Qayta urinib ko\'ring.';
    },t=>{$('us-mblk-btn').disabled=false;$('us-mblk-msg').textContent=t;});
   };
  }
