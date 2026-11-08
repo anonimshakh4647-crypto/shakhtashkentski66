@@ -1558,7 +1558,7 @@ class GeoAcc{
 function bboxOf(xms){let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];for(const xm of xms)for(let i=0;i<xm.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}return{mn,mx};}
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255]},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255]},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -1631,12 +1631,15 @@ function convertToSA(model,texLookup,opts){
   const rot0=W=>{const w=W.slice();w[12]=w[13]=w[14]=0;return w;};
   // 1. body
   const bodyAcc=new GeoAcc(),chassisFrame=objectMode?0:addFrame('chassis',0,[0,0,0]);
+  // keepParts: har bir GTA V qismi o‘z frame/geometriyasida qoladi (attach qilib bitta qilib yuborilmaydi)
+  const keepParts=opts.keepParts!==false,partAccs=[];
+  const partAccOf=p=>{let a=partAccs.find(x=>x.p===p);if(!a){a={p,acc:new GeoAcc()};partAccs.push(a);}return a.acc;};
   const bodyXms=[];
   const wheels=[],movs=[],extras=[],dummies=[],steer=[];
   for(const {p,c} of cls){
     const rec={name:p.name,sa:c.sa||'(body ga qo‘shildi)',type:c.t,meshes:p.meshes.length,verts:p.meshes.reduce((s,m)=>s+m.pos.length/3,0)};
     report.parts.push(rec);
-    if(c.t==='body'||(c.t==='other'&&opts.mergeOther)){for(const m of p.meshes){const xm=xformMesh(m,p.matrix,true);bodyAcc.add(xm,m,p.name);bodyXms.push(xm);}}
+    if(c.t==='body'||(c.t==='other'&&opts.mergeOther)){if(keepParts)rec.sa='(alohida qism)';for(const m of p.meshes){const xm=xformMesh(m,p.matrix,true);(keepParts&&!(!objectMode&&String(p.name).toLowerCase()==='chassis')?partAccOf(p):bodyAcc).add(xm,m,p.name);bodyXms.push(xm);}}
     else if(c.t==='wheel')wheels.push({p,c});
     else if(c.t==='mov')movs.push({p,c});
     else if(c.t==='extra')extras.push({p,c});
@@ -1644,8 +1647,22 @@ function convertToSA(model,texLookup,opts){
     else if(c.t==='dummy'){dummies.push({p,c});for(const m of p.meshes){const xm=xformMesh(m,p.matrix,true);bodyAcc.add(xm,m,p.name);bodyXms.push(xm);}}
   }
   // light-dummy parts have a mesh too -> merged into body above (positions come from matrix)
+  if(partAccs.length===1&&bodyAcc.isEmpty()){for(const it of partAccs[0].acc.items)bodyAcc.items.unshift(it);partAccs.length=0;} // bitta qism bo‘lsa alohida frame kerak emas
   const bodySpecs=bodyAcc.build(matResolver);
   addGeoms(chassisFrame,bodySpecs);
+  if(partAccs.length){
+    const RESERVED=/^(chassis|bonnet|boot|door_|bump_|wing_|windscreen|wheel|ped_|exhaust|headlights|taillights|indicator|petrol|extra_|misc_|hub|steer|brakelight|reversing|fog|light_|boat_|smoke|tyre|spoiler)/;
+    const used=new Set(frames.map(f=>f.name.toLowerCase()));let n=0;
+    for(const {p,acc} of partAccs){
+      const specs=acc.build(matResolver);if(!specs.length)continue;
+      let base=String(p.name||'part').toLowerCase().replace(/[^a-z0-9_]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'')||'part';
+      if(RESERVED.test(base)||base===name.toLowerCase())base='p_'+base;
+      base=base.slice(0,23);let nm=base,k=2;
+      while(used.has(nm)){const suf='_'+k++;nm=base.slice(0,23-suf.length)+suf;}
+      used.add(nm);const fr=addFrame(nm,chassisFrame,[0,0,0]);addGeoms(fr,specs);n++;
+    }
+    if(n)report.info.push('Qismlar alohida saqlandi (attach qilinmadi): '+n+' ta frame, har biri o‘z nomi bilan.');
+  }
   // 2. wheels
   let wheelDiam=0.7;const have=new Set();
   if(!objectMode){
@@ -2258,7 +2275,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,vlo:true,damCopy:false,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -2552,6 +2569,7 @@ function paneConv(p){
    if(O.preset==='hq')p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'⚠ Bu nusxada barcha poligonlar va teksturalar to‘liq saqlanadi (fayl nomiga _hq qo‘shiladi). U juda og‘ir — GTA SA ga QO‘YMANG, o‘yin qotadi. Faqat Blender/ZModeler da ko‘rish va tahrirlash uchun.'}));}
   const lods=['high','med','low','vlow'].filter(l=>m.parts.some(x=>x.lod===l));
   p.appendChild(sel('Asosiy LOD','lod',lods.map(l=>[l,({high:'Yuqori (HD)',med:'O‘rta',low:'Past',vlow:'Juda past'})[l]])));
+  p.appendChild(chk('Qismlarni alohida saqlash (attach qilmaslik)','keepParts'));
   if(car){p.appendChild(chk('Boshqa qismlar → chassis','mergeOther'));p.appendChild(chk('chassis_vlo (past LOD)','vlo'));p.appendChild(chk('_dam nusxalari (zarar)','damCopy'));p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));p.appendChild(inp('G‘ildirak o‘lchami ×','wheelScale','number',{step:'0.05',min:'0.3',max:'3'}));}
   if(car){
     const pm=el('select',{},[['game','Standart: o‘yin rangi (yashil belgi, o‘yinda o‘zgaradi; tekstura detallari saqlanadi)'],['orig','Asl ko‘rinish (oq/tekstura qat‘iy, o‘yinda rang o‘zgarmaydi)'],['fixed','Qat‘iy rang (quyidan)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.paintMode===v})));
