@@ -1138,6 +1138,7 @@ body.file-modal-active{overflow:hidden;}
       <button id="us-ad-xlsx" type="button" title="Joylashuv ustiga bosilsa Google Xaritada ochiladi">⬇ EXCEL (.xlsx)</button>
       <button id="us-ad-csv" type="button" title="CSV: joylashuv =HYPERLINK formulasi bilan">⬇ CSV</button>
       <button id="us-ad-lock" type="button" title="Yoqilsa, ADMIN_EMAIL'dan boshqa hech kim saytdan foydalana olmaydi">🔒 SAYTNI BLOKLASH</button>
+      <button id="us-ad-vpn" type="button" title="Yoqilsa, VPN/proksi/datacenter orqali kirganlar saytdan foydalana olmaydi">🛡 VPN TAQIQLASH</button>
     </div>
     <div id="us-ad-oldwarn" hidden></div>
     <div id="us-ad-msg">Yuklanmoqda...</div>
@@ -1313,8 +1314,8 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
 /* ---------- admin paneli ---------- */
 (function(){
  const $=id=>document.getElementById(id);
- const REQ_VER='lock1'; // bloklash + adminga xabar + admin javobi + saytni to'liq bloklash shu versiyadan boshlab ishlaydi
- let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false,msgs=[],msgTick=0,replyDrafts={},siteLocked=false;
+ const REQ_VER='vpn1'; // bloklash + adminga xabar + admin javobi + saytni bloklash + VPN taqiqlash shu versiyadan boshlab ishlaydi
+ let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false,msgs=[],msgTick=0,replyDrafts={},siteLocked=false,vpnBlocked=false;
  /* batafsil oyna: ['#', sarlavha] — bo'lim sarlavhasi; qolganlari [kalit, nom] */
  const FIELDS=[['#','FAOLLIK'],['lastSeen','Oxirgi faollik'],['activeSec','Saytda faol bo‘lgan vaqt'],['sessions','Tashriflar soni (sessiya)'],['avgSess','O‘rtacha tashrif davomiyligi'],['pages','Ko‘rilgan bo‘limlar'],['tools','Ochilgan asbob / sahifalar'],
   ['#','SHAXS VA KIRISH'],['email','Email'],['name','Ism'],['firstLogin','Birinchi kirish'],['lastLogin','Oxirgi kirish'],['logins','Kirishlar soni'],['ref','Qayerdan kelgan'],['utm','Kampaniya (UTM)'],
@@ -1420,7 +1421,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   msg('Yuklanmoqda...');
   jsonp('action=admin&credential='+encodeURIComponent(u.credential),d=>{
    if(d&&d.ok){all=d.users||[];loaded=true;const st=Date.parse(d.now);srvOff=st?st-Date.now():0;if(d.onlineSec)onlineSec=Number(d.onlineSec)||200;
-    oldServer=d.v!==REQ_VER;siteLocked=!!d.locked;renderLockBtn();render();loadMessages();}
+    oldServer=d.v!==REQ_VER;siteLocked=!!d.locked;vpnBlocked=!!d.vpnBlock;renderLockBtn();renderVpnBtn();render();loadMessages();}
    else if(d&&d.error==='token')reloginMsg('Google sessiyasi eskirgan.');
    else if(d&&d.error==='forbidden')msg('Bu ma\'lumot faqat admin uchun.');
    else msg('Server eski versiyada: Apps Script ni yangilab, "New version" deploy qiling.');
@@ -1444,6 +1445,24 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    else if(d&&d.ok&&!d.done)alert('⚠ Apps Script yangilanmagan — "New version" deploy qiling.');
    else alert('Bajarilmadi. Qayta urinib ko\'ring.');
   },()=>{$('us-ad-lock').disabled=false;alert('Server bilan aloqa yo\'q.');});
+ };
+ /* ---------- VPN ORQALI KIRISHNI TAQIQLASH ---------- */
+ function renderVpnBtn(){
+  const b=$('us-ad-vpn');if(!b)return;
+  b.classList.toggle('lockon',vpnBlocked);
+  b.textContent=vpnBlocked?'🛡 VPN TAQIQLANGAN':'🛡 VPN TAQIQLASH';
+ }
+ $('us-ad-vpn').onclick=()=>{
+  const u=getGoogleUser();if(!u||!u.credential)return;
+  const want=!vpnBlocked;
+  if(want&&!confirm('VPN/proksi/datacenter orqali kirganlar saytdan foydalana olmaydi (aniqlash 100% aniq emas, ba\'zan oddiy foydalanuvchi ham noto\'g\'ri aniqlanishi mumkin). Davom etilsinmi?'))return;
+  $('us-ad-vpn').disabled=true;
+  jsonp('action=vpnlock&state='+(want?'on':'off')+'&credential='+encodeURIComponent(u.credential),d=>{
+   $('us-ad-vpn').disabled=false;
+   if(d&&d.ok&&d.done==='vpnlock'){vpnBlocked=!!d.vpnBlock;renderVpnBtn();}
+   else if(d&&d.ok&&!d.done)alert('⚠ Apps Script yangilanmagan — "New version" deploy qiling.');
+   else alert('Bajarilmadi. Qayta urinib ko\'ring.');
+  },()=>{$('us-ad-vpn').disabled=false;alert('Server bilan aloqa yo\'q.');});
  };
  /* ---------- ADMINGA XABARLAR ---------- */
  function renderMessages(){
@@ -1872,36 +1891,60 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
 </script>
 
 <script>
-/* ===== SAYTNI TO'LIQ BLOKLASH (texnik ishlar rejimi) =====
+/* ===== SAYTNI TO'LIQ BLOKLASH + VPN TAQIQLASH =====
    Admin panelidan "🔒 SAYTNI BLOKLASH" bosilsa, ADMIN_EMAIL'dan boshqa HECH KIM saytning hech bir bo'limidan
    foydalana olmaydi — bu holat Apps Script Properties'da (SITE_LOCK) saqlanadi va hech qanday Google tokenga
-   bog'liq emas (hatto sessiya/token eskirgan bo'lsa ham tekshiruv ishlaydi). Admin tekshirilmaydi. */
+   bog'liq emas (hatto sessiya/token eskirgan bo'lsa ham tekshiruv ishlaydi).
+   "🛡 VPN TAQIQLASH" yoqilsa, brauzerning o'zi (ipapi.is orqali) joriy ulanish VPN/proksi/datacenter/Tor
+   ekanini tekshiradi va shunga qarab bloklaydi. Ikkala holatda ham admin tekshirilmaydi. */
 (function(){
  const $=id=>document.getElementById(id);
- let showing=false,checking=false;
+ let showingLock=false,showingVpn=false,checking=false,vpnFlag=null,vpnCheckedAt=0;
  const me=()=>getGoogleUser();
  function api(params,ms){return new Promise(res=>{
   const cb='sl_cb_'+Date.now()+'_'+Math.floor(Math.random()*1e6),sc=document.createElement('script');let done=false;
   const fin=v=>{if(done)return;done=true;try{delete window[cb]}catch(e){window[cb]=undefined}sc.remove();res(v);};
   window[cb]=fin;sc.onerror=()=>fin(null);setTimeout(()=>fin(null),ms||15000);
   sc.src=USERS_API_URL+(USERS_API_URL.includes('?')?'&':'?')+new URLSearchParams(Object.assign({callback:cb},params)).toString();document.head.appendChild(sc);});}
- function show(){
-  if(showing)return;showing=true;
-  ['pf-modal','bk-modal','ar-modal'].forEach(id=>{const m=$(id);if(m)m.remove();});
+ function showLock(){
+  if(showingLock)return;showingLock=true;
+  ['pf-modal','bk-modal','ar-modal','vb-modal'].forEach(id=>{const m=$(id);if(m)m.remove();});
   if($('ct-modal'))$('ct-modal').hidden=true;
   const d=document.createElement('div');d.id='sl-modal';
   d.innerHTML='<div class="sl-box"><div class="sl-ic">🛠️</div><h2>Sayt vaqtincha yopiq</h2><p>Hozirda saytda texnik ishlar olib borilmoqda. Iltimos, birozdan so\'ng qayta urinib ko\'ring.</p></div>';
   document.body.appendChild(d);document.body.style.overflow='hidden';
  }
- function hide(){const d=$('sl-modal');if(!d)return;d.remove();showing=false;document.body.style.overflow=($('pf-modal')||$('bk-modal'))?'hidden':'';}
+ function hideLock(){const d=$('sl-modal');if(!d)return;d.remove();showingLock=false;document.body.style.overflow=($('pf-modal')||$('bk-modal')||showingVpn)?'hidden':'';}
+ function showVpn(){
+  if(showingVpn||showingLock)return;showingVpn=true;
+  ['pf-modal','bk-modal','ar-modal'].forEach(id=>{const m=$(id);if(m)m.remove();});
+  if($('ct-modal'))$('ct-modal').hidden=true;
+  const d=document.createElement('div');d.id='vb-modal';
+  d.innerHTML='<div class="sl-box"><div class="sl-ic">🛡️</div><h2>VPN/Proksi orqali kirish taqiqlangan</h2><p>Saytdan foydalanish uchun VPN yoki proksi dasturini o\'chirib, sahifani qayta yuklang.</p></div>';
+  document.body.appendChild(d);document.body.style.overflow='hidden';
+ }
+ function hideVpn(){const d=$('vb-modal');if(!d)return;d.remove();showingVpn=false;document.body.style.overflow=($('pf-modal')||$('bk-modal'))?'hidden':'';}
+ async function checkVpn(){ // joriy ulanish VPN/proksi/datacenter/Tor ekanini brauzerning o'zi to'g'ridan-to'g'ri tekshiradi
+  try{const c=new AbortController(),t=setTimeout(()=>c.abort(),5000);
+   const r=await fetch('https://api.ipapi.is/',{signal:c.signal});clearTimeout(t);
+   if(!r.ok)return null;const j=await r.json();
+   if(!j||typeof j!=='object'||(j.is_vpn==null&&j.is_proxy==null&&j.is_datacenter==null))return null;
+   return !!(j.is_vpn||j.is_proxy||j.is_tor||j.is_datacenter);
+  }catch(e){return null;}
+ }
  async function tick(){
   if(checking||!USERS_API_URL)return;
   const u=me();
   if(u&&u.email&&String(u.email).toLowerCase()===USERS_ADMIN)return; // admin hech qachon bloklanmaydi
   if($('google-login-screen'))return; // login ekranida hali hech narsa ko'rsatilmaydi
   checking=true;const r=await api({action:'sitestat'},9000);checking=false;
-  if(r&&r.ok&&r.locked)return show();
-  if(r&&r.ok&&!r.locked&&showing)return hide();
+  if(r&&r.ok&&r.locked)return showLock();
+  if(r&&r.ok&&!r.locked&&showingLock)hideLock();
+  if(r&&r.ok&&r.vpnBlock){
+   if(vpnFlag===null||Date.now()-vpnCheckedAt>120000){vpnFlag=await checkVpn();vpnCheckedAt=Date.now();}
+   if(vpnFlag===true)return showVpn();
+   if(vpnFlag===false&&showingVpn)return hideVpn();
+  }else if(showingVpn)hideVpn();
  }
  setTimeout(tick,200);setInterval(tick,4000);
 })();
