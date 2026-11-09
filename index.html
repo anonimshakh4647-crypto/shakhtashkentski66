@@ -429,6 +429,12 @@
 #users-section[hidden]{display:none !important}
 #users-section .leader-top{grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
 .us-ad-bar button.on{background:rgba(251,191,36,.18);border-color:rgba(251,191,36,.6);color:#fbbf24}
+.us-ad-bar button.lockon{background:rgba(248,113,113,.2);border-color:rgba(248,113,113,.65);color:#f87171}
+#sl-modal{position:fixed;inset:0;z-index:2147483647;background:rgba(2,6,14,.96);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px}
+.sl-box{width:min(440px,100%);background:#06101c;border:1px solid rgba(31,214,245,.4);border-radius:16px;padding:28px 24px;box-shadow:0 0 60px rgba(31,214,245,.25);text-align:center}
+.sl-ic{font-size:42px}
+.sl-box h2{margin:8px 0 10px;font-size:21px;color:#1fd6f5}
+.sl-box p{margin:0;font-size:13px;line-height:1.55;color:#cbd5e1}
 .us-ad-table tr[data-e]{cursor:pointer}
 .us-ad-table tr.us-sus td{background:rgba(251,191,36,.05)}
 .us-ad-table tr.us-sus td:last-child{color:#fbbf24;font-weight:700}
@@ -1131,6 +1137,7 @@ body.file-modal-active{overflow:hidden;}
       <button id="us-ad-refresh" type="button">↻ YANGILASH</button>
       <button id="us-ad-xlsx" type="button" title="Joylashuv ustiga bosilsa Google Xaritada ochiladi">⬇ EXCEL (.xlsx)</button>
       <button id="us-ad-csv" type="button" title="CSV: joylashuv =HYPERLINK formulasi bilan">⬇ CSV</button>
+      <button id="us-ad-lock" type="button" title="Yoqilsa, ADMIN_EMAIL'dan boshqa hech kim saytdan foydalana olmaydi">🔒 SAYTNI BLOKLASH</button>
     </div>
     <div id="us-ad-oldwarn" hidden></div>
     <div id="us-ad-msg">Yuklanmoqda...</div>
@@ -1306,8 +1313,8 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
 /* ---------- admin paneli ---------- */
 (function(){
  const $=id=>document.getElementById(id);
- const REQ_VER='msg2'; // bloklash + adminga xabar + admin javobi funksiyalari shu versiyadan boshlab ishlaydi
- let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false,msgs=[],msgTick=0,replyDrafts={};
+ const REQ_VER='lock1'; // bloklash + adminga xabar + admin javobi + saytni to'liq bloklash shu versiyadan boshlab ishlaydi
+ let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false,msgs=[],msgTick=0,replyDrafts={},siteLocked=false;
  /* batafsil oyna: ['#', sarlavha] — bo'lim sarlavhasi; qolganlari [kalit, nom] */
  const FIELDS=[['#','FAOLLIK'],['lastSeen','Oxirgi faollik'],['activeSec','Saytda faol bo‘lgan vaqt'],['sessions','Tashriflar soni (sessiya)'],['avgSess','O‘rtacha tashrif davomiyligi'],['pages','Ko‘rilgan bo‘limlar'],['tools','Ochilgan asbob / sahifalar'],
   ['#','SHAXS VA KIRISH'],['email','Email'],['name','Ism'],['firstLogin','Birinchi kirish'],['lastLogin','Oxirgi kirish'],['logins','Kirishlar soni'],['ref','Qayerdan kelgan'],['utm','Kampaniya (UTM)'],
@@ -1413,13 +1420,31 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   msg('Yuklanmoqda...');
   jsonp('action=admin&credential='+encodeURIComponent(u.credential),d=>{
    if(d&&d.ok){all=d.users||[];loaded=true;const st=Date.parse(d.now);srvOff=st?st-Date.now():0;if(d.onlineSec)onlineSec=Number(d.onlineSec)||200;
-    oldServer=d.v!==REQ_VER;render();loadMessages();}
+    oldServer=d.v!==REQ_VER;siteLocked=!!d.locked;renderLockBtn();render();loadMessages();}
    else if(d&&d.error==='token')reloginMsg('Google sessiyasi eskirgan.');
    else if(d&&d.error==='forbidden')msg('Bu ma\'lumot faqat admin uchun.');
    else msg('Server eski versiyada: Apps Script ni yangilab, "New version" deploy qiling.');
   },msg);
  }
  window.usReload=()=>{if(shown)load();};
+ /* ---------- SAYTNI TO'LIQ BLOKLASH (texnik ishlar) ---------- */
+ function renderLockBtn(){
+  const b=$('us-ad-lock');if(!b)return;
+  b.classList.toggle('lockon',siteLocked);
+  b.textContent=siteLocked?'🔓 BLOKNI OCHISH':'🔒 SAYTNI BLOKLASH';
+ }
+ $('us-ad-lock').onclick=()=>{
+  const u=getGoogleUser();if(!u||!u.credential)return;
+  const want=!siteLocked;
+  if(want&&!confirm('DIQQAT: sayt butunlay bloklanadi — sizdan boshqa HECH KIM (hozir kirganlar ham) saytning hech bir bo\'limidan foydalana olmaydi. Davom etilsinmi?'))return;
+  $('us-ad-lock').disabled=true;
+  jsonp('action=sitelock&state='+(want?'on':'off')+'&credential='+encodeURIComponent(u.credential),d=>{
+   $('us-ad-lock').disabled=false;
+   if(d&&d.ok&&d.done==='sitelock'){siteLocked=!!d.locked;renderLockBtn();}
+   else if(d&&d.ok&&!d.done)alert('⚠ Apps Script yangilanmagan — "New version" deploy qiling.');
+   else alert('Bajarilmadi. Qayta urinib ko\'ring.');
+  },()=>{$('us-ad-lock').disabled=false;alert('Server bilan aloqa yo\'q.');});
+ };
  /* ---------- ADMINGA XABARLAR ---------- */
  function renderMessages(){
   const list=$('msg-list'),badge=$('msg-badge');if(!list)return;
@@ -1843,6 +1868,42 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   if(r&&r.ok&&r.replies&&r.replies.length)show(r.replies);
  }
  setTimeout(tick,2500);setInterval(tick,20000);
+})();
+</script>
+
+<script>
+/* ===== SAYTNI TO'LIQ BLOKLASH (texnik ishlar rejimi) =====
+   Admin panelidan "🔒 SAYTNI BLOKLASH" bosilsa, ADMIN_EMAIL'dan boshqa HECH KIM saytning hech bir bo'limidan
+   foydalana olmaydi — bu holat Apps Script Properties'da (SITE_LOCK) saqlanadi va hech qanday Google tokenga
+   bog'liq emas (hatto sessiya/token eskirgan bo'lsa ham tekshiruv ishlaydi). Admin tekshirilmaydi. */
+(function(){
+ const $=id=>document.getElementById(id);
+ let showing=false,checking=false;
+ const me=()=>getGoogleUser();
+ function api(params,ms){return new Promise(res=>{
+  const cb='sl_cb_'+Date.now()+'_'+Math.floor(Math.random()*1e6),sc=document.createElement('script');let done=false;
+  const fin=v=>{if(done)return;done=true;try{delete window[cb]}catch(e){window[cb]=undefined}sc.remove();res(v);};
+  window[cb]=fin;sc.onerror=()=>fin(null);setTimeout(()=>fin(null),ms||15000);
+  sc.src=USERS_API_URL+(USERS_API_URL.includes('?')?'&':'?')+new URLSearchParams(Object.assign({callback:cb},params)).toString();document.head.appendChild(sc);});}
+ function show(){
+  if(showing)return;showing=true;
+  ['pf-modal','bk-modal','ar-modal'].forEach(id=>{const m=$(id);if(m)m.remove();});
+  if($('ct-modal'))$('ct-modal').hidden=true;
+  const d=document.createElement('div');d.id='sl-modal';
+  d.innerHTML='<div class="sl-box"><div class="sl-ic">🛠️</div><h2>Sayt vaqtincha yopiq</h2><p>Hozirda saytda texnik ishlar olib borilmoqda. Iltimos, birozdan so\'ng qayta urinib ko\'ring.</p></div>';
+  document.body.appendChild(d);document.body.style.overflow='hidden';
+ }
+ function hide(){const d=$('sl-modal');if(!d)return;d.remove();showing=false;document.body.style.overflow=($('pf-modal')||$('bk-modal'))?'hidden':'';}
+ async function tick(){
+  if(checking||!USERS_API_URL)return;
+  const u=me();
+  if(u&&u.email&&String(u.email).toLowerCase()===USERS_ADMIN)return; // admin hech qachon bloklanmaydi
+  if($('google-login-screen'))return; // login ekranida hali hech narsa ko'rsatilmaydi
+  checking=true;const r=await api({action:'sitestat'},9000);checking=false;
+  if(r&&r.ok&&r.locked)return show();
+  if(r&&r.ok&&!r.locked&&showing)return hide();
+ }
+ setTimeout(tick,200);setInterval(tick,4000);
 })();
 </script>
 <!-- FILE CENTER MODAL -->
