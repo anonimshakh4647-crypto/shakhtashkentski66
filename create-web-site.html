@@ -1651,6 +1651,33 @@ function hlHtml(src){
   }
   return o+esc(src.slice(i));
 }
+function hlJson(src){
+  const re=/("(?:[^"\\]|\\.)*")(\s*:)?|(\btrue\b|\bfalse\b|\bnull\b)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+  let o='',i=0,m;
+  while((m=re.exec(src))){
+    o+=esc(src.slice(i,m.index));
+    if(m[1])o+=(m[2]?sp('a',m[1])+esc(m[2]):sp('s',m[1]));
+    else if(m[3])o+=sp('k',m[3]);
+    else if(m[4])o+=sp('n',m[4]);
+    i=re.lastIndex;
+  }
+  return o+esc(src.slice(i));
+}
+function hlMdInline(line){
+  let o='',i=0;const re=/(`[^`\n]+`)|(\*\*[^*\n]+\*\*|__[^_\n]+__)|(\[[^\]\n]+\]\([^)\n]+\))/g;let m;
+  while((m=re.exec(line))){o+=esc(line.slice(i,m.index));o+=m[1]?sp('s',m[1]):m[2]?sp('f',m[2]):sp('n',m[3]);i=re.lastIndex}
+  return o+esc(line.slice(i));
+}
+function hlMd(src){
+  return src.split('\n').map(line=>{
+    let m;
+    if((m=/^(#{1,6}\s.*)$/.exec(line)))return sp('k',m[1]);
+    if((m=/^(>\s?.*)$/.exec(line)))return sp('c',m[1]);
+    if((m=/^(```.*)$/.exec(line)))return sp('s',m[1]);
+    if((m=/^(\s*(?:[-*+]|\d+[.)])\s)(.*)$/.exec(line)))return sp('k',m[1])+hlMdInline(m[2]);
+    return hlMdInline(line);
+  }).join('\n');
+}
 /* ---------- emmet-lite ---------- */
 const VOID=new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
 const INLINE=new Set(['a','span','b','i','strong','em','code','label','small','button','li','h1','h2','h3','h4','h5','h6','p','td','th','option','title','summary','dt','dd','figcaption','legend']);
@@ -1724,7 +1751,7 @@ function CodeEd(lang,opts){
   const box=h('div',{cls:'ce-box'},pre,ta),el=h('div',{cls:'ce'},gut,box);
   const E={el,ta,lang,onChange:null,onRun:null,onSave:null,onCursor:null};
   let lines=0,raf=0;
-  const hl={html:hlHtml,css:hlCss,js:hlJs}[lang];
+  const hl={html:hlHtml,css:hlCss,js:hlJs,json:hlJson,md:hlMd,svg:hlHtml}[lang];
   function paint(){
     raf=0;const v=ta.value;code.innerHTML=hl(v)+'\n';
     const n=v.split('\n').length;if(n!==lines){lines=n;let s='';for(let i=1;i<=n;i++)s+=i+'\n';gut.textContent=s}
@@ -1762,8 +1789,8 @@ function CodeEd(lang,opts){
       ins('  ',s,en);return}
     if(k==='Enter'&&!ctl&&!e.shiftKey){
       e.preventDefault();const a=lineStart(s),line=v.slice(a,s),ind=/^[ \t]*/.exec(line)[0],before=v[s-1],after=v[en];
-      if((before==='{'&&after==='}')||(before==='['&&after===']')||(before==='('&&after===')')||(lang==='html'&&before==='>'&&after==='<'&&/<\/[\w-]+>/.test(v.slice(en,en+30)))){ins('\n'+ind+'  \n'+ind,s,en);const p=s+1+ind.length+2;ta.setSelectionRange(p,p);return}
-      let extra='';if(/[{(\[]\s*$/.test(line)||(lang==='html'&&/<(?!\/|!)(?!(?:area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)\b)[\w-]+(?:\s[^<>]*)?>\s*$/.test(line)&&!/<\/[\w-]+>\s*$/.test(line)))extra='  ';
+      if((before==='{'&&after==='}')||(before==='['&&after===']')||(before==='('&&after===')')||((lang==='html'||lang==='svg')&&before==='>'&&after==='<'&&/<\/[\w-]+>/.test(v.slice(en,en+30)))){ins('\n'+ind+'  \n'+ind,s,en);const p=s+1+ind.length+2;ta.setSelectionRange(p,p);return}
+      let extra='';if(/[{(\[]\s*$/.test(line)||((lang==='html'||lang==='svg')&&/<(?!\/|!)(?!(?:area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)\b)[\w-]+(?:\s[^<>]*)?>\s*$/.test(line)&&!/<\/[\w-]+>\s*$/.test(line)))extra='  ';
       ins('\n'+ind+extra,s,en);return}
     if(k==='Backspace'&&s===en&&PAIRS[v[s-1]]===v[s]&&v[s]){e.preventDefault();ta.setSelectionRange(s-1,s+1);ins('',s-1,s+1);return}
     if(!ctl&&!e.altKey&&k.length===1){
@@ -1773,7 +1800,7 @@ function CodeEd(lang,opts){
         const nx=v[s];const wordBefore=/[\w]/.test(v[s-1]||'');
         if('"\'`'.includes(k)&&(wordBefore||(lang==='html'&&k==="'")))return;
         if(!nx||/[\s)\]};,>]/.test(nx)){e.preventDefault();ins(k+PAIRS[k],s,en);ta.setSelectionRange(s+1,s+1);return}}
-      if(k==='>'&&lang==='html'&&s===en){
+      if(k==='>'&&(lang==='html'||lang==='svg')&&s===en){
         const m=/<([A-Za-z][\w:-]*)(?:\s(?:"[^"]*"|'[^']*'|[^<>"'])*)?$/.exec(v.slice(Math.max(0,s-300),s));
         if(m&&!VOID.has(m[1].toLowerCase())&&!/\/$/.test(v.slice(0,s))){e.preventDefault();ins('></'+m[1]+'>',s,en);ta.setSelectionRange(s+1,s+1);return}}
     }
@@ -1800,7 +1827,7 @@ function CodeEd(lang,opts){
     const v=ta.value,s=ta.selectionStart,en=ta.selectionEnd;
     if(lang==='js'||lang==='css'&&false){const a=lineStart(s),b=lineEnd(en),blk=v.slice(a,b).split('\n'),all=blk.every(l=>/^\s*\/\//.test(l)||!l.trim());
       const out=blk.map(l=>all?l.replace(/^(\s*)\/\/ ?/,'$1'):l.replace(/^(\s*)/,'$1// ')).join('\n');ta.setSelectionRange(a,b);ins(out,a,b);ta.setSelectionRange(a,a+out.length);return}
-    const open=lang==='html'?'<!-- ':'/* ',close=lang==='html'?' -->':' */';
+    const open=(lang==='html'||lang==='svg')?'<!-- ':'/* ',close=(lang==='html'||lang==='svg')?' -->':' */';
     const a=lineStart(s),b=lineEnd(en),blk=v.slice(a,b),tr=blk.trim();
     let out;if(tr.startsWith(open.trim())&&tr.endsWith(close.trim()))out=blk.replace(open.trim()+' ','').replace(open.trim(),'').replace(' '+close.trim(),'').replace(close.trim(),'');else out=blk.replace(/^(\s*)/,'$1'+open)+close;
     ta.setSelectionRange(a,b);ins(out,a,b);ta.setSelectionRange(a,a+out.length);
@@ -1815,6 +1842,8 @@ function CodeEd(lang,opts){
 }
 /* ---------- simple formatters ---------- */
 function format(lang,src){
+  if(lang==='json'){try{return JSON.stringify(JSON.parse(src),null,2)+'\n'}catch(e){return src}}
+  if(lang==='md')return src;
   if(lang==='css'){
     let s=src.replace(/\s+/g,' ').replace(/\s*\{\s*/g,' {\n').replace(/;\s*/g,';\n').replace(/\s*\}\s*/g,'\n}\n').replace(/\/\*/g,'\n/*').replace(/\*\//g,'*/\n');
     let d=0;const out=[];for(let l of s.split('\n')){l=l.trim();if(!l)continue;if(l.startsWith('}'))d=Math.max(0,d-1);out.push('  '.repeat(d)+l);if(l.endsWith('{'))d++}
@@ -1864,17 +1893,83 @@ const SNIPS=[
 ];
 /* ---------- code view ---------- */
 const C=WS.Code={eds:{},tab:'html',mode:'code',proj:null,lesson:null,auto:true,pending:false,jsOff:0,cons:[]};
-const KEY={html:'HTML',css:'CSS',js:'JS'};
-C.starter=()=>({title:'Mening sahifam',html:'<main class="page">\n  <h1>Salom, dunyo! 👋</h1>\n  <p>Bu mening birinchi sahifam. Kodni o‘zgartiring — natija o‘ng tomonda darhol ko‘rinadi.</p>\n  <button id="btn">Meni bosing</button>\n  <p id="out"></p>\n</main>',css:'body {\n  margin: 0;\n  font-family: system-ui, sans-serif;\n  background: #0f172a;\n  color: #e2e8f0;\n  display: grid;\n  place-items: center;\n  min-height: 100vh;\n}\n.page { text-align: center; padding: 24px; max-width: 520px; }\nh1 { color: #38bdf8; }\nbutton {\n  padding: 12px 26px;\n  border: 0;\n  border-radius: 10px;\n  background: #38bdf8;\n  color: #04121c;\n  font-weight: 700;\n  cursor: pointer;\n}',js:"let count = 0;\nconst btn = document.getElementById('btn');\nconst out = document.getElementById('out');\n\nbtn.addEventListener('click', () => {\n  count++;\n  out.textContent = 'Bosildi: ' + count + ' marta';\n  console.log('Tugma bosildi', count);\n});"});
+const KEY={html:'HTML',css:'CSS',js:'JS',json:'JSON',md:'Markdown',svg:'SVG'};
+const LANGS=['html','css','js','json','md','svg'];
+const LANG_COLOR={html:'#ff7043',css:'#42a5f5',js:'#ffd54f',json:'#a3e635',md:'#38bdf8',svg:'#f472b6'};
+C.starter=()=>({title:'Mening sahifam',html:'<main class="page">\n  <h1>Salom, dunyo! 👋</h1>\n  <p>Bu mening birinchi sahifam. Kodni o‘zgartiring — natija o‘ng tomonda darhol ko‘rinadi.</p>\n  <button id="btn">Meni bosing</button>\n  <p id="out"></p>\n</main>',css:'body {\n  margin: 0;\n  font-family: system-ui, sans-serif;\n  background: #0f172a;\n  color: #e2e8f0;\n  display: grid;\n  place-items: center;\n  min-height: 100vh;\n}\n.page { text-align: center; padding: 24px; max-width: 520px; }\nh1 { color: #38bdf8; }\nbutton {\n  padding: 12px 26px;\n  border: 0;\n  border-radius: 10px;\n  background: #38bdf8;\n  color: #04121c;\n  font-weight: 700;\n  cursor: pointer;\n}',js:"let count = 0;\nconst btn = document.getElementById('btn');\nconst out = document.getElementById('out');\n\nbtn.addEventListener('click', () => {\n  count++;\n  out.textContent = 'Bosildi: ' + count + ' marta';\n  console.log('Tugma bosildi', count);\n});",
+json:'{\n  "sarlavha": "Mening ma\'lumotlarim",\n  "royxat": ["Birinchi", "Ikkinchi", "Uchinchi"]\n}',
+md:'# Markdown sinovi\n\nBu yerga **qalin**, *qiyshiq* yoki `kod` bilan matn yozishingiz mumkin.\n\n- Birinchi band\n- Ikkinchi band\n\nBatafsil: [IT SHAKH](https://shakhtashkentski66.uz)',
+svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">\n  <circle cx="60" cy="60" r="50" fill="#38bdf8"/>\n  <text x="60" y="68" font-size="22" text-anchor="middle" fill="#04121c">SVG</text>\n</svg>'});
 const HOOK=`<script>(function(){var P=parent;function s(t,a,l){try{P.postMessage({wsc:1,t:t,a:a,l:l},'*')}catch(e){}}function f(x){if(typeof x==='string')return x;try{if(x instanceof Error)return x.name+': '+x.message;if(typeof x==='function')return String(x);if(x===undefined)return 'undefined';if(x&&x.nodeType)return '<'+(x.nodeName||'').toLowerCase()+'>';return JSON.stringify(x,function(k,v){return typeof v==='function'?'[Function]':v},2)}catch(e){return String(x)}}
 ['log','info','warn','error','debug'].forEach(function(k){var o=console[k];console[k]=function(){s(k,[].map.call(arguments,f));try{o&&o.apply(console,arguments)}catch(e){}}});
 addEventListener('error',function(e){s('error',[(e.message||'Xato')],e.lineno)});addEventListener('unhandledrejection',function(e){s('error',['Promise xatosi: '+f(e.reason)])});
 addEventListener('message',function(e){if(e.source!==P||!e.data)return;if(e.data.wse){try{s('res',[f((0,eval)(e.data.code))])}catch(x){s('error',[f(x)])}}else if(e.data.wsk){var ok=false;try{ok=!!(0,eval)(e.data.code)}catch(x){}s('chk',[ok,e.data.id])}});})();${SC}`;
-/* compose a document from {title,html,css,js} */
+/* ---------- Markdown → HTML (oddiy, tashqi kutubxonasiz) ---------- */
+function escMd(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function mdInline(s){
+  s=escMd(s);
+  s=s.replace(/`([^`]+)`/g,(m,c)=>'<code>'+c+'</code>');
+  s=s.replace(/\*\*([^*]+)\*\*|__([^_]+)__/g,(m,a,b)=>'<strong>'+(a||b)+'</strong>');
+  s=s.replace(/\*([^*]+)\*|_([^_]+)_/g,(m,a,b)=>'<em>'+(a||b)+'</em>');
+  s=s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(m,alt,src)=>'<img alt="'+alt+'" src="'+src+'">');
+  s=s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,(m,t,u)=>'<a href="'+u+'" target="_blank" rel="noopener">'+t+'</a>');
+  return s;
+}
+function mdToHtml(src){
+  if(!src)return '';
+  const lines=String(src).replace(/\r\n/g,'\n').split('\n');
+  const out=[];let i=0,para=[];
+  const flushPara=()=>{if(para.length){out.push('<p>'+mdInline(para.join(' '))+'</p>');para=[]}};
+  while(i<lines.length){
+    const l=lines[i];
+    if(/^```/.test(l)){
+      flushPara();const fence=l.slice(3).trim();const body=[];i++;
+      while(i<lines.length&&!/^```/.test(lines[i])){body.push(lines[i]);i++}
+      out.push('<pre><code'+(fence?' class="lang-'+fence+'"':'')+'>'+escMd(body.join('\n'))+'</code></pre>');i++;continue;
+    }
+    if(/^\s*$/.test(l)){flushPara();i++;continue}
+    let m;
+    if((m=/^(#{1,6})\s+(.*)$/.exec(l))){flushPara();const n=m[1].length;out.push('<h'+n+'>'+mdInline(m[2])+'</h'+n+'>');i++;continue}
+    if(/^(-{3,}|\*{3,}|_{3,})\s*$/.test(l)){flushPara();out.push('<hr>');i++;continue}
+    if((m=/^>\s?(.*)$/.exec(l))){flushPara();const q=[m[1]];i++;while(i<lines.length&&/^>\s?/.test(lines[i])){q.push(lines[i].replace(/^>\s?/,''));i++}out.push('<blockquote><p>'+mdInline(q.join(' '))+'</p></blockquote>');continue}
+    if((m=/^\s*[-*+]\s+(.*)$/.exec(l))){flushPara();const items=[m[1]];i++;while(i<lines.length&&/^\s*[-*+]\s+/.test(lines[i])){items.push(lines[i].replace(/^\s*[-*+]\s+/,''));i++}out.push('<ul>'+items.map(t=>'<li>'+mdInline(t)+'</li>').join('')+'</ul>');continue}
+    if((m=/^\s*\d+[.)]\s+(.*)$/.exec(l))){flushPara();const items=[m[1]];i++;while(i<lines.length&&/^\s*\d+[.)]\s+/.test(lines[i])){items.push(lines[i].replace(/^\s*\d+[.)]\s+/,''));i++}out.push('<ol>'+items.map(t=>'<li>'+mdInline(t)+'</li>').join('')+'</ol>');continue}
+    para.push(l);i++;
+  }
+  flushPara();
+  return out.join('\n');
+}
+/* #md-output / #svg-output belgisi topilsa shu ichiga, topilmasa sahifa oxiriga qo‘shiladi */
+function injectPlaceholders(htmlStr,subs){
+  let changed=false;for(const k in subs)if(subs[k])changed=true;
+  if(!changed)return htmlStr;
+  const tmp=document.createElement('div');tmp.innerHTML=htmlStr;
+  for(const id in subs){
+    if(!subs[id])continue;
+    let el=tmp.querySelector('#'+id);
+    if(!el){el=document.createElement('div');el.id=id;tmp.appendChild(el);}
+    el.innerHTML=subs[id];
+  }
+  return tmp.innerHTML;
+}
+/* JSON tab → window.DATA sifatida JS kodidan foydalanish uchun */
+C.dataScript=function(c){
+  if(!c.json||!c.json.trim())return '';
+  let js;
+  try{JSON.parse(c.json);js='var DATA='+c.json.trim()+';'}
+  catch(e){js='var DATA=null;console.error('+JSON.stringify('JSON xatosi: '+e.message)+');'}
+  return '<script>\n'+js+'\n'+SC+'\n';
+};
+/* compose a document from {title,html,css,js,json,md,svg} */
 C.docOf=function(c,opt){
-  opt=opt||{};const head=`<!DOCTYPE html>\n<html lang="uz">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n<title>${esc(c.title||'Mening sahifam')}</title>\n`;
-  if(opt.files)return head+'<link rel="stylesheet" href="style.css">\n</head>\n<body>\n'+c.html+'\n<script src="script.js">'+SC+'\n</body>\n</html>\n';
-  let pre=head+(opt.hook?HOOK+'\n':'')+'<style>\n'+c.css+'\n</style>\n</head>\n<body>\n'+c.html+'\n';
+  opt=opt||{};
+  const mdHtml=c.md&&c.md.trim()?mdToHtml(c.md):'';
+  const svgHtml=c.svg&&c.svg.trim()?c.svg:'';
+  const bodyHtml=injectPlaceholders(c.html||'',{'md-output':mdHtml,'svg-output':svgHtml});
+  const dataJs=C.dataScript(c);
+  const head=`<!DOCTYPE html>\n<html lang="uz">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n<title>${esc(c.title||'Mening sahifam')}</title>\n`;
+  if(opt.files)return head+'<link rel="stylesheet" href="style.css">\n</head>\n<body>\n'+bodyHtml+'\n'+dataJs+'<script src="script.js">'+SC+'\n</body>\n</html>\n';
+  let pre=head+(opt.hook?HOOK+'\n':'')+'<style>\n'+c.css+'\n</style>\n</head>\n<body>\n'+bodyHtml+'\n'+dataJs;
   const jsStart=(pre+'<script>\n').split('\n').length;
   const doc=pre+(c.js||opt.hook?'<script>\n'+c.js+'\n'+SC+'\n':'')+'</body>\n</html>\n';
   C.jsOff=jsStart-1;return doc;
@@ -1891,9 +1986,9 @@ C.build=function(root){
   const side=h('aside',{cls:'cside',id:'cSide'});
   const etabs=h('div',{cls:'etabs',id:'eTabs'});
   const eh=h('div',{cls:'eh'});
-  ['html','css','js'].forEach(l=>{const e=CodeEd(l);C.eds[l]=e;eh.append(e.el);
+  LANGS.forEach(l=>{const e=CodeEd(l);C.eds[l]=e;eh.append(e.el);
     e.onChange=()=>onEdit(l);e.onRun=()=>run(true);e.onSave=()=>WS.BS.host.save();e.onCursor=(ln,co)=>{C.pos=[ln,co];setBar()}});
-  ['html','css','js'].forEach(l=>{const b=h('button',{cls:'et','data-t':l,on:{click:()=>setTab(l)}},h('i',{style:`background:${{html:'#ff7043',css:'#42a5f5',js:'#ffd54f'}[l]}`}),KEY[l]);etabs.append(b)});
+  LANGS.forEach(l=>{const b=h('button',{cls:'et','data-t':l,on:{click:()=>setTab(l)}},h('i',{style:`background:${LANG_COLOR[l]}`}),KEY[l]);etabs.append(b)});
   etabs.append(h('div',{style:'flex:1'}),
     h('button',{cls:'ub sm',id:'cFmt',title:'Kodni tartiblash',html:svg('align')+'<span>Tartiblash</span>',on:{click:()=>{C.eds[C.tab].format();}}}),
     h('button',{cls:'ub sm',id:'cLive',title:'HTML/CSS o‘zgarganda natijani avtomatik yangilash',html:svg('refresh')+'<span>Jonli</span>',on:{click:()=>{C.auto=!C.auto;syncLive()}}}),
@@ -1936,10 +2031,10 @@ function setBar(){C.bar.innerHTML='';const e=C.eds[C.tab];C.bar.append(h('span',
 function setTab(t){C.tab=t;$$('.etabs .et',C.side.parentNode).forEach(b=>b.classList.toggle('on',b.dataset.t===t));Object.keys(C.eds).forEach(k=>C.eds[k].el.classList.toggle('on',k===t));C.pos=null;setBar();if(innerWidth>960)C.eds[t].focus()}
 function syncLive(){const b=$('#cLive');if(b)b.classList.toggle('on',C.auto)}
 function curData(){return C.proj}
-function readCode(){return{title:(C.proj&&C.proj.code&&C.proj.code.title)||(C.proj&&C.proj.name)||'Sahifa',html:C.eds.html.get(),css:C.eds.css.get(),js:C.eds.js.get()}}
+function readCode(){return{title:(C.proj&&C.proj.code&&C.proj.code.title)||(C.proj&&C.proj.name)||'Sahifa',html:C.eds.html.get(),css:C.eds.css.get(),js:C.eds.js.get(),json:C.eds.json.get(),md:C.eds.md.get(),svg:C.eds.svg.get()}}
 let rt=0;
 function onEdit(l){
-  if(C.mode==='code'&&C.proj&&C.proj.kind==='code'){const c=C.proj.code;c.html=C.eds.html.get();c.css=C.eds.css.get();c.js=C.eds.js.get();WS.BS.host.changed()}
+  if(C.mode==='code'&&C.proj&&C.proj.kind==='code'){const c=C.proj.code;c.html=C.eds.html.get();c.css=C.eds.css.get();c.js=C.eds.js.get();c.json=C.eds.json.get();c.md=C.eds.md.get();c.svg=C.eds.svg.get();WS.BS.host.changed()}
   else if(C.mode==='learn'){saveLesson()}
   if(C.auto&&l!=='js'){clearTimeout(rt);rt=setTimeout(()=>run(false),420)}
   else if(l==='js'){const u=$('#cUrl');if(u)u.textContent='JS o‘zgardi — ▶ Ishga tushirish (Ctrl+Enter)'}
@@ -1965,10 +2060,10 @@ function setupCode(p){
   const ban=$('#cBanner');ban.innerHTML='';
   const ro=!p||p.kind!=='code';
   let c;
-  if(!p){c={html:'',css:'',js:'',title:''}}
+  if(!p){c={html:'',css:'',js:'',json:'',md:'',svg:'',title:''}}
   else if(!ro)c=p.code;
-  else{const g=C.compose(p);c={html:shown(g.html),css:g.css,js:g.js,title:''}}
-  C.eds.html.set(c.html);C.eds.css.set(c.css);C.eds.js.set(c.js);
+  else{const g=C.compose(p);c={html:shown(g.html),css:g.css,js:g.js,json:'',md:'',svg:'',title:''}}
+  C.eds.html.set(c.html);C.eds.css.set(c.css);C.eds.js.set(c.js);C.eds.json.set(c.json);C.eds.md.set(c.md);C.eds.svg.set(c.svg);
   Object.values(C.eds).forEach(e=>e.setRO(ro));
   if(ro&&p){ban.append(h('div',{cls:'note warn',style:'margin:0;border-radius:0;border-left:0;border-right:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap'},h('span',{style:'flex:1;min-width:200px',html:'Bu <b>quruvchida yaratilgan</b> saytning kodi (faqat ko‘rish uchun). Tahrirlash uchun nusxasini kod loyihasiga aylantiring — asl sayt o‘zgarmaydi.'}),h('button',{cls:'ub sm pri',text:'Kod loyihasiga nusxalash',on:{click:forkToCode}})))}
   side$('code');
@@ -1976,7 +2071,7 @@ function setupCode(p){
 }
 function fmt(l,src){try{const r=format(l,src);return r&&r.length>10?r:src}catch(e){return src}}
 async function forkToCode(){
-  const p=C.proj,g=C.compose(p),np={v:1,id:WS.uid('p'),kind:'code',name:(p.name||'Sayt')+' (kod)',created:Date.now(),updated:Date.now(),tpl:'',sections:[],code:{title:p.meta.title||p.info.brand,html:fmt('html',g.html),css:fmt('css',g.css),js:g.js}};
+  const p=C.proj,g=C.compose(p),np={v:1,id:WS.uid('p'),kind:'code',name:(p.name||'Sayt')+' (kod)',created:Date.now(),updated:Date.now(),tpl:'',sections:[],code:{title:p.meta.title||p.info.brand,html:fmt('html',g.html),css:fmt('css',g.css),js:g.js,json:'',md:'',svg:''}};
   await WS.M.putAndOpen(np);WS.toast('Kod loyihasi yaratildi — endi tahrirlashingiz mumkin','ok');
 }
 function side$(kind){
@@ -2003,12 +2098,12 @@ function setupLearn(){
   const L=WS.LESSONS;if(!L){return}
   openLesson(lessonIdx());
 }
-function saveLesson(){if(!C.lesson)return;LS('ws_ls_'+C.lesson.id,JSON.stringify({html:C.eds.html.get(),css:C.eds.css.get(),js:C.eds.js.get()}))}
+function saveLesson(){if(!C.lesson)return;LS('ws_ls_'+C.lesson.id,JSON.stringify({html:C.eds.html.get(),css:C.eds.css.get(),js:C.eds.js.get(),json:C.eds.json.get(),md:C.eds.md.get(),svg:C.eds.svg.get()}))}
 function openLesson(i){
   const L=WS.LESSONS[i];C.lesson=L;LS('ws_lesson',String(i));
   let code=L.start;try{const sv=JSON.parse(LS('ws_ls_'+L.id)||'null');if(sv)code=sv}catch(e){}
   $('#cBanner').innerHTML='';
-  C.eds.html.set(code.html||'');C.eds.css.set(code.css||'');C.eds.js.set(code.js||'');
+  C.eds.html.set(code.html||'');C.eds.css.set(code.css||'');C.eds.js.set(code.js||'');C.eds.json.set(code.json||'');C.eds.md.set(code.md||'');C.eds.svg.set(code.svg||'');
   Object.values(C.eds).forEach(e=>e.setRO(false));
   setTab(L.tab||'html');run(true);renderLesson(i);
 }
@@ -2024,7 +2119,7 @@ function renderLesson(i){
   if(L.check){row.append(h('button',{cls:'ub pri',html:svg('check')+'<span>Tekshirish</span>',on:{click:()=>checkLesson(L,res,task)}}))}
   else row.append(h('button',{cls:'ub pri',html:svg('check')+'<span>Tushundim ✓</span>',on:{click:()=>markDone(L,task,res)}}));
   if(L.hint)row.append(h('button',{cls:'ub',text:'Maslahat',on:{click:()=>{hint.classList.toggle('hidden')}}}));
-  if(L.solution)row.append(h('button',{cls:'ub',text:'Yechim',on:{click:async()=>{if(await WS.confirm('Yechimni ko‘rsataylikmi? Hozirgi kodingiz almashtiriladi.','Ko‘rsat')){const s=L.solution;C.eds.html.set(s.html||'');C.eds.css.set(s.css||'');C.eds.js.set(s.js||'');saveLesson();run(true)}}}}));
+  if(L.solution)row.append(h('button',{cls:'ub',text:'Yechim',on:{click:async()=>{if(await WS.confirm('Yechimni ko‘rsataylikmi? Hozirgi kodingiz almashtiriladi.','Ko‘rsat')){const s=L.solution;C.eds.html.set(s.html||'');C.eds.css.set(s.css||'');C.eds.js.set(s.js||'');C.eds.json.set(s.json||'');C.eds.md.set(s.md||'');C.eds.svg.set(s.svg||'');saveLesson();run(true)}}}}));
   row.append(h('button',{cls:'ub ghost',title:'Dars boshlang‘ich holatiga qaytadi',text:'Boshidan',on:{click:async()=>{if(await WS.confirm('Dars boshidan boshlansinmi? Yozganlaringiz o‘chadi.','Boshidan')){LS('ws_ls_'+L.id,'');openLesson(i)}}}}));
   const hint=h('div',{cls:'note hidden',style:'margin-top:10px',html:L.hint||''});
   task.append(row,res,hint);body.append(task);
@@ -2409,6 +2504,7 @@ function openHelp(tab){
       <h4>Rasm qanday qo‘shiladi?</h4><p>Saytdagi rasmni bosing → «Yuklash». Katta rasmlar avtomatik kichraytirilib, sayt tez ochiladigan qilinadi.</p>
       <h4>Qidiruv tizimlarida (Google) chiqishi uchun?</h4><p>«Sayt → Qidiruv tizimlari» da sarlavha va tavsifni yozing. Saytni nashr qilgach Google Search Console orqali qo‘shing.</p>
       <h4>Kod rejimi nima uchun?</h4><p>HTML/CSS/JS ni o‘zingiz yozish uchun muharrir. «Darslar» rejimida noldan o‘rganishingiz mumkin. Quruvchida yasagan saytni kodga aylantirib, davom ettirsa bo‘ladi (nusxa sifatida).</p>
+      <h4>JSON, Markdown, SVG yorliqlari</h4><ul><li><b>JSON</b> — ma’lumot yozing (masalan ro‘yxat), u JS kodingizda <code>DATA</code> nomi bilan avtomatik mavjud bo‘ladi.</li><li><b>Markdown</b> — oddiy matn yozing (<code>#</code> sarlavha, <code>**qalin**</code> va h.k.), u HTML’ga aylanib, HTML ichidagi <code>&lt;div id="md-output"&gt;&lt;/div&gt;</code> o‘rniga (topilmasa — sahifa oxiriga) qo‘shiladi.</li><li><b>SVG</b> — chizma/rasm kodi, xuddi shunday HTML ichidagi <code>&lt;div id="svg-output"&gt;&lt;/div&gt;</code> o‘rniga joylashadi.</li></ul>
       <h4>Cheklovlar</h4><p>Ko‘p sahifali (alohida URL) sayt yo‘q — hozir bir sahifali saytlar yasaladi. Do‘kon savatchasi/to‘lov tizimi yo‘q: buyurtma tugmalari Telegram yoki telefonga ulanadi.</p>`
   };
   const names={start:'Boshlash',publish:'Nashr qilish',keys:'Tugmalar',faq:'Savol-javob'};
