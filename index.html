@@ -460,7 +460,12 @@ tr.us-blkrow td{background:rgba(248,113,113,.07)}tr.us-blkrow td:last-child{colo
 .us-blkbtn:hover{background:rgba(248,113,113,.2)}.us-blkbtn.is-un{border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.1);color:#34d399}.us-blkbtn.is-un:hover{background:rgba(52,211,153,.2)}
 .us-blkbtn:disabled{opacity:.6;cursor:default}.us-blkmsg{display:inline-block;margin-left:10px;font-size:12px;color:#94a3b8}
 .us-ipTag{color:#38bdf8;font-weight:700;text-shadow:0 0 10px rgba(56,189,248,.5)}
-#ip-card,#sched-card{margin-top:18px}
+.us-admTag{color:#8b6cff;font-weight:700;text-shadow:0 0 10px rgba(139,108,255,.5)}
+#ip-card,#sched-card,#admins-card{margin-top:18px}
+#admin-add-btn{padding:10px 14px;background:rgba(139,108,255,.14);border:1px solid rgba(139,108,255,.5);color:#8b6cff;border-radius:8px;font:700 11px monospace;letter-spacing:1px;cursor:pointer}
+#admin-add-btn:hover{background:rgba(139,108,255,.26)}#admin-add-btn:disabled{opacity:.5;cursor:not-allowed}
+#admins-list button.admin-rm{padding:5px 10px;border:1px solid rgba(248,113,113,.5);background:rgba(248,113,113,.1);color:#f87171;border-radius:6px;font:700 10.5px inherit;cursor:pointer}
+#admins-list button.admin-rm:hover{background:rgba(248,113,113,.2)}#admins-list button.admin-rm:disabled{opacity:.6;cursor:default}
 .ip-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .ip-row input{flex:1 1 220px;min-width:0;padding:10px 12px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:#e5e7eb;font:13px inherit;outline:none;box-sizing:border-box}
 .ip-row input:focus{border-color:var(--accent)}
@@ -1185,6 +1190,16 @@ body.file-modal-active{overflow:hidden;}
     </div>
     <div id="sched-msg" class="sched-status">Yuklanmoqda...</div>
   </div>
+  <div id="admins-card">
+    <div class="msg-h"><b>// QO'SHIMCHA ADMINLAR</b></div>
+    <div class="ip-row">
+      <input id="admin-add-input" type="email" placeholder="email@gmail.com" autocomplete="off">
+      <button type="button" id="admin-add-btn">👑 ADMIN QILIB TAYINLASH</button>
+    </div>
+    <div id="admin-add-msg" class="us-blkmsg"></div>
+    <div id="admins-list" class="ip-list"><div class="us-ad-empty">Yuklanmoqda...</div></div>
+    <div class="sched-status">Qo'shilgan admin faqat "Foydalanuvchilar" va "Adminga xabarlar" bo'limlariga kira oladi — saytni bloklash, VPN, jadval va admin boshqaruvi FAQAT sizga (bosh adminga) tegishli. U hech qachon bloklanmaydi; olib tashlash uchun pastdagi "✕" tugmasini bosing.</div>
+  </div>
 </div>
 <div id="us-modal" hidden>
   <div class="us-mbox">
@@ -1217,6 +1232,15 @@ const USERS_API_URL = 'https://script.google.com/macros/s/AKfycbyGcZgnnp91p19OhU
 const USERS_ADMIN = 'anonimshakh4647@gmail.com';
 function getGoogleUser(){try{return JSON.parse(localStorage.getItem('it_shakh_google_user')||'null')}catch(e){return null}}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+/* QO'SHIMCHA ADMINLAR: bosh admin (USERS_ADMIN) hamisha mahalliy, zudlik bilan aniqlanadi. Qo'shimcha admin
+   serverdan tasdiqlangandan keyin (bk-modal'ning fon tekshiruvi orqali) localStorage'da keshlanadi — shu bois
+   quyidagi funksiyalar GLOBAL qilib (hech qanday IIFE ichida emas) e'lon qilingan: ularni sahifadagi boshqa
+   mustaqil <script> bloklari (admin paneli, "adminga xabar" tugmasi, "admin javobi" oynasi, va h.k.) ham
+   chaqira oladi. Saytni bloklash/VPN/jadval/admin boshqaruvi baribir FAQAT bosh adminga tegishli bo'lib qoladi —
+   buni headAdmin (serverning haqiqiy javobiga asoslangan) boshqaradi, admin panelining o'z skriptida. */
+function isHeadAdminLocal(){const u=getGoogleUser();return !!(u&&String(u.email||'').toLowerCase()===USERS_ADMIN);}
+function roleCache(email){try{return localStorage.getItem('it_shakh_role_'+String(email||'').toLowerCase())||'';}catch(e){return '';}}
+function isAdmin(){const u=getGoogleUser();if(!u||!u.email)return false;const e=String(u.email).toLowerCase();return e===USERS_ADMIN||roleCache(e)==='added';}
 
 /* ---------- kirishda qurilma ma'lumotini yig'ish (faqat adminga ko'rinadi) ---------- */
 function usParseUA(ua){
@@ -1351,8 +1375,8 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
 /* ---------- admin paneli ---------- */
 (function(){
  const $=id=>document.getElementById(id);
- const REQ_VER='ipsched1'; // bloklash + adminga xabar + admin javobi + saytni bloklash + VPN taqiqlash + IP bloklash + jadval shu versiyadan boshlab ishlaydi
- let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false,msgs=[],msgTick=0,replyDrafts={},siteLocked=false,vpnBlocked=false,blockedIps=[],schedOn=false,schedActiveNow=false;
+ const REQ_VER='admin1'; // bloklash + adminga xabar + admin javobi + saytni bloklash + VPN taqiqlash + IP bloklash + jadval + qo'shimcha adminlar shu versiyadan boshlab ishlaydi
+ let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false,msgs=[],msgTick=0,replyDrafts={},siteLocked=false,vpnBlocked=false,blockedIps=[],schedOn=false,schedActiveNow=false,headAdmin=false,adminsList=[];
  /* batafsil oyna: ['#', sarlavha] — bo'lim sarlavhasi; qolganlari [kalit, nom] */
  const FIELDS=[['#','FAOLLIK'],['lastSeen','Oxirgi faollik'],['activeSec','Saytda faol bo‘lgan vaqt'],['sessions','Tashriflar soni (sessiya)'],['avgSess','O‘rtacha tashrif davomiyligi'],['pages','Ko‘rilgan bo‘limlar'],['tools','Ochilgan asbob / sahifalar'],
   ['#','SHAXS VA KIRISH'],['email','Email'],['name','Ism'],['firstLogin','Birinchi kirish'],['lastLogin','Oxirgi kirish'],['logins','Kirishlar soni'],['ref','Qayerdan kelgan'],['utm','Kampaniya (UTM)'],
@@ -1361,7 +1385,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   ['#','BRAUZER SOZLAMALARI'],['lang','Tillar'],['tz','Vaqt mintaqasi'],['tzOff','UTC siljishi'],['adblock','Reklama bloker'],['incog','Inkognito rejim (taxminiy)'],['cookies','Cookie'],['pwa','O‘rnatilgan ilova (PWA)'],
   ['#','TEXNIK'],['deviceId','Qurilma ID'],['flags','Belgilar'],['userAgent','User-Agent']];
  function expMs(c){try{return JSON.parse(atob(c.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000}catch(e){return 0}}
- function isAdmin(){const u=getGoogleUser();return !!(u&&String(u.email||'').toLowerCase()===USERS_ADMIN);}
+ // isAdmin()/roleCache()/isHeadAdminLocal() — fayl boshida GLOBAL qilib e'lon qilingan (boshqa <script> bloklari ham ishlatadi).
  const TZ5=3600000*5;
  function fmt(iso){const t=Date.parse(iso);return t?new Date(t).toLocaleString('uz-UZ',{timeZone:'Asia/Tashkent',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'–';}
  function fmtX(iso){const t=Date.parse(iso);return t?new Date(t+TZ5).toISOString().slice(0,16).replace('T',' '):'';} // jadval uchun: YYYY-MM-DD HH:mm (Toshkent)
@@ -1425,7 +1449,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    r._w=w;});
  }
  function isBlk(r){return String(r.blocked||'')==='1';}
- function statusCell(r){if(isBlk(r))return '<span class="us-blkTag">🚫 bloklangan</span>';if(isOn(r))return '<span class="us-on">● online</span>';const a=ago(r.lastSeen);return a?'<span class="us-off" title="'+esc(fmt(r.lastSeen))+'">'+esc(a)+'</span>':'<span class="us-off">–</span>';}
+ function statusCell(r){if(r.isAdmin)return '<span class="us-admTag">👑 admin</span>';if(isBlk(r))return '<span class="us-blkTag">🚫 bloklangan</span>';if(isOn(r))return '<span class="us-on">● online</span>';const a=ago(r.lastSeen);return a?'<span class="us-off" title="'+esc(fmt(r.lastSeen))+'">'+esc(a)+'</span>':'<span class="us-off">–</span>';}
  function render(){
   analyze();
   const ow=$('us-ad-oldwarn');
@@ -1462,7 +1486,10 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
     blockedIps=d.blockedIps||[];renderIpList();
     schedOn=!!d.schedOn;schedActiveNow=!!d.schedActiveNow;
     if(d.schedStart)$('sched-start').value=d.schedStart;if(d.schedEnd)$('sched-end').value=d.schedEnd;
-    renderSchedBtn();render();loadMessages();}
+    renderSchedBtn();
+    headAdmin=(d.headAdmin===undefined)?true:!!d.headAdmin;adminsList=d.admins||[];applyRoleUI();
+    try{localStorage.setItem('it_shakh_role_'+String(u.email).toLowerCase(),headAdmin?'head':'added');}catch(e){}
+    render();loadMessages();}
    else if(d&&d.error==='token')reloginMsg('Google sessiyasi eskirgan.');
    else if(d&&d.error==='forbidden')msg('Bu ma\'lumot faqat admin uchun.');
    else msg('Server eski versiyada: Apps Script ni yangilab, "New version" deploy qiling.');
@@ -1563,6 +1590,51 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
  }
  $('sched-toggle').onclick=()=>saveSched(!schedOn);
  $('sched-save').onclick=()=>saveSched();
+ /* ---------- ROL: FAQAT BOSH ADMINGA TEGISHLI BO'LIMLARNI KO'RSATISH/YASHIRISH ---------- */
+ function applyRoleUI(){
+  ['us-ad-lock','us-ad-vpn'].forEach(id=>{const b=$(id);if(b)b.style.display=headAdmin?'':'none';});
+  ['ip-card','sched-card','admins-card'].forEach(id=>{const c=$(id);if(c)c.style.display=headAdmin?'':'none';});
+  if(headAdmin)renderAdminsList();
+ }
+ /* ---------- QO'SHIMCHA ADMINLAR (FAQAT bosh admin ko'radi/boshqaradi) ---------- */
+ function renderAdminsList(){
+  const el=$('admins-list');if(!el)return;
+  if(!adminsList.length){el.innerHTML='<div class="us-ad-empty">Qo\'shimcha admin yo\'q.</div>';return;}
+  el.innerHTML=adminsList.map(x=>'<div class="ip-item"><span>'+esc(x.email)+'</span><button type="button" class="admin-rm" data-email="'+esc(x.email)+'">✕ Olib tashlash</button></div>').join('');
+ }
+ function addAdminEmail(email){
+  const u=getGoogleUser();if(!u||!u.credential)return;
+  email=String(email||'').trim().toLowerCase();
+  if(!email||email.indexOf('@')<1){$('admin-add-msg').textContent='To\'g\'ri email kiriting.';return;}
+  $('admin-add-btn').disabled=true;$('admin-add-msg').textContent='Yuborilmoqda...';
+  jsonp('action=addadmin&email='+encodeURIComponent(email)+'&credential='+encodeURIComponent(u.credential),d=>{
+   $('admin-add-btn').disabled=false;
+   if(d&&d.ok&&d.done==='addadmin'){$('admin-add-msg').textContent='';$('admin-add-input').value='';
+    if(!adminsList.some(x=>x.email===email))adminsList.unshift({email:email,addedAt:new Date().toISOString()});
+    renderAdminsList();const r=all.find(x=>x.email===email);if(r){r.isAdmin=true;render();}}
+   else if(d&&d.error==='self')$('admin-add-msg').textContent='Bu email allaqachon bosh admin.';
+   else if(d&&d.error==='bad')$('admin-add-msg').textContent='Email noto\'g\'ri.';
+   else if(d&&d.error==='forbidden')$('admin-add-msg').textContent='Faqat bosh admin admin qo\'sha oladi.';
+   else if(d&&d.ok&&!d.done)$('admin-add-msg').textContent='⚠ Apps Script yangilanmagan — "New version" deploy qiling.';
+   else $('admin-add-msg').textContent='Bajarilmadi. Qayta urinib ko\'ring.';
+  },()=>{$('admin-add-btn').disabled=false;$('admin-add-msg').textContent='Server bilan aloqa yo\'q.';});
+ }
+ const adminAddBtn=$('admin-add-btn');
+ if(adminAddBtn)adminAddBtn.onclick=()=>addAdminEmail($('admin-add-input').value);
+ const adminAddInput=$('admin-add-input');
+ if(adminAddInput)adminAddInput.addEventListener('keydown',e=>{if(e.key==='Enter')addAdminEmail(adminAddInput.value);});
+ const adminsListEl=$('admins-list');
+ if(adminsListEl)adminsListEl.addEventListener('click',e=>{
+  const b=e.target.closest('.admin-rm');if(!b)return;
+  const email=b.dataset.email,u=getGoogleUser();if(!u||!u.credential)return;
+  if(!confirm(email+' admin huquqidan olib tashlansinmi? U keyin oddiy foydalanuvchiga aylanadi.'))return;
+  b.disabled=true;b.textContent='...';
+  jsonp('action=removeadmin&email='+encodeURIComponent(email)+'&credential='+encodeURIComponent(u.credential),d=>{
+   if(d&&d.ok&&d.done==='removeadmin'){adminsList=adminsList.filter(x=>x.email!==email);renderAdminsList();
+    const r=all.find(x=>x.email===email);if(r){r.isAdmin=false;render();}}
+   else{b.disabled=false;b.textContent='✕ Olib tashlash';}
+  },()=>{b.disabled=false;b.textContent='✕ Olib tashlash';});
+ });
  /* ---------- ADMINGA XABARLAR ---------- */
  function renderMessages(){
   const list=$('msg-list'),badge=$('msg-badge');if(!list)return;
@@ -1620,7 +1692,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    },()=>{rb.disabled=false;ta.disabled=false;rm.textContent='Server bilan aloqa yo\'q.';});
   }
  });
- function headTag(r){if(isBlk(r))return '<span class="us-blkTag">🚫 bloklangan</span>';if(r.ipBlocked)return '<span class="us-ipTag">🌐 IP bloklangan</span>';return isOn(r)?'<span class="us-on">● online</span>':'';}
+ function headTag(r){if(r.isAdmin)return '<span class="us-admTag">👑 admin</span>';if(isBlk(r))return '<span class="us-blkTag">🚫 bloklangan</span>';if(r.ipBlocked)return '<span class="us-ipTag">🌐 IP bloklangan</span>';return isOn(r)?'<span class="us-on">● online</span>':'';}
  function openUser(email){
   const r=all.find(x=>x.email===email);if(!r)return;
   $('us-mhead').innerHTML=`<div class="us-mtitle"><img src="${r.picture?esc(r.picture):'logo.png'}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='logo.png';"><div><b>${esc(r.name)} ${headTag(r)}</b><span>${esc(r.email)}</span></div></div>`;
@@ -1641,7 +1713,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    $('us-mhist').innerHTML=h.length?h.map(x=>`<tr><td>${esc(fmt(x.time))}</td><td>${esc(x.ip||'–')}</td><td>${esc(where(x))}</td><td>${esc(x.device||'–')}</td><td>${esc([x.browser,x.os].filter(Boolean).join(' / ')||'–')}</td><td>${esc(vpnTxt(x)||'–')}</td><td>${esc(val('ref',x)||'–')}</td></tr>`).join(''):'<tr><td colspan="7" class="us-ad-empty">Tarix yo\'q.</td></tr>';
   },t=>{$('us-mhist').innerHTML='<tr><td colspan="7" class="us-ad-empty">'+esc(t)+'</td></tr>';});
  }
- function isSelf(r){return String(r.email||'').toLowerCase()===USERS_ADMIN;}
+ function isSelf(r){return !!r.isAdmin;} // bosh YOKI qo'shimcha admin qatori — bloklash tugmasi ko'rsatilmaydi
  function renderBlockBtn(r){
   if(isSelf(r)){$('us-mblock').innerHTML='';return;}
   const blk=isBlk(r);
@@ -1925,6 +1997,9 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   // tokenli bloklangan foydalanuvchi tekshiruvdan abadiy chetlanib, saytdan erkin foydalanaverardi.
   const valid=expMs(u.credential)>Date.now()+10000;
   checking=true;const r=await api({action:valid?'me':'blockstat',credential:u.credential},9000);checking=false;
+  // QO'SHIMCHA ADMIN ANIQLASH: bu so'rov baribir har ~5s'da yuborilib turadi — shu javobdan foydalanib,
+  // "men qo'shimcha adminmanmi?" keshini ham shu yerda yangilaymiz (admin panelining o'zi shu keshni o'qiydi).
+  if(r&&r.ok){try{localStorage.setItem('it_shakh_role_'+String(u.email).toLowerCase(),r.headAdmin?'head':(r.admin?'added':''));}catch(e){}}
   if(r&&r.ok&&r.blocked){try{localStorage.setItem(blkKey(u),'1')}catch(e){}return show();}
   if(r&&r.ok&&!r.blocked){try{localStorage.removeItem(blkKey(u))}catch(e){}if(showing)return hide();return;} // blokdan chiqarilgan bo'lsa ekran avtomatik olib tashlanadi
   // r=null (tarmoq xatosi/javob kelmadi): keshlangan holatga tegmaymiz — bloklangan ekan deb bilib, ochiq qoldiramiz.
@@ -1941,7 +2016,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
  const $=id=>document.getElementById(id);
  const btn=$('contact-admin-open');if(!btn)return;
  let busy=false;
- function isAdm(){const u=getGoogleUser();return !!(u&&String(u.email||'').toLowerCase()===USERS_ADMIN);}
+ function isAdm(){return isAdmin();} // bosh YOKI qo'shimcha admin — o'ziga xabar yozish tugmasi ko'rsatilmaydi
  function syncBtn(){btn.style.display=isAdm()?'none':'';} // admin akkauntiga bu tugma umuman ko'rinmaydi
  syncBtn();setInterval(syncBtn,2000);
  function expMs(c){try{return JSON.parse(atob(c.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000}catch(e){return 0}}
@@ -2015,7 +2090,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
  async function tick(){
   if(showing||checking||!USERS_API_URL)return;
   const u=me();if(!u||!u.credential)return;
-  if(String(u.email||'').toLowerCase()===USERS_ADMIN)return; // admin uchun bu oyna chiqmaydi
+  if(isAdmin())return; // bosh YOKI qo'shimcha admin uchun bu oyna chiqmaydi
   if($('google-login-screen')||$('pf-modal')||$('bk-modal'))return; // boshqa majburiy oynalar ustun turadi
   if(expMs(u.credential)<Date.now()+10000)return; // sessiya eskirgan — yangi so'rov yubormaymiz
   checking=true;const r=await api({action:'myreplies',credential:u.credential},9000);checking=false;
