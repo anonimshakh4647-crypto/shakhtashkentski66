@@ -403,14 +403,21 @@ syncUI();updateSummary();
   if(checking||isAdmin())return;
   checking=true;
   var u=getUser(),credOk=!!(u&&u.email&&u.credential);
+  // XAVFSIZLIK (reload bilan aylanib o'tishning oldini olish): sayt bloki yoki shu foydalanuvchining bloki
+  // oldin keshlangan bo'lsa, serverdan javob kelgunga QADAR HAM tegishli ekran DARHOL ko'rsatiladi.
+  var cachedLock=false;try{cachedLock=localStorage.getItem('it_shakh_sitelock_flag')==='1';}catch(e){}
+  if(cachedLock&&!showingLock)showLock();
+  var blkKey=credOk?('it_shakh_blk_'+String(u.email).toLowerCase()):null;
+  var cachedBlk=false;if(blkKey){try{cachedBlk=localStorage.getItem(blkKey)==='1';}catch(e){}}
+  if(cachedBlk&&!showingBlock)showBlock();
   var p1=api({action:'sitestat'},9000);
   var p2=credOk?api({action:(expMs(u.credential)>Date.now()+10000?'me':'blockstat'),credential:u.credential},9000):Promise.resolve(null);
   Promise.all([p1,p2]).then(function(res){checking=false;
    var r=res[0],rb=res[1];
-   if(r&&r.ok&&r.locked)return showLock();
-   if(r&&r.ok&&!r.locked&&showingLock)hideLock();
-   if(rb&&rb.ok&&rb.blocked)return showBlock();
-   if(rb&&rb.ok&&!rb.blocked&&showingBlock)hideBlock();
+   if(r&&r.ok&&r.locked){try{localStorage.setItem('it_shakh_sitelock_flag','1')}catch(e){}return showLock();}
+   if(r&&r.ok&&!r.locked){try{localStorage.removeItem('it_shakh_sitelock_flag')}catch(e){}if(showingLock)hideLock();}
+   if(rb&&rb.ok&&rb.blocked){if(blkKey){try{localStorage.setItem(blkKey,'1')}catch(e){}}return showBlock();}
+   if(rb&&rb.ok&&!rb.blocked){if(blkKey){try{localStorage.removeItem(blkKey)}catch(e){}}if(showingBlock)hideBlock();}
    if(r&&r.ok&&r.vpnBlock){
     if(vpnFlag===null||Date.now()-vpnCheckedAt>120000){
      checkVpn().then(function(v){vpnFlag=v;vpnCheckedAt=Date.now();

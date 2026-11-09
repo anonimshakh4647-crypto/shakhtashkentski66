@@ -1908,19 +1908,26 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   document.body.appendChild(d);document.body.style.overflow='hidden';
  }
  function hide(){const d=$('bk-modal');if(!d)return;d.remove();showing=false;document.body.style.overflow=$('pf-modal')?'hidden':'';}
+ function blkKey(u){return 'it_shakh_blk_'+String((u&&u.email)||'').toLowerCase();}
  async function tick(){
   if(checking||!USERS_API_URL)return;
   const u=me();if(!u||!u.email||!u.credential)return;
   if(String(u.email).toLowerCase()===USERS_ADMIN)return; // admin hech qachon tekshirilmaydi, hech qachon bloklanmaydi
   if($('google-login-screen'))return;
+  // XAVFSIZLIK (reload bilan aylanib o'tishning oldini olish): oldin bloklangani keshlangan bo'lsa, serverdan
+  // javob kelgunga QADAR HAM ekran DARHOL ko'rsatiladi — shunda reload qilib asosiy tarkibni ko'rish imkoni
+  // bo'lmaydi. Blokdan chiqarilgan bo'lsa, haqiqiy javob kelgach avtomatik yopiladi (pastda).
+  let cached=false;try{cached=localStorage.getItem(blkKey(u))==='1';}catch(e){}
+  if(cached&&!showing)show();
   // MUHIM: Google tokeni ~1 soatda eskiradi, lekin sayt o'zi localStorage'dagi "kirgan" holatni shu muddatdan
   // qat'i nazar ko'rsataveradi. Shuning uchun token eskirgan bo'lsa ham bloklashni tekshirish davom etadi —
   // faqat 'blockstat' orqali (tokenni Google'da tasdiqlamay, ichidagi email'ni o'qib). Aks holda eskirgan
   // tokenli bloklangan foydalanuvchi tekshiruvdan abadiy chetlanib, saytdan erkin foydalanaverardi.
   const valid=expMs(u.credential)>Date.now()+10000;
   checking=true;const r=await api({action:valid?'me':'blockstat',credential:u.credential},9000);checking=false;
-  if(r&&r.ok&&r.blocked)return show();
-  if(r&&r.ok&&!r.blocked&&showing)return hide(); // blokdan chiqarilgan bo'lsa ekran avtomatik olib tashlanadi
+  if(r&&r.ok&&r.blocked){try{localStorage.setItem(blkKey(u),'1')}catch(e){}return show();}
+  if(r&&r.ok&&!r.blocked){try{localStorage.removeItem(blkKey(u))}catch(e){}if(showing)return hide();return;} // blokdan chiqarilgan bo'lsa ekran avtomatik olib tashlanadi
+  // r=null (tarmoq xatosi/javob kelmadi): keshlangan holatga tegmaymiz — bloklangan ekan deb bilib, ochiq qoldiramiz.
  }
  setTimeout(tick,300);setInterval(tick,5000);
 })();
@@ -2065,9 +2072,15 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   const u=me();
   if(u&&u.email&&String(u.email).toLowerCase()===USERS_ADMIN)return; // admin hech qachon bloklanmaydi
   if($('google-login-screen'))return; // login ekranida hali hech narsa ko'rsatilmaydi
+  // XAVFSIZLIK (reload bilan aylanib o'tishning oldini olish): sayt oldin bloklangani keshlangan bo'lsa,
+  // serverdan javob kelgunga QADAR HAM "Sayt vaqtincha yopiq" ekrani DARHOL ko'rsatiladi. Sayt haqiqatan
+  // ochilgan bo'lsa, haqiqiy javob kelgach avtomatik yopiladi (pastda).
+  let cachedLock=false;try{cachedLock=localStorage.getItem('it_shakh_sitelock_flag')==='1';}catch(e){}
+  if(cachedLock&&!showingLock)showLock();
   checking=true;const r=await api({action:'sitestat'},9000);checking=false;
-  if(r&&r.ok&&r.locked)return showLock();
-  if(r&&r.ok&&!r.locked&&showingLock)hideLock();
+  if(r&&r.ok&&r.locked){try{localStorage.setItem('it_shakh_sitelock_flag','1')}catch(e){}return showLock();}
+  if(r&&r.ok&&!r.locked){try{localStorage.removeItem('it_shakh_sitelock_flag')}catch(e){}if(showingLock)hideLock();}
+  // r=null (tarmoq xatosi): keshlangan holatga tegmaymiz — sayt bloklangan ekan deb bilib, ochiq qoldiramiz.
   if(r&&r.ok&&r.vpnBlock){
    if(vpnFlag===null||Date.now()-vpnCheckedAt>120000){vpnFlag=await checkVpn();vpnCheckedAt=Date.now();}
    if(vpnFlag===true)return showVpn();
