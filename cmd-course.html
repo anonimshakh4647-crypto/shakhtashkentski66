@@ -5720,45 +5720,63 @@ function showCert(){
 </script>
 <!-- IT-SHAKH-SITELOCK -->
 <style>
-#sl-modal,#vb-modal{position:fixed;inset:0;z-index:2147483647;background:rgba(2,6,14,.96);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit}
+#sl-modal,#vb-modal,#bk-modal{position:fixed;inset:0;z-index:2147483647;background:rgba(2,6,14,.96);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit}
 .sl-box{width:min(440px,100%);background:#06101c;border:1px solid rgba(31,214,245,.4);border-radius:16px;padding:28px 24px;box-shadow:0 0 60px rgba(31,214,245,.25);text-align:center;box-sizing:border-box}
 .sl-ic{font-size:42px}
 .sl-box h2{margin:8px 0 10px;font-size:21px;color:#1fd6f5;font-family:inherit}
 .sl-box p{margin:0;font-size:13px;line-height:1.55;color:#cbd5e1;font-family:inherit}
+#bk-modal{background:rgba(10,2,4,.94)}
+.bk-box{width:min(440px,100%);background:#1a0608;border:1px solid rgba(248,113,113,.5);border-radius:16px;padding:28px 24px;box-shadow:0 0 60px rgba(248,113,113,.25);text-align:center;box-sizing:border-box;font-family:inherit}
+.bk-ic{font-size:42px}
+.bk-box h2{margin:8px 0 10px;font-size:21px;color:#f87171;font-family:inherit}
+.bk-box p{margin:0 0 10px;font-size:13px;line-height:1.55;color:#cbd5e1;font-family:inherit}
+.bk-box .bk-sub{color:#94a3b8;font-size:12px;margin:0}
 </style>
 <script>
-/* ===== SAYTNI TO'LIQ BLOKLASH + VPN TAQIQLASH — TOOLS sahifalari uchun =====
-   index.html dagi admin panelidan "SAYTNI BLOKLASH" yoki "VPN TAQIQLASH" yoqilsa,
-   bu tekshiruv shu asbob sahifasida ham ishlaydi — ADMIN_EMAIL'dan boshqa hech kim
-   to'g'ridan-to'g'ri havola orqali ham asbobdan foydalana olmaydi (sayt bloklanganda),
-   yoki VPN/proksi/datacenter orqali kirgan bo'lsa foydalana olmaydi (VPN taqiqlanganda).
-   Hech qanday Google token/kredensial talab qilinmaydi — shuning uchun sessiya holatidan qat'i nazar ishlaydi. */
+/* ===== SAYTNI TO'LIQ BLOKLASH + VPN TAQIQLASH + FOYDALANUVCHINI BLOKLASH — TOOLS sahifalari uchun =====
+   index.html dagi admin panelidan "SAYTNI BLOKLASH" yoki "VPN TAQIQLASH" yoqilsa, yoki ma'lum bir foydalanuvchi
+   akkaunti (email yoki uning IP manzili orqali) bloklansa — bu tekshiruv shu asbob sahifasida ham ishlaydi.
+   Foydalanuvchini bloklash tekshiruvi FAQAT tizimga kirgan (Google orqali) foydalanuvchilar uchun ishlaydi —
+   index.html'dagi xuddi shu cheklov bilan bir xil (kirmagan mehmon uchun bu tekshiruv ishlamaydi).
+   ADMIN_EMAIL hech qachon tekshirilmaydi/bloklanmaydi. Hech qanday Google token talab qilinmaydi (sayt bloklash
+   va VPN taqiqlash ommaviy tekshiruv) — faqat foydalanuvchi bloki uchun localStorage'dagi kredensial ishlatiladi. */
 (function(){
  var USERS_API_URL='https://script.google.com/macros/s/AKfycbyGcZgnnp91p19OhUVCep3zh_Izw9Day-jQaveO0rYVX7cK0F_y9yZaSHJ-qdMUZzhiBA/exec';
  var ADMIN='anonimshakh4647@gmail.com';
- var showingLock=false,showingVpn=false,checking=false,vpnFlag=null,vpnCheckedAt=0;
+ var showingLock=false,showingVpn=false,showingBlock=false,checking=false,vpnFlag=null,vpnCheckedAt=0;
  function getUser(){try{return JSON.parse(localStorage.getItem('it_shakh_google_user')||'null')}catch(e){return null}}
  function isAdmin(){var u=getUser();return !!(u&&String(u.email||'').toLowerCase()===ADMIN);}
- function api(ms){return new Promise(function(res){
+ function expMs(c){try{return JSON.parse(atob(c.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000}catch(e){return 0}}
+ function api(params,ms){return new Promise(function(res){
   var cb='sl2_cb_'+Date.now()+'_'+Math.floor(Math.random()*1e6),sc=document.createElement('script'),done=false;
   var fin=function(v){if(done)return;done=true;try{delete window[cb]}catch(e){window[cb]=undefined}sc.parentNode&&sc.remove();res(v);};
   window[cb]=fin;sc.onerror=function(){fin(null)};setTimeout(function(){fin(null)},ms||9000);
-  sc.src=USERS_API_URL+'?action=sitestat&callback='+cb+'&_='+Date.now();document.head.appendChild(sc);});}
+  var qs='';for(var k in params){if(params[k]==null)continue;qs+=(qs?'&':'')+k+'='+encodeURIComponent(params[k]);}
+  sc.src=USERS_API_URL+'?'+qs+'&callback='+cb+'&_='+Date.now();document.head.appendChild(sc);});}
  function showLock(){
   if(showingLock||document.getElementById('sl-modal'))return;showingLock=true;
-  var vb=document.getElementById('vb-modal');if(vb)vb.remove();showingVpn=false;
+  ['vb-modal','bk-modal'].forEach(function(id){var m=document.getElementById(id);if(m)m.remove();});
+  showingVpn=false;showingBlock=false;
   var d=document.createElement('div');d.id='sl-modal';
   d.innerHTML='<div class="sl-box"><div class="sl-ic">🛠️</div><h2>Sayt vaqtincha yopiq</h2><p>Hozirda saytda texnik ishlar olib borilmoqda. Iltimos, birozdan so‘ng qayta urinib ko‘ring.</p></div>';
   document.body.appendChild(d);document.body.style.overflow='hidden';
  }
- function hideLock(){var d=document.getElementById('sl-modal');if(!d)return;d.remove();showingLock=false;document.body.style.overflow=showingVpn?'hidden':'';}
+ function hideLock(){var d=document.getElementById('sl-modal');if(!d)return;d.remove();showingLock=false;document.body.style.overflow=(showingVpn||showingBlock)?'hidden':'';}
+ function showBlock(){
+  if(showingBlock||showingLock||document.getElementById('bk-modal'))return;showingBlock=true;
+  var vb=document.getElementById('vb-modal');if(vb)vb.remove();showingVpn=false;
+  var d=document.createElement('div');d.id='bk-modal';
+  d.innerHTML='<div class="bk-box"><div class="bk-ic">🚫</div><h2>Akkauntingiz bloklangan</h2><p>Qoidabuzarlik yoki shubhali faoliyat tufayli ushbu akkaunt uchun saytdan foydalanish to‘xtatildi.</p><p class="bk-sub">Bu xato deb hisoblasangiz, administrator bilan bog‘laning.</p></div>';
+  document.body.appendChild(d);document.body.style.overflow='hidden';
+ }
+ function hideBlock(){var d=document.getElementById('bk-modal');if(!d)return;d.remove();showingBlock=false;document.body.style.overflow=(showingLock||showingVpn)?'hidden':'';}
  function showVpn(){
-  if(showingVpn||showingLock||document.getElementById('vb-modal'))return;showingVpn=true;
+  if(showingVpn||showingLock||showingBlock||document.getElementById('vb-modal'))return;showingVpn=true;
   var d=document.createElement('div');d.id='vb-modal';
   d.innerHTML='<div class="sl-box"><div class="sl-ic">🛡️</div><h2>VPN/Proksi orqali kirish taqiqlangan</h2><p>Saytdan foydalanish uchun VPN yoki proksi dasturini o‘chirib, sahifani qayta yuklang.</p></div>';
   document.body.appendChild(d);document.body.style.overflow='hidden';
  }
- function hideVpn(){var d=document.getElementById('vb-modal');if(!d)return;d.remove();showingVpn=false;document.body.style.overflow=showingLock?'hidden':'';}
+ function hideVpn(){var d=document.getElementById('vb-modal');if(!d)return;d.remove();showingVpn=false;document.body.style.overflow=(showingLock||showingBlock)?'hidden':'';}
  function checkVpn(){
   return new Promise(function(res){
    var c=(typeof AbortController!=='undefined')?new AbortController():null,t=setTimeout(function(){if(c)c.abort();},5000);
@@ -5772,9 +5790,16 @@ function showCert(){
  }
  function tick(){
   if(checking||isAdmin())return;
-  checking=true;api(9000).then(function(r){checking=false;
+  checking=true;
+  var u=getUser(),credOk=!!(u&&u.email&&u.credential);
+  var p1=api({action:'sitestat'},9000);
+  var p2=credOk?api({action:(expMs(u.credential)>Date.now()+10000?'me':'blockstat'),credential:u.credential},9000):Promise.resolve(null);
+  Promise.all([p1,p2]).then(function(res){checking=false;
+   var r=res[0],rb=res[1];
    if(r&&r.ok&&r.locked)return showLock();
    if(r&&r.ok&&!r.locked&&showingLock)hideLock();
+   if(rb&&rb.ok&&rb.blocked)return showBlock();
+   if(rb&&rb.ok&&!rb.blocked&&showingBlock)hideBlock();
    if(r&&r.ok&&r.vpnBlock){
     if(vpnFlag===null||Date.now()-vpnCheckedAt>120000){
      checkVpn().then(function(v){vpnFlag=v;vpnCheckedAt=Date.now();
