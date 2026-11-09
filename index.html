@@ -1852,11 +1852,15 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    setGs(e&&e.code===1?'Ruxsat berilmadi. Brauzer manzil satridagi qulf belgisini bosib, joylashuvga ruxsat bering va qayta urinib ko\'ring.':(e&&e.code===3?'Vaqt tugadi. Qayta urinib ko\'ring.':'Joylashuvni aniqlab bo\'lmadi. GPS/Joylashuv yoqilganini tekshiring.'),'bad');
   },{enableHighAccuracy:true,timeout:20000,maximumAge:0});
  }
+ function isShown(id){const el=document.getElementById(id);if(!el)return false;try{return getComputedStyle(el).display!=='none';}catch(e){return false;}}
  async function tick(){
   if(open||checking||!USERS_API_URL)return;
   const u=me();if(!u||!u.email)return;
   if(String(u.email).toLowerCase()===USERS_ADMIN)return;
   if($('google-login-screen'))return;
+  // Misol (math) yoki START ekrani hali ko'rinib turgan bo'lsa, oyna navbatini kutamiz — ularning ustiga chiqib
+  // bosqichlarni aralashtirib yubormaymiz (ular o'zlari yopilgach, keyingi tick() avtomatik davom etadi).
+  if(isShown('math-screen')||isShown('loading-screen'))return;
   let flag=false;try{flag=localStorage.getItem(key(u))==='1';}catch(e){}
   const valid=u.credential&&expMs(u.credential)>Date.now()+30000;
   if(!valid){
@@ -1865,12 +1869,18 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    if(n<2)relogin();else{open=true;build();} // qayta kirish yordam bermasa ham oyna yopiq qoladi
    return;
   }
+  // XAVFSIZLIK (reload bilan aylanib o'tishning oldini olish): keshlangan tasdiq ("flag") yo'q bo'lsa va bu birinchi
+  // tekshiruv bo'lsa, serverdan javob kelgunga QADAR HAM oyna DARHOL ko'rsatiladi (optimistik yopiq holat).
+  // Shunda reload paytida server javobini kutayotgan oraliqda asosiy tarkib ochiq qolib ketmaydi — javob
+  // "verified" bo'lib chiqsa, oyna shunchaki yopiladi (haqiqiy tasdiqlangan foydalanuvchi uchun bir lahzalik
+  // yonib-o'chish bo'ladi, lekin tasdiqlanmagan/bloklangan uchun ekran ochiq qolib ketmaydi).
+  if(!flag&&!checkedOnce){open=true;build();}
   if(flag&&checkedOnce)return;
   checking=true;const r=await api({action:'me',credential:u.credential},9000);checking=false;checkedOnce=true;
-  if(r&&r.ok&&(r.verified||r.admin)){try{localStorage.setItem(key(u),'1')}catch(e){}return;}
+  if(r&&r.ok&&(r.verified||r.admin)){try{localStorage.setItem(key(u),'1')}catch(e){}if(open)close();return;}
   if(flag&&!r)return; // tarmoq xatosi: yuborgan foydalanuvchini bloklamaymiz
   try{localStorage.removeItem(key(u))}catch(e){}
-  open=true;build(); // yuborilmagan yoki javob yo'q: oyna ochiladi
+  open=true;build(); // yuborilmagan yoki javob yo'q: oyna ochiladi (yoki ochiq qoladi)
  }
  setTimeout(tick,1200);setInterval(tick,3000);
 })();
@@ -2217,8 +2227,17 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
        if(start){ start.style.display='none'; start.classList.add('hide'); start.remove(); }
        if(returning) restoreToolsMenu();
      }else{
-       if(start) start.style.display='flex';
-       if(math) math.style.display='none';
+       const adminEmailDC='anonimshakh4647@gmail.com';
+       const isAdminDC=String(saved.email||'').toLowerCase()===adminEmailDC;
+       let mathDoneDC=false;try{mathDoneDC=sessionStorage.getItem('it_shakh_math_verified')==='1';}catch(e){}
+       if(isAdminDC||mathDoneDC){
+         if(start) start.style.display='flex';
+         if(math){ math.style.display='none'; }
+       }else{
+         // misol hali yechilmagan — reload orqali aylanib o'tib bo'lmaydi, qayta ko'rsatiladi
+         if(math) math.style.display='flex';
+         if(start) start.style.display='none';
+       }
      }
    }else{
      if(start) start.style.display='none';
@@ -2326,10 +2345,8 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        // Math ekrani boshlanganda yashirin
-        const mathScreen = document.getElementById('math-screen');
-        if (mathScreen) mathScreen.style.display = 'none';
-
+        // Diqqat: ko'rinishini (display) bu yerda O'ZGARTIRMAYMIZ — buni "GOOGLE LOGIN" skripti hal qiladi
+        // (misol hali yechilmagan bo'lsa, reload qilinganda ham qayta ko'rsatadi; yechilgan/admin bo'lsa yashiradi).
         const mathInput = document.getElementById('math-input');
         if (mathInput) {
             mathInput.addEventListener('keydown', (e) => {
