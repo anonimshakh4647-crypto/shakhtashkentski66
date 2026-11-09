@@ -340,7 +340,20 @@ function readGeometry(rr,g){
   }
   const idx=new Uint16Array(icount),idv=rr.bytes(ip,icount*2),idd=new DataView(idv.buffer,idv.byteOffset,idv.byteLength);
   for(let i=0;i<icount;i++)idx[i]=idd.getUint16(i*2,true);
-  return{vcount,pos,nrm:hasN?nrm:null,uv:hasUV?uv:null,col:hasC?col:null,idx,decl:'0x'+types[1].toString(16)+types[0].toString(16).padStart(8,'0')};
+  // Real GTA V vehicles pack MANY body panels (doors/bonnet/boot/bumpers/lights/etc.) as separate
+  // Geometries inside ONE skinned DrawableModel. Each panel is rigidly bound to exactly one
+  // skeleton bone via the standard blendweight(comp1)/blendindex(comp2) vertex components, NOT via
+  // the model-level "bone" byte (which readModels() currently uses, and which is meaningless for a
+  // skinned model). Decode vertex 0's dominant bone here so readModels() can split panels correctly
+  // instead of merging the whole car into one "chassis" mesh.
+  let rigidBone=null;
+  const wC=comps[1],iC=comps[2];
+  if(wC&&iC&&wC.ty===9&&iC.ty===9){
+    let maxW=-1,maxS=0;
+    for(let s=0;s<4;s++){const wv=vd[wC.off+s];if(wv>maxW){maxW=wv;maxS=s;}}
+    rigidBone=vd[iC.off+maxS];
+  }
+  return{vcount,pos,nrm:hasN?nrm:null,uv:hasUV?uv:null,col:hasC?col:null,idx,decl:'0x'+types[1].toString(16)+types[0].toString(16).padStart(8,'0'),rigidBone};
 }
 function readModels(rr,hdrPtr){
   const out=[];if(!hdrPtr)return out;
@@ -349,14 +362,19 @@ function readModels(rr,hdrPtr){
   for(let i=0;i<Math.max(cnt,0)&&i<(cap||cnt);i++){
     const mp=rr.ptr(arr+i*8);if(!mp)continue;
     const gp=rr.ptr(mp+8),gc=rr.u16(mp+0x10),sm=rr.ptr(mp+0x20),sb=rr.u32(mp+0x28);
-    const geoms=[];
+    const modelBone=(sb>>>24)&255,skinned=((sb>>>8)&255)>0;
+    // See readGeometry(): a skinned model's geometries can each carry their own real bone
+    // (rigidBone). Group by that when available so doors/bonnet/boot/bumpers/etc. stay separate
+    // parts; fall back to the model-level bone for anything that isn't a decodable rigid panel.
+    const byBone=new Map();
     for(let k=0;k<gc;k++){
       const gptr=rr.ptr(gp+k*8);if(!gptr)continue;
       let geo=null;try{geo=readGeometry(rr,gptr);}catch(e){geo={error:e.message};}
-      if(geo&&!geo.error){geo.shader=sm?rr.u16(sm+k*2):0;geoms.push(geo);}
-      else if(geo&&geo.error)geoms.push(geo);
+      if(geo&&!geo.error)geo.shader=sm?rr.u16(sm+k*2):0;
+      const bone=(skinned&&geo&&!geo.error&&geo.rigidBone!=null)?geo.rigidBone:modelBone;
+      const list=byBone.get(bone)||[];list.push(geo);byBone.set(bone,list);
     }
-    out.push({geoms,bone:(sb>>>24)&255,skinned:((sb>>>8)&255)>0});
+    for(const[bone,geoms]of byBone)out.push({geoms,bone,skinned});
   }
   return out;
 }
