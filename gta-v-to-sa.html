@@ -1765,8 +1765,18 @@ function convertToSA(model,texLookup,opts){
     const bb=bboxOf(xms);wheelDiam=Math.max(bb.mx[1]-bb.mn[1],bb.mx[2]-bb.mn[2]);
     report.info.push('G‘ildirak diametri ≈ '+wheelDiam.toFixed(2)+' m ('+w.p.name+' asos qilib olindi)');
   }
-  if(wheelSpecs){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',0,[0,0,0]);addGeoms(wf,wheelSpecs);}
-  for(const sa of want){const wp=wheelPos[sa];if(!wp)continue;addFrame(sa+'_dummy',0,[wp.W[12],wp.W[13],wp.W[14]]);}
+  // Avval 4 ta wheel_xx_dummy freymni (joylari bilan) yaratamiz, KEYIN bitta umumiy "wheel"
+  // geometriya freymini -- haqiqiy ishlaydigan SA faylida (huntley.dff) bo'lgani kabi -- ANIQ
+  // bitta g'ildirak dummy'sining BOLASI qilib qo'shamiz (pos=[0,0,0], chunki joylashuv endi
+  // ota freymdan avtomatik keladi). Avval "wheel" ildizga ([0,0,0], ya'ni chassis markaziga)
+  // bog'langan edi -- shu sabab g'ildirak modeli mashina MARKAZIDA (kabina ichida) chiqib,
+  // 4 burchakda esa umuman ko'rinmas edi. Bu farq haqiqiy ishlaydigan fayl bilan bayt
+  // darajasida solishtirib (frame[wheel].parent === frame[wheel_rf_dummy].index) topildi.
+  const dummyIdx={};
+  for(const sa of want){const wp=wheelPos[sa];if(!wp)continue;dummyIdx[sa]=addFrame(sa+'_dummy',0,[wp.W[12],wp.W[13],wp.W[14]]);}
+  const wheelParentSa=['wheel_rf','wheel_lf','wheel_rb','wheel_lb','wheel_lm','wheel_rm'].find(k=>dummyIdx[k]!=null);
+  if(wheelSpecs&&wheelParentSa!=null){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',dummyIdx[wheelParentSa],[0,0,0]);addGeoms(wf,wheelSpecs);}
+  else if(wheelSpecs){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',0,[0,0,0]);addGeoms(wf,wheelSpecs);report.warnings.push('G‘ildirak dummy pozitsiyasi topilmadi — g‘ildirak modeli mashina markazida qolishi mumkin.');}
   if(!want.some(k=>wheelPos[k]))report.warnings.push('G‘ildirak (wheel_*) qismlari/suyaklari topilmadi — g‘ildirak dummylari yaratilmadi.');
   // 3. movable parts
   for(const {p,c} of movs){
