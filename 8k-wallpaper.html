@@ -17,155 +17,264 @@
 <main class="grid" id="grid"></main><div class="status" id="status"></div>
 <div class="modal" id="modal"><button class="close" id="close">✕</button><img id="modalImg" alt="Wallpaper"><div class="modalActions"><button id="pngDownload">PNG YUKLAB OLISH</button></div></div>
 <script>
-const API='https://commons.wikimedia.org/w/api.php';
-const categories=[
-['ALL','Barchasi',['landscape','nature landscape','beautiful scenery','ultra hd landscape']],
-['NATURE','Tabiat',['forest landscape','waterfall landscape','nature landscape','green mountains','sunset landscape']],
-['SPACE','Kosmos',['galaxy nebula','deep space','planet space','milky way','astronomy']],
-['CITY','Shahar',['city skyline','skyscraper city','night city','urban skyline','city lights']],
-['CYBERPUNK','Cyberpunk',['cyberpunk city','cyberpunk art','neon city','futuristic city','cyberpunk neon']],
-['CARS','Avtomobillar',['Ferrari car','Lamborghini car','Porsche car','supercar','sports car','BMW car','Mercedes car']],
-['GAMING','Gaming',['gaming setup','gaming PC','video game setup','gaming room','game console']],
-['ANIME','Anime',['anime art','anime landscape','anime character','Japanese anime art','anime city']],
-['ABSTRACT','Abstract',['abstract art','abstract digital art','geometric abstract','colorful abstract','abstract background']],
-['ANIMALS','Hayvonlar',['wildlife animals','wolf wildlife','tiger wildlife','lion wildlife','eagle wildlife','horse animal']],
-['ARCHITECTURE','Arxitektura',['modern architecture','futuristic architecture','building architecture','interior architecture','skyscraper architecture']],
-['TECH','Texnologiya',['computer technology','artificial intelligence technology','computer hardware','circuit board technology','technology setup']],
-['DARK','Dark',['dark landscape','dark abstract art','black aesthetic','dark architecture','moody landscape']],
-['MINIMAL','Minimal',['minimalist landscape','minimalist architecture','minimalist design','minimal art','minimal background']],
-['FANTASY','Fantasy',['fantasy landscape art','fantasy castle','fantasy forest art','dragon fantasy art','fantasy digital art']],
-['MOUNTAIN','Tog‘lar',['mountain landscape','snow mountain','alpine mountain','mountain lake','mountain peak']],
-['OCEAN','Okean',['ocean landscape','sea waves','beach ocean','underwater ocean','blue ocean']]
+/* =====================================================================================
+   8K WALLPAPER PRO — IT SHAKH
+   Manba: Wikimedia Commons (ochiq, bepul lisenziyali rasmlar arxivi).
+   Ushbu skript quyidagi bo'limlarga ajratilgan:
+     1. KONFIGURATSIYA        — API manzili, bo'limlar va ularning qidiruv iboralari
+     2. HOLAT (STATE)         — joriy bo'lim, sahifalash, "avlod" (race-condition himoyasi)
+     3. DOM BOG'LANISHLAR
+     4. MOSLIK FILTRI         — Commons natijalaridagi aloqasiz/axlat-tur rasmlarni elimanatsiya qilish
+     5. API QATLAMI           — Wikimedia so'rovlarini yuborish
+     6. RENDER                — natijalarni kartochka sifatida chizish
+     7. YUKLASH / SAHIFALASH  — asosiy yuklash sikli (xatolarga chidamli, poyga holatidan himoyalangan)
+     8. INTERFEYS HODISALARI  — qidiruv, tasodifiy, cheksiz skroll
+     9. MODAL + YUKLAB OLISH
+    10. ISHGA TUSHIRISH
+   ===================================================================================== */
+
+/* ---------- 1. KONFIGURATSIYA ---------- */
+const API = 'https://commons.wikimedia.org/w/api.php';
+const MIN_W = 2560, MIN_H = 1440;      // kamida QHD — "Ultra HD" dan pastini ko'rsatmaymiz
+const BATCH_TARGET = 24;               // bir yuklashda nechta karta to'plashga harakat qilamiz
+const MAX_ATTEMPTS = 8;                // bitta load() chaqiruvida nechta API so'rovigacha urinamiz
+
+// Har bir bo'lim: [KOD, O'ZBEKCHA NOM, [qidiruv iboralari ro'yxati]].
+// Iboralar aylanma tartibda ishlatiladi (termIndex) — bitta ibora natija bermasa/kam bo'lsa,
+// keyingisiga o'tiladi, shu orqali bitta bo'lim ichida ham xilma-xillik, ham mavzuga yaqinlik saqlanadi.
+const categories = [
+  ['ALL','Barchasi',['landscape','nature landscape','beautiful scenery','ultra hd landscape']],
+  ['NATURE','Tabiat',['forest landscape','waterfall landscape','nature landscape','green mountains','sunset landscape']],
+  ['SPACE','Kosmos',['galaxy nebula','deep space','planet space','milky way galaxy','astronomy space']],
+  ['CITY','Shahar',['city skyline','skyscraper city','night city','urban skyline','city lights']],
+  ['CYBERPUNK','Cyberpunk',['cyberpunk city','cyberpunk art','neon city night','futuristic city','cyberpunk neon lights']],
+  ['CARS','Avtomobillar',['Ferrari sports car','Lamborghini car','Porsche car','supercar','sports car racing','BMW car','Mercedes car']],
+  ['GAMING','Gaming',['gaming setup','gaming PC','video game screenshot','gaming room','game console']],
+  ['ANIME','Anime',['anime art','anime landscape art','anime character art','Japanese anime art','anime city art']],
+  ['ABSTRACT','Abstract',['abstract art','abstract digital art','geometric abstract art','colorful abstract art','abstract background art']],
+  ['ANIMALS','Hayvonlar',['wildlife animal','wolf wildlife','tiger wildlife','lion wildlife','eagle wildlife','horse animal']],
+  ['ARCHITECTURE','Arxitektura',['modern architecture','futuristic architecture','building architecture','interior architecture','skyscraper architecture']],
+  ['TECH','Texnologiya',['computer technology','artificial intelligence technology','computer hardware','circuit board technology','technology setup']],
+  ['DARK','Dark',['dark landscape','dark abstract art','black aesthetic art','dark architecture','moody landscape']],
+  ['MINIMAL','Minimal',['minimalist landscape','minimalist architecture','minimalist design art','minimal art','minimal background art']],
+  ['FANTASY','Fantasy',['fantasy landscape art','fantasy castle art','fantasy forest art','dragon fantasy art','fantasy digital art']],
+  ['MOUNTAIN','Tog‘lar',['mountain landscape','snow mountain','alpine mountain','mountain lake','mountain peak']],
+  ['OCEAN','Okean',['ocean landscape','sea waves ocean','beach ocean','underwater ocean','blue ocean water']]
 ];
-const cats=document.getElementById('cats'),grid=document.getElementById('grid'),status=document.getElementById('status'),search=document.getElementById('search');
-let active=0,page=0,busy=false,query='',seen=new Set(),continueToken='',termIndex=0,gen=0;
-const MIN_W=2560, MIN_H=1440;
-categories.forEach((c,i)=>{
-let b=document.createElement('button');
-b.className='cat'+(i===0?' active':'');
-b.textContent=c[1];
-b.dataset.q=i;
-b.onclick=()=>{
-document.querySelectorAll('.cat').forEach(x=>x.classList.remove('active'));
-b.classList.add('active');
-active=i; termIndex=0; query=''; search.value=''; load(true)
+
+/* ---------- 2. HOLAT (STATE) ---------- */
+let active = 0;          // joriy tanlangan bo'lim indeksi
+let busy = false;        // hozir yuklanayotgan bo'lsa true (qayta-qayta bosishdan himoya)
+let query = '';          // foydalanuvchi o'zi yozgan erkin qidiruv matni (bo'sh bo'lsa — bo'lim iboralari ishlatiladi)
+let seen = new Set();    // render qilingan pageid'lar — bir xil rasm ikki marta chiqmasligi uchun
+let continueToken = '';  // Wikimedia API "davom ettirish" ko'rsatkichi (sahifalash uchun)
+let termIndex = 0;       // joriy bo'limning qidiruv iboralari ro'yxatidagi joriy pozitsiya
+let gen = 0;             // "avlod" hisoblagichi — poyga holati (race condition) himoyasi uchun
+
+/* ---------- 3. DOM BOG'LANISHLAR ---------- */
+const cats = document.getElementById('cats');
+const grid = document.getElementById('grid');
+const status = document.getElementById('status');
+const search = document.getElementById('search');
+
+categories.forEach((c, i) => {
+  const b = document.createElement('button');
+  b.className = 'cat' + (i === 0 ? ' active' : '');
+  b.textContent = c[1];
+  b.dataset.q = i;
+  b.onclick = () => {
+    document.querySelectorAll('.cat').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    active = i; termIndex = 0; query = ''; search.value = ''; load(true);
+  };
+  cats.appendChild(b);
+});
+
+function esc(s) {
+  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+/* ---------- 4. MOSLIK FILTRI ----------
+   Wikimedia Commons'ning matn qidiruvi ANIQLIK emas, AFFOQALIK (relevance) bo'yicha ishlaydi — ya'ni
+   so'ralgan so'zga uzoqdan bog'liq, hatto umuman aloqasi yo'q fayllarni ham qaytarishi mumkin (masalan
+   "mountain" qidirganda bir davlatning tog'li hududlari haqidagi XARITASI chiqishi mumkin). Shuning uchun
+   serverdan qaytgan HAR BIR natija qo'shimcha ikki bosqichli tekshiruvdan o'tadi:
+     a) JUNK filtri   — wallpaper bo'la olmaydigan fayl turlari (xarita, logotip, diagramma...) chiqariladi
+     b) MOSLIK filtri — fayl nomi VA uning Commons kategoriyalari ichida so'ralgan so'zdan kamida bittasi
+                         borligi tekshiriladi (faqat nomga tayanish yetarli emas, chunki ko'p fayllar
+                         "IMG_2041.jpg" kabi neytral nomga ega bo'lib, mavzusi faqat kategoriyasida yozilgan) */
+// DIQQAT: har bir so'z ANIQ holda (ko'plik shakli bilan birga, lekin "\w*" KABI erkin qo'shimchasiz)
+// mos kelishi tekshiriladi — masalan "map"/"maps" mos keladi, lekin "mapping" mos kelmaydi; "icon"/"icons"
+// mos keladi, lekin "iconic" mos kelmaydi; "crest"/"crests" mos keladi, lekin qush turi "crested eagle"
+// mos kelmaydi; "table"/"tables" mos keladi, lekin "tablet" (texnika kategoriyasi uchun!) mos kelmaydi.
+// Erkin "\w*" qo'shimcha ishlatish katta xato bo'lardi — chunki "graph"+"ic"="graphic" (ABSTRACT bo'limida
+// juda keng tarqalgan so'z!) kabi asliga mutlaqo aloqador BO'LMAGAN, lekin aslida mos keladigan so'zlarni
+// ham noto'g'ri rad etib qo'yardi.
+const JUNK_RE = /\b(maps?|logos?|icons?|flags?|diagrams?|schematics?|charts?|graphs?|infographics?|screenshots?|posters?|stamps?|coins?|banknotes?|emblems?|crests?|coat of arms|certificates?|invoices?|receipts?|documents?|comparisons?|tables?|collages?|montages?|book covers?|album covers?|cd covers?|dvd covers?|wikipedia|wikimedia|commons|svg|logotypes?|symbols?|sign boards?|signage|blueprints?|topographic maps?|location maps?|census)\b/i;
+
+// Wikimedia fayl nomlari/kategoriyalarida bo'sh joy o'rniga "_" ishlatiladi (masalan "Pine_forest.jpg").
+// Regexdagi \b "_" ni harf deb hisoblaydi va so'z chegarasini sezmaydi — shu uchun doim "_" ni bo'sh
+// joyga almashtirib solishtiramiz.
+function normalizeText(s) { return String(s || '').toLowerCase().replace(/_/g, ' '); }
+
+// So'rovdan FAQAT 4+ harfli, mazmunli so'zlarni ajratib olamiz (qisqa bog'lovchilar/artikllar emas).
+function significantWords(term) {
+  return normalizeText(term).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 4);
+}
+
+// title+categories matnidan yasalgan yagona "moslik matni" ichida so'ralgan so'zlardan kamida bittasi
+// (so'z chegarasi bilan, masalan "forest" so'ziga "forestry" ham mos tushadi, lekin "the" mos tushmaydi).
+function isRelevant(matchText, term) {
+  const words = significantWords(term);
+  if (!words.length) return true; // juda qisqa/erkin so'rov — filtrlamaymiz, aks holda hamma narsa rad etiladi
+  const t = normalizeText(matchText);
+  return words.some(w => new RegExp('\\b' + w + '\\w*', 'i').test(t));
+}
+
+// Bitta Commons natijasi (page obyekti) uchun to'liq moslik matnini quradi: fayl nomi + barcha
+// kategoriya nomlari (agar API categories ma'lumotini qaytarsa).
+function buildMatchText(p) {
+  const catNames = (p.categories || []).map(c => String(c.title || '').replace(/^Category:/i, '')).join(' ');
+  return (p.title || '') + ' ' + catNames;
+}
+
+function passesQualityFilters(p, ii) {
+  if (!ii || !/^image\/(jpeg|png|webp)$/i.test(ii.mime || '')) return false;
+  if (ii.width < MIN_W || ii.height < MIN_H) return false;
+  return true;
+}
+
+/* ---------- 5. API QATLAMI ---------- */
+async function apiSearch(offset, catIdx) {
+  const terms = categories[catIdx][2];
+  const rawTerm = query.trim() || terms[termIndex % terms.length];
+  // O'zimiz tanlagan bo'lim iboralarini qo'shtirnoqqa olib ANIQ FRAZA qidiruvi qilamiz (aralash/
+  // bog'liqsiz natijalarni kamaytirish uchun) — foydalanuvchi o'zi yozgan erkin qidiruvga tegmaymiz,
+  // chunki u ko'pincha bitta so'zdan iborat bo'ladi va qo'shtirnoq uni haddan tashqari qisardi.
+  const q = query.trim() || '"' + rawTerm + '"';
+  termIndex++;
+  const params = new URLSearchParams({
+    action: 'query', generator: 'search', gsrsearch: q, gsrnamespace: '6', gsrlimit: '50',
+    prop: 'imageinfo|categories', iiprop: 'url|size|mime', iiurlwidth: '1280',
+    cllimit: '50', clshow: '!hidden', format: 'json', origin: '*'
+  });
+  if (offset) params.set('gsroffset', offset);
+  const r = await fetch(API + '?' + params.toString(), {cache: 'no-store'});
+  if (!r.ok) throw new Error('API ' + r.status);
+  const data = await r.json();
+  if (data.error) throw new Error(data.error.info || data.error.code || 'Server xato qaytardi');
+  return {data, term: rawTerm};
+}
+
+/* ---------- 6. RENDER ---------- */
+function render(items) {
+  const frag = document.createDocumentFragment();
+  items.forEach(x => {
+    if (!x.path || seen.has(x.id)) return;
+    seen.add(x.id);
+    const d = document.createElement('article');
+    d.className = 'card';
+    const tier = (x.width >= 7680 && x.height >= 4320) ? '8K' : ((x.width >= 3840 && x.height >= 2160) ? '4K / Ultra HD' : 'Ultra HD');
+    d.innerHTML = `<img loading="lazy" src="${esc(x.thumb || x.path)}" alt="${esc(x.title || 'Wallpaper')}" onerror="this.closest('.card').remove()"><button class="open">⛶</button><div class="meta"><span>${tier}</span><span>${esc(x.category || 'Wallpaper')}</span></div>`;
+    d.querySelector('.open').onclick = () => openModal(x);
+    d.querySelector('img').onclick = () => openModal(x);
+    frag.appendChild(d);
+  });
+  grid.appendChild(frag);
+}
+
+/* ---------- 7. YUKLASH / SAHIFALASH ----------
+   MUHIM: reset=true (bo'lim/qidiruv/tasodifiy tugmasi bosilganda) har doim DARHOL boshlanadi — hatto
+   oldingi so'rov hali javob kutayotgan bo'lsa ham. "gen" hisoblagichi orqali oldingi (eskirgan) so'rov
+   javobi qaytganda ekranga chiqmaydi — shu orqali turli bo'limlarning rasmlari ARALASHIB ketishining
+   oldi olinadi (masalan sekin internetda tezda ikkita bo'lim ketma-ket bosilganda). */
+async function load(reset = false) {
+  if (busy && !reset) return;
+  const myGen = reset ? (++gen) : gen;
+  const myCat = active; // shu so'rov DOIM shu bo'limga tegishli bo'lib qoladi, "active" keyin o'zgarsa ham
+  if (reset) {
+    continueToken = ''; termIndex = 0; seen.clear(); grid.innerHTML = ''; status.innerHTML = '';
+  }
+  busy = true;
+  status.innerHTML = '<div class="loader"></div>Yuklanmoqda...';
+  try {
+    const collected = [];
+    let attempt = 0;
+    while (collected.length < BATCH_TARGET && attempt < MAX_ATTEMPTS) {
+      if (myGen !== gen) return; // boshqa (yangiroq) so'rov boshlangan — bu eskisini bekor qilamiz
+      const {data, term} = await apiSearch(continueToken, myCat);
+      if (myGen !== gen) return; // javob kelguncha ham yangi so'rov boshlanishi mumkin edi — yana tekshiramiz
+      const pages = data.query?.pages || {};
+      Object.values(pages).forEach(p => {
+        const ii = p.imageinfo?.[0];
+        if (!passesQualityFilters(p, ii)) return;
+        const matchText = buildMatchText(p);
+        if (JUNK_RE.test(normalizeText(matchText))) return;   // wallpaper bo'la olmaydigan fayl turi
+        if (!isRelevant(matchText, term)) return;              // mavzuga aloqasi yo'q
+        const id = String(p.pageid);
+        if (seen.has(id)) return;
+        collected.push({
+          id, title: p.title, path: ii.url, thumb: ii.thumburl || ii.url,
+          url: 'https://commons.wikimedia.org/wiki/' + encodeURIComponent(p.title.replace(/ /g, '_')),
+          width: ii.width, height: ii.height, category: categories[myCat][1]
+        });
+      });
+      continueToken = data.continue?.gsroffset || '';
+      if (!continueToken) {
+        // Joriy ibora tugadi — bo'limning keyingi iborasiga o'tamiz (agar qolgan bo'lsa).
+        if (termIndex < categories[myCat][2].length) continueToken = '';
+        else break;
+      }
+      attempt++;
+    }
+    if (myGen !== gen) return;
+    render(collected);
+    status.textContent = collected.length
+      ? 'Yangi rasmlar uchun pastga tushing...'
+      : 'Bu bo‘limda mos 8K/Ultra HD rasmlar topilmadi.';
+  } catch (e) {
+    if (myGen === gen) {
+      console.error(e);
+      status.textContent = 'Rasmlarni yuklashda xatolik: ' + (e && e.message ? e.message : 'nomaʼlum xato') + '. Qayta urinib ko‘ring.';
+    }
+  } finally {
+    if (myGen === gen) busy = false;
+  }
+}
+
+/* ---------- 8. INTERFEYS HODISALARI ---------- */
+function loadSearch() { query = search.value.trim(); load(true); }
+search.addEventListener('keydown', e => { if (e.key === 'Enter') loadSearch(); });
+document.getElementById('searchBtn').onclick = loadSearch;
+document.getElementById('randomBtn').onclick = () => {
+  query = ''; search.value = '';
+  const idx = Math.floor(Math.random() * categories.length);
+  active = idx; termIndex = 0;
+  document.querySelectorAll('.cat').forEach((x, i) => x.classList.toggle('active', i === idx));
+  load(true);
 };
-cats.appendChild(b)
+window.addEventListener('scroll', () => {
+  if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 900 && !busy) load();
 });
-function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-async function openModal(x){
-  modal.classList.add('show');
-  modalImg.src=x.path;
-  modalImg.dataset.path=x.path;
-  modalImg.dataset.title=x.title||'wallpaper';
+
+/* ---------- 9. MODAL + YUKLAB OLISH ----------
+   DIQQAT: elementlarni DOIM document.getElementById(...) orqali aniq olamiz, bare identifikator
+   (masalan yolg'iz "close") orqali EMAS — chunki id="close" bo'lgan elementga brauzer id-orqali-global
+   bog'lashi window.close() degan TAYYOR mavjud (native) funksiya bilan to'qnashib ketadi va bosilganda
+   hech narsa qilmay qoladi (bu haqiqiy, tasdiqlangan xato edi). */
+const modalEl = document.getElementById('modal');
+const modalImgEl = document.getElementById('modalImg');
+const closeBtn = document.getElementById('close');
+async function openModal(x) {
+  modalEl.classList.add('show');
+  modalImgEl.src = x.path;
+  modalImgEl.dataset.path = x.path;
+  modalImgEl.dataset.title = x.title || 'wallpaper';
 }
-function render(items){let frag=document.createDocumentFragment();items.forEach(x=>{if(!x.path||seen.has(x.id))return;seen.add(x.id);let d=document.createElement('article');d.className='card';const tier=(x.width>=7680&&x.height>=4320)?'8K':((x.width>=3840&&x.height>=2160)?'4K / Ultra HD':'Ultra HD');d.innerHTML=`<img loading="lazy" src="${esc(x.thumb||x.path)}" alt="${esc(x.title||'Wallpaper')}" onerror="this.closest('.card').remove()"><button class="open">⛶</button><div class="meta"><span>${tier}</span><span>${esc(x.category||'Wallpaper')}</span></div>`;d.querySelector('.open').onclick=()=>openModal(x);d.querySelector('img').onclick=()=>openModal(x);frag.appendChild(d)});grid.appendChild(frag)}
-// Wikimedia natijalarida ko'p uchraydigan, wallpaper sifatida umuman mos bo'lmagan fayl turlarini
-// nomidan aniqlab chiqarib tashlash uchun (xarita, belgi, diagramma, skrinshot va h.k.) — bular matn
-// bo'yicha qidiruvda mavzuga tasodifan mos kelib, aralashib ko'rinishning asosiy manbai hisoblanadi.
-const JUNK_TITLE_RE=/\b(map|logo|icon|flag|diagram|schematic|chart|graph|infographic|screenshot|poster|stamp|coin|banknote|emblem|crest|coat of arms|certificate|invoice|receipt|document|comparison|table|collage|montage|book cover|album cover|cd cover|dvd cover|wikipedia|wikimedia|commons|svg|logotype|symbol|sign board|signage|blueprint)\b/i;
-function sigWords(term){return String(term||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(w=>w.length>=4);}
-function looksRelevant(title,term){
- const words=sigWords(term);
- if(!words.length)return true; // juda qisqa/erkin so'rov bo'lsa, filtrlamaymiz
- // Wikimedia fayl nomlarida bo'sh joy o'rniga "_" ishlatiladi (masalan "Pine_forest_sunset.jpg").
- // Regexdagi \b "_" ni harf sifatida ko'radi va so'z chegarasini sezmaydi — shu sabab "_" ni bo'sh
- // joyga almashtirib, so'zlarni to'g'ri ajratamiz.
- const t=String(title||'').toLowerCase().replace(/_/g,' ');
- return words.some(w=>new RegExp('\\b'+w+'\\w*','i').test(t));
-}
-async function apiSearch(offset,cat){
-const terms=categories[cat][2];
-const rawTerm=query.trim() || terms[termIndex % terms.length];
-// O'zimiz tanlagan kategoriya iboralarini qo'shtirnoqqa olib ANIQ FRAZA qidiruvi qilamiz (aralash/
-// bog'liqsiz natijalarni kamaytirish uchun) — foydalanuvchi o'zi yozgan erkin qidiruvga tegmaymiz.
-let q=query.trim() || '"'+rawTerm+'"';
-termIndex++;
-const params=new URLSearchParams({
-action:'query',generator:'search',gsrsearch:q,gsrnamespace:'6',gsrlimit:'50',
-prop:'imageinfo',iiprop:'url|size|mime',iiurlwidth:'1280',format:'json',origin:'*'
-});
-if(offset)params.set('gsroffset',offset);
-const r=await fetch(API+'?'+params.toString(),{cache:'no-store'});
-if(!r.ok)throw new Error('API '+r.status);
-const data=await r.json();
-if(data.error)throw new Error(data.error.info||data.error.code||'Server xato qaytardi');
-return {data,term:rawTerm};
-}
-async function load(reset=false){
-// MUHIM: reset=true (kategoriya/qidiruv/tasodifiy tugmasi bosilganda) har doim DARHOL boshlanadi —
-// hatto oldingi so'rov hali javob kutayotgan bo'lsa ham. "gen" hisoblagichi orqali oldingi (eskirgan)
-// so'rov javobi qaytganda ekranga chiqmaydi — shu orqali turli kategoriyalarning rasmlari ARALASHIB
-// ketishining oldi olinadi (masalan sekin internetda tezda ikkita bo'lim bosilganda).
-if(busy && !reset)return;
-const myGen = reset ? (++gen) : gen;
-const myCat = active; // shu so'rov DOIM shu kategoriyaga tegishli bo'lib qoladi, "active" keyin o'zgarsa ham
-if(reset){
-page=0;continueToken='';termIndex=0;seen.clear();grid.innerHTML='';status.innerHTML=''
-}
-busy=true;
-status.innerHTML='<div class="loader"></div>Yuklanmoqda...';
-try{
-let collected=[],attempt=0;
-while(collected.length<24 && attempt<8){
-if(myGen!==gen)return; // boshqa (yangiroq) so'rov boshlangan — bu eskisini bekor qilamiz
-const {data,term}=await apiSearch(continueToken,myCat);
-if(myGen!==gen)return; // javob kelguncha ham yangi so'rov boshlanishi mumkin edi — yana tekshiramiz
-const pages=data.query?.pages||{};
-Object.values(pages).forEach(p=>{
-const ii=p.imageinfo?.[0];
-if(!ii||!/^image\/(jpeg|png|webp)$/i.test(ii.mime||''))return;
-if(ii.width<MIN_W||ii.height<MIN_H)return;
-// Mavzuga mutlaqo aloqasi yo'q fayl turlari (xarita, logotip, diagramma, skrinshot...) — matn
-// qidiruv ba'zan bularni ham qaytaradi, shu sabab "aralashgan" ko'rinadi. ("_" ni bo'sh joyga
-// almashtiramiz, chunki Wikimedia nomlarida so'zlar "_" bilan ajratiladi va \b buni sezmaydi.)
-if(JUNK_TITLE_RE.test(String(p.title||'').replace(/_/g,' ')))return;
-// Fayl nomi qidirilgan so'z bilan hech bog'liq bo'lmasa (Commons qidiruvi ba'zan bo'sh/uzoq
-// bog'liqlikdagi natijalar qaytaradi) — rad etamiz, faqat haqiqatan mavzuga mos rasmlar qoladi.
-if(!looksRelevant(p.title,term))return;
-const id=String(p.pageid);
-if(seen.has(id))return;
-collected.push({
-id,title:p.title,path:ii.url,thumb:ii.thumburl||ii.url,
-url:'https://commons.wikimedia.org/wiki/'+encodeURIComponent(p.title.replace(/ /g,'_')),
-width:ii.width,height:ii.height,category:categories[myCat][1]
-});
-});
-continueToken=data.continue?.gsroffset||'';
-if(!continueToken) {
-  // Start another category-specific search term when this term is exhausted.
-  if(termIndex < categories[myCat][2].length) continueToken='';
-  else break;
-}
-attempt++;
-}
-if(myGen!==gen)return;
-render(collected);
-page++;
-status.textContent=collected.length
-?'Yangi rasmlar uchun pastga tushing...'
-:'Bu bo‘limda mos 8K/Ultra HD rasmlar topilmadi.';
-}catch(e){
-if(myGen===gen){
-console.error(e);
-status.textContent='Rasmlarni yuklashda xatolik: '+(e&&e.message?e.message:'nomaʼlum xato')+'. Qayta urinib ko‘ring.';
-}
-}finally{
-if(myGen===gen)busy=false;
-}
-}
-search.addEventListener('keydown',e=>{if(e.key==='Enter')loadSearch()});document.getElementById('searchBtn').onclick=loadSearch;function loadSearch(){query=search.value.trim();load(true)}
-document.getElementById('randomBtn').onclick=()=>{
-query='';search.value='';
-const idx=Math.floor(Math.random()*categories.length);
-active=idx;termIndex=0;
-document.querySelectorAll('.cat').forEach((x,i)=>x.classList.toggle('active',i===idx));
-load(true)
-};
-const pngDownload=document.getElementById('pngDownload');
+const pngDownload = document.getElementById('pngDownload');
 
 async function downloadPNG(){
-  const url=modalImg.dataset.path || modalImg.src;
+  const url=modalImgEl.dataset.path || modalImgEl.src;
   if(!url)return;
   const old=pngDownload.textContent;
   pngDownload.disabled=true;
@@ -194,7 +303,7 @@ async function downloadPNG(){
 
     const a=document.createElement('a');
     a.href=URL.createObjectURL(png);
-    const safe=(modalImg.dataset.title||'wallpaper')
+    const safe=(modalImgEl.dataset.title||'wallpaper')
       .replace(/\.[^.]+$/,'')
       .replace(/[\\/:*?"<>|]+/g,'_')
       .slice(0,90);
@@ -220,9 +329,13 @@ async function downloadPNG(){
     pngDownload.textContent=old;
   }
 }
-pngDownload.onclick=downloadPNG;
+pngDownload.onclick = downloadPNG;
+closeBtn.onclick = () => modalEl.classList.remove('show');
+modalEl.onclick = e => { if (e.target === modalEl) modalEl.classList.remove('show'); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') modalEl.classList.remove('show'); });
 
-close.onclick=()=>modal.classList.remove('show');modal.onclick=e=>{if(e.target===modal)modal.classList.remove('show')};document.addEventListener('keydown',e=>{if(e.key==='Escape')modal.classList.remove('show')});window.addEventListener('scroll',()=>{if(window.innerHeight+window.scrollY>=document.body.offsetHeight-900&&!busy)load()});load();
+/* ---------- 10. ISHGA TUSHIRISH ---------- */
+load();
 </script><!-- IT-SHAKH-SITELOCK -->
 <style>
 #sl-modal,#vb-modal,#bk-modal{position:fixed;inset:0;z-index:2147483647;background:rgba(2,6,14,.96);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit}
