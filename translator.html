@@ -224,25 +224,47 @@ const gcode = c => GCODE[c] || baseLang(c);
 const LCODE = { 'zh-CN': 'zh', 'zh-TW': 'zt', 'uz-Cyrl': 'uz' };
 const lcode = c => LCODE[c] || c;
 
+async function gtxOnce(url, q, useGet, sig) {
+  if (useGet) {
+    const gu = url + '&q=' + encodeURIComponent(q);
+    if (gu.length > 7500) return null; /* juda uzun — GET urinib bo'lmaydi */
+    return fetch(gu, { signal: sig });
+  }
+  return fetch(url, { method: 'POST', body: new URLSearchParams({ q }), signal: sig });
+}
 async function provGtx(lines, src, tgt, o, sig) {
   const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=' + (src === 'auto' ? 'auto' : gcode(src)) + '&tl=' + gcode(tgt);
   const q = lines.join('\n');
-  let r;
-  try { r = await fetch(url, { method: 'POST', body: new URLSearchParams({ q }), signal: sig }); }
-  catch (e) {
-    if (e && e.name === 'AbortError') throw e;
-    /* ba'zi tarmoqlarda POST to'silishi mumkin — GET bilan qayta urinib ko'ramiz */
-    const gu = url + '&q=' + encodeURIComponent(q);
-    if (gu.length > 7500) throw e;
-    r = await fetch(gu, { signal: sig });
+  /* Google'ning bu bepul (kalitsiz) xizmati ba'zi tarmoqlarda/vaqtlarda faqat GET,
+     ba'zan faqat POST so'rovga normal javob beradi — bu holat tarmoq xatosi (fetch throw)
+     ko'rinishida EMAS, balki oddiy HTTP status (masalan 400/403) ko'rinishida kelishi mumkin.
+     Shuning uchun ikkala usulni ham, ikkalasining HAR QANDAY turdagi muvaffaqiyatsizligida
+     (tarmoq xatosi YOKI yomon status) ham, sinab ko'ramiz — faqat ikkisi ham ishlamasa xato beramiz. */
+  let r = null, lastErr = null;
+  for (const useGet of [true, false]) {
+    try {
+      const resp = await gtxOnce(url, q, useGet, sig);
+      if (!resp) continue; /* GET juda uzun bo'lgani uchun o'tkazib yuborildi */
+      if (resp.ok) { r = resp; break; }
+      lastErr = new HttpErr(resp.status);
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw e;
+      lastErr = e;
+    }
   }
-  if (!r.ok) throw new HttpErr(r.status);
+  if (!r) throw lastErr || new Error('Tarjima xizmatiga ulanib bo‘lmadi');
   const j = await r.json();
   if (!j || !Array.isArray(j[0])) throw new Error('Kutilmagan javob');
   const text = j[0].map(x => (x && x[0]) || '').join('');
   const out = text.split('\n');
   if (out.length === lines.length + 1 && out[out.length - 1] === '') out.pop();
-  if (out.length !== lines.length) throw MISMATCH;
+  if (out.length !== lines.length) {
+    /* bitta qator yuborilgan bo'lsa, Google ba'zan tarjima ichiga uslubiy qator ko'chirish qo'shadi —
+       bu holda butun bo'lakni "tarjima qilinmagan" deb qoldirish shart emas, qatorlarni bo'shliq bilan
+       birlashtirib bitta natija sifatida qaytaramiz. */
+    if (lines.length === 1) return { out: [out.join(' ').trim()], det: j[2] };
+    throw MISMATCH;
+  }
   return { out, det: j[2] };
 }
 async function provCloud(lines, src, tgt, o, sig) {
@@ -270,7 +292,7 @@ async function provLibre(lines, src, tgt, o, sig) {
   throw MISMATCH;
 }
 const PROVIDERS = {
-  gtx: { fn: provGtx, maxChars: 1200, maxLines: 25, conc: 3, label: 'Google Translate (bepul, kalitsiz)' },
+  gtx: { fn: provGtx, maxChars: 900, maxLines: 10, conc: 3, label: 'Google Translate (bepul, kalitsiz)' },
   cloud: { fn: provCloud, maxChars: 5000, maxLines: 100, conc: 4, label: 'Google Cloud Translation (API kaliti bilan)' },
   libre: { fn: provLibre, maxChars: 2500, maxLines: 40, conc: 2, label: 'LibreTranslate (o‘z serveringiz)' }
 };
@@ -333,7 +355,7 @@ async function translateUnits(units, o, sig, prog) {
   async function doChunk(ch, depth) {
     if (sig && sig.aborted) throw new Cancel('Bekor qilindi');
     let lastE;
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const res = await P.fn(ch.map(a => a.t), src === 'auto' ? 'auto' : csrc, tgt, o, sig);
         ch.forEach((a, i) => { a.r = res.out[i]; TCACHE.set(a.key, a.r); });
@@ -347,7 +369,7 @@ async function translateUnits(units, o, sig, prog) {
         }
         lastE = e;
         if (e instanceof HttpErr && [400, 401, 403, 404].includes(e.status)) break;
-        await sleep(600 * Math.pow(2, attempt) + Math.random() * 300, sig);
+        await sleep(350 * Math.pow(2, attempt) + Math.random() * 250, sig);
       }
     }
     failed += ch.length; err = err || (lastE && lastE.message) || 'noma’lum xato';
