@@ -5296,6 +5296,12 @@ function export3ds(model, o) {
 
 /* ---------- DFF ---------- */
 const dffName = (s, i) => { const b = String(s || 'obj' + i).replace(/[^\w.\-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 23); return b || 'obj' + i; };
+// DFF materialning tekstura havolasi VA TXD ichidagi tekstura nomi — ikkisi ikki xil joyda yoziladi,
+// lekin RenderWare formatida (va DragonFF kabi Blender qo'shimchalarida) ular ANIQ bir xil harf-harf
+// mos kelishi SHART (binary nom satrlari solishtiriladi, ichki JS Map kaliti emas). Shu bitta funksiya
+// orqali IKKALASI HAM xuddi shu tarzda tozalansin — aks holda (masalan, nomda bo'sh joy, nuqta yoki
+// lotin bo'lmagan harf bo'lsa) DFF va TXD dagi nomlar farq qilib, Blender teksturani topa olmay qoladi.
+const txName = k => { const b = String(k || '').replace(/[^\w\-]/g, '_').slice(0, 31); return b || 'tex'; };
 function exportDff(model, o) {
     const meshes = scaledMeshes(exportMeshes(model, false), 1), MAXV = 60000;
     const frames = [{ name: dffName(model.name, 0), pos: [0, 0, 0], rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], parent: -1 }];
@@ -5311,7 +5317,7 @@ function exportDff(model, o) {
         let fi = 0; if (!o.single) { frames.push({ name: fnames[mi], pos: [0, 0, 0], rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], parent: 0 }); fi = frames.length - 1; }
         // mesh ishlatgan materiallar (tartib saqlanadi) — barcha bo'laklarda bir xil ro'yxat
         const used = Array.from(new Set(Array.from(m.tm))).sort((a, b) => a - b), local = new Map(used.map((g, i) => [g, i]));
-        const mats = used.map(gi => { const mt = model.mats[gi]; return { color: mt.color.slice(), tex: mt.tex && model.tex.has(mt.tex) ? mt.tex.replace(/[^\w\-]/g, '_').slice(0, 31) : '', mask: '', amb: 1, spec: clamp(mt.spec * 0.4, 0, 1), diff: 1 }; });
+        const mats = used.map(gi => { const mt = model.mats[gi]; return { color: mt.color.slice(), tex: mt.tex && model.tex.has(mt.tex) ? txName(mt.tex) : '', mask: '', amb: 1, spec: clamp(mt.spec * 0.4, 0, 1), diff: 1 }; });
         const nT = m.idx.length / 3, nrm = m.nrm; let t = 0;
         while (t < nT) {
             const map = new Map(), vs = [], tr = [];
@@ -5478,7 +5484,7 @@ function buildTxd(model, keys, o) {
         // mipmaplar
         const levels = []; let cur = { d: new Uint8ClampedArray(rgba), w, h };
         for (;;) { levels.push(cur); if (cur.w === 1 && cur.h === 1) break; cur = boxDown(cur.d, cur.w, cur.h); }
-        const s = new CVDFF.BW(); s.u32(9); s.u32(0x1106); s.str(key.slice(0, 31), 32); s.str('', 32);
+        const s = new CVDFF.BW(); s.u32(9); s.u32(0x1106); s.str(txName(key), 32); s.str('', 32);
         const FC = str => str.charCodeAt(0) | str.charCodeAt(1) << 8 | str.charCodeAt(2) << 16 | str.charCodeAt(3) << 24;
         let rasterFmt, d3d, depth, hasA = alpha;
         if (fmt === 0) { rasterFmt = 0x0500 | 0x8000; d3d = 21; depth = 32; }
