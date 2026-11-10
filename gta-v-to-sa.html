@@ -1943,14 +1943,33 @@ function convertToSA(model,texLookup,opts){
       else{const c=partBBoxCenter(dp.p);if(c){W=[1,0,0,0,0,1,0,0,0,0,1,0,c[0],c[1],c[2],1];bboxFallbackUsed.push(sa);}}
     }
     if(!W){const bm=boneByName(bn);if(bm&&!isZeroPos(bm[12],bm[13],bm[14]))W=bm;}
-    if(W){addFrame(sa,0,[W[12],W[13],W[14]]);have.add(sa);}
+    if(W){
+      // MUHIM (ikkita MUSTAQIL haqiqiy ishlaydigan .dff fayl -- huntley.dff VA
+      // cdca8d90-infernus.dff -- bilan bayt darajasida solishtirib TASDIQLANGAN):
+      // GTA V manbasida "seat_dside_f" (haydovchi o'rindig'i) qanday X ishorasida
+      // bo'lmasin (bu bizning door_lf/wheel_lf bilan BIR XIL -- manfiy -- tomonda
+      // chiqadi, chunki GTA V o'zining "dside" nomlashini shunday beradi), ikkala
+      // haqiqiy SA faylida ham "ped_frontseat"/"ped_backseat" doim door_RF/wheel_RF
+      // bilan BIR XIL (musbat) tomonda, ya'ni door_LF/wheel_LF ga QARAMA-QARSHI
+      // tomonda turadi (SA o'zi "chap/o'ng"ni mashinaning OLD tomonidan qaraganda
+      // belgilaydi -- bu haydovchining o'z chap/o'ng tomonidan FARQ QILADI, ya'ni
+      // ko'zgudagidek teskari). Shu sabab: haydovchi O'YINDA RUL turgan (haqiqiy)
+      // tomondan emas, QARAMA-QARSHI (o'ng) tomondan chiqib o'tirgan edi. Tuzatish:
+      // ped_frontseat/ped_backseat uchun X ishorasini TESKARI qilamiz (faqat shu
+      // ikkisi uchun -- eshik/g'ildirak tomonlariga TEGILMAYDI, ular reference bilan
+      // ALLAQACHON mos edi).
+      const flipX=(sa==='ped_frontseat'||sa==='ped_backseat');
+      addFrame(sa,0,[flipX?-W[12]:W[12],W[13],W[14]]);have.add(sa);
+    }
   }
   if(bboxFallbackUsed.length)report.warnings.push('Ba\'zi qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi, shuning uchun geometriyaning o‘zidan (bbox markazi) taxminiy joy olindi: '+[...new Set(bboxFallbackUsed)].join(', ')+'. Imkon qadar ZModeler/CodeWalker\'da aniq o‘rnini tekshiring.');
   // seat fallback from body bbox
   if(!objectMode&&bodyXms.length&&(!have.has('ped_frontseat')||!have.has('ped_backseat'))){
     const bb=bboxOf(bodyXms),len=bb.mx[1]-bb.mn[1],h=bb.mn[2]+(bb.mx[2]-bb.mn[2])*0.42;
-    if(!have.has('ped_frontseat')){addFrame('ped_frontseat',0,[-0.4,bb.mn[1]+len*0.57,h]);report.warnings.push('ped_frontseat o‘rindiq suyagi topilmadi — taxminiy joy qo‘yildi (ZModeler’da tekshiring).');}
-    if(!have.has('ped_backseat')){addFrame('ped_backseat',0,[-0.4,bb.mn[1]+len*0.30,h]);}
+    // ESLATMA: +0.4 (musbat X) ishlatiladi -- tasdiqlangan haqiqiy SA fayllarida
+    // ped_frontseat/ped_backseat doim door_rf/wheel_rf bilan bir xil (musbat) tomonda.
+    if(!have.has('ped_frontseat')){addFrame('ped_frontseat',0,[0.4,bb.mn[1]+len*0.57,h]);report.warnings.push('ped_frontseat o‘rindiq suyagi topilmadi — taxminiy joy qo‘yildi (ZModeler’da tekshiring).');}
+    if(!have.has('ped_backseat')){addFrame('ped_backseat',0,[0.4,bb.mn[1]+len*0.30,h]);}
   }
   }
   // 5. very-low LOD (chassis_vlo)
