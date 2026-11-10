@@ -1786,14 +1786,28 @@ function convertToSA(model,texLookup,opts){
   if(pref.length){
     const w=pref[0],acc=new GeoAcc(),xms=[];
     // wheel oriented like the left side (strip mirror).
-    // ESLATMA: bu yerda bir vaqtlar "W[0]=Math.abs(W[0])" qo'shimcha qatori OLIB
-    // TASHLANGAN edi (matematik jihatdan shubhali deb topilgach) -- lekin haqiqiy
-    // o'yinda sinalganda bu o'zgarish (wheelParentSa o'zgarishi bilan birga) g'ildiraklar
-    // 3 burchakda BUTUNLAY yo'qolib qolishiga olib keldi. Shu sabab ASL (sinalgan,
-    // ishlaydigan) kod qatori qaytarildi -- "teskari" ko'rinish muammosi hali ochiq,
-    // lekin uni haqiqiy eksport qilingan .dff fayl bilan bayt darajasida solishtirmasdan
-    // qayta o'zgartirish xavfli (yana regressiyaga olib kelishi mumkin).
-    let W=w.p.matrix.slice();if(M.det3(W)<0){W[0]=-W[0];W[1]=-W[1];W[2]=-W[2];W[0]=Math.abs(W[0]);}
+    // ESLATMA (yangilangan): oldin bu yerda mirror'ni "tuzatish" uchun
+    // "W[0]=-W[0];W[1]=-W[1];W[2]=-W[2];" dan KEYIN yana qo'shimcha
+    // "W[0]=Math.abs(W[0])" qatori bor edi. Matritsa algebrasi bilan
+    // TEKSHIRILDI (Node.js, wheeltest2.js): to'liq ustun negatsiyasi
+    // ("W[0..2]=-W[0..2]") yolg'iz o'zi HAR DOIM to'g'ri ortonormal
+    // (det=+1, ustunlar perpendikulyar/uzunligi 1) natija beradi -- bu
+    // mirror'ni matematik jihatdan to'g'ri tuzatish usuli. Ammo o'shandan
+    // keyingi qo'shimcha "Math.abs(W[0])" qatori -- ustunning FAQAT bitta
+    // komponentini (W[0]) majburan musbat qilib -- burchak ~90°dan katta
+    // bo'lgan holatlarda (masalan g'ildirak suyagi boshqacha asosiy
+    // yo'nalishda saqlangan bo'lsa) ortonormallikni BUZIB, qiyshaygan
+    // (noto'g'ri, "teskari"/cho'zilgan ko'rinadigan) matritsa hosil
+    // qilishi ISBOTLANDI (testda: 95°, 120°, 150° burchaklarda abs()
+    // natijani buzadi). Shu sabab FAQAT shu "Math.abs(W[0])" qatori olib
+    // tashlandi -- wheelParentSa (g'ildirak qaysi dummy'ga bog'lanishi)
+    // ESA bu safar MUTLAQO O'ZGARTIRILMADI (u asl, sinalgan holatda
+    // qoldirildi), toki ikkala o'zgarish oldingi regressiyada bo'lgani
+    // kabi ARALASHIB ketmasin va natija aniq shu bitta o'zgarishga
+    // bog'liq bo'lsin. BU HALI O'YINDA SINALMAGAN -- faqat matritsa
+    // darajasida tasdiqlangan tuzatish; agar yana regressiya ko'rinsa,
+    // faqat shu qatorni qaytarish kifoya.
+    let W=w.p.matrix.slice();if(M.det3(W)<0){W[0]=-W[0];W[1]=-W[1];W[2]=-W[2];}
     for(const m of w.p.meshes){const xm=xformMesh(m,W,false);acc.add(xm,m,w.p.name);xms.push(xm);}
     wheelSpecs=acc.build(matResolver);
     const bb=bboxOf(xms);wheelDiam=Math.max(bb.mx[1]-bb.mn[1],bb.mx[2]-bb.mn[2]);
