@@ -688,7 +688,8 @@ Object.assign(G,{decodeToRGBA,textureToRGBA,resize,makeMips,encodeDXT,makeTxdTex
 (function(root){
 'use strict';
 const T={STRUCT:1,STRING:2,EXT:3,TEXTURE:6,MATERIAL:7,MATLIST:8,FRAMELIST:14,GEOMETRY:15,CLUMP:16,ATOMIC:20,GEOLIST:26,
-  BINMESH:0x50E,SKIN:0x116,NIGHT:0x253F2F9,FX2D:0x253F2F8,FRAMENAME:0x253F2FE};
+  BINMESH:0x50E,SKIN:0x116,NIGHT:0x253F2F9,FX2D:0x253F2F8,FRAMENAME:0x253F2FE,
+  RIGHTTORENDER:0x1F,MATFX:0x120,GEOMFX:0x253F2FD};
 const CONT=new Set([3,6,7,8,14,15,16,20,26]);
 
 /* ---------- chunk tree ---------- */
@@ -853,6 +854,8 @@ function buildGeometry(g,ver){
   const exts=[leaf(T.BINMESH,ver,bm.done())];
   if(g.night){const nw=new BW();nw.u32(1);nw.bytes(g.night);exts.push(leaf(T.NIGHT,ver,nw.done()));}
   if(g.fx2d)exts.push(leaf(T.FX2D,ver,g.fx2d));
+  // Haqiqiy SA vehicle geometriyalarida doim bo'ladigan qo'shimcha (qiymati 0) GEOMFX extension.
+  {const gfx=new BW();gfx.u32(0);exts.push(leaf(T.GEOMFX,ver,gfx.done()));}
   return{type:T.GEOMETRY,ver,children:[leaf(T.STRUCT,ver,w.done()),matList,extChunk(ver,exts)],tail:null};
 }
 /* 2DFX light entries -> chunk data. l: {pos,color:[r,g,b,a],size,range,farClip,corona,shadowTex,flags1,flags2,showMode} */
@@ -877,7 +880,16 @@ function frameRecord(w,f){
 const frameExt=(name,ver)=>extChunk(ver,name?[leaf(T.FRAMENAME,ver,(()=>{const d=new Uint8Array(name.length);for(let i=0;i<name.length;i++)d[i]=name.charCodeAt(i)&127;return d;})())]:[]);
 function atomicChunk(frame,geom,ver){
   const w=new BW();w.u32(frame);w.u32(geom);w.u32(5);w.u32(0);
-  return{type:T.ATOMIC,ver,children:[leaf(T.STRUCT,ver,w.done()),extChunk(ver)],tail:null};
+  // Haqiqiy SA transport (vehicle) modellarida HAR BIR atomic'da "Right To Render" (0x1F) +
+  // "Material FX" (0x120) plagin-extensionlari bo'ladi -- bular o'yinning vehicle render
+  // pipeline'i tomonidan kutiladi. Generic ko'ruvchilar (ZModeler/Blender/DragonFF) buni talab
+  // qilmaydi, lekin GTA SA'ning o'zi vehicle atomic'larini shu plaginlar yordamida pipeline'ga
+  // bog'laydi deb kutadi -- shuning uchun bu yo'qligi aynan o'yinda (va faqat o'yinda) muammo
+  // keltirib chiqarishi mumkin.
+  const rtr=new BW();rtr.u32(T.MATFX);rtr.u32(0);
+  const mfx=new BW();mfx.u32(1);
+  const ext=extChunk(ver,[leaf(T.RIGHTTORENDER,ver,rtr.done()),leaf(T.MATFX,ver,mfx.done())]);
+  return{type:T.ATOMIC,ver,children:[leaf(T.STRUCT,ver,w.done()),ext],tail:null};
 }
 /* Build a whole clump. spec: {frames:[{name,pos,rot,parent}],geoms:[g...],atomics:[{frame,geom}]} */
 function buildClump(spec,ver){
