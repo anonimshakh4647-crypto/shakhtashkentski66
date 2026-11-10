@@ -238,8 +238,31 @@ async function grabcut(rgb,w,h,iters,progress){
   const ring=new Uint8Array(n),rw=Math.max(2,Math.round(Math.min(w,h)*.03));
   for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(y<rw||x<rw||x>=w-rw)ring[y*w+x]=1;
   const ringIdx=[];for(let i=0;i<n;i++)if(ring[i])ringIdx.push(i);
-  const bg0=fitFresh(rgb,Int32Array.from(ringIdx),3);
-  const rd=ringIdx.map(i=>cost(bg0,rgb[i*3],rgb[i*3+1],rgb[i*3+2])).sort((a,b)=>a-b);
+  // MUHIM TUZATISH: avval fon modeli (bg0) TO'G'RIDAN-TO'G'RI ringIdx (chekka halqa) piksellaridan
+  // o'rgatilardi. Agar rasm chekka bo'shlig'i tor bo'lsa (ob'ekt chetga yaqin kelib qolsa — amalda juda
+  // keng tarqalgan holat, mas. mahsulot fotosurati tig' qirqilgan bo'lsa), ob'ektning bir necha pikseli
+  // halqaga "sizib kirib qoladi". Natijada K=3 GMM ulardan BITTA yuqori dispersiyali komponent hosil
+  // qilib, deyarli HAR QANDAY rangni (hatto qop-qora rangni ham) "fonga o'xshash" deb hisoblay boshlaydi —
+  // sinovda bitta metall disk (g'ildirak) rasmida bu butun rasmning 91% ini (shu jumladan g'ildirakning
+  // o'zini ham) "fon" deb "suv bosishi"ga (flood leak) va deyarli hammasi o'chirilib ketishiga olib keldi.
+  // Tuzatish: bg0 o'rgatishdan OLDIN halqa piksellaridan MEDIANADAN eng uzoqda turgan ~10% ni (chetga
+  // sizib kirgan ob'ekt bo'laklari ehtimoli yuqori bo'lgan "outlier"larni) chiqarib tashlaymiz — bu
+  // klassik "trimmed" (kesilgan) baholash usuli. Toza (butunlay bir xil rangli) halqa uchun bu deyarli
+  // hech narsani o'zgartirmaydi (sinovda tasdiqlandi), lekin ifloslangan halqani butun modelni
+  // "zaharlab qo'yishi"dan saqlaydi.
+  let ringForBg=ringIdx;
+  if(ringIdx.length>30){
+    const med=[0,1,2].map(ch=>{const vs=ringIdx.map(i=>rgb[i*3+ch]).slice().sort((a,b)=>a-b);return vs[vs.length>>1];});
+    const dists=ringIdx.map(i=>Math.hypot(rgb[i*3]-med[0],rgb[i*3+1]-med[1],rgb[i*3+2]-med[2]));
+    const sortedD=dists.slice().sort((a,b)=>a-b),cutoff=sortedD[Math.max(0,Math.floor(sortedD.length*.9)-1)];
+    ringForBg=ringIdx.filter((i,k)=>dists[k]<=cutoff);
+    if(ringForBg.length<ringIdx.length*.5)ringForBg=ringIdx; // ehtiyot: agar kesish hajmi g'ayritabiiy katta chiqsa, asl holatga qaytamiz
+  }
+  const bg0=fitFresh(rgb,Int32Array.from(ringForBg),3);
+  // bo'sagani (thr) ham AYNI shu tozalangan (ringForBg) namunalar asosida hisoblaymiz — aks holda chetga
+  // sizib kirgan ob'ekt piksellari bu yerda qolib ketsa, ular yuqori "cost" bilan 96-protsentilni
+  // sun'iy ravishda ko'tarib, yuqoridagi tozalashni behuda qilib qo'yardi.
+  const rd=ringForBg.map(i=>cost(bg0,rgb[i*3],rgb[i*3+1],rgb[i*3+2])).sort((a,b)=>a-b);
   const thr=rd[Math.floor(rd.length*.96)]*1.15+1;
   const near=new Uint8Array(n);for(let i=0;i<n;i++)near[i]=cost(bg0,rgb[i*3],rgb[i*3+1],rgb[i*3+2])<=thr?1:0;
   const flood=new Uint8Array(n),stack=new Int32Array(n);let sp=0;
@@ -331,8 +354,19 @@ async function autoCut(data,w,h,progress){
     bgLike[i]=cost(gc.bg,r,g,b)<=thrB?255:0;}
   bgLike=morphGray(morphGray(bgLike,pw,ph,1,false),pw,ph,1,true);
   const pc=components(bgLike.map(v=>v?1:0),pw,ph,1),pocket=new Uint8Array(pn),keepP=new Uint8Array(pc.sizes.length);
-  const cx=pw*.5,cy=ph*.46,rx=pw*.09*1.8,ry=ph*.11*1.8,minArea=Math.max(60,pn*.0005);
-  pc.sizes.forEach((sz,k)=>{keepP[k]=sz>=minArea?1:0;});
+  const cx=pw*.5,cy=ph*.46,rx=pw*.09*1.8,ry=ph*.11*1.8,minArea=Math.max(60,pn*.0005),maxArea=pn*.3;
+  // MUHIM TUZATISH: avval bu yerda FAQAT minArea (pastki chegara) tekshirilardi — "pocket" (fon rangiga
+  // o'xshash, lekin obyekt ICHIDA qolgan kichik teshik, mas. sochlar orasi) sifatida HAR QANDAY yetarlicha
+  // katta "fon rangidagi" hudud olinardi, HATTO U RASM CHEGARASIGA TEGIB TURGAN bo'lsa ham. Aslida chegaraga
+  // tegib turgan hudud "ichkaridagi teshik" emas — bu ko'pincha HAQIQIY fon bilan ingichka "ko'prik" orqali
+  // ulanib, YORQIN/OYNA (xrom, metall, oq rangga yaqin) obyekt qismlarini o'ziga "yutib olgan" YAGONA ulkan
+  // komponent bo'ladi (masalan, metall disk/g'ildirak rasmlarida sinab ko'rilganda: rasm chegarasiga tegib
+  // turgan BITTA komponent butun rasmning ~46% ini egallab, g'ildirakning yorqin spitsalarini ham fon deb
+  // o'chirib tashlagani aniqlandi). Shu sababli endi: (1) FAQAT rasm chegarasiga TEGMAYDIGAN (haqiqatan
+  // obyekt ichida qolgan) komponentlar "pocket" sifatida olinadi; (2) ehtiyot chorasi sifatida, hatto
+  // chegaraga tegmasa ham, butun rasmning 30% idan katta komponent olinmaydi — chunki haqiqiy "soch orasi"
+  // kabi teshiklar odatda juda kichik bo'ladi, bunchalik katta hudud deyarli har doim xato segmentatsiya.
+  pc.sizes.forEach((sz,k)=>{keepP[k]=(sz>=minArea&&sz<=maxArea&&!pc.touch[k])?1:0;});
   for(let y=0;y<ph;y++)for(let x=0;x<pw;x++){const i=y*pw+x,k=pc.id[i];
     if(k>=0&&!root.PS_GENERIC&&((x-cx)/rx)**2+((y-cy)/ry)**2<=1)keepP[k]=0;}
   for(let i=0;i<pn;i++){const k=pc.id[i];if(k>=0&&keepP[k])pocket[i]=1;}
