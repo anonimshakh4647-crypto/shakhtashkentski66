@@ -282,19 +282,30 @@ function mediaCount(list,kind){
   });
   return {has:has,labeled:labeled,n:Object.keys(ids).length};
 }
+/* Ba'zi brauzerlar (ayniqsa Safari) navigator.permissions.query() kabi funksiyalarni
+   noma'lum/qo'llanmaydigan nom bilan chaqirilsa Promise emas, balki TO'G'RIDAN-TO'G'RI
+   (sinxron) xato tashlaydi. Oddiy ".catch()" buni tutmaydi, chunki funksiyaning o'zi
+   hali bironta Promise qaytarmasdanoq throw qiladi -- bu esa collect() ichidagi BUTUN
+   qolgan kodni (GPU, yuklanish vaqti va h.k.) ishlamay qoldirardi. Shu sababli har bir
+   ixtiyoriy brauzer imkoniyatini shu yordamchi orqali, sinxron xatoni ham Promise.reject
+   ga aylantirib, chaqiramiz. */
+function safeAsync(fn){
+  try{ return Promise.resolve(fn()); }
+  catch(e){ return Promise.reject(e); }
+}
 function collect(){
   var p=[];
   if(uad&&uad.getHighEntropyValues){
     I.hiState='wait';
-    p.push(uad.getHighEntropyValues(['architecture','bitness','model','platformVersion','uaFullVersion','wow64','fullVersionList']).then(function(h){I.hi=h||{};I.hiState='ok'}).catch(function(){I.hiState='fail'}));
+    p.push(safeAsync(function(){return uad.getHighEntropyValues(['architecture','bitness','model','platformVersion','uaFullVersion','wow64','fullVersionList'])}).then(function(h){I.hi=h||{};I.hiState='ok'}).catch(function(){I.hiState='fail'}));
   }
-  if(nav.brave&&nav.brave.isBrave){p.push(nav.brave.isBrave().then(function(r){I.brave=!!r}).catch(function(){}))}
-  if(nav.getBattery){p.push(nav.getBattery().then(function(b){if(!I.bat){['chargingchange','levelchange','chargingtimechange','dischargingtimechange'].forEach(function(e){b.addEventListener(e,render)})}I.bat=b}).catch(function(){}))}
-  if(nav.storage&&nav.storage.estimate){p.push(nav.storage.estimate().then(function(e){I.storage=e}).catch(function(){}))}
-  if(nav.mediaDevices&&nav.mediaDevices.enumerateDevices){p.push(nav.mediaDevices.enumerateDevices().then(function(l){I.media={cam:mediaCount(l,'videoinput'),mic:mediaCount(l,'audioinput'),spk:mediaCount(l,'audiooutput')}}).catch(function(){}))}
+  if(nav.brave&&nav.brave.isBrave){p.push(safeAsync(function(){return nav.brave.isBrave()}).then(function(r){I.brave=!!r}).catch(function(){}))}
+  if(nav.getBattery){p.push(safeAsync(function(){return nav.getBattery()}).then(function(b){if(!I.bat){['chargingchange','levelchange','chargingtimechange','dischargingtimechange'].forEach(function(e){b.addEventListener(e,render)})}I.bat=b}).catch(function(){}))}
+  if(nav.storage&&nav.storage.estimate){p.push(safeAsync(function(){return nav.storage.estimate()}).then(function(e){I.storage=e}).catch(function(){}))}
+  if(nav.mediaDevices&&nav.mediaDevices.enumerateDevices){p.push(safeAsync(function(){return nav.mediaDevices.enumerateDevices()}).then(function(l){I.media={cam:mediaCount(l,'videoinput'),mic:mediaCount(l,'audioinput'),spk:mediaCount(l,'audiooutput')}}).catch(function(){}))}
   if(nav.permissions&&nav.permissions.query){
     ['geolocation','notifications','camera','microphone','clipboard-read','persistent-storage'].forEach(function(n){
-      p.push(nav.permissions.query({name:n}).then(function(r){I.perm[n]=r.state;r.onchange=function(){I.perm[n]=r.state;render()}}).catch(function(){}));
+      p.push(safeAsync(function(){return nav.permissions.query({name:n})}).then(function(r){I.perm[n]=r.state;r.onchange=function(){I.perm[n]=r.state;render()}}).catch(function(){}));
     });
   }
   gpu();loadTime();
