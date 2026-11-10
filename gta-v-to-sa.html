@@ -1803,11 +1803,40 @@ function convertToSA(model,texLookup,opts){
   if(wheelSpecs&&wheelParentSa!=null){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',dummyIdx[wheelParentSa],[0,0,0]);addGeoms(wf,wheelSpecs);}
   else if(wheelSpecs){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',0,[0,0,0]);addGeoms(wf,wheelSpecs);report.warnings.push('G‘ildirak dummy pozitsiyasi topilmadi — g‘ildirak modeli mashina markazida qolishi mumkin.');}
   if(!want.some(k=>wheelPos[k]))report.warnings.push('G‘ildirak (wheel_*) qismlari/suyaklari topilmadi — g‘ildirak dummylari yaratilmadi.');
+  // GTA V manbasida ba'zi qismlar (eshik, bamper va h.k.) uchun haqiqiy joylashuv
+  // matritsasi (ch.matrix) ham, mos suyak (bone) ham topilmay, kodning boshqa joyida
+  // (modelFromFragment) identity (0,0,0, aylanishsiz) matritsaga tushib qolishi mumkin --
+  // bu "haqiqatan markazda" degani emas, balki "joylashuv ma'lumoti yo'q" degani. Bunday
+  // holatda [0,0,0]ni TO'G'RI pozitsiya deb qabul qilsak, SA dummy freymi mashina
+  // MARKAZIGA (ba'zan deraza/tom balandligiga) qo'yilib qoladi -- bu aynan video orqali
+  // tasdiqlangan "eshiklar/bamperlar markazda" xatosiga (va ehtimol tomga chiqib
+  // o'tirish/svet ishlamasligi muammolariga) sabab bo'lgan edi (foydalanuvchi yuborgan
+  // haqiqiy eksport faylida bayt darajasida tekshirib topildi: door_*, bump_*_dummy,
+  // headlights, steering, extra1 barchasi pos=(0,0,0) chiqqan edi). Shu sabab: agar
+  // matritsa (0,0,0) atrofida bo'lsa, QISMNING O'Z GEOMETRIYASI (mesh)ining markazidan
+  // (dunyo fazosidagi bbox markazi) foydalanamiz -- bu haqiqiy modeldagi qismning qayerda
+  // turganini mesh orqali bera oladi, hatto transform ma'lumoti yo'qolgan bo'lsa ham.
+  const isZeroPos=(x,y,z)=>Math.abs(x)<1e-5&&Math.abs(y)<1e-5&&Math.abs(z)<1e-5;
+  const partBBoxCenter=p=>{
+    if(!p||!p.meshes||!p.meshes.length)return null;
+    const xms=p.meshes.map(m=>xformMesh(m,p.matrix,false));
+    const bb=bboxOf(xms);
+    if(!(bb.mx[0]>bb.mn[0]))return null;
+    return[(bb.mn[0]+bb.mx[0])/2,(bb.mn[1]+bb.mx[1])/2,(bb.mn[2]+bb.mx[2])/2];
+  };
+  let bboxFallbackUsed=[];
+  const safePartPos=(p,label)=>{
+    const mx=p.matrix;
+    if(mx&&!isZeroPos(mx[12],mx[13],mx[14]))return[mx[12],mx[13],mx[14]];
+    const c=partBBoxCenter(p);
+    if(c){bboxFallbackUsed.push(label);return c;}
+    return mx?[mx[12],mx[13],mx[14]]:[0,0,0];
+  };
   // 3. movable parts
   for(const {p,c} of movs){
     const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,false),m,p.name);
     const specs=acc.build(matResolver);if(!specs.length)continue;
-    const d=addFrame(c.sa+'_dummy',0,[p.matrix[12],p.matrix[13],p.matrix[14]]);
+    const d=addFrame(c.sa+'_dummy',0,safePartPos(p,c.sa));
     const ok=addFrame(c.sa+'_ok',d,[0,0,0]);addGeoms(ok,specs);
     if(opts.damCopy){const dam=addFrame(c.sa+'_dam',d,[0,0,0]);for(let i=0;i<specs.length;i++)atomics.push({frame:dam,geom:geoms.length-specs.length+i});}
   }
@@ -1828,21 +1857,27 @@ function convertToSA(model,texLookup,opts){
     // raqamlanadi (1,2,...), chunki asl raqamning o'zi SA diapazonidan chiqib ketgan bo'lishi
     // mumkin edi, uning tartibidan qat'iy nazar.
     const fname=extraN<=SA_MAX_EXTRA?('extra'+extraN):('p_extra'+extraN);
-    const f=addFrame(fname,0,[p.matrix[12],p.matrix[13],p.matrix[14]]);addGeoms(f,specs);
+    const f=addFrame(fname,0,safePartPos(p,fname));addGeoms(f,specs);
   }
   for(const {p,c} of steer){
     const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,false),m,p.name);
-    const specs=acc.build(matResolver);const f=addFrame('steering',0,[p.matrix[12],p.matrix[13],p.matrix[14]]);addGeoms(f,specs);
+    const specs=acc.build(matResolver);const f=addFrame('steering',0,safePartPos(p,'steering'));addGeoms(f,specs);
   }
   // 4. dummies (lights, seats, exhaust) from parts or bones
   frames.forEach(f=>have.add(f.name));
   const dumSrc=[['headlights','headlight_l'],['taillights','taillight_l'],['taillights','brakelight_l'],['exhaust_ok','exhaust'],['petrolcap','petrolcap'],['ped_frontseat','seat_dside_f'],['ped_backseat','seat_dside_r']];
   for(const [sa,bn] of dumSrc){
     if(have.has(sa))continue;
-    let W=null;const dp=dummies.find(d=>d.c.sa===sa&&d.p.name.toLowerCase()===bn);if(dp)W=dp.p.matrix;
-    if(!W)W=boneByName(bn);
+    let W=null;const dp=dummies.find(d=>d.c.sa===sa&&d.p.name.toLowerCase()===bn);
+    if(dp){
+      const mx=dp.p.matrix;
+      if(mx&&!isZeroPos(mx[12],mx[13],mx[14]))W=mx;
+      else{const c=partBBoxCenter(dp.p);if(c){W=[1,0,0,0,0,1,0,0,0,0,1,0,c[0],c[1],c[2],1];bboxFallbackUsed.push(sa);}}
+    }
+    if(!W){const bm=boneByName(bn);if(bm&&!isZeroPos(bm[12],bm[13],bm[14]))W=bm;}
     if(W){addFrame(sa,0,[W[12],W[13],W[14]]);have.add(sa);}
   }
+  if(bboxFallbackUsed.length)report.warnings.push('Ba\'zi qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi, shuning uchun geometriyaning o‘zidan (bbox markazi) taxminiy joy olindi: '+[...new Set(bboxFallbackUsed)].join(', ')+'. Imkon qadar ZModeler/CodeWalker\'da aniq o‘rnini tekshiring.');
   // seat fallback from body bbox
   if(!objectMode&&bodyXms.length&&(!have.has('ped_frontseat')||!have.has('ped_backseat'))){
     const bb=bboxOf(bodyXms),len=bb.mx[1]-bb.mn[1],h=bb.mn[2]+(bb.mx[2]-bb.mn[2])*0.42;
