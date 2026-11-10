@@ -60,6 +60,7 @@ details.sec[open]>summary::after{content:"▴"}
       <input id="seek" type="range" min="0" max="1000" step="1" value="0" disabled>
       <div class="meter"><i id="meter"></i></div>
       <div id="status" class="status">Audio faylni tanlang.</div>
+      <div class="sub" style="margin-top:8px">PLAY — tezkor (taxminiy) jonli eshitish. Yakuniy MINUS fayl "MINUS TAYYORLASH" bosilganda kuchliroq, moslashuvchan (adaptiv) algoritm bilan qayta tayyorlanadi va odatda sezilarli yaxshiroq natija beradi.</div>
     </div>
 
     <div class="bar-title">MINUS SOZLAMALARI</div>
@@ -102,9 +103,9 @@ details.sec[open]>summary::after{content:"▴"}
     </div>
 
     <div class="note">
-      <b>Qanday ishlaydi:</b> ko‘pchilik qo‘shiqlarda vokal ikkala (chap+o‘ng) kanalda bir xil (markazda) joylashadi, boshqa asboblar esa chap/o‘ngga turlicha taqsimlangan bo‘ladi. Shu farqdan foydalanib, markazdagi signal tanlangan chastota diapazonida kamaytiriladi — bu klassik "faza bekor qilish" (karaoke) usuli, <b>AI orqali ovoz ajratish EMAS</b>.
-      Shuning uchun: <b>mono</b> yozuvlarda yoki vokali kuchli reverb/effekt bilan stereo qilingan qo‘shiqlarda natija yaxshi chiqmasligi mumkin; ayrim qo‘shiqlarda bas yoki boshqa markazdagi asboblar ham bir oz kamayishi mumkin — shunday holatda yuqoridagi chastota chegaralarini yoki kuchni sozlang. Har bir qo‘shiqda natija sifati boshqacha bo‘ladi.
-      Barcha qayta ishlash brauzer ichida bajariladi, fayl serverga yuborilmaydi.
+      <b>Qanday ishlaydi (yakuniy MINUS fayl):</b> qo‘shiq qisqa vaqt bo‘laklarga bo‘lib, har bir bo‘lak va har bir chastota uchun ALOHIDA tekshiriladi — ikkala kanal (chap/o‘ng) fazasi qanchalik bir xil va darajasi qanchalik teng bo‘lsa (odatda vokal shunday bo‘ladi), shu daraja kamaytiriladi. Bu oddiy "faza bekor qilish" (karaoke) hiylasidan ko‘ra moslashuvchan — ozgina reverb/stereo-effekt bilan "kengaytirilgan" vokalni ham yaxshiroq ushlaydi, lekin baribir <b>AI orqali ovoz ajratish (Spleeter/Demucs) EMAS</b> va 100% kafolat bermaydi.
+      Shuning uchun: <b>mono</b> yozuvlarda natija yaxshi chiqmaydi (markaz/chetga ajratib bo‘lmaydi); kuchli autotune/doubling effekti bilan ishlangan vokalda ham to‘liq yo‘qolmasligi mumkin; ayrim qo‘shiqlarda bas yoki boshqa markazdagi asboblar bir oz kamayishi mumkin. Shunday holatda MINUS KUCHI va chastota chegaralarini sozlang — har bir qo‘shiqda natija sifati boshqacha bo‘ladi.
+      Uzun qo‘shiqlarni tayyorlash bir necha soniya vaqt olishi mumkin (progress foiz bilan ko‘rsatiladi). Barcha qayta ishlash brauzer ichida bajariladi, fayl serverga yuborilmaydi.
     </div>
   </section>
 </main>
@@ -223,6 +224,142 @@ function buildChain(c, opt) {
   return api;
 }
 
+/* =================== ADAPTIV (SPEKTRAL) MINUS — yakuniy render uchun ====================
+   Yuqoridagi buildChain() statik usul (faqat JONLI eshitish/tezkor preview uchun qoladi):
+   u signalni VAQT sohasida bitta qattiq filtr bilan ayiradi, shu sabab biroz stereo
+   kengaytirilgan (reverb/doubling bilan) vokalni to'liq ushlay olmaydi — faqat ANIQ bir xil
+   fazadagi signalni bekor qiladi.
+
+   Bu yerdagi usul YAKUNIY faylni tayyorlaydi va QO'SHIQNI VAQT-CHASTOTA (STFT) bo'yicha
+   tahlil qiladi: har bir qisqa vaqt oynasi va har bir chastota uchun ALOHIDA "markaziylik"
+   ko'rsatkichi hisoblanadi — ikkala kanal fazasi QANCHALIK bir xil va darajasi QANCHALIK teng
+   bo'lsa, shuncha ko'p bekor qilinadi. Bu moslashuvchan (soft) baho bo'lgani uchun, ozgina
+   fazasi siljigan (reverb/stereo-kengaytirilgan) vokalni ham sezilarli darajada kamaytiradi —
+   vaqt sohasidagi qattiq ayirishdan farqli, bu yerda FAQAT bir xil fazani talab qilmaymiz. */
+
+function hannWindow(N) {
+  const w = new Float32Array(N);
+  for (let n = 0; n < N; n++) w[n] = 0.5 - 0.5 * Math.cos(2 * Math.PI * n / (N - 1));
+  return w;
+}
+
+// Oddiy, tashqi kutubxonasiz radix-2 (Cooley-Tukey) FFT/IFFT. N — 2 ning darajasi bo'lishi SHART.
+function fftInPlace(re, im, inverse) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      let t = re[i]; re[i] = re[j]; re[j] = t;
+      t = im[i]; im[i] = im[j]; im[j] = t;
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = (inverse ? 1 : -1) * 2 * Math.PI / len;
+    const wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let curR = 1, curI = 0;
+      const half = len >> 1;
+      for (let j = 0; j < half; j++) {
+        const uR = re[i + j], uI = im[i + j];
+        const vR = re[i + j + half] * curR - im[i + j + half] * curI;
+        const vI = re[i + j + half] * curI + im[i + j + half] * curR;
+        re[i + j] = uR + vR; im[i + j] = uI + vI;
+        re[i + j + half] = uR - vR; im[i + j + half] = uI - vI;
+        const nr = curR * wr - curI * wi, ni = curR * wi + curI * wr;
+        curR = nr; curI = ni;
+      }
+    }
+  }
+  if (inverse) { for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; } }
+}
+
+const STFT_N = 4096, STFT_HOP = 1024; // 75% overlap, Hann oynasi — sifatli rekonstruksiya uchun
+const STFT_WIN = hannWindow(STFT_N);
+
+/**
+ * L, R — Float32Array (asl stereo kanallar). mode: 'minus' (vokalsiz) yoki 'vocal' (faqat vokal).
+ * Natija: {L,R} — xuddi shu uzunlikdagi Float32Array'lar.
+ */
+async function stftAdaptiveProcess(L, R, sr, P, mode, onProgress) {
+  const N = STFT_N, hop = STFT_HOP, half = N / 2;
+  const len = L.length;
+  const loBin = Math.max(1, Math.round(P.loFreq * N / sr));
+  const hiBin = Math.min(half - 1, Math.round(P.hiFreq * N / sr));
+  const strength = Math.max(0, Math.min(1, P.strength / 100));
+  const SHARP = 3.5; // markaziylik bahosini "keskinroq" qilish uchun daraja (>1 = qisman-kogerent/"kengaytirilgan" vokalni ham kuchliroq bostiradi)
+
+  const outLen = len + N;
+  const outL = new Float32Array(outLen), outR = new Float32Array(outLen), normBuf = new Float32Array(outLen);
+
+  const fLre = new Float32Array(N), fLim = new Float32Array(N);
+  const fRre = new Float32Array(N), fRim = new Float32Array(N);
+
+  const totalFrames = Math.ceil(len / hop);
+  let frameIdx = 0;
+  for (let start = 0; start < len; start += hop) {
+    for (let i = 0; i < N; i++) {
+      const idx = start + i;
+      const lv = idx < len ? L[idx] : 0, rv = idx < len ? R[idx] : 0;
+      const w = STFT_WIN[i];
+      fLre[i] = lv * w; fLim[i] = 0;
+      fRre[i] = rv * w; fRim[i] = 0;
+    }
+    fftInPlace(fLre, fLim, false);
+    fftInPlace(fRre, fRim, false);
+
+    for (let k = 0; k <= half; k++) {
+      let gain = (mode === 'vocal') ? 0 : 1;
+      if (k >= loBin && k <= hiBin) {
+        const lr = fLre[k], li = fLim[k], rr = fRre[k], ri = fRim[k];
+        const magL = Math.hypot(lr, li), magR = Math.hypot(rr, ri);
+        if (magL > 1e-9 && magR > 1e-9) {
+          const coher = (lr * rr + li * ri) / (magL * magR);           // -1..1: faza o'xshashligi
+          const ratio = Math.min(magL, magR) / Math.max(magL, magR);   // 0..1: daraja o'xshashligi
+          let centeredness = Math.max(0, coher) * ratio;               // 0..1
+          centeredness = Math.pow(centeredness, 1 / SHARP);
+          gain = (mode === 'vocal') ? (strength * centeredness) : (1 - strength * centeredness);
+        }
+      }
+      const kk = (k === 0 || k === half) ? -1 : (N - k);
+      fLre[k] *= gain; fLim[k] *= gain; fRre[k] *= gain; fRim[k] *= gain;
+      if (kk >= 0) { fLre[kk] *= gain; fLim[kk] *= gain; fRre[kk] *= gain; fRim[kk] *= gain; }
+    }
+
+    fftInPlace(fLre, fLim, true);
+    fftInPlace(fRre, fRim, true);
+    for (let i = 0; i < N; i++) {
+      const w = STFT_WIN[i];
+      outL[start + i] += fLre[i] * w;
+      outR[start + i] += fRre[i] * w;
+      normBuf[start + i] += w * w;
+    }
+
+    frameIdx++;
+    if (frameIdx % 40 === 0) {
+      onProgress && onProgress(Math.min(99, Math.round(frameIdx / totalFrames * 100)));
+      await new Promise(r => setTimeout(r));
+    }
+  }
+  for (let i = 0; i < outLen; i++) {
+    const nrm = normBuf[i] > 1e-9 ? normBuf[i] : 1;
+    outL[i] /= nrm; outR[i] /= nrm;
+  }
+  onProgress && onProgress(100);
+  return { L: outL.subarray(0, len), R: outR.subarray(0, len) };
+}
+
+// audioBufferToWav/Mp3 funksiyalari faqat getChannelData/numberOfChannels/length/sampleRate
+// xususiyatlarini talab qiladi — shu uchun haqiqiy AudioBuffer yaratish shart emas, shunchaki
+// mos "qalbaki" (duck-typed) obyekt yetarli va tezroq.
+function wrapAsAudioBuffer(Lf32, Rf32, sr) {
+  return {
+    numberOfChannels: 2, length: Lf32.length, sampleRate: sr, duration: Lf32.length / sr,
+    getChannelData(ch) { return ch === 0 ? Lf32 : Rf32; }
+  };
+}
+
 /* =================== PLAYER (LIVE PREVIEW) =================== */
 function ensureLive(){
   if(live)return live;
@@ -312,25 +449,23 @@ $('seek').addEventListener('change',e=>{seeking=false;seekFrac(e.target.value/10
 $('render').addEventListener('click',renderOut);
 async function renderOut(){
   if(!srcBuf)return;
-  setStatus('Minus tayyorlanmoqda…');
+  setStatus('Minus tayyorlanmoqda… (adaptiv tahlil, 0%)');
   $('downloadWav').disabled=$('downloadMp3').disabled=$('downloadVocalWav').disabled=true;$('render').disabled=true;
   try{
     const P=Object.assign({},V);
-    const sr=srcBuf.sampleRate,len=srcBuf.length;
-    const off=new OfflineAudioContext(2,len,sr);
-    const chain=buildChain(off,{offline:true});chain.update(P);
-    const s=off.createBufferSource();s.buffer=srcBuf;s.connect(chain.input);chain.output.connect(off.destination);s.start(0);
-    const rendered=await off.startRendering();
+    const sr=srcBuf.sampleRate;
+    const L0=srcBuf.getChannelData(0), R0=srcBuf.numberOfChannels>1?srcBuf.getChannelData(1):L0;
+
+    const minusRes=await stftAdaptiveProcess(L0,R0,sr,P,'minus',pct=>setStatus('Minus tayyorlanmoqda… (adaptiv tahlil, '+pct+'%)'));
+    const rendered=wrapAsAudioBuffer(minusRes.L,minusRes.R,sr);
     renderedBlob=audioBufferToWav(rendered);$('downloadWav').disabled=false;
     window.__lastRender=rendered;
     setStatus('Minus (WAV) tayyor ('+fmtTime(rendered.duration)+'). MP3 tayyorlanmoqda…');
 
     if(P.extractVocal){
       try{
-        const off2=new OfflineAudioContext(2,len,sr);
-        const chain2=buildChain(off2,{offline:true});chain2.update(P);
-        const s2=off2.createBufferSource();s2.buffer=srcBuf;s2.connect(chain2.input);chain2.vocalOutput.connect(off2.destination);s2.start(0);
-        const vocalRendered=await off2.startRendering();
+        const vocalRes=await stftAdaptiveProcess(L0,R0,sr,P,'vocal',pct=>setStatus('Vokal ajratilmoqda… ('+pct+'%)'));
+        const vocalRendered=wrapAsAudioBuffer(vocalRes.L,vocalRes.R,sr);
         renderedVocalBlob=audioBufferToWav(vocalRendered);
         $('downloadVocalWav').style.display='';$('downloadVocalWav').disabled=false;
       }catch(e){console.error(e);}
@@ -397,7 +532,7 @@ $('downloadVocalWav').addEventListener('click',()=>{if(renderedVocalBlob)dl(rend
 
 /* =================== INIT =================== */
 updateLabels();
-window.__MINUS={V,buildChain,play,pause,stop,renderOut,get srcBuf(){return srcBuf;}};
+window.__MINUS={V,buildChain,stftAdaptiveProcess,fftInPlace,play,pause,stop,renderOut,get srcBuf(){return srcBuf;}};
 </script>
 <!-- IT-SHAKH-SITELOCK -->
 <style>
