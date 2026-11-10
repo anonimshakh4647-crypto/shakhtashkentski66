@@ -1033,10 +1033,28 @@ function modelFromFragment(fr,filename){
       addPart(lod,name,mat,meshesFromModels(ms,d.shaders),'main',b&&b.tag);
     }
   }
+  const usedChildNames=new Set();
   for(const ch of fr.children){
     const dr=ch.drawable;if(!dr)continue;
     const bone=skel.bones.find(b=>b.tag===ch.boneTag);
-    const name=(bone&&bone.name)||dr.name||('child'+ch.index);
+    // MUHIM: agar bu bolaning (child) o'ziga xos suyagi (bone) topilmasa, ESKI kod
+    // to'g'ridan-to'g'ri dr.name (ICHKI drawable nomi)ga tushib qolardi. Ba'zi GTA V
+    // fayllarida bir xil kichik/umumiy detal (masalan bolt, braket, sensor korpusi)
+    // mashinaning OLD va ORQA tomonlarida ALOHIDA-ALOHIDA joylashgan bo'lsa-da, bir xil
+    // ICHKI nom (dr.name) bilan saqlangan bo'lishi mumkin -- bunday holda addPart()
+    // ularni (nom bir xil bo'lgani uchun) BITTA qismga QO'SHIB yuborardi, va ikkinchisi
+    // o'z HAQIQIY joyini yo'qotib, birinchisining o'rniga "yopishib" qolardi -- natijada
+    // eksport qilingan faylda bitta "qism" ichida mashinaning ikki uchidagi (old+orqa)
+    // geometriya aralashib ketgan, va ko'rinishda mashinadan "ajralib, havoda osilib
+    // turgan" g'alati shakl paydo bo'lardi (foydalanuvchi yuborgan haqiqiy eksport
+    // faylida bayt darajasida tekshirib topildi: masalan "bump_front_ok" qismining
+    // 26786 tepasidan 8600 tasi markazidan 2.5m dan uzoqda, old VA orqa qismlar
+    // aralashgan holda chiqqan edi). Shu sabab: dr.name faqat BIRINCHI marta
+    // ishlatilayotganda qabul qilinadi; agar u ALLAQACHON boshqa bolaga berilgan bo'lsa,
+    // bu safar ANIQ, TAKRORLANMAS nom (child+index) ishlatiladi -- shunda ikkala detal
+    // ALOHIDA qism sifatida, o'z HAQIQIY joyida chiqadi.
+    let name=(bone&&bone.name)?bone.name:((dr.name&&!usedChildNames.has(dr.name))?dr.name:('child'+ch.index));
+    usedChildNames.add(name);
     let mat=ch.matrix?ch.matrix.slice():(bone?boneWorld(fr,skel,bone.idx,cache).slice():M.id());
     if(FLIP_TAGS.has(ch.boneTag)){mat[0]=-1;mat[1]=0;mat[2]=0;mat[4]=0;mat[5]=1;mat[6]=0;mat[8]=0;mat[9]=0;mat[10]=1;}
     const shaders=dr.shaders&&dr.shaders.length?dr.shaders:d.shaders;
