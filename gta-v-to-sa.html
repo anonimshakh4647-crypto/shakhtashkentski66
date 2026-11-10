@@ -1734,10 +1734,24 @@ function convertToSA(model,texLookup,opts){
     const ok=addFrame(c.sa+'_ok',d,[0,0,0]);addGeoms(ok,specs);
     if(opts.damCopy){const dam=addFrame(c.sa+'_dam',d,[0,0,0]);for(let i=0;i<specs.length;i++)atomics.push({frame:dam,geom:geoms.length-specs.length+i});}
   }
+  // SA haqiqiy o'yinda faqat kam sonli "extraN" slotini (odatda 1-2 ta) qo'llab-quvvatlaydi --
+  // o'yinning extra-komponent kodi nom ichidagi raqamni massiv indeksi sifatida ishlatadi deb
+  // taxmin qilinadi. GTA V'dan to'g'ridan-to'g'ri kelgan raqam (masalan "extra_11") bu diapazondan
+  // chiqib ketishi mumkin -- bu holda chegaradan tashqari xotiraga yozish/o'qish (va shu bilan
+  // o'yin qotishi) ehtimoli bor. Shuning uchun faqat birinchi SA_MAX_EXTRA tagi "extraN" nomi bilan
+  // (haqiqiy extra sifatida) chiqariladi, qolganlari esa oddiy ("p_" prefiksli, extra tizimi
+  // tomonidan tanilmaydigan) alohida detal sifatida saqlanadi -- geometriya yo'qolmaydi, lekin
+  // extra-slot sifatida ro'yxatga olinmaydi.
+  const SA_MAX_EXTRA=2;let extraN=0;
   for(const {p,c} of extras){
     const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,false),m,p.name);
     const specs=acc.build(matResolver);if(!specs.length)continue;
-    const f=addFrame(c.sa,0,[p.matrix[12],p.matrix[13],p.matrix[14]]);addGeoms(f,specs);
+    extraN++;
+    // GTA V'dagi asl raqam (masalan "11") ISHLATILMAYDI -- faqat ketma-ket qayta
+    // raqamlanadi (1,2,...), chunki asl raqamning o'zi SA diapazonidan chiqib ketgan bo'lishi
+    // mumkin edi, uning tartibidan qat'iy nazar.
+    const fname=extraN<=SA_MAX_EXTRA?('extra'+extraN):('p_extra'+extraN);
+    const f=addFrame(fname,0,[p.matrix[12],p.matrix[13],p.matrix[14]]);addGeoms(f,specs);
   }
   for(const {p,c} of steer){
     const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,false),m,p.name);
