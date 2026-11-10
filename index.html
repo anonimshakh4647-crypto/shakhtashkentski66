@@ -1068,6 +1068,7 @@ body.file-modal-active{overflow:hidden;}
 <header>
     <div class="logo-text">SHAKH TASHKENTSKI</div>
     <div class="nav-links">
+        <a href="about.html">BIO</a>
         <a href="files.html">FILES</a>
         <details class="tools-menu">
             <summary>TOOLS ▾</summary>
@@ -1098,6 +1099,13 @@ body.file-modal-active{overflow:hidden;}
                 <a href="video-to-mp3.html">VIDEO TO MP3</a>
                 <a href="keyboard-shortcuts.html">KEYBOARD SHORTCUTS</a>
                 <a href="typing-test.html">YOZISH TEZLIGI TESTI</a>
+                <a href="ldplayer.html">LDPLAYER SHARHI</a>
+                <a href="steam.html">STEAM PROFIL QIDIRUV</a>
+                <a href="kali.html">KALI LINUX SHARHI</a>
+                <a href="powershell.html">POWERSHELL KURSI</a>
+                <a href="cheat-engine.html">CHEAT ENGINE / GAME GUARDIAN KURSI</a>
+                <a href="gta-personaj-yaratish.html">GTA SA PERSONAJ KONSTRUKTORI</a>
+                <a href="ingliz-rus-kursi.html">INGLIZ VA RUS TILI KURSI</a>
                 <a href="8k-wallpaper.html">8K WALLPAPER</a>
                 <a href="json-from-image.html">JSON FROM IMAGE</a>
                 <a href="gif-search.html">GIF SEARCH PRO</a>
@@ -1118,11 +1126,8 @@ body.file-modal-active{overflow:hidden;}
                 <a href="cmd-course.html">CMD KURSI</a>
                 <a href="device-info.html">QURILMA MA’LUMOTI</a>
                 <a href="uy-yasash.html">UY QURUVCHI (GTA SA)</a>
+		<a href="klub-hisob.html">KLUB HISOBI (PS &amp; PC)</a>
 		<a href="gta-id-img.html">GTA ID BAZA &amp; IMG</a>
-		<a href="kali.html">KALI LINUX SHARHI</a>
-		<a href="powershell.html">POWERSHELL KURSI</a>
-		<a href="cheat-engine.html">CHEAT ENGINE / GAME GUARDIAN KURSI</a>
-		<a href="ingliz-rus-kursi.html">INGLIZ VA RUS TILI KURSI</a>
                 
             </div>
         </details>
@@ -1164,6 +1169,11 @@ body.file-modal-active{overflow:hidden;}
       <button id="us-ad-csv" type="button" title="CSV: joylashuv =HYPERLINK formulasi bilan">⬇ CSV</button>
       <button id="us-ad-lock" type="button" title="Yoqilsa, ADMIN_EMAIL'dan boshqa hech kim saytdan foydalana olmaydi">🔒 SAYTNI BLOKLASH</button>
       <button id="us-ad-vpn" type="button" title="Yoqilsa, VPN/proksi/datacenter orqali kirganlar saytdan foydalana olmaydi">🛡 VPN TAQIQLASH</button>
+    </div>
+    <div class="ip-row" id="us-lockmsg-row">
+      <input id="us-lockmsg-input" type="text" maxlength="300" placeholder="Sayt bloklanganda ko'rsatiladigan matn (ixtiyoriy — bo'sh qoldirilsa standart matn chiqadi)" autocomplete="off">
+      <button id="us-lockmsg-save" type="button">💾 Matnni saqlash</button>
+      <span id="us-lockmsg-status" class="sched-status"></span>
     </div>
     <div id="us-ad-oldwarn" hidden></div>
     <div id="us-ad-msg">Yuklanmoqda...</div>
@@ -1378,7 +1388,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
 (function(){
  const $=id=>document.getElementById(id);
  const REQ_VER='admin1'; // bloklash + adminga xabar + admin javobi + saytni bloklash + VPN taqiqlash + IP bloklash + jadval + qo'shimcha adminlar shu versiyadan boshlab ishlaydi
- let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false,msgs=[],msgTick=0,replyDrafts={},siteLocked=false,vpnBlocked=false,blockedIps=[],schedOn=false,schedActiveNow=false,headAdmin=false,adminsList=[];
+ let all=[],susOnly=false,shown=false,loaded=false,srvOff=0,onlineSec=200,oldServer=false,msgs=[],msgTick=0,replyDrafts={},siteLocked=false,vpnBlocked=false,blockedIps=[],schedOn=false,schedActiveNow=false,headAdmin=false,adminsList=[],lockMsg='';
  /* batafsil oyna: ['#', sarlavha] — bo'lim sarlavhasi; qolganlari [kalit, nom] */
  const FIELDS=[['#','FAOLLIK'],['lastSeen','Oxirgi faollik'],['activeSec','Saytda faol bo‘lgan vaqt'],['sessions','Tashriflar soni (sessiya)'],['avgSess','O‘rtacha tashrif davomiyligi'],['pages','Ko‘rilgan bo‘limlar'],['tools','Ochilgan asbob / sahifalar'],
   ['#','SHAXS VA KIRISH'],['email','Email'],['name','Ism'],['firstLogin','Birinchi kirish'],['lastLogin','Oxirgi kirish'],['logins','Kirishlar soni'],['ref','Qayerdan kelgan'],['utm','Kampaniya (UTM)'],
@@ -1484,7 +1494,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   msg('Yuklanmoqda...');
   jsonp('action=admin&credential='+encodeURIComponent(u.credential),d=>{
    if(d&&d.ok){all=d.users||[];loaded=true;const st=Date.parse(d.now);srvOff=st?st-Date.now():0;if(d.onlineSec)onlineSec=Number(d.onlineSec)||200;
-    oldServer=d.v!==REQ_VER;siteLocked=!!d.locked;vpnBlocked=!!d.vpnBlock;renderLockBtn();renderVpnBtn();
+    oldServer=d.v!==REQ_VER;siteLocked=!!d.locked;vpnBlocked=!!d.vpnBlock;lockMsg=d.lockMsg||'';renderLockBtn();renderVpnBtn();renderLockMsgBox();
     blockedIps=d.blockedIps||[];renderIpList();
     schedOn=!!d.schedOn;schedActiveNow=!!d.schedActiveNow;
     if(d.schedStart)$('sched-start').value=d.schedStart;if(d.schedEnd)$('sched-end').value=d.schedEnd;
@@ -1515,6 +1525,23 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    else if(d&&d.ok&&!d.done)alert('⚠ Apps Script yangilanmagan — "New version" deploy qiling.');
    else alert('Bajarilmadi. Qayta urinib ko\'ring.');
   },()=>{$('us-ad-lock').disabled=false;alert('Server bilan aloqa yo\'q.');});
+ };
+ /* ---------- "SAYT VAQTINCHA YOPIQ" OYNASIDA KO'RSATILADIGAN MATN (ixtiyoriy, admin o'zi yozadi) ---------- */
+ function renderLockMsgBox(){
+  const inp=$('us-lockmsg-input');if(!inp)return;
+  if(document.activeElement!==inp)inp.value=lockMsg||'';
+ }
+ $('us-lockmsg-save').onclick=()=>{
+  const u=getGoogleUser();if(!u||!u.credential)return;
+  const txt=$('us-lockmsg-input').value.slice(0,300);
+  $('us-lockmsg-save').disabled=true;$('us-lockmsg-status').textContent='Saqlanmoqda...';
+  jsonp('action=setlockmsg&msg='+encodeURIComponent(txt)+'&credential='+encodeURIComponent(u.credential),d=>{
+   $('us-lockmsg-save').disabled=false;
+   if(d&&d.ok&&d.done==='setlockmsg'){lockMsg=d.lockMsg||'';$('us-lockmsg-status').textContent='✓ Saqlandi';setTimeout(()=>{if($('us-lockmsg-status'))$('us-lockmsg-status').textContent='';},2500);}
+   else if(d&&d.error==='forbidden')$('us-lockmsg-status').textContent='Faqat bosh admin o\'zgartira oladi.';
+   else if(d&&d.ok&&!d.done)$('us-lockmsg-status').textContent='⚠ Apps Script yangilanmagan — "New version" deploy qiling.';
+   else $('us-lockmsg-status').textContent='Bajarilmadi. Qayta urinib ko\'ring.';
+  },()=>{$('us-lockmsg-save').disabled=false;$('us-lockmsg-status').textContent='Server bilan aloqa yo\'q.';});
  };
  /* ---------- VPN ORQALI KIRISHNI TAQIQLASH ---------- */
  function renderVpnBtn(){
@@ -1720,15 +1747,20 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   if(isSelf(r)){$('us-mblock').innerHTML='';return;}
   const blk=isBlk(r);
   const ipBtn=r.ip?'<button type="button" id="us-mblk-ipbtn" class="us-blkbtn'+(r.ipBlocked?' is-un':'')+'">'+(r.ipBlocked?'✓ IP ('+esc(r.ip)+') ni blokdan chiqarish':'🌐 IP ('+esc(r.ip)+') ni ham blokla')+'</button>':'';
-  $('us-mblock').innerHTML='<button type="button" id="us-mblk-btn" class="us-blkbtn'+(blk?' is-un':'')+'">'+(blk?'✓ Blokdan chiqarish':'🚫 Akkauntni bloklash')+'</button>'+ipBtn+'<div id="us-mblk-msg" class="us-blkmsg"></div>';
+  $('us-mblock').innerHTML='<button type="button" id="us-mblk-btn" class="us-blkbtn'+(blk?' is-un':'')+'">'+(blk?'✓ Blokdan chiqarish':'🚫 Akkauntni bloklash')+'</button>'+ipBtn+(blk&&r.blockMsg?'<div class="us-blkmsg-note" style="margin-top:6px;font-size:12px;color:#94a3b8;background:rgba(255,255,255,.04);padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.08)">✎ Unga ko\'rsatilgan sabab: «'+esc(r.blockMsg)+'»</div>':'')+'<div id="us-mblk-msg" class="us-blkmsg"></div>';
   $('us-mblk-btn').onclick=()=>{
    const u2=getGoogleUser();if(!u2||!u2.credential)return;
    const toBlock=!isBlk(r);
-   if(toBlock&&!confirm(esc(r.name)+' ('+r.email+') bloklansinmi? U saytdan foydalana olmay qoladi.'))return;
+   let blockReason='';
+   if(toBlock){
+    const typed=prompt(r.name+' ('+r.email+') bloklanadi. Unga shu oynada ko\'rsatiladigan sababni yozing (ixtiyoriy — bo\'sh qoldirsangiz, standart xabar ko\'rsatiladi):','');
+    if(typed===null)return; // bekor qilindi
+    blockReason=typed;
+   }
    $('us-mblk-btn').disabled=true;$('us-mblk-msg').textContent='Yuborilmoqda...';
-   jsonp('action=block&email='+encodeURIComponent(r.email)+'&state='+(toBlock?'block':'unblock')+'&credential='+encodeURIComponent(u2.credential),d=>{
+   jsonp('action=block&email='+encodeURIComponent(r.email)+'&state='+(toBlock?'block':'unblock')+(toBlock?'&msg='+encodeURIComponent(blockReason):'')+'&credential='+encodeURIComponent(u2.credential),d=>{
     $('us-mblk-btn').disabled=false;
-    if(d&&d.ok&&d.done==='block'){r.blocked=toBlock?'1':'';r.blockedAt=toBlock?new Date().toISOString():'';$('us-mblk-msg').textContent='';renderBlockBtn(r);
+    if(d&&d.ok&&d.done==='block'){r.blocked=toBlock?'1':'';r.blockedAt=toBlock?new Date().toISOString():'';r.blockMsg=toBlock?blockReason:'';$('us-mblk-msg').textContent='';renderBlockBtn(r);
      $('us-mhead').querySelector('b').innerHTML=esc(r.name)+' '+headTag(r);
      render();}
     else if(d&&d.error==='self')$('us-mblk-msg').textContent='Admin akkauntini bloklab bo\'lmaydi.';
@@ -1777,7 +1809,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   ['Qurilma',r=>r.device],['Rusum',r=>r.model],['OS',r=>r.os],['Brauzer',r=>r.browser],['CPU yadro',r=>num(r.cpu)],['RAM (GB)',r=>num(r.ram)],['GPU',r=>r.gpu],['Sensor (nuqta)',r=>num(r.touch)],['Batareya',r=>r.battery],['Ekran',r=>r.screen],['Oyna',r=>r.viewport],['Rang rejimi',r=>val('scheme',r)],
   ['Tillar',r=>val('lang',r)],['Vaqt mintaqasi',r=>r.tz],['UTC',r=>utcTxt(r)],['Reklama bloker',r=>val('adblock',r)],['Inkognito (taxmin)',r=>val('incog',r)],['Cookie',r=>val('cookies',r)],['PWA',r=>val('pwa',r)],
   ['Shubhali belgilar',r=>(r._w||[]).join(' | ')],['Qurilma ID',r=>r.deviceId],['User-Agent',r=>r.userAgent]];
- const xe=s=>String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F  ]/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+ const xe=s=>String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
  const colL=i=>{let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26);}return s;};
  let crcT=null;
  function crc32(d){if(!crcT){crcT=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;crcT[n]=c>>>0;}}
@@ -1968,21 +2000,30 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
  const $=id=>document.getElementById(id);
  let showing=false,checking=false;
  const me=()=>getGoogleUser();
+ const DEFAULT_BLOCK_MSG='Qoidabuzarlik yoki shubhali faoliyat tufayli ushbu akkaunt uchun saytdan foydalanish to\'xtatildi.';
  function expMs(c){try{return JSON.parse(atob(c.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000}catch(e){return 0}}
  function api(params,ms){return new Promise(res=>{
   const cb='bk_cb_'+Date.now()+'_'+Math.floor(Math.random()*1e6),sc=document.createElement('script');let done=false;
   const fin=v=>{if(done)return;done=true;try{delete window[cb]}catch(e){window[cb]=undefined}sc.remove();res(v);};
   window[cb]=fin;sc.onerror=()=>fin(null);setTimeout(()=>fin(null),ms||15000);
   sc.src=USERS_API_URL+(USERS_API_URL.includes('?')?'&':'?')+new URLSearchParams(Object.assign({callback:cb},params)).toString();document.head.appendChild(sc);});}
- function show(){
-  if(showing)return;showing=true;
-  const pf=$('pf-modal');if(pf)pf.remove(); // joylashuv oynasi ochiq bo'lsa ham — bloklash ekrani ustun turadi
-  const d=document.createElement('div');d.id='bk-modal';
-  d.innerHTML='<div class="bk-box"><div class="bk-ic">🚫</div><h2>Akkauntingiz bloklangan</h2><p>Qoidabuzarlik yoki shubhali faoliyat tufayli ushbu akkaunt uchun saytdan foydalanish to\'xtatildi.</p><p class="bk-sub">Bu xato deb hisoblasangiz, administrator bilan bog\'laning.</p></div>';
-  document.body.appendChild(d);document.body.style.overflow='hidden';
+ function blkKey(u){return 'it_shakh_blk_'+String((u&&u.email)||'').toLowerCase();}
+ function blkMsgKey(u){return blkKey(u)+'_msg';}
+ function getCachedMsg(key,def){if(!key)return def;try{const v=localStorage.getItem(key);return (v&&v.trim())?v:def;}catch(e){return def;}}
+ function show(msg){
+  const u=me();
+  const txt=(msg&&String(msg).trim())?String(msg):getCachedMsg(blkMsgKey(u),DEFAULT_BLOCK_MSG);
+  let d=$('bk-modal');
+  if(!d){
+   const pf=$('pf-modal');if(pf)pf.remove(); // joylashuv oynasi ochiq bo'lsa ham — bloklash ekrani ustun turadi
+   d=document.createElement('div');d.id='bk-modal';
+   d.innerHTML='<div class="bk-box"><div class="bk-ic">🚫</div><h2>Akkauntingiz bloklangan</h2><p></p><p class="bk-sub">Bu xato deb hisoblasangiz, administrator bilan bog\'laning.</p></div>';
+   document.body.appendChild(d);document.body.style.overflow='hidden';
+  }
+  showing=true;
+  const p=d.querySelector('p');if(p)p.textContent=txt;
  }
  function hide(){const d=$('bk-modal');if(!d)return;d.remove();showing=false;document.body.style.overflow=$('pf-modal')?'hidden':'';}
- function blkKey(u){return 'it_shakh_blk_'+String((u&&u.email)||'').toLowerCase();}
  async function tick(){
   if(checking||!USERS_API_URL)return;
   const u=me();if(!u||!u.email||!u.credential)return;
@@ -2002,8 +2043,8 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   // QO'SHIMCHA ADMIN ANIQLASH: bu so'rov baribir har ~5s'da yuborilib turadi — shu javobdan foydalanib,
   // "men qo'shimcha adminmanmi?" keshini ham shu yerda yangilaymiz (admin panelining o'zi shu keshni o'qiydi).
   if(r&&r.ok){try{localStorage.setItem('it_shakh_role_'+String(u.email).toLowerCase(),r.headAdmin?'head':(r.admin?'added':''));}catch(e){}}
-  if(r&&r.ok&&r.blocked){try{localStorage.setItem(blkKey(u),'1')}catch(e){}return show();}
-  if(r&&r.ok&&!r.blocked){try{localStorage.removeItem(blkKey(u))}catch(e){}if(showing)return hide();return;} // blokdan chiqarilgan bo'lsa ekran avtomatik olib tashlanadi
+  if(r&&r.ok&&r.blocked){try{localStorage.setItem(blkKey(u),'1');const bmk=blkMsgKey(u);if(r.blockMsg)localStorage.setItem(bmk,r.blockMsg);else localStorage.removeItem(bmk);}catch(e){}return show(r.blockMsg);}
+  if(r&&r.ok&&!r.blocked){try{localStorage.removeItem(blkKey(u));localStorage.removeItem(blkMsgKey(u));}catch(e){}if(showing)return hide();return;} // blokdan chiqarilgan bo'lsa ekran avtomatik olib tashlanadi
   // r=null (tarmoq xatosi/javob kelmadi): keshlangan holatga tegmaymiz — bloklangan ekan deb bilib, ochiq qoldiramiz.
  }
  setTimeout(tick,300);setInterval(tick,5000);
@@ -2113,18 +2154,25 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
  const $=id=>document.getElementById(id);
  let showingLock=false,showingVpn=false,checking=false,vpnFlag=null,vpnCheckedAt=0;
  const me=()=>getGoogleUser();
+ const DEFAULT_LOCK_MSG='Hozirda saytda texnik ishlar olib borilmoqda. Iltimos, birozdan so\'ng qayta urinib ko\'ring.';
+ function getCachedMsg(key,def){try{const v=localStorage.getItem(key);return (v&&v.trim())?v:def;}catch(e){return def;}}
  function api(params,ms){return new Promise(res=>{
   const cb='sl_cb_'+Date.now()+'_'+Math.floor(Math.random()*1e6),sc=document.createElement('script');let done=false;
   const fin=v=>{if(done)return;done=true;try{delete window[cb]}catch(e){window[cb]=undefined}sc.remove();res(v);};
   window[cb]=fin;sc.onerror=()=>fin(null);setTimeout(()=>fin(null),ms||15000);
   sc.src=USERS_API_URL+(USERS_API_URL.includes('?')?'&':'?')+new URLSearchParams(Object.assign({callback:cb},params)).toString();document.head.appendChild(sc);});}
- function showLock(){
-  if(showingLock)return;showingLock=true;
-  ['pf-modal','bk-modal','ar-modal','vb-modal'].forEach(id=>{const m=$(id);if(m)m.remove();});
-  if($('ct-modal'))$('ct-modal').hidden=true;
-  const d=document.createElement('div');d.id='sl-modal';
-  d.innerHTML='<div class="sl-box"><div class="sl-ic">🛠️</div><h2>Sayt vaqtincha yopiq</h2><p>Hozirda saytda texnik ishlar olib borilmoqda. Iltimos, birozdan so\'ng qayta urinib ko\'ring.</p></div>';
-  document.body.appendChild(d);document.body.style.overflow='hidden';
+ function showLock(msg){
+  const txt=(msg&&String(msg).trim())?String(msg):getCachedMsg('it_shakh_sitelock_msg',DEFAULT_LOCK_MSG);
+  let d=$('sl-modal');
+  if(!d){
+   ['pf-modal','bk-modal','ar-modal','vb-modal'].forEach(id=>{const m=$(id);if(m)m.remove();});
+   if($('ct-modal'))$('ct-modal').hidden=true;
+   d=document.createElement('div');d.id='sl-modal';
+   d.innerHTML='<div class="sl-box"><div class="sl-ic">🛠️</div><h2>Sayt vaqtincha yopiq</h2><p></p></div>';
+   document.body.appendChild(d);document.body.style.overflow='hidden';
+  }
+  showingLock=true;
+  const p=d.querySelector('p');if(p)p.textContent=txt;
  }
  function hideLock(){const d=$('sl-modal');if(!d)return;d.remove();showingLock=false;document.body.style.overflow=($('pf-modal')||$('bk-modal')||showingVpn)?'hidden':'';}
  function showVpn(){
@@ -2155,8 +2203,8 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
   let cachedLock=false;try{cachedLock=localStorage.getItem('it_shakh_sitelock_flag')==='1';}catch(e){}
   if(cachedLock&&!showingLock)showLock();
   checking=true;const r=await api({action:'sitestat'},9000);checking=false;
-  if(r&&r.ok&&r.locked){try{localStorage.setItem('it_shakh_sitelock_flag','1')}catch(e){}return showLock();}
-  if(r&&r.ok&&!r.locked){try{localStorage.removeItem('it_shakh_sitelock_flag')}catch(e){}if(showingLock)hideLock();}
+  if(r&&r.ok&&r.locked){try{localStorage.setItem('it_shakh_sitelock_flag','1');if(r.lockMsg)localStorage.setItem('it_shakh_sitelock_msg',r.lockMsg);else localStorage.removeItem('it_shakh_sitelock_msg');}catch(e){}return showLock(r.lockMsg);}
+  if(r&&r.ok&&!r.locked){try{localStorage.removeItem('it_shakh_sitelock_flag');localStorage.removeItem('it_shakh_sitelock_msg');}catch(e){}if(showingLock)hideLock();}
   // r=null (tarmoq xatosi): keshlangan holatga tegmaymiz — sayt bloklangan ekan deb bilib, ochiq qoldiramiz.
   if(r&&r.ok&&r.vpnBlock){
    if(vpnFlag===null||Date.now()-vpnCheckedAt>120000){vpnFlag=await checkVpn();vpnCheckedAt=Date.now();}
@@ -2209,7 +2257,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
     </div>
 </div>
 
-<footer>© 2027 Shakh Tashkentski • IT SHAKH</footer>
+<footer>© 2026 Shakh Tashkentski • IT SHAKH</footer>
 
 <script>
 /* LOGIN FEATURE CARDS */
@@ -2283,7 +2331,7 @@ function usKm(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dg=t(d-b),h=Mat
    if(marked){ try{sessionStorage.removeItem('it_shakh_return_from_tool');}catch(e){} return true; }
    try{
      const ref=document.referrer||'';
-     return /\/(calculator|ip-scanner|qr-generator|speed-test|world-map|translate|image-to-code|image-converter|ai-prompt-generator|gif-maker|number-base-converter|background-remover|audio-cutter|bass-boost|3d-model|typing-test)\.html(?:$|[?#])/.test(ref);
+     return /\/(calculator|ip-scanner|qr-generator|speed-test|world-map|translate|image-to-code|image-converter|ai-prompt-generator|gif-maker|number-base-converter|background-remover|audio-cutter|bass-boost|3d-model|typing-test|ldplayer|steam|kali|powershell|cheat-engine|gta-personaj-yaratish|ingliz-rus-kursi)\.html(?:$|[?#])/.test(ref);
    }catch(e){ return false; }
  }
 

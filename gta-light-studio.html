@@ -1561,30 +1561,45 @@ buildDock();setHour(13);rebuildLogo();
  var USERS_API_URL='https://script.google.com/macros/s/AKfycbyGcZgnnp91p19OhUVCep3zh_Izw9Day-jQaveO0rYVX7cK0F_y9yZaSHJ-qdMUZzhiBA/exec';
  var ADMIN='anonimshakh4647@gmail.com';
  var showingLock=false,showingVpn=false,showingBlock=false,checking=false,vpnFlag=null,vpnCheckedAt=0;
+ var DEFAULT_LOCK_MSG='Hozirda saytda texnik ishlar olib borilmoqda. Iltimos, birozdan so‘ng qayta urinib ko‘ring.';
+ var DEFAULT_BLOCK_MSG='Qoidabuzarlik yoki shubhali faoliyat tufayli ushbu akkaunt uchun saytdan foydalanish to‘xtatildi.';
  function getUser(){try{return JSON.parse(localStorage.getItem('it_shakh_google_user')||'null')}catch(e){return null}}
  function isAdmin(){var u=getUser();return !!(u&&String(u.email||'').toLowerCase()===ADMIN);}
  function expMs(c){try{return JSON.parse(atob(c.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000}catch(e){return 0}}
+ function blkMsgKey(){var u=getUser();return (u&&u.email)?('it_shakh_blk_'+String(u.email).toLowerCase()+'_msg'):null;}
+ function getCachedMsg(key,def){if(!key)return def;try{var v=localStorage.getItem(key);return (v&&v.trim())?v:def;}catch(e){return def;}}
  function api(params,ms){return new Promise(function(res){
   var cb='sl2_cb_'+Date.now()+'_'+Math.floor(Math.random()*1e6),sc=document.createElement('script'),done=false;
   var fin=function(v){if(done)return;done=true;try{delete window[cb]}catch(e){window[cb]=undefined}sc.parentNode&&sc.remove();res(v);};
   window[cb]=fin;sc.onerror=function(){fin(null)};setTimeout(function(){fin(null)},ms||9000);
   var qs='';for(var k in params){if(params[k]==null)continue;qs+=(qs?'&':'')+k+'='+encodeURIComponent(params[k]);}
   sc.src=USERS_API_URL+'?'+qs+'&callback='+cb+'&_='+Date.now();document.head.appendChild(sc);});}
- function showLock(){
-  if(showingLock||document.getElementById('sl-modal'))return;showingLock=true;
-  ['vb-modal','bk-modal'].forEach(function(id){var m=document.getElementById(id);if(m)m.remove();});
-  showingVpn=false;showingBlock=false;
-  var d=document.createElement('div');d.id='sl-modal';
-  d.innerHTML='<div class="sl-box"><div class="sl-ic">🛠️</div><h2>Sayt vaqtincha yopiq</h2><p>Hozirda saytda texnik ishlar olib borilmoqda. Iltimos, birozdan so‘ng qayta urinib ko‘ring.</p></div>';
-  document.body.appendChild(d);document.body.style.overflow='hidden';
+ function showLock(msg){
+  var txt=(msg&&String(msg).trim())?String(msg):getCachedMsg('it_shakh_sitelock_msg',DEFAULT_LOCK_MSG);
+  var d=document.getElementById('sl-modal');
+  if(!d){
+   ['vb-modal','bk-modal'].forEach(function(id){var m=document.getElementById(id);if(m)m.remove();});
+   showingVpn=false;showingBlock=false;
+   d=document.createElement('div');d.id='sl-modal';
+   d.innerHTML='<div class="sl-box"><div class="sl-ic">🛠️</div><h2>Sayt vaqtincha yopiq</h2><p></p></div>';
+   document.body.appendChild(d);document.body.style.overflow='hidden';
+  }
+  showingLock=true;
+  var p=d.querySelector('p');if(p)p.textContent=txt;
  }
  function hideLock(){var d=document.getElementById('sl-modal');if(!d)return;d.remove();showingLock=false;document.body.style.overflow=(showingVpn||showingBlock)?'hidden':'';}
- function showBlock(){
-  if(showingBlock||showingLock||document.getElementById('bk-modal'))return;showingBlock=true;
-  var vb=document.getElementById('vb-modal');if(vb)vb.remove();showingVpn=false;
-  var d=document.createElement('div');d.id='bk-modal';
-  d.innerHTML='<div class="bk-box"><div class="bk-ic">🚫</div><h2>Akkauntingiz bloklangan</h2><p>Qoidabuzarlik yoki shubhali faoliyat tufayli ushbu akkaunt uchun saytdan foydalanish to‘xtatildi.</p><p class="bk-sub">Bu xato deb hisoblasangiz, administrator bilan bog‘laning.</p></div>';
-  document.body.appendChild(d);document.body.style.overflow='hidden';
+ function showBlock(msg){
+  if(showingLock)return;
+  var txt=(msg&&String(msg).trim())?String(msg):getCachedMsg(blkMsgKey(),DEFAULT_BLOCK_MSG);
+  var d=document.getElementById('bk-modal');
+  if(!d){
+   var vb=document.getElementById('vb-modal');if(vb)vb.remove();showingVpn=false;
+   d=document.createElement('div');d.id='bk-modal';
+   d.innerHTML='<div class="bk-box"><div class="bk-ic">🚫</div><h2>Akkauntingiz bloklangan</h2><p></p><p class="bk-sub">Bu xato deb hisoblasangiz, administrator bilan bog‘laning.</p></div>';
+   document.body.appendChild(d);document.body.style.overflow='hidden';
+  }
+  showingBlock=true;
+  var p=d.querySelector('p');if(p)p.textContent=txt;
  }
  function hideBlock(){var d=document.getElementById('bk-modal');if(!d)return;d.remove();showingBlock=false;document.body.style.overflow=(showingLock||showingVpn)?'hidden':'';}
  function showVpn(){
@@ -1620,10 +1635,10 @@ buildDock();setHour(13);rebuildLogo();
   var p2=credOk?api({action:(expMs(u.credential)>Date.now()+10000?'me':'blockstat'),credential:u.credential},9000):Promise.resolve(null);
   Promise.all([p1,p2]).then(function(res){checking=false;
    var r=res[0],rb=res[1];
-   if(r&&r.ok&&r.locked){try{localStorage.setItem('it_shakh_sitelock_flag','1')}catch(e){}return showLock();}
-   if(r&&r.ok&&!r.locked){try{localStorage.removeItem('it_shakh_sitelock_flag')}catch(e){}if(showingLock)hideLock();}
-   if(rb&&rb.ok&&rb.blocked){if(blkKey){try{localStorage.setItem(blkKey,'1')}catch(e){}}return showBlock();}
-   if(rb&&rb.ok&&!rb.blocked){if(blkKey){try{localStorage.removeItem(blkKey)}catch(e){}}if(showingBlock)hideBlock();}
+   if(r&&r.ok&&r.locked){try{localStorage.setItem('it_shakh_sitelock_flag','1');if(r.lockMsg)localStorage.setItem('it_shakh_sitelock_msg',r.lockMsg);else localStorage.removeItem('it_shakh_sitelock_msg');}catch(e){}return showLock(r.lockMsg);}
+   if(r&&r.ok&&!r.locked){try{localStorage.removeItem('it_shakh_sitelock_flag');localStorage.removeItem('it_shakh_sitelock_msg');}catch(e){}if(showingLock)hideLock();}
+   if(rb&&rb.ok&&rb.blocked){if(blkKey){try{localStorage.setItem(blkKey,'1');var bmk=blkMsgKey();if(bmk){if(rb.blockMsg)localStorage.setItem(bmk,rb.blockMsg);else localStorage.removeItem(bmk);}}catch(e){}}return showBlock(rb.blockMsg);}
+   if(rb&&rb.ok&&!rb.blocked){if(blkKey){try{localStorage.removeItem(blkKey);var bmk2=blkMsgKey();if(bmk2)localStorage.removeItem(bmk2);}catch(e){}}if(showingBlock)hideBlock();}
    if(r&&r.ok&&r.vpnBlock){
     if(vpnFlag===null||Date.now()-vpnCheckedAt>120000){
      checkVpn().then(function(v){vpnFlag=v;vpnCheckedAt=Date.now();
