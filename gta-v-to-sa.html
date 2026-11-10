@@ -854,8 +854,6 @@ function buildGeometry(g,ver){
   const exts=[leaf(T.BINMESH,ver,bm.done())];
   if(g.night){const nw=new BW();nw.u32(1);nw.bytes(g.night);exts.push(leaf(T.NIGHT,ver,nw.done()));}
   if(g.fx2d)exts.push(leaf(T.FX2D,ver,g.fx2d));
-  // Haqiqiy SA vehicle geometriyalarida doim bo'ladigan qo'shimcha (qiymati 0) GEOMFX extension.
-  {const gfx=new BW();gfx.u32(0);exts.push(leaf(T.GEOMFX,ver,gfx.done()));}
   return{type:T.GEOMETRY,ver,children:[leaf(T.STRUCT,ver,w.done()),matList,extChunk(ver,exts)],tail:null};
 }
 /* 2DFX light entries -> chunk data. l: {pos,color:[r,g,b,a],size,range,farClip,corona,shadowTex,flags1,flags2,showMode} */
@@ -875,21 +873,23 @@ function build2dfx(lights){
 function frameRecord(w,f){
   const rot=f.rot||[1,0,0,0,1,0,0,0,1],pos=f.pos||[0,0,0];
   for(let i=0;i<9;i++)w.f32(rot[i]);for(let i=0;i<3;i++)w.f32(pos[i]);
-  w.i32(f.parent==null?-1:f.parent);w.u32(0x20003);
+  const parent=f.parent==null?-1:f.parent;
+  w.i32(parent);
+  // Haqiqiy SA fayllarida bu "matritsa yaratish bayrog'i" FAQAT ILDIZ (root, parent=-1)
+  // freymda 0x20003 bo'ladi -- qolgan barcha (bola) freymlarda oddiy 0x3 bo'ladi. Avval BARCHA
+  // freymga (bolalariga ham) 0x20003 yozilardi -- bu farq ishlaydigan referens fayl bilan
+  // bayt darajasida solishtirilganda topildi.
+  w.u32(parent===-1?0x20003:0x3);
 }
 const frameExt=(name,ver)=>extChunk(ver,name?[leaf(T.FRAMENAME,ver,(()=>{const d=new Uint8Array(name.length);for(let i=0;i<name.length;i++)d[i]=name.charCodeAt(i)&127;return d;})())]:[]);
 function atomicChunk(frame,geom,ver){
   const w=new BW();w.u32(frame);w.u32(geom);w.u32(5);w.u32(0);
-  // Haqiqiy SA transport (vehicle) modellarida HAR BIR atomic'da "Right To Render" (0x1F) +
-  // "Material FX" (0x120) plagin-extensionlari bo'ladi -- bular o'yinning vehicle render
-  // pipeline'i tomonidan kutiladi. Generic ko'ruvchilar (ZModeler/Blender/DragonFF) buni talab
-  // qilmaydi, lekin GTA SA'ning o'zi vehicle atomic'larini shu plaginlar yordamida pipeline'ga
-  // bog'laydi deb kutadi -- shuning uchun bu yo'qligi aynan o'yinda (va faqat o'yinda) muammo
-  // keltirib chiqarishi mumkin.
-  const rtr=new BW();rtr.u32(T.MATFX);rtr.u32(0);
-  const mfx=new BW();mfx.u32(1);
-  const ext=extChunk(ver,[leaf(T.RIGHTTORENDER,ver,rtr.done()),leaf(T.MATFX,ver,mfx.done())]);
-  return{type:T.ATOMIC,ver,children:[leaf(T.STRUCT,ver,w.done()),ext],tail:null};
+  // ESLATMA: avval shu yerda atomic'larga "Right To Render"(0x1F)+"MaterialFX"(0x120) belgilari
+  // qo'shilgan edi, lekin materiallarning o'ziga mos MatFX ma'lumoti (reflection/specular
+  // sub-extension + ikkinchi UV-kanal) qo'shilmagani sababli bu CHALA/nomuvofiq holat edi va
+  // o'yin buni noto'g'ri pointer sifatida o'qib qotishi mumkin edi -- shuning uchun xavfsiz,
+  // oddiy (hech qanday effekt da'vo qilmaydigan) bo'sh extension holatiga qaytarildi.
+  return{type:T.ATOMIC,ver,children:[leaf(T.STRUCT,ver,w.done()),extChunk(ver)],tail:null};
 }
 /* Build a whole clump. spec: {frames:[{name,pos,rot,parent}],geoms:[g...],atomics:[{frame,geom}]} */
 function buildClump(spec,ver){
