@@ -1756,11 +1756,54 @@ function convertToSA(model,texLookup,opts){
     const idx=[];for(let t=0;t<xm.idx.length;t+=3){const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];if(keep[a]&&keep[b]&&keep[c])idx.push(a,b,c);}
     return Object.assign({},xm,{idx});
   };
+  // MUHIM (foydalanuvchi skrinshotidan ANIQLANGAN yangi topilma): ba'zi "mov"
+  // qismlarning (ayniqsa orqa eshiklar, masalan door_dside_r) xom mesh
+  // ma'lumotida chap VA o'ng eshikning ikkalasi ham (bir-biriga oyna aks kabi,
+  // X belgisi teskari) birga, BITTA qism sifatida kelgan ekan -- bu sodda
+  // "markazdan th radius ichida qolsin" filtri ikkala eshikni aralashtirib,
+  // "yirtilgan/zigzag" shakl hosil qilardi (chunki ikkala eshik ham bir xil
+  // markazga nisbatan masofada joylashgan). Haqiqiy tuzatish: avval BOG'LANGAN
+  // KOMPONENTLARGA (connected components, umumiy uchburchak orqali bog'langan
+  // vertekslar) ajratib, FAQAT shu qism uchun to'g'ri tomondagi (dside->manfiy
+  // X, pside->musbat X) komponentlarni qoldirish, so'ngra ULARNI ZICHLASH
+  // (ishlatilmagan vertekslarni butunlay olib tashlash -- shu bilan birga
+  // eksport qilingan fayldagi keraksiz "ko'rinmas" vertekslar hajmini ham
+  // kamaytiradi).
+  const sideSignFor=p=>{const n=String(p&&p.name||'').toLowerCase();if(n.indexOf('dside')>=0)return -1;if(n.indexOf('pside')>=0)return 1;return 0;};
+  const compactXm=xm=>{
+    const nV=xm.pos.length/3,used=new Uint8Array(nV);
+    for(let t=0;t<xm.idx.length;t++)used[xm.idx[t]]=1;
+    const remap=new Int32Array(nV).fill(-1);let n=0;
+    for(let i=0;i<nV;i++)if(used[i])remap[i]=n++;
+    const pos=new Float32Array(n*3),nrm=new Float32Array(n*3),uv=xm.uv?new Float32Array(n*2):null;
+    for(let i=0;i<nV;i++){const j=remap[i];if(j<0)continue;
+      pos[j*3]=xm.pos[i*3];pos[j*3+1]=xm.pos[i*3+1];pos[j*3+2]=xm.pos[i*3+2];
+      nrm[j*3]=xm.nrm[i*3];nrm[j*3+1]=xm.nrm[i*3+1];nrm[j*3+2]=xm.nrm[i*3+2];
+      if(uv){uv[j*2]=xm.uv[i*2];uv[j*2+1]=xm.uv[i*2+1];}}
+    const idx=new Array(xm.idx.length);for(let t=0;t<xm.idx.length;t++)idx[t]=remap[xm.idx[t]];
+    return Object.assign({},xm,{pos,nrm,uv,idx});
+  };
+  const SIDE_CENTER_TOL=0.15; // metr -- markaz chizig'iga yaqin (masalan ilgak/qulf) kichik qismlarni noto'g'ri tashlab yubormaslik uchun bo'shliq
+  const filterXmBySide=(xm,sideSign)=>{
+    if(!sideSign)return xm.idx;
+    const nV=xm.pos.length/3,parent=new Int32Array(nV);for(let i=0;i<nV;i++)parent[i]=i;
+    const find=x=>{while(parent[x]!==x){parent[x]=parent[parent[x]];x=parent[x];}return x;};
+    const union=(a,b)=>{a=find(a);b=find(b);if(a!==b)parent[a]=b;};
+    for(let t=0;t<xm.idx.length;t+=3){union(xm.idx[t],xm.idx[t+1]);union(xm.idx[t+1],xm.idx[t+2]);}
+    const sumX=new Map(),cnt=new Map();
+    for(let i=0;i<nV;i++){const r=find(i);sumX.set(r,(sumX.get(r)||0)+xm.pos[i*3]);cnt.set(r,(cnt.get(r)||0)+1);}
+    const keep=new Map();for(const[r,s]of sumX)keep.set(r,(s/cnt.get(r))*sideSign>=-SIDE_CENTER_TOL);
+    const idx=[];for(let t=0;t<xm.idx.length;t+=3){const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];if(keep.get(find(a))&&keep.get(find(b))&&keep.get(find(c)))idx.push(a,b,c);}
+    return idx;
+  };
   // qism (p.meshes) uchun "ishonchli markaz"ni va -- zarur bo'lsa -- begona vertekslardan
   // tozalangan xm (world-fazodagi, hali markazga nisbatan surilmagan) ro'yxatini topadi.
+  // sideSign berilsa (-1=dside/chap, 1=pside/o'ng), avval shu tomonga tegishli
+  // bog'langan komponentlar saqlanadi (qarang yuqoridagi izoh).
   // Qaytaradi: {center:[x,y,z], xms:[...], trimmed:bool} yoki (mesh yo'q bo'lsa) null.
-  const robustNoDataPart=p=>{
-    const rawXms=p.meshes.map(m=>xformMesh(m,M.id(),true));
+  const robustNoDataPart=(p,sideSign)=>{
+    let rawXms=p.meshes.map(m=>xformMesh(m,M.id(),true));
+    if(sideSign)rawXms=rawXms.map(xm=>compactXm(Object.assign({},xm,{idx:filterXmBySide(xm,sideSign)})));
     const bb0=bboxOf(rawXms);
     if(!(bb0.mx[0]>bb0.mn[0]))return null;
     const fullDiag=diag3(bb0.mn,bb0.mx);
@@ -1782,7 +1825,7 @@ function convertToSA(model,texLookup,opts){
       if(d<=NO_DATA_SIZE_CAP)break;
     }
     if(!chosen)return{center:mc,xms:rawXms,trimmed:false};
-    const filtered=rawXms.map(xm=>trimXmByCenter(xm,mc,chosen.th));
+    const filtered=rawXms.map(xm=>compactXm(trimXmByCenter(xm,mc,chosen.th)));
     if(!filtered.some(f=>f.idx.length))return{center:mc,xms:rawXms,trimmed:false};
     return{center:chosen.center,xms:filtered,trimmed:true};
   };
@@ -1810,7 +1853,7 @@ function convertToSA(model,texLookup,opts){
       let useMeshes=null;
       if(c.t==='other'){
         const mx0=p.matrix,noData0=!mx0||isZeroPos(mx0[12],mx0[13],mx0[14]);
-        if(noData0){const r=robustNoDataPart(p);if(r&&r.trimmed)useMeshes=r.xms;}
+        if(noData0){const r=robustNoDataPart(p,sideSignFor(p));if(r&&r.trimmed)useMeshes=r.xms;}
       }
       if(useMeshes){
         // DIQQAT: useMeshes[i] va p.meshes[i] bir xil tartibda (robustNoDataPart ham
@@ -1963,7 +2006,7 @@ function convertToSA(model,texLookup,opts){
   for(const {p,c} of movs){
     const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
     if(noData){
-      const r=robustNoDataPart(p);if(!r)continue;
+      const r=robustNoDataPart(p,sideSignFor(p));if(!r)continue;
       const acc=new GeoAcc();
       for(let i=0;i<r.xms.length;i++){const xm=r.xms[i];if(!xm.idx.length)continue;acc.add(Object.assign({},xm,{pos:recenterPos(xm.pos,r.center)}),p.meshes[i],p.name);}
       const specs=acc.build(matResolver);if(!specs.length)continue;
@@ -1993,7 +2036,7 @@ function convertToSA(model,texLookup,opts){
     if(noData){
       // movs bo'limidagi kabi: begona vertekslar MEDIAN asosida filtrlanadi, so'ngra
       // qism yana haqiqiy "extraN" (yoqib/o'chiriladigan) slot sifatida chiqariladi.
-      const r=robustNoDataPart(p);if(!r)continue;
+      const r=robustNoDataPart(p,sideSignFor(p));if(!r)continue;
       const acc=new GeoAcc();
       for(let i=0;i<r.xms.length;i++){const xm=r.xms[i];if(!xm.idx.length)continue;acc.add(Object.assign({},xm,{pos:recenterPos(xm.pos,r.center)}),p.meshes[i],p.name);}
       const specs=acc.build(matResolver);if(!specs.length)continue;
@@ -2015,7 +2058,7 @@ function convertToSA(model,texLookup,opts){
   for(const {p,c} of steer){
     const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
     if(noData){
-      const r=robustNoDataPart(p);
+      const r=robustNoDataPart(p,sideSignFor(p));
       if(r){
         const acc=new GeoAcc();
         for(let i=0;i<r.xms.length;i++){const xm=r.xms[i];if(!xm.idx.length)continue;acc.add(Object.assign({},xm,{pos:recenterPos(xm.pos,r.center)}),p.meshes[i],p.name);}
