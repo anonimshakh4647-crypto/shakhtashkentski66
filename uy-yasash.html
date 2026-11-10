@@ -1481,9 +1481,14 @@ function exportCol(model, o) {
             if (!isFinite(mn[0])) continue;
             const diag = Math.hypot(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
             if (diag < minSize) continue;
-            if (diag <= 60) { out.push({ min: mn, max: mx }); continue; }
-            // katta obyekt: bitta ulkan quti o'rniga to'r (grid) bo'yicha ko'p tor qutilar — shakl aniqroq (minora, uzun bino...)
-            const g = Math.max(2, diag / 30), cells = new Map(), nT = m.idx.length / 3;
+            // MUHIM: avval bu yerda "diag<=60 bo'lsa bitta quti" degan yo'l bor edi — bu esa zina uchun
+            // yuqori qavat plitasida ochilgan TUYNUKNI yo'q qilib qo'yardi: tuynuk atrofidagi 4 ta chiziq
+            // (bir xil materialli, shu sababli BIR mesh'ga birlashgan) bitta yagona qutiga aylantirilib,
+            // tuynuk qoplanib, zinadan 2-qavatga chiqish yo'li yopiq bo'lib qolardi (o'yin ichida "tutashgan
+            // qavat"). Shu sababli endi HAR doim to'r (grid) bo'yicha mayda qutilarga bo'linadi — kichik
+            // obyektlar uchun g pastki chegarasi ham 2 m dan 0.4 m ga tushirildi, aks holda tuynuk/ariq kabi
+            // kichik bo'shliqlar baribir bir qutiga "yutilib" ketardi.
+            const g = Math.max(0.4, diag / 30), cells = new Map(), nT = m.idx.length / 3;
             for (let t = 0; t < nT; t++) {
                 let cx = 0, cy = 0, cz = 0; const a0 = [Infinity, Infinity, Infinity], a1 = [-Infinity, -Infinity, -Infinity];
                 for (let k = 0; k < 3; k++) { const i = m.idx[t * 3 + k] * 3; for (let q = 0; q < 3; q++) { const v = P[i + q]; if (v < a0[q]) a0[q] = v; if (v > a1[q]) a1[q] = v; } cx += P[i]; cy += P[i + 1]; cz += P[i + 2]; }
@@ -3610,7 +3615,16 @@ function modAdd(id, again) {
     const now = performance.now(); if (now - modLast < 700) return; modLast = now; // ikki marta bosilishdan himoya
     const has = modInst().find(i => i.id === id); if (has && !again) { modFocus(has); renderMods(); toast('Bu mod loyihada allaqachon bor — unga qaraldi. Yana bitta kerak bo‘lsa, “＋ Yana bitta” ni bosing.'); return; }
     const m = modLoad(id), hb = modHouseBox(), cxh = (hb.min[0] + hb.max[0]) / 2, hw = (hb.max[0] - hb.min[0]) / 2, mw = Math.max(m.size[0], m.size[1]) / 2;
-    const k = 1, it = { id, x: Math.round(cxh + hw + mw * k + 60), y: Math.round((hb.min[1] + hb.max[1]) / 2), z: +(-m.mn[2] * k).toFixed(2), rz: 0, on: true, sc: k }; modInst().push(it); commit(); updateMods(); renderMods(); modFocus(it); toast('Mod loyihaga qo‘shildi: ' + m.def.name + ' (uyning yonida). X, Y, Z ni o‘zgartirishingiz mumkin; GTA paketiga uy bilan birga eksport bo‘ladi.');
+    // MUHIM: avval k=1 (ya'ni modelning XOM import o'lchami) edi. "Toshkent teleminorasi" DFF fayli xom holda
+    // haqiqiy balandligidan (375 m) ~2.9 marta KATTAROQ (import vaqtida masshtab noto'g'ri saqlangan) — demak
+    // ×1 bilan qo'shilganda minora taxminan 1080 m balandlikka (undan yarmi YER OSTIGA ketib) chiqib qolardi,
+    // bu esa GTA SA ga eksport qilinganda OLIB NOTO'G'RI/ULKAN to'qnashuv (COL) ma'lumoti bo'lib, o'yinni
+    // yuklashda yoki o'sha joyga yaqinlashganda qulab tushishiga (o'yindan "otib yuborishiga") sabab bo'lardi.
+    // Endi, agar modelning haqiqiy balandligi (realH) ma'lum bo'lsa, u SHU O'LCHAMDA (masshtab = realH/size[2])
+    // qo'shiladi — xom import o'lchami emas, to'g'ri/real o'lcham DEFAULT bo'ladi (foydalanuvchi istasa pastdagi
+    // ¼×/½×/1×/2× tugmalari bilan baribir xohlagan o'lchamga o'zgartirishi mumkin).
+    const k = (m.def.realH && m.size[2] > 0) ? m.def.realH / m.size[2] : 1;
+    const it = { id, x: Math.round(cxh + hw + mw * k + 60), y: Math.round((hb.min[1] + hb.max[1]) / 2), z: +(-m.mn[2] * k).toFixed(2), rz: 0, on: true, sc: k }; modInst().push(it); commit(); updateMods(); renderMods(); modFocus(it); toast('Mod loyihaga qo‘shildi: ' + m.def.name + ' (uyning yonida, haqiqiy ' + (m.def.realH || Math.round(m.size[2] * k)) + ' m o‘lchamda). X, Y, Z ni o‘zgartirishingiz mumkin; GTA paketiga uy bilan birga eksport bo‘ladi.');
 }
 function renderMods() {
     const box = $('pMod'); if (!box) return; box.innerHTML = '';
