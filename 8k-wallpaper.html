@@ -38,7 +38,7 @@ const categories=[
 ['OCEAN','Okean',['ocean landscape','sea waves','beach ocean','underwater ocean','blue ocean']]
 ];
 const cats=document.getElementById('cats'),grid=document.getElementById('grid'),status=document.getElementById('status'),search=document.getElementById('search');
-let active=0,page=0,busy=false,query='',seen=new Set(),continueToken='',termIndex=0;
+let active=0,page=0,busy=false,query='',seen=new Set(),continueToken='',termIndex=0,gen=0;
 const MIN_W=2560, MIN_H=1440;
 categories.forEach((c,i)=>{
 let b=document.createElement('button');
@@ -59,10 +59,12 @@ async function openModal(x){
   modalImg.dataset.path=x.path;
   modalImg.dataset.title=x.title||'wallpaper';
 }
-function render(items){let frag=document.createDocumentFragment();items.forEach(x=>{if(!x.path||seen.has(x.id))return;seen.add(x.id);let d=document.createElement('article');d.className='card';d.innerHTML=`<img loading="lazy" src="${esc(x.thumb||x.path)}" alt="${esc(x.title||'Wallpaper')}" onerror="this.closest('.card').remove()"><button class="open">⛶</button><div class="meta"><span>${x.width>=3840&&x.height>=2160?'8K / Ultra HD':'Ultra HD'}</span><span>${esc(x.category||'Wallpaper')}</span></div>`;d.querySelector('.open').onclick=()=>openModal(x);d.querySelector('img').onclick=()=>openModal(x);frag.appendChild(d)});grid.appendChild(frag)}
-async function apiSearch(offset){
-const terms=categories[active][2];
-let q=query.trim() || terms[termIndex % terms.length];
+function render(items){let frag=document.createDocumentFragment();items.forEach(x=>{if(!x.path||seen.has(x.id))return;seen.add(x.id);let d=document.createElement('article');d.className='card';const tier=(x.width>=7680&&x.height>=4320)?'8K':((x.width>=3840&&x.height>=2160)?'4K / Ultra HD':'Ultra HD');d.innerHTML=`<img loading="lazy" src="${esc(x.thumb||x.path)}" alt="${esc(x.title||'Wallpaper')}" onerror="this.closest('.card').remove()"><button class="open">⛶</button><div class="meta"><span>${tier}</span><span>${esc(x.category||'Wallpaper')}</span></div>`;d.querySelector('.open').onclick=()=>openModal(x);d.querySelector('img').onclick=()=>openModal(x);frag.appendChild(d)});grid.appendChild(frag)}
+async function apiSearch(offset,cat){
+const terms=categories[cat][2];
+// O'zimiz tanlagan kategoriya iboralarini qo'shtirnoqqa olib ANIQ FRAZA qidiruvi qilamiz (aralash/
+// bog'liqsiz natijalarni kamaytirish uchun) — foydalanuvchi o'zi yozgan erkin qidiruvga tegmaymiz.
+let q=query.trim() || '"'+terms[termIndex % terms.length]+'"';
 termIndex++;
 const params=new URLSearchParams({
 action:'query',generator:'search',gsrsearch:q,gsrnamespace:'6',gsrlimit:'50',
@@ -71,10 +73,18 @@ prop:'imageinfo',iiprop:'url|size|mime',iiurlwidth:'1280',format:'json',origin:'
 if(offset)params.set('gsroffset',offset);
 const r=await fetch(API+'?'+params.toString(),{cache:'no-store'});
 if(!r.ok)throw new Error('API '+r.status);
-return r.json()
+const data=await r.json();
+if(data.error)throw new Error(data.error.info||data.error.code||'Server xato qaytardi');
+return data;
 }
 async function load(reset=false){
-if(busy)return;
+// MUHIM: reset=true (kategoriya/qidiruv/tasodifiy tugmasi bosilganda) har doim DARHOL boshlanadi —
+// hatto oldingi so'rov hali javob kutayotgan bo'lsa ham. "gen" hisoblagichi orqali oldingi (eskirgan)
+// so'rov javobi qaytganda ekranga chiqmaydi — shu orqali turli kategoriyalarning rasmlari ARALASHIB
+// ketishining oldi olinadi (masalan sekin internetda tezda ikkita bo'lim bosilganda).
+if(busy && !reset)return;
+const myGen = reset ? (++gen) : gen;
+const myCat = active; // shu so'rov DOIM shu kategoriyaga tegishli bo'lib qoladi, "active" keyin o'zgarsa ham
 if(reset){
 page=0;continueToken='';termIndex=0;seen.clear();grid.innerHTML='';status.innerHTML=''
 }
@@ -83,7 +93,9 @@ status.innerHTML='<div class="loader"></div>Yuklanmoqda...';
 try{
 let collected=[],attempt=0;
 while(collected.length<24 && attempt<8){
-const data=await apiSearch(continueToken);
+if(myGen!==gen)return; // boshqa (yangiroq) so'rov boshlangan — bu eskisini bekor qilamiz
+const data=await apiSearch(continueToken,myCat);
+if(myGen!==gen)return; // javob kelguncha ham yangi so'rov boshlanishi mumkin edi — yana tekshiramiz
 const pages=data.query?.pages||{};
 Object.values(pages).forEach(p=>{
 const ii=p.imageinfo?.[0];
@@ -94,26 +106,31 @@ if(seen.has(id))return;
 collected.push({
 id,title:p.title,path:ii.url,thumb:ii.thumburl||ii.url,
 url:'https://commons.wikimedia.org/wiki/'+encodeURIComponent(p.title.replace(/ /g,'_')),
-width:ii.width,height:ii.height,category:categories[active][1]
+width:ii.width,height:ii.height,category:categories[myCat][1]
 });
 });
 continueToken=data.continue?.gsroffset||'';
 if(!continueToken) {
   // Start another category-specific search term when this term is exhausted.
-  if(termIndex < categories[active][2].length) continueToken='';
+  if(termIndex < categories[myCat][2].length) continueToken='';
   else break;
 }
 attempt++;
 }
+if(myGen!==gen)return;
 render(collected);
 page++;
 status.textContent=collected.length
 ?'Yangi rasmlar uchun pastga tushing...'
 :'Bu bo‘limda mos 8K/Ultra HD rasmlar topilmadi.';
 }catch(e){
+if(myGen===gen){
 console.error(e);
-status.textContent='Rasmlarni yuklashda xatolik. Qayta urinib ko‘ring.'
-}finally{busy=false}
+status.textContent='Rasmlarni yuklashda xatolik: '+(e&&e.message?e.message:'nomaʼlum xato')+'. Qayta urinib ko‘ring.';
+}
+}finally{
+if(myGen===gen)busy=false;
+}
 }
 search.addEventListener('keydown',e=>{if(e.key==='Enter')loadSearch()});document.getElementById('searchBtn').onclick=loadSearch;function loadSearch(){query=search.value.trim();load(true)}
 document.getElementById('randomBtn').onclick=()=>{
