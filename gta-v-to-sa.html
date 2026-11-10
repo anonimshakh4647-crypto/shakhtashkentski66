@@ -1865,7 +1865,35 @@ function convertToSA(model,texLookup,opts){
     return mx?[mx[12],mx[13],mx[14]]:[0,0,0];
   };
   // 3. movable parts
+  // MUHIM (yangi topilgan xato, haqiqiy foydalanuvchi fayli + Node.js test orqali
+  // TASDIQLANGAN): ba'zi GTA V fayllarida "child" (eshik/bamper/bagaj kabi) qismning
+  // matritsasi (joylashuvi) manbada YO'Q (isZeroPos=true) -- bunday holatda ESKI kod
+  // qismni ALOHIDA dummy+ok freym juftligiga, taxminiy (bbox markazi) POZITSIYAGA
+  // joylashtirardi. Lekin test shuni ko'rsatdi: bunday hollarda qismning MESH
+  // vertekslari ALLAQACHON mashinaning o'z (kuzov) fazosida (uzun, mashina bo'ylab
+  // cho'zilgan koordinatalarda) saqlangan bo'ladi -- ularni KICHIK, deyarli (0,0,0)
+  // atrofidagi dummy'ga "bog'lab qo'yish" vertekslarni o'z joyidan uzoqqa, mashinadan
+  // "ajralib osilib turgandek" chiqarib yuboradi (bu aynan foydalanuvchi screenshot'ida
+  // ko'rsatgan, kuzovdan uzoqlashgan "qanot/parcha" shaklga sabab bo'lgan). Shu sabab:
+  // ANIQ joylashuv ma'lumoti yo'q bo'lsa, qism ENDI alohida harakatlanadigan
+  // dummy+ok sifatida EMAS, balki o'ZINING XOM (hech qanday qo'shimcha surilishsiz)
+  // koordinatalari bilan to'g'ridan-to'g'ri kuzov (chassis) freymiga BIRIKTIRILADI --
+  // bu eshik mustaqil ochilish animatsiyasini yo'qotadi, LEKIN qism vizual jihatdan
+  // kuzov bilan BIR XIL, to'g'ri joyida qoladi (uchib/ajralib ketmaydi). Haqiqiy
+  // joylashuv ma'lumoti (matritsa) BOR bo'lgan fayllar uchun hech narsa o'zgarmadi --
+  // ular hamon alohida, ochiladigan eshik/bamper sifatida eksport qilinadi.
+  let movMergedNoData=[];
   for(const {p,c} of movs){
+    const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
+    if(noData){
+      // Alohida (statik) freym -- chassisFrame'ning bolasi, pos=[0,0,0], hech qanday
+      // qo'shimcha aylanish/surilishsiz (identity) -- mesh o'z XOM koordinatalarida qoladi.
+      const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,M.id(),true),m,p.name);
+      const specs=acc.build(matResolver);if(!specs.length)continue;
+      const f=addFrame(c.sa+'_ok',chassisFrame,[0,0,0]);addGeoms(f,specs);
+      movMergedNoData.push(c.sa);
+      continue;
+    }
     const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,false),m,p.name);
     const specs=acc.build(matResolver);if(!specs.length)continue;
     const d=addFrame(c.sa+'_dummy',0,safePartPos(p,c.sa));
@@ -1882,8 +1910,13 @@ function convertToSA(model,texLookup,opts){
   // extra-slot sifatida ro'yxatga olinmaydi.
   const SA_MAX_EXTRA=2;let extraN=0;
   for(const {p,c} of extras){
-    const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,false),m,p.name);
+    const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
+    // movs bo'limidagi kabi: joylashuv ma'lumoti yo'q bo'lsa, "extraN" (yoqib/o'chirib
+    // bo'ladigan) slot sifatida EMAS, balki XOM koordinatalari bilan kuzovga biriktirilgan
+    // statik qism sifatida chiqariladi -- aks holda "havoda osilib qolgan parcha" chiqadi.
+    const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,noData?M.id():p.matrix,noData),m,p.name);
     const specs=acc.build(matResolver);if(!specs.length)continue;
+    if(noData){const fn=(p.name||'extra').toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,20)+'_fixed';const f=addFrame(fn,0,[0,0,0]);addGeoms(f,specs);movMergedNoData.push(fn);continue;}
     extraN++;
     // GTA V'dagi asl raqam (masalan "11") ISHLATILMAYDI -- faqat ketma-ket qayta
     // raqamlanadi (1,2,...), chunki asl raqamning o'zi SA diapazonidan chiqib ketgan bo'lishi
@@ -1892,9 +1925,12 @@ function convertToSA(model,texLookup,opts){
     const f=addFrame(fname,0,safePartPos(p,fname));addGeoms(f,specs);
   }
   for(const {p,c} of steer){
-    const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,false),m,p.name);
-    const specs=acc.build(matResolver);const f=addFrame('steering',0,safePartPos(p,'steering'));addGeoms(f,specs);
+    const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
+    const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,noData?M.id():p.matrix,noData),m,p.name);
+    const specs=acc.build(matResolver);const f=addFrame('steering',0,noData?[0,0,0]:safePartPos(p,'steering'));addGeoms(f,specs);
+    if(noData)movMergedNoData.push('steering');
   }
+  if(movMergedNoData.length)report.warnings.push('Qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi: '+[...new Set(movMergedNoData)].join(', ')+'. Ular "uchib ketgan parcha" bo‘lib chiqmasligi uchun kuzovga BIRIKTIRILDI (statik) -- lekin shu sabab endi alohida ESHIK/BAMPER/EXTRA sifatida OCHILMAYDI yoki boshqarilmaydi. Haqiqiy harakatlanadigan qilish uchun ZModeler/CodeWalker\'da manba faylidagi shu qism(lar)ning joylashuvini tekshiring.');
   // 4. dummies (lights, seats, exhaust) from parts or bones
   frames.forEach(f=>have.add(f.name));
   const dumSrc=[['headlights','headlight_l'],['taillights','taillight_l'],['taillights','brakelight_l'],['exhaust_ok','exhaust'],['petrolcap','petrolcap'],['ped_frontseat','seat_dside_f'],['ped_backseat','seat_dside_r']];
