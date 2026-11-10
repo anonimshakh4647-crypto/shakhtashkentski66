@@ -1763,20 +1763,19 @@ function convertToSA(model,texLookup,opts){
   const gtavName={wheel_lf:'wheel_lf',wheel_rf:'wheel_rf',wheel_lb:'wheel_lr',wheel_rb:'wheel_rr',wheel_lm:'wheel_lm1',wheel_rm:'wheel_rm1'};
   for(const w of wheels)wheelPos[w.c.sa]={W:w.p.matrix,w};
   for(const sa of want){if(!wheelPos[sa]){const bm=boneByName(gtavName[sa]);if(bm)wheelPos[sa]={W:bm,w:null};}}
-  let wheelSpecs=null,wheelSrcSa=null;
-  const prefOrder=['wheel_lf','wheel_lb','wheel_lm','wheel_rf','wheel_rb','wheel_rm'];
-  const prefKey=prefOrder.find(k=>wheelPos[k]&&wheelPos[k].w);
-  if(prefKey){
-    const w=wheelPos[prefKey].w,acc=new GeoAcc(),xms=[];wheelSrcSa=prefKey;
-    // wheel oriented like the left side (strip mirror): faqat X bazis vektorini
-    // (3 ta komponent, W[0..2]) belgisini teskari qilamiz -- bu aylanishni (determinant
-    // belgisini) to'g'ri almashtiradigan YAGONA o'qli ko'zgu aks ettirish. OLDIN bu yerda
-    // qo'shimcha "W[0]=Math.abs(W[0])" qatori bor edi -- u matematik jihatdan NOTO'G'RI edi
-    // (faqat 1-komponentni qayta "tuzatib", vektorni cho'zib/qiyshaytirib qo'yardi, chunki
-    // abs(-a) har doim +|a| chiqadi va bu natijada X,Y,Z vektorlari endi o'zaro perpendikulyar
-    // bo'lmay qoladi) -- shu xato g'ildirak modelini "teskari/qiyshiq" ko'rsatishga sabab
-    // bo'lgan bo'lishi mumkin edi. Olib tashlandi.
-    let W=w.p.matrix.slice();if(M.det3(W)<0){W[0]=-W[0];W[1]=-W[1];W[2]=-W[2];}
+  let wheelSpecs=null;
+  const pref=['wheel_lf','wheel_lb','wheel_lm','wheel_rf','wheel_rb','wheel_rm'].map(k=>wheelPos[k]&&wheelPos[k].w).filter(Boolean);
+  if(pref.length){
+    const w=pref[0],acc=new GeoAcc(),xms=[];
+    // wheel oriented like the left side (strip mirror).
+    // ESLATMA: bu yerda bir vaqtlar "W[0]=Math.abs(W[0])" qo'shimcha qatori OLIB
+    // TASHLANGAN edi (matematik jihatdan shubhali deb topilgach) -- lekin haqiqiy
+    // o'yinda sinalganda bu o'zgarish (wheelParentSa o'zgarishi bilan birga) g'ildiraklar
+    // 3 burchakda BUTUNLAY yo'qolib qolishiga olib keldi. Shu sabab ASL (sinalgan,
+    // ishlaydigan) kod qatori qaytarildi -- "teskari" ko'rinish muammosi hali ochiq,
+    // lekin uni haqiqiy eksport qilingan .dff fayl bilan bayt darajasida solishtirmasdan
+    // qayta o'zgartirish xavfli (yana regressiyaga olib kelishi mumkin).
+    let W=w.p.matrix.slice();if(M.det3(W)<0){W[0]=-W[0];W[1]=-W[1];W[2]=-W[2];W[0]=Math.abs(W[0]);}
     for(const m of w.p.meshes){const xm=xformMesh(m,W,false);acc.add(xm,m,w.p.name);xms.push(xm);}
     wheelSpecs=acc.build(matResolver);
     const bb=bboxOf(xms);wheelDiam=Math.max(bb.mx[1]-bb.mn[1],bb.mx[2]-bb.mn[2]);
@@ -1791,12 +1790,16 @@ function convertToSA(model,texLookup,opts){
   // darajasida solishtirib (frame[wheel].parent === frame[wheel_rf_dummy].index) topildi.
   const dummyIdx={};
   for(const sa of want){const wp=wheelPos[sa];if(!wp)continue;dummyIdx[sa]=addFrame(sa+'_dummy',0,[wp.W[12],wp.W[13],wp.W[14]]);}
-  // "wheel" freymini AYNAN wheelSpecs qaysi burchakdan olingan bo'lsa SHU burchak
-  // dummysiga bog'laymiz (wheelSrcSa) -- chunki mesh yuqorida "chap tomon" konvensiyasiga
-  // moslab (ko'zgu yechilgan holda) qurildi; agar u boshqa (masalan o'ng) burchak
-  // dummysiga bog'lansa, mesh orientatsiyasi bilan parent tomoni mos kelmay qolishi
-  // mumkin edi. Mos burchak topilmasa, boshqa mavjud dummyga tushamiz.
-  const wheelParentSa=wheelSrcSa&&dummyIdx[wheelSrcSa]!=null?wheelSrcSa:['wheel_lf','wheel_rf','wheel_lb','wheel_rb','wheel_lm','wheel_rm'].find(k=>dummyIdx[k]!=null);
+  // MUHIM: "wheel" freymi doim "wheel_rf_dummy"ga (yoki topilmasa, shu tartibdagi
+  // keyingisiga) bog'lanadi -- mesh QAYSI burchakdan (odatda wheel_lf) olingan bo'lishidan
+  // QAT'IY NAZAR. Bu aynan haqiqiy ishlaydigan fayl (huntley.dff)dagi holat bilan bir xil
+  // (frame[wheel].parent===frame[wheel_rf_dummy].index, mesh esa boshqa -- chap -- g'ildirakdan
+  // olingan edi). SINAB KO'RILGAN: avval shu holatda barcha 4 ta g'ildirak to'g'ri joyda
+  // chiqqan edi. Keyinroq buni "mesh manbasi bilan bir xil burchakka bog'lash mantiqan
+  // izchilroq" deb o'zgartirilgan edi (wheelSrcSa asosida) -- lekin bu HAQIQIY O'YINDA
+  // sinalganda g'ildiraklarni 3 burchakda BUTUNLAY YO'QOLISHIGA sabab bo'ldi (video bilan
+  // tasdiqlangan regressiya), shuning uchun ORIGINAL (ishlaydigan) tartibga qaytarildi.
+  const wheelParentSa=['wheel_rf','wheel_lf','wheel_rb','wheel_lb','wheel_lm','wheel_rm'].find(k=>dummyIdx[k]!=null);
   if(wheelSpecs&&wheelParentSa!=null){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',dummyIdx[wheelParentSa],[0,0,0]);addGeoms(wf,wheelSpecs);}
   else if(wheelSpecs){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',0,[0,0,0]);addGeoms(wf,wheelSpecs);report.warnings.push('G‘ildirak dummy pozitsiyasi topilmadi — g‘ildirak modeli mashina markazida qolishi mumkin.');}
   if(!want.some(k=>wheelPos[k]))report.warnings.push('G‘ildirak (wheel_*) qismlari/suyaklari topilmadi — g‘ildirak dummylari yaratilmadi.');
@@ -1989,25 +1992,18 @@ function convertToSA(model,texLookup,opts){
   const padXY=0.15,padTop=0.12,padBottom=Math.max(0.2,(wheelDiam||0.6)/2+0.05);
   const colMn=colBox?[colBox.mn[0]-padXY,colBox.mn[1]-padXY,colBox.mn[2]-padBottom]:[-1,-2,-0.6];
   const colMx=colBox?[colBox.mx[0]+padXY,colBox.mx[1]+padXY,colBox.mx[2]+padTop]:[1,2,1];
-  // Mashina (objectMode emas) uchun kuzovni BITTA YAXLIT quti qilib yopmaymiz --
-  // aks holda o'yin (SA) haydovchini o'tqazish uchun ICHIDA bo'sh joy topa olmay,
-  // uni to'qnashuv qutisining ENG TEPASIGA ("tom"ga) chiqarib qo'yadi -- foydalanuvchi
-  // buni video orqali aniq ko'rsatdi ("mashinaga tomiga chiqib o'tiryapti"). Shuning
-  // uchun kuzovni 2 qutiga bo'lamiz: PAST (pol/eshik balandligigacha) va TOM (yupqa,
-  // yuqori qism) -- ORASIDA (deraza/salon balandligida) hech qanday to'qnashuv quti
-  // YO'Q, shu bilan SALON haqiqatan ICHI BO'SH bo'lib qoladi va o'yin haydovchini
-  // o'z joyiga (o'rindiqqa) to'g'ri joylashtira oladi.
-  let colBoxes;
-  if(!objectMode){
-    const h=colMx[2]-colMn[2];
-    const lowerTop=colMn[2]+h*0.52,roofBot=colMn[2]+h*0.86;
-    colBoxes=[
-      {min:[colMn[0],colMn[1],colMn[2]],max:[colMx[0],colMx[1],lowerTop]},
-      {min:[colMn[0],colMn[1],roofBot],max:[colMx[0],colMx[1],colMx[2]]}
-    ];
-  } else colBoxes=[{min:colMn,max:colMx}];
+  // ESLATMA: bu yerda bir vaqtlar kuzovni 2 qutiga (past+tom, salon bo'sh) bo'lish
+  // sinab ko'rilgan edi ("tomiga chiqib o'tirish" muammosini yechish umidida) -- lekin
+  // haqiqiy o'yinda sinalganda bu YANGI, OG'IRROQ muammoga olib keldi: mashina qismlari
+  // (o'rindiq va h.k.) jismoniy sinib/uchib keta boshladi (video bilan tasdiqlangan).
+  // Shu sababli ASL, BIR BUTUN quti (sinalgan, spawn-qotishini oldini olishi
+  // tasdiqlangan usul) qaytarildi. "Tomga chiqib o'tirish" muammosi ALOHIDA, hali
+  // ochiq -- uni to'qnashuv shaklini o'zgartirmasdan, boshqa (masalan ped_frontseat
+  // yoki o'yin tomonidan ishlatiladigan animatsiya nuqtasi) sabab bo'yicha, haqiqiy
+  // eksport qilingan fayl ustida tekshirish kerak.
+  const colBoxes=[{min:colMn,max:colMx}];
   const col=DFF.buildCol3(name,colBoxes);
-  report.info.push('To‘qnashuv (collision) modeli avtomatik yaratildi'+(colBoxes.length>1?': kuzov PAST+TOM qutilariga bo‘lindi, SALON ICHI ATAYLAB BO‘SH qoldirildi (aks holda o‘yin haydovchini mashina tomiga chiqarib qo‘yishi mumkin)':': butun qismni qamrab oluvchi oddiy quti')+' ('+(colMx[0]-colMn[0]).toFixed(2)+'×'+(colMx[1]-colMn[1]).toFixed(2)+'×'+(colMx[2]-colMn[2]).toFixed(2)+' m). Bu YANGI (hali o‘yinda yo‘q) mashina sifatida spawn qilinganda qotishning oldini oladi; mukammal shakl emas, lekin barqaror.');
+  report.info.push('To‘qnashuv (collision) modeli avtomatik yaratildi: butun qismni qamrab oluvchi oddiy quti ('+(colMx[0]-colMn[0]).toFixed(2)+'×'+(colMx[1]-colMn[1]).toFixed(2)+'×'+(colMx[2]-colMn[2]).toFixed(2)+' m). Bu YANGI (hali o‘yinda yo‘q) mashina sifatida spawn qilinganda qotishning oldini oladi; mukammal shakl emas, lekin barqaror.');
   const dff=DFF.serialize([DFF.buildClump({frames,geoms,atomics,col},DFF.VER_SA)]);
   const txd=G.buildTXD(txdTexs);
   if(opts.preset!=='hq'&&dff.length>2.1e6)report.warnings.push('DFF hajmi '+(dff.length/1048576).toFixed(1)+' MB. Original (modsiz) GTA SA da ~2 MB dan katta mashina fayli qotishi mumkin: agar o‘yinda qotsa, «Maks. poligon» ni 36 000 ga tushiring yoki streaming xotirasini oshiradigan limit adjuster o‘rnating.');
