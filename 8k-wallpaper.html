@@ -60,11 +60,26 @@ async function openModal(x){
   modalImg.dataset.title=x.title||'wallpaper';
 }
 function render(items){let frag=document.createDocumentFragment();items.forEach(x=>{if(!x.path||seen.has(x.id))return;seen.add(x.id);let d=document.createElement('article');d.className='card';const tier=(x.width>=7680&&x.height>=4320)?'8K':((x.width>=3840&&x.height>=2160)?'4K / Ultra HD':'Ultra HD');d.innerHTML=`<img loading="lazy" src="${esc(x.thumb||x.path)}" alt="${esc(x.title||'Wallpaper')}" onerror="this.closest('.card').remove()"><button class="open">⛶</button><div class="meta"><span>${tier}</span><span>${esc(x.category||'Wallpaper')}</span></div>`;d.querySelector('.open').onclick=()=>openModal(x);d.querySelector('img').onclick=()=>openModal(x);frag.appendChild(d)});grid.appendChild(frag)}
+// Wikimedia natijalarida ko'p uchraydigan, wallpaper sifatida umuman mos bo'lmagan fayl turlarini
+// nomidan aniqlab chiqarib tashlash uchun (xarita, belgi, diagramma, skrinshot va h.k.) — bular matn
+// bo'yicha qidiruvda mavzuga tasodifan mos kelib, aralashib ko'rinishning asosiy manbai hisoblanadi.
+const JUNK_TITLE_RE=/\b(map|logo|icon|flag|diagram|schematic|chart|graph|infographic|screenshot|poster|stamp|coin|banknote|emblem|crest|coat of arms|certificate|invoice|receipt|document|comparison|table|collage|montage|book cover|album cover|cd cover|dvd cover|wikipedia|wikimedia|commons|svg|logotype|symbol|sign board|signage|blueprint)\b/i;
+function sigWords(term){return String(term||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(w=>w.length>=4);}
+function looksRelevant(title,term){
+ const words=sigWords(term);
+ if(!words.length)return true; // juda qisqa/erkin so'rov bo'lsa, filtrlamaymiz
+ // Wikimedia fayl nomlarida bo'sh joy o'rniga "_" ishlatiladi (masalan "Pine_forest_sunset.jpg").
+ // Regexdagi \b "_" ni harf sifatida ko'radi va so'z chegarasini sezmaydi — shu sabab "_" ni bo'sh
+ // joyga almashtirib, so'zlarni to'g'ri ajratamiz.
+ const t=String(title||'').toLowerCase().replace(/_/g,' ');
+ return words.some(w=>new RegExp('\\b'+w+'\\w*','i').test(t));
+}
 async function apiSearch(offset,cat){
 const terms=categories[cat][2];
+const rawTerm=query.trim() || terms[termIndex % terms.length];
 // O'zimiz tanlagan kategoriya iboralarini qo'shtirnoqqa olib ANIQ FRAZA qidiruvi qilamiz (aralash/
 // bog'liqsiz natijalarni kamaytirish uchun) — foydalanuvchi o'zi yozgan erkin qidiruvga tegmaymiz.
-let q=query.trim() || '"'+terms[termIndex % terms.length]+'"';
+let q=query.trim() || '"'+rawTerm+'"';
 termIndex++;
 const params=new URLSearchParams({
 action:'query',generator:'search',gsrsearch:q,gsrnamespace:'6',gsrlimit:'50',
@@ -75,7 +90,7 @@ const r=await fetch(API+'?'+params.toString(),{cache:'no-store'});
 if(!r.ok)throw new Error('API '+r.status);
 const data=await r.json();
 if(data.error)throw new Error(data.error.info||data.error.code||'Server xato qaytardi');
-return data;
+return {data,term:rawTerm};
 }
 async function load(reset=false){
 // MUHIM: reset=true (kategoriya/qidiruv/tasodifiy tugmasi bosilganda) har doim DARHOL boshlanadi —
@@ -94,13 +109,20 @@ try{
 let collected=[],attempt=0;
 while(collected.length<24 && attempt<8){
 if(myGen!==gen)return; // boshqa (yangiroq) so'rov boshlangan — bu eskisini bekor qilamiz
-const data=await apiSearch(continueToken,myCat);
+const {data,term}=await apiSearch(continueToken,myCat);
 if(myGen!==gen)return; // javob kelguncha ham yangi so'rov boshlanishi mumkin edi — yana tekshiramiz
 const pages=data.query?.pages||{};
 Object.values(pages).forEach(p=>{
 const ii=p.imageinfo?.[0];
 if(!ii||!/^image\/(jpeg|png|webp)$/i.test(ii.mime||''))return;
 if(ii.width<MIN_W||ii.height<MIN_H)return;
+// Mavzuga mutlaqo aloqasi yo'q fayl turlari (xarita, logotip, diagramma, skrinshot...) — matn
+// qidiruv ba'zan bularni ham qaytaradi, shu sabab "aralashgan" ko'rinadi. ("_" ni bo'sh joyga
+// almashtiramiz, chunki Wikimedia nomlarida so'zlar "_" bilan ajratiladi va \b buni sezmaydi.)
+if(JUNK_TITLE_RE.test(String(p.title||'').replace(/_/g,' ')))return;
+// Fayl nomi qidirilgan so'z bilan hech bog'liq bo'lmasa (Commons qidiruvi ba'zan bo'sh/uzoq
+// bog'liqlikdagi natijalar qaytaradi) — rad etamiz, faqat haqiqatan mavzuga mos rasmlar qoladi.
+if(!looksRelevant(p.title,term))return;
 const id=String(p.pageid);
 if(seen.has(id))return;
 collected.push({
