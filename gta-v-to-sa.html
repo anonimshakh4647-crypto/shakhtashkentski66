@@ -923,8 +923,18 @@ G.DFF.VER_SA=0x1803FFFF;
 'use strict';
 const {M}=G;
 const FLIP_TAGS=new Set([26418,5857,5858,5859,26398]); // right-side wheels (CodeWalker mirrors these)
+function isIdentityMat4(m){
+  // ba'zi YFT fragmentlarda fr.pose HAR BIR suyak uchun shunchaki identity matritsa bilan
+  // to'ldirilgan bo'ladi (haqiqiy pose ma'lumoti yo'q). Bunday "soxta" identity'ni haqiqiy
+  // pose sifatida ishlatish bone'ning asl (parent zanjiri orqali hisoblangan) joylashuvini
+  // (0,0,0)ga aylantirib qo'yadi -- aynan shu g'ildirak pozitsiyalari buzilishiga sabab bo'lgan.
+  if(!m||m.length<16)return false;
+  const id=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+  for(let k=0;k<16;k++){if(Math.abs(m[k]-id[k])>1e-6)return false;}
+  return true;
+}
 function boneWorld(fr,skel,i,cache){
-  if(fr&&fr.pose&&fr.pose[i])return fr.pose[i];
+  if(fr&&fr.pose&&fr.pose[i]&&!isIdentityMat4(fr.pose[i]))return fr.pose[i];
   if(cache[i])return cache[i];
   const b=skel.bones[i];let m=M.fromQuat(b.rot,b.pos);
   if(b.parent>=0&&b.parent<skel.bones.length&&b.parent!==i)m=M.mul(m,boneWorld(fr,skel,b.parent,cache));
