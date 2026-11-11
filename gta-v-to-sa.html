@@ -1701,6 +1701,7 @@ function convertToSA(model,texLookup,opts){
         for(let i=0;i<px;i+=st){R+=r.rgba[i*4];Gc+=r.rgba[i*4+1];B+=r.rgba[i*4+2];n++;}
         R/=n;Gc/=n;B/=n;ok=Math.max(R,Gc,B)-Math.min(R,Gc,B)<30&&(R+Gc+B)/3>120;}}catch(e){ok=false;}
     neutralMemo.set(t,ok);return ok;};
+  const lightAcc={};
   const matResolver=(it,a,b,c,xm)=>{
     const role=roleFor(it.mesh,it.partName);
     if(role==='skip')return null;
@@ -1717,6 +1718,10 @@ function convertToSA(model,texLookup,opts){
       if(/_l$|_lf$|_lr$/.test(pn)&&/light/.test(pn))k=(/tail|brake|rever|indicator_lr/.test(pn)?'light_rl':'light_fl');
       else if(/_r$|_rf$|_rr$/.test(pn)&&/light/.test(pn))k=(/tail|brake|rever|indicator_rr/.test(pn)?'light_rr':'light_fr');
       else k=lightByPos(xm,a,b,c);
+      // chiroq dummylari (headlights/taillights) topilmasa yoki noto'g'ri joyda bo'lsa, ularni chiroq
+      // oynasi (lens) uchburchaklarining markazidan hisoblash uchun yig'ib boramiz (eshik qismlari
+      // o'z lokal fazosida bo'lgani uchun hisobga olinmaydi).
+      if(xm&&classify(it.partName).t!=='mov'){const q=lightAcc[k]||(lightAcc[k]={n:0,x:0,y:0,z:0});q.n++;q.x+=(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3;q.y+=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3;q.z+=(xm.pos[a*3+2]+xm.pos[b*3+2]+xm.pos[c*3+2])/3;}
       return{key:k,color:SA_COL[k]};
     }
     const t=it.mesh.mat.tex;
@@ -1892,10 +1897,40 @@ function convertToSA(model,texLookup,opts){
   // kuzov bilan BIR XIL, to'g'ri joyida qoladi (uchib/ajralib ketmaydi). Haqiqiy
   // joylashuv ma'lumoti (matritsa) BOR bo'lgan fayllar uchun hech narsa o'zgarmadi --
   // ular hamon alohida, ochiladigan eshik/bamper sifatida eksport qilinadi.
-  let movMergedNoData=[];
+  let movMergedNoData=[];const doorsPivoted=[];
   for(const {p,c} of movs){
     const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
     if(noData){
+      // MUHIM (eshiklar ochilmasligi xatosi): GTA SA eshikni FAQAT "door_xx_dummy" freymi (va uning
+      // bolasi "door_xx_ok") orqali buradi. Quyidagi statik birikish eshikni kuzovga qotirib qo'yadi --
+      // shu sabab o'yinda eshik ochilmasdan, ped to'g'ri kirib o'tirardi. Eshiklar uchun (faqat shular)
+      // endi eshikning o'z geometriyasidan MENTESHE (hinge) nuqtasi topiladi: avval suyak (agar u
+      // eshik yonida, old chetida bo'lsa), bo'lmasa eshikning old cheti. Dummy shu nuqtaga qo'yiladi,
+      // geometriya esa shu nuqtaga nisbatan suriladi -- eshik OLDINGI joyida turadi (uchib ketmaydi),
+      // lekin o'yin uni Z o'qi atrofida ochadigan bo'ladi. Boshqa qismlar (bamper, bagaj...) o'zgarmadi.
+      if(/^door_[lr][fr]$/.test(c.sa)){
+        const xms0=p.meshes.map(m=>xformMesh(m,M.id(),true)),bb0=bboxOf(xms0);
+        if(bb0.mx[0]>bb0.mn[0]&&bb0.mx[1]>bb0.mn[1]){
+          const dl=bb0.mx[1]-bb0.mn[1],dh=bb0.mx[2]-bb0.mn[2];let P=null;
+          const bm=boneByName(String(p.name||'').toLowerCase()),e=0.35;
+          if(bm&&!isZeroPos(bm[12],bm[13],bm[14])&&bm[12]>=bb0.mn[0]-e&&bm[12]<=bb0.mx[0]+e&&bm[13]>=bb0.mx[1]-0.35*dl-0.05&&bm[13]<=bb0.mx[1]+e&&bm[14]>=bb0.mn[2]-e&&bm[14]<=bb0.mx[2]+e)P=[bm[12],bm[13],bm[14]];
+          if(!P){ // eshikning old cheti: oyna romi/oyna tutqichi emas, pastki 60% balandlikdagi eng old nuqta
+            let yF=-1e9;const zc=bb0.mn[2]+dh*0.6;
+            for(const xm of xms0)for(let i=0;i<xm.pos.length;i+=3)if(xm.pos[i+2]<=zc&&xm.pos[i+1]>yF)yF=xm.pos[i+1];
+            if(yF<-1e8)yF=bb0.mx[1];
+            P=[(bb0.mn[0]+bb0.mx[0])/2,yF,(bb0.mn[2]+bb0.mx[2])/2];
+          }
+          const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,[1,0,0,0,0,1,0,0,0,0,1,0,-P[0],-P[1],-P[2],1],true),m,p.name);
+          const specs=acc.build(matResolver);
+          if(specs.length){
+            const d=addFrame(c.sa+'_dummy',0,P);
+            const ok=addFrame(c.sa+'_ok',d,[0,0,0]);addGeoms(ok,specs);
+            if(opts.damCopy){const dam=addFrame(c.sa+'_dam',d,[0,0,0]);for(let i=0;i<specs.length;i++)atomics.push({frame:dam,geom:geoms.length-specs.length+i});}
+            doorsPivoted.push(c.sa+' ('+P.map(v=>v.toFixed(2)).join(', ')+')');
+          }
+          continue;
+        }
+      }
       // Alohida (statik) freym -- chassisFrame'ning bolasi, pos=[0,0,0], hech qanday
       // qo'shimcha aylanish/surilishsiz (identity) -- mesh o'z XOM koordinatalarida qoladi.
       const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,M.id(),true),m,p.name);
@@ -1940,6 +1975,7 @@ function convertToSA(model,texLookup,opts){
     const specs=acc.build(matResolver);const f=addFrame('steering',0,noData?[0,0,0]:safePartPos(p,'steering'));addGeoms(f,specs);
     if(noData)movMergedNoData.push('steering');
   }
+  if(doorsPivoted.length)report.info.push('Eshiklar ochiladigan qilindi (manbada joylashuv ma\'lumoti yo\'q edi, menteşe nuqtasi eshik geometriyasi/suyagidan aniqlandi): '+doorsPivoted.join('; ')+'. Agar eshik noto‘g‘ri nuqta atrofida ochilsa, ZModeler\'da door_*_dummy ni eshikning old chetiga suring.');
   if(movMergedNoData.length)report.warnings.push('Qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi: '+[...new Set(movMergedNoData)].join(', ')+'. Ular "uchib ketgan parcha" bo‘lib chiqmasligi uchun kuzovga BIRIKTIRILDI (statik) -- lekin shu sabab endi alohida ESHIK/BAMPER/EXTRA sifatida OCHILMAYDI yoki boshqarilmaydi. Haqiqiy harakatlanadigan qilish uchun ZModeler/CodeWalker\'da manba faylidagi shu qism(lar)ning joylashuvini tekshiring.');
   // 4. dummies (lights, seats, exhaust) from parts or bones
   frames.forEach(f=>have.add(f.name));
@@ -1964,6 +2000,35 @@ function convertToSA(model,texLookup,opts){
       const seatX=(sa==='ped_frontseat'||sa==='ped_backseat')?Math.abs(W[12]):W[12];
       addFrame(sa,0,[seatX,W[13],W[14]]);have.add(sa);
     }
+  }
+  // MUHIM (chiroqlar umuman yonmasligi xatosi): GTA SA chiroq nurini va yaltirashini (corona) FAQAT
+  // "headlights" (old) va "taillights" (orqa) dummy freymlari joyida chizadi (ikkinchi tomonini
+  // o'zi X ni akslantirib oladi). Dummy umuman yo'q bo'lsa yoki (0,0,0)/mashina o'rtasida qolgan
+  // bo'lsa, o'yinda chiroq mutlaqo ko'rinmaydi. Shuning uchun: dummy yo'q yoki mashinaning
+  // old/orqa uchida emas bo'lsa, uni chiroq oynasi (lens) geometriyasining markazidan, u ham
+  // bo'lmasa kuzov o'lchamidan hisoblab qo'yamiz. To'g'ri joylashgan dummylar O'ZGARMAYDI.
+  {
+    const bbL=bodyXms.length?bboxOf(bodyXms):null;
+    const lensC=k=>{const q=lightAcc[k];return q&&q.n?[q.x/q.n,q.y/q.n,q.z/q.n]:null;};
+    const fixLightDummy=(sa,front)=>{
+      const fi=frames.findIndex(f=>f.name===sa),cur=fi>=0?frames[fi].pos:null;
+      const midY=bbL?(bbL.mn[1]+bbL.mx[1])/2:0,len=bbL?(bbL.mx[1]-bbL.mn[1]):0;
+      const okPos=p=>p&&!isZeroPos(p[0],p[1],p[2])&&(!bbL||(front?p[1]>midY+0.2*len:p[1]<midY-0.2*len));
+      if(okPos(cur))return;
+      const L=lensC(front?'light_fl':'light_rl'),R=lensC(front?'light_fr':'light_rr');
+      let np=null,how='';
+      if(L&&okPos(L)){np=L.slice();how='chiroq oynasi (lens) markazidan';}
+      else if(R&&okPos([-R[0],R[1],R[2]])){np=[-R[0],R[1],R[2]];how='chiroq oynasi (lens) markazidan';}
+      else if(bbL){
+        np=[-(bbL.mx[0]-bbL.mn[0])*0.3,front?bbL.mx[1]-0.12:bbL.mn[1]+0.12,bbL.mn[2]+(bbL.mx[2]-bbL.mn[2])*(front?0.45:0.55)];how='kuzov o‘lchamidan (taxminiy)';
+      }
+      if(!np)return;
+      if(fi>=0)frames[fi].pos=np;else addFrame(sa,0,np);
+      have.add(sa);
+      (how.indexOf('taxminiy')>=0?report.warnings:report.info).push(sa+' dummy '+(cur?'noto‘g‘ri joyda edi':'topilmadi')+' — '+how+' qo‘yildi ('+np.map(v=>v.toFixed(2)).join(', ')+'). Chiroqlar yonishi uchun shu dummy kerak.'+(how.indexOf('taxminiy')>=0?' ZModeler\'da tekshiring.':''));
+    };
+    fixLightDummy('headlights',true);
+    fixLightDummy('taillights',false);
   }
   if(bboxFallbackUsed.length)report.warnings.push('Ba\'zi qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi, shuning uchun geometriyaning o‘zidan (bbox markazi) taxminiy joy olindi: '+[...new Set(bboxFallbackUsed)].join(', ')+'. Imkon qadar ZModeler/CodeWalker\'da aniq o‘rnini tekshiring.');
   // seat fallback from body bbox
