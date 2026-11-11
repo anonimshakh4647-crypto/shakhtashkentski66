@@ -827,11 +827,26 @@ const padLen=n=>(n+4)&~3; // at least one NUL, 4-aligned
 function strChunk(s,ver){const d=new Uint8Array(padLen(s.length));for(let i=0;i<s.length;i++)d[i]=s.charCodeAt(i)&127;return{type:T.STRING,ver,data:d};}
 const extChunk=(ver,kids)=>({type:T.EXT,ver,children:kids||[],tail:null});
 const leaf=(type,ver,data)=>({type,ver,data});
+/* ---------- Yaltirash (aks / specular) ----------
+ * Aynan shu uchta bo'lak (MatFX "env map", "Reflection material" 0x253F2FC, "Specular material" 0x253F2F6) ishlaydigan
+ * haqiqiy GTA SA mashina fayli (infernus.dff) ichidagi bo'sh-baytlar bilan SOLISHTIRILIB yozilgan:
+ *   MatFX material  = u32 2 (env map) | u32 2 | f32 koeffitsient | u32 0 | u32 1 (tekstura bor) | TEXTURE chunk (nomi) | u32 0 (2-chi effekt yo'q)
+ *   Reflection      = f32 scaleX,scaleY,offsetX,offsetY (=1,1,1,1) | f32 intensivlik | u32 0           (24 bayt)
+ *   Specular        = f32 daraja | char[24] tekstura nomi ("vehiclespecdot64")                          (28 bayt)
+ *   Atomic          = Right To Render [0x120, 0] + MatFX [1]   (effektlar yoqilgan)
+ * Tekstura nomlari ("vehicleenvmap128", "vehiclespecdot64") o'yinning umumiy vehicle.txd sidagi nomlar; TXD ga qo'shilmaydi. */
+function fxChunks(fx,ver){
+  const tex={type:T.TEXTURE,ver,children:[leaf(T.STRUCT,ver,new Uint8Array([6,0x11,1,0])),strChunk('vehicleenvmap128',ver),strChunk('',ver),extChunk(ver)],tail:null};
+  const m=new BW();m.u32(2);m.u32(2);m.f32(fx.env);m.u32(0);m.u32(1);m.bytes(serialize([tex]));m.u32(0);
+  const r=new BW();r.f32(1);r.f32(1);r.f32(1);r.f32(1);r.f32(fx.refl);r.u32(0);
+  const sp=new BW();sp.f32(fx.spec);sp.str('vehiclespecdot64',24);
+  return[leaf(T.MATFX,ver,m.done()),leaf(0x253F2FC,ver,r.done()),leaf(0x253F2F6,ver,sp.done())];
+}
 function materialChunk(m,ver){
   const w=new BW();w.u32(0);w.bytes(new Uint8Array(m.color));w.u32(0);w.u32(m.tex?1:0);w.f32(1);w.f32(0);w.f32(1);
   const kids=[leaf(T.STRUCT,ver,w.done())];
   if(m.tex){kids.push({type:T.TEXTURE,ver,children:[leaf(T.STRUCT,ver,new Uint8Array([6,0x11,0,0])),strChunk(m.tex,ver),strChunk(m.mask||'',ver),extChunk(ver)],tail:null});}
-  kids.push(extChunk(ver));
+  kids.push(extChunk(ver,m.fx?fxChunks(m.fx,ver):[]));
   return{type:T.MATERIAL,ver,children:kids,tail:null};
 }
 /* g: {pos,nrm,uv,day(Uint8 RGBA),night(Uint8 RGBA|null),tris:[a,b,c,mat,...],materials:[{color,tex,mask}],fx2d:Uint8Array|null,prelit:bool} */
@@ -891,14 +906,16 @@ function frameRecord(w,f){
   w.u32(parent===-1?0x20003:0x3);
 }
 const frameExt=(name,ver)=>extChunk(ver,name?[leaf(T.FRAMENAME,ver,(()=>{const d=new Uint8Array(name.length);for(let i=0;i<name.length;i++)d[i]=name.charCodeAt(i)&127;return d;})())]:[]);
-function atomicChunk(frame,geom,ver){
+function atomicChunk(frame,geom,ver,fx){
   const w=new BW();w.u32(frame);w.u32(geom);w.u32(5);w.u32(0);
   // ESLATMA: avval shu yerda atomic'larga "Right To Render"(0x1F)+"MaterialFX"(0x120) belgilari
   // qo'shilgan edi, lekin materiallarning o'ziga mos MatFX ma'lumoti (reflection/specular
   // sub-extension + ikkinchi UV-kanal) qo'shilmagani sababli bu CHALA/nomuvofiq holat edi va
   // o'yin buni noto'g'ri pointer sifatida o'qib qotishi mumkin edi -- shuning uchun xavfsiz,
   // oddiy (hech qanday effekt da'vo qilmaydigan) bo'sh extension holatiga qaytarildi.
-  return{type:T.ATOMIC,ver,children:[leaf(T.STRUCT,ver,w.done()),extChunk(ver)],tail:null};
+  const ek=[];
+  if(fx){const rr=new BW();rr.u32(0x120);rr.u32(0);ek.push(leaf(T.RIGHTTORENDER,ver,rr.done()));const mf=new BW();mf.u32(1);ek.push(leaf(T.MATFX,ver,mf.done()));}
+  return{type:T.ATOMIC,ver,children:[leaf(T.STRUCT,ver,w.done()),extChunk(ver,ek)],tail:null};
 }
 /* ---------- collision (COL3) ----------
  * GTA SA mashinani SPAWN qilayotganda to'qnashuv (collision) modelidan foydalanadi. Agar u
@@ -968,7 +985,7 @@ function buildClump(spec,ver){
   const gw=new BW();gw.u32(spec.geoms.length);
   const geoList={type:T.GEOLIST,ver,children:[leaf(T.STRUCT,ver,gw.done()),...spec.geoms.map(g=>buildGeometry(g,ver))],tail:null};
   const clumpExtKids=spec.col?[leaf(T.COLEXT,ver,spec.col)]:[];
-  const clump={type:T.CLUMP,ver,children:[leaf(T.STRUCT,ver,cw.done()),frameList,geoList,...spec.atomics.map(a=>atomicChunk(a.frame,a.geom,ver)),extChunk(ver,clumpExtKids)],tail:null};
+  const clump={type:T.CLUMP,ver,children:[leaf(T.STRUCT,ver,cw.done()),frameList,geoList,...spec.atomics.map(a=>atomicChunk(a.frame,a.geom,ver,spec.geoms[a.geom].materials.some(m=>m.fx))),extChunk(ver,clumpExtKids)],tail:null};
   return clump;
 }
 
@@ -1746,7 +1763,7 @@ class GeoAcc{
         const a=idx[t],b=idx[t+1],c=idx[t+2];
         const mk=resolveMat(it,a,b,c,it.xm); // {key,color,tex,uv?}
         if(!mk)continue;
-        let mi=cur.matIdx.get(mk.key);if(mi===undefined){mi=cur.mats.length;cur.mats.push(mk.uv?{color:mk.color,tex:mk.tex||'',mask:'',flat:true}:{color:mk.color,tex:mk.tex||'',mask:''});cur.matIdx.set(mk.key,mi);}
+        let mi=cur.matIdx.get(mk.key);if(mi===undefined){mi=cur.mats.length;cur.mats.push(mk.uv?{color:mk.color,tex:mk.tex||'',mask:'',flat:true}:Object.assign({color:mk.color,tex:mk.tex||'',mask:''},mk.fx?{fx:mk.fx}:{}));cur.matIdx.set(mk.key,mi);}
         if(mk.uv)cur.tris.push(lensV(a,mk),lensV(b,mk),lensV(c,mk),mi);
         else cur.tris.push(a+base,b+base,c+base,mi);
       }
@@ -1843,7 +1860,7 @@ function analyzeSteer(xws){
 }
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,lightMode:'rear',steerSpin:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255]},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255]},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -1880,16 +1897,20 @@ function convertToSA(model,texLookup,opts){
         R/=n;Gc/=n;B/=n;ok=Math.max(R,Gc,B)-Math.min(R,Gc,B)<30&&(R+Gc+B)/3>120;}}catch(e){ok=false;}
     neutralMemo.set(t,ok);return ok;};
   const lightAcc={};
+  // Yaltirash darajasi: 'off' | 'normal' (haqiqiy SA infernus qiymatlari) | 'high' (kuchliroq). Faqat mashina (object emas).
+  const SHINE={normal:{paint:{env:0.5,refl:0.03,spec:0.30},glass:{env:0.5,refl:0.02,spec:0.30}},
+               high:{paint:{env:0.8,refl:0.09,spec:0.70},glass:{env:0.8,refl:0.05,spec:0.50}}};
+  const SH=objectMode?null:(SHINE[opts.shine==null?'high':opts.shine]||null);
   const matResolver=(it,a,b,c,xm)=>{
     const role=roleFor(it.mesh,it.partName);
     if(role==='skip')return null;
     if(role==='paint1'||role==='paint2'||role==='paint3'||role==='paint4'){
       // game paint: the green/pink marker is recoloured by SA; a plain white/grey detail map stays underneath so shading and details survive
       const pt=it.mesh.mat.tex;
-      if(opts.paintMode==='game'&&pt&&neutralTex(pt))return{key:role+':'+pt,color:paintCol(role),tex:pt};
-      return{key:role,color:paintCol(role)};
+      if(opts.paintMode==='game'&&pt&&neutralTex(pt))return{key:role+':'+pt,color:paintCol(role),tex:pt,fx:SH&&SH.paint};
+      return{key:role,color:paintCol(role),fx:SH&&SH.paint};
     }
-    if(role==='glass')return{key:'glass',color:SA_COL.glass};
+    if(role==='glass')return{key:'glass',color:SA_COL.glass,fx:SH&&SH.glass};
     if(role==='black')return{key:'black',color:SA_COL.black};
     if(role==='light'){
       let k;const pn=it.partName.toLowerCase();
@@ -1916,15 +1937,17 @@ function convertToSA(model,texLookup,opts){
     if(t){
       let ok=texFound.get(t);
       if(ok===undefined){const r=texLookup?texLookup(t):null;ok=!!(r&&r.rgba);texFound.set(t,ok);if(!ok)report.missingTex.push(t);}
-      if(ok)return{key:'tex:'+t,color:[255,255,255,255],tex:t};
+      if(ok){const pshade=/paint/.test((it.mesh.mat.shaderName||'').toLowerCase())&&!/ped/.test((it.mesh.mat.shaderName||'').toLowerCase());
+        // kuzov o'z teksturasi bilan saqlangan bo'lsa ham (paintMode orig) bo'yoq shaderi bo'lgani uchun yaltirashi saqlanadi
+        return pshade&&SH?{key:'tex:'+t+'|p',color:[255,255,255,255],tex:t,fx:SH.paint}:{key:'tex:'+t,color:[255,255,255,255],tex:t};}
     }
     // no texture available -> choose a sensible colour instead of flat grey
     const sn=it.mesh.mat.shaderName,pc=objectMode?'body':classify(it.partName).t;
     const dark=/tyre|tire|rubber|brake|disc/.test(((t||'')+' '+it.partName).toLowerCase());
     const bodyish=pc!=='wheel'&&pc!=='dummy'&&pc!=='steer';
     if(dark)return{key:'black',color:SA_COL.black};
-    if(opts.missTex==='paint'&&bodyish)return{key:'paint1',color:paintCol('paint1')};
-    if(opts.missTex==='auto'&&bodyish&&!objectMode&&isUnknownShader(sn)){fallbackPaint.add(sn||'?');return{key:'paint1',color:paintCol('paint1')};}
+    if(opts.missTex==='paint'&&bodyish)return{key:'paint1',color:paintCol('paint1'),fx:SH&&SH.paint};
+    if(opts.missTex==='auto'&&bodyish&&!objectMode&&isUnknownShader(sn)){fallbackPaint.add(sn||'?');return{key:'paint1',color:paintCol('paint1'),fx:SH&&SH.paint};}
     return{key:'plain',color:SA_COL.plain};
   };
   const frames=[{name:objectMode?name:'chassis_dummy',pos:[0,0,0],parent:-1}];
@@ -2164,7 +2187,7 @@ function convertToSA(model,texLookup,opts){
     const xws=p.meshes.map(m=>xformMesh(m,W,true));
     let an=null;try{an=analyzeSteer(xws);}catch(e){console.warn('analyzeSteer',e);}
     if(an&&an.ok&&an.wheelTris>0){
-      const spin=opts.steerSpin!==false,[r0,r1,r2]=an.basis,pv=an.pivot;
+      const spin=opts.steerSpin!==false,[r0,r1,r2]=an.basis,pv=an.pivot,sAng=Math.max(10,Math.min(1080,Math.round(Number(opts.steerAngle)||180))),sName=spin?('f_steer'+(sAng===100?'':sAng)):'steering';
       const wAcc=new GeoAcc(),rAcc=new GeoAcc();
       p.meshes.forEach((m,mi)=>{
         const wt=an.wheel[mi],rt=an.rest[mi];
@@ -2181,10 +2204,10 @@ function convertToSA(model,texLookup,opts){
         if(rt.length){const sm=steerSub(m,rt);rAcc.add(xformMesh(sm,W,true),sm,p.name);}
       });
       const wspecs=wAcc.build(matResolver);wspecs.forEach(x=>{x._k='steer';});
-      const fi=addFrame(spin?'f_steer':'steering',0,pv.slice());frames[fi].rot=an.rot9;addGeoms(fi,wspecs);
+      const fi=addFrame(sName,0,pv.slice());frames[fi].rot=an.rot9;addGeoms(fi,wspecs);
       const rspecs=rAcc.build(matResolver);
       if(rspecs.length){rspecs.forEach(x=>{x._k='steer';});const rf=addFrame('p_steer_rest',0,[0,0,0]);addGeoms(rf,rspecs);}
-      report.info.push('Rul: '+(spin?'"f_steer"':'"steering"')+' frame — diametri ≈ '+(an.diam*100).toFixed(0)+' sm, qiyaligi ≈ '+an.tiltDeg.toFixed(0)+'°'+(an.axisFallback?' (o‘q aniqlanmadi — oddiy Y o‘qi olindi)':'')+', markazi ('+pv.map(v=>v.toFixed(2)).join(', ')+')'+(an.restTris?'; rulga tegishli bo‘lmagan '+an.restTris+' ta poligon (begona bo‘laklar) rul bilan aylanmasligi uchun alohida statik frame ga ajratildi':'')+'.'+(spin?' DIQQAT: original GTA SA rulni o‘zi aylantirmaydi — aylanishi uchun VehFuncs plagini (ASI) o‘rnatilgan bo‘lishi kerak; plaginsiz rul joyida turadi (qolgan hammasi bir xil).':''));
+      report.info.push('Rul: "'+sName+'"'+(spin?' ('+sAng+'° ga buriladi)':'')+' frame — diametri ≈ '+(an.diam*100).toFixed(0)+' sm, qiyaligi ≈ '+an.tiltDeg.toFixed(0)+'°'+(an.axisFallback?' (o‘q aniqlanmadi — oddiy Y o‘qi olindi)':'')+', markazi ('+pv.map(v=>v.toFixed(2)).join(', ')+')'+(an.restTris?'; rulga tegishli bo‘lmagan '+an.restTris+' ta poligon (begona bo‘laklar) rul bilan aylanmasligi uchun alohida statik frame ga ajratildi':'')+'.'+(spin?' DIQQAT: original GTA SA rulni o‘zi aylantirmaydi — aylanishi uchun VehFuncs plagini (ASI) o‘rnatilgan bo‘lishi kerak; plaginsiz rul joyida turadi (qolgan hammasi bir xil).':''));
     }else{
       // rulni boshqa detallardan ajratib bo'lmadi: eski usul -- statik "steering" (aylanmaydi, lekin joyidan siljimaydi ham)
       const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,W,true),m,p.name);
@@ -2197,11 +2220,8 @@ function convertToSA(model,texLookup,opts){
   // 4. dummies (lights, seats, exhaust) from parts or bones
   frames.forEach(f=>have.add(f.name));
   const dumSrc=[['headlights','headlight_l'],['taillights','taillight_l'],['taillights','brakelight_l'],['exhaust_ok','exhaust'],['petrolcap','petrolcap'],['ped_frontseat','seat_dside_f'],['ped_backseat','seat_dside_r']];
-  const lightMode=opts.lightMode||'rear'; // 'rear' | 'none' | 'full'
   for(const [sa,bn] of dumSrc){
     if(have.has(sa))continue;
-    // O'yin yer nuri va corona ni FAQAT shu dummylar joyida chizadi: tanlangan rejimga qarab ba'zilari qo'yilmaydi
-    if((sa==='headlights'&&lightMode!=='full')||(sa==='taillights'&&lightMode==='none'))continue;
     let W=null;const dp=dummies.find(d=>d.c.sa===sa&&d.p.name.toLowerCase()===bn);
     if(dp){
       const mx=dp.p.matrix;
@@ -2249,9 +2269,9 @@ function convertToSA(model,texLookup,opts){
       have.add(sa);
       (how.indexOf('taxminiy')>=0?report.warnings:report.info).push(sa+' dummy '+(cur?'noto‘g‘ri joyda edi':'topilmadi')+' — '+how+' qo‘yildi ('+np.map(v=>v.toFixed(2)).join(', ')+'). Chiroqlar yonishi uchun shu dummy kerak.'+(how.indexOf('taxminiy')>=0?' ZModeler\'da tekshiring.':''));
     };
-    if(lightMode==='full')fixLightDummy('headlights',true);
-    if(lightMode!=='none')fixLightDummy('taillights',false);
-    report.info.push(lightMode==='full'?'Chiroq rejimi: TO‘LIQ — old/orqa dummylar bor (o‘yin corona va yer nurini chizadi).':lightMode==='rear'?'Chiroq rejimi: old yer nuri YO‘Q (headlights dummy qo‘yilmadi), orqa qizil nur bor (taillights dummy). Old chiroq oynalari (oq) baribir yonadi. Yer nuri hali ham ko‘rinsa — «Faqat chiroq oynalari» rejimini tanlang.':'Chiroq rejimi: faqat chiroq oynalari — old oq, orqa qizil lampa yonadi; o‘yin yer nuri va coronani chizmaydi (dummylar qo‘yilmadi).');
+    fixLightDummy('headlights',true);
+    fixLightDummy('taillights',false);
+    report.info.push('Chiroq dummylari: headlights (old) va taillights (orqa) chiroq joyiga qo‘yildi. DIQQAT: o‘yin chiroq yaltirashini (corona) ham, yer nurini ham shu dummylardan chizadi; dummy yo‘q bo‘lsa nur mashina MARKAZIDA (salon ichida) chiqadi, shuning uchun ularni olib tashlab bo‘lmaydi. Yer nurini mashina modeli orqali o‘chirib bo‘lmaydi (faqat o‘yin plagini bilan).');
   }
   if(bboxFallbackUsed.length)report.warnings.push('Ba\'zi qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi, shuning uchun geometriyaning o‘zidan (bbox markazi) taxminiy joy olindi: '+[...new Set(bboxFallbackUsed)].join(', ')+'. Imkon qadar ZModeler/CodeWalker\'da aniq o‘rnini tekshiring.');
   // seat fallback from body bbox
@@ -2342,7 +2362,7 @@ function convertToSA(model,texLookup,opts){
     const ref=new Map();for(const a of atomics)ref.set(a.geom,(ref.get(a.geom)||0)+1);
     const groups=new Map();atomics.forEach((a,i)=>{if(!groups.has(a.frame))groups.set(a.frame,[]);groups.get(a.frame).push(i);});
     const ng=[],na=[];let merged=0;
-    const keyOf=m=>m.color.join(',')+'|'+(m.tex||'')+'|'+(m.mask||'');
+    const keyOf=m=>m.color.join(',')+'|'+(m.tex||'')+'|'+(m.mask||'')+'|'+(m.fx?m.fx.env+','+m.fx.refl+','+m.fx.spec:'');
     const mergeList=list=>{
       if(list.length===1)return list[0];
       const mats=[],mk=new Map(),P=[],N=[],UV=[],tris=[];let base=0,anyUV=list.some(g=>g.uv);
@@ -2383,7 +2403,7 @@ function convertToSA(model,texLookup,opts){
       txdTexs.push(G.makeTxdTexture(safe,t.rgba,t.w,t.h,{maxSize:opts.maxTex,compress:opts.compress,mips:opts.mips}));report.usedTex.push(safe);
       if(safe!==tn)renamed.push(tn+' → '+safe);
     }
-    else{report.missingTex.push(tn);for(const g of geoms)for(const m of g.materials)if(m.tex===tn){m.tex='';m.color=SA_COL.plain.slice();}}
+    else{report.missingTex.push(tn);for(const g of geoms)for(const m of g.materials)if(m.tex===tn){m.tex='';m.color=SA_COL.plain.slice();delete m.fx;}}
   }
   {let ln=0;for(const g of geoms)for(const m of g.materials)if(m.tex===SA_LIGHT_TEX)ln++;
     if(ln)report.info.push('Chiroq oynalari ('+ln+' material) global "vehiclelights128" teksturasi bilan chiqdi: chiroq yonganda o‘yin uni "vehiclelightson128" ga almashtiradi. Bu teksturani mashina TXD siga QO‘SHMANG (qo‘shilsa chiroq yonmay qoladi).');}
@@ -2866,7 +2886,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,lightMode:'rear',steerSpin:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -3162,8 +3182,9 @@ function paneConv(p){
   p.appendChild(sel('Asosiy LOD','lod',lods.map(l=>[l,({high:'Yuqori (HD)',med:'O‘rta',low:'Past',vlow:'Juda past'})[l]])));
   p.appendChild(chk('Qismlarni alohida saqlash (attach qilmaslik)','keepParts'));
   if(car){p.appendChild(chk('Boshqa qismlar → chassis','mergeOther'));p.appendChild(chk('chassis_vlo (past LOD)','vlo'));p.appendChild(chk('_dam nusxalari (zarar)','damCopy'));p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));p.appendChild(inp('G‘ildirak o‘lchami ×','wheelScale','number',{step:'0.05',min:'0.3',max:'3'}));
-    p.appendChild(sel('Chiroq nuri (o‘yin dvigateli)','lightMode',[['rear','Old: yer nurisiz · Orqa: qizil nur bor (tavsiya)'],['none','Faqat chiroq oynalari (yer nuri ham, corona ham yo‘q)'],['full','To‘liq: corona + yer nuri (o‘yin odatdagidek chizadi)']]));
-    p.appendChild(chk('Rul burilsin (VehFuncs plagini, f_steer)','steerSpin'));}
+    p.appendChild(sel('Yaltirash (kuzov va oynaning aksi)','shine',[['high','Kuchli (tavsiya)'],['normal','Standart (original SA darajasi)'],['off','O‘chiq (mat)']]));
+    p.appendChild(chk('Rul burilsin (VehFuncs plagini, f_steer)','steerSpin'));
+    p.appendChild(sel('Rul burilish burchagi (VehFuncs)','steerAngle',[['100','100° — CJ qo‘llari bilan bir xil (standart animatsiya)'],['180','180° (tavsiya)'],['270','270°'],['360','360° (to‘liq aylanish)'],['540','540° (haqiqiy mashinadek)']]));}
   if(car){
     const pm=el('select',{},[['game','Standart: o‘yin rangi (yashil belgi, o‘yinda o‘zgaradi; tekstura detallari saqlanadi)'],['orig','Asl ko‘rinish (oq/tekstura qat‘iy, o‘yinda rang o‘zgarmaydi)'],['fixed','Qat‘iy rang (quyidan)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.paintMode===v})));
     pm.addEventListener('change',()=>{O.paintMode=pm.value;});
