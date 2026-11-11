@@ -1816,13 +1816,33 @@ function convertToSA(model,texLookup,opts){
     }
     let best=null,bestScore=-Infinity;
     for(const e of pool){const score=e.g.n;if(score>bestScore){bestScore=score;best=e;}}
-    const filtered=xms.map((xm,xi)=>{
-      const off=offs[xi],idx=[];
-      for(let t=0;t<xm.idx.length;t+=3){const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];if(find(a+off)===best.r&&find(b+off)===best.r&&find(c+off)===best.r)idx.push(a,b,c);}
+    // "best" endi ISHONCHLI tayanch nuqta (markaz) beradi -- lekin bu faylda
+    // haqiqiy qismning o'zi ko'pincha YUZLAB ALOHIDA-ALOHIDA, bir-biriga
+    // ULANMAGAN mayda bo'lakka bo'lingan (masalan "door_dside_f" uchun 166+
+    // bo'lak!), shuning uchun faqat "katta" (ulangan-komponent darajasida)
+    // bo'laklarni tanlash/birlashtirish baribir qismning ko'p qismini (masalan
+    // eshikning aksariyat sirti) tashlab yuborar edi -- natija ko'rinishda
+    // eshik "yetishmayotgandek" chiqardi. Shu sababli endi ulanish grafigidan
+    // umuman qat'iy nazar: "best" markazi atrofidagi MA'LUM RADIUS ichidagi
+    // BARCHA (hatto juda mayda, ulanmagan) vertekslar qism tarkibiga olinadi.
+    // Radius "best" ning o'z o'lchamiga moslashadi (kichik yorliq uchun kichik,
+    // katta panel uchun kattaroq), shunda uzoqdagi haqiqatan ham begona
+    // (masalan markazdagi bagaj yoki qarama-qarshi tomon) qismlar saqlanib
+    // qoladi.
+    const anchorCenter=[(best.g.mn[0]+best.g.mx[0])/2,(best.g.mn[1]+best.g.mx[1])/2,(best.g.mn[2]+best.g.mx[2])/2];
+    const FILL_RADIUS=Math.max(best.diag*0.9,0.65);
+    let mn=[...best.g.mn],mx=[...best.g.mx];
+    const filtered=xms.map(xm=>{
+      const nV=xm.pos.length/3,keep=new Uint8Array(nV);
+      for(let i=0;i<nV;i++){
+        const dx=xm.pos[i*3]-anchorCenter[0],dy=xm.pos[i*3+1]-anchorCenter[1],dz=xm.pos[i*3+2]-anchorCenter[2];
+        if(Math.hypot(dx,dy,dz)<=FILL_RADIUS){keep[i]=1;for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i*3+k]);mx[k]=Math.max(mx[k],xm.pos[i*3+k]);}}
+      }
+      const idx=[];for(let t=0;t<xm.idx.length;t+=3){const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];if(keep[a]&&keep[b]&&keep[c])idx.push(a,b,c);}
       return compactXm(Object.assign({},xm,{idx}));
     });
     if(!filtered.some(f=>f.idx.length))return null;
-    return{center:[(best.g.mn[0]+best.g.mx[0])/2,(best.g.mn[1]+best.g.mx[1])/2,(best.g.mn[2]+best.g.mx[2])/2],diag:best.diag,xms:filtered};
+    return{center:[(mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2],diag:diag3(mn,mx),xms:filtered};
   };
   const diag3=(mn,mx)=>Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2]);
   const recenterPos=(pos,ctr)=>{const out=new Float32Array(pos.length);for(let i=0;i<pos.length;i+=3){out[i]=pos[i]-ctr[0];out[i+1]=pos[i+1]-ctr[1];out[i+2]=pos[i+2]-ctr[2];}return out;};
