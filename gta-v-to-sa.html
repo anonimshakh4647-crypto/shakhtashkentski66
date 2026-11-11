@@ -1838,7 +1838,24 @@ function convertToSA(model,texLookup,opts){
         const dx=xm.pos[i*3]-anchorCenter[0],dy=xm.pos[i*3+1]-anchorCenter[1],dz=xm.pos[i*3+2]-anchorCenter[2];
         if(Math.hypot(dx,dy,dz)<=FILL_RADIUS){keep[i]=1;for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i*3+k]);mx[k]=Math.max(mx[k],xm.pos[i*3+k]);}}
       }
-      const idx=[];for(let t=0;t<xm.idx.length;t+=3){const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];if(keep[a]&&keep[b]&&keep[c])idx.push(a,b,c);}
+      // Radius ichidagi 3 ta vertex ham tasodifan (ularning ESKI, boshqa
+      // uzoqdagi uchburchaklardan meros qolgan) g'alati, juda UZUN qirrali
+      // "ko'prik" uchburchak hosil qilishi mumkin (mos kelmaydigan, uzoqdagi
+      // begona bo'lakka tegishli uchburchaklar ustma-ust tasodifan radius
+      // ichiga tushganda). Shunday uchburchaklar eshik/bamper yuzasida
+      // "ignadek" cho'zilgan g'alati chiqindi (spike) sifatida ko'rinadi --
+      // shuning uchun eng uzun qirrasi FILL_RADIUS'ning o'zidan ancha katta
+      // bo'lgan uchburchaklar (haqiqiy, zich yuzadagi uchburchak bunchalik
+      // katta bo'lmaydi) bu yerda chetga suriladi.
+      const EDGE_CAP=FILL_RADIUS*0.7;
+      const idx=[];
+      for(let t=0;t<xm.idx.length;t+=3){
+        const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];
+        if(!(keep[a]&&keep[b]&&keep[c]))continue;
+        const d=(i,j)=>Math.hypot(xm.pos[i*3]-xm.pos[j*3],xm.pos[i*3+1]-xm.pos[j*3+1],xm.pos[i*3+2]-xm.pos[j*3+2]);
+        if(d(a,b)>EDGE_CAP||d(b,c)>EDGE_CAP||d(a,c)>EDGE_CAP)continue;
+        idx.push(a,b,c);
+      }
       return compactXm(Object.assign({},xm,{idx}));
     });
     if(!filtered.some(f=>f.idx.length))return null;
