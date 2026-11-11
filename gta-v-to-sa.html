@@ -1943,14 +1943,25 @@ function convertToSA(model,texLookup,opts){
       else{const c=partBBoxCenter(dp.p);if(c){W=[1,0,0,0,0,1,0,0,0,0,1,0,c[0],c[1],c[2],1];bboxFallbackUsed.push(sa);}}
     }
     if(!W){const bm=boneByName(bn);if(bm&&!isZeroPos(bm[12],bm[13],bm[14]))W=bm;}
-    if(W){addFrame(sa,0,[W[12],W[13],W[14]]);have.add(sa);}
+    if(W){
+      // MUHIM (mashinaga noto'g'ri tomondan / tomga chiqib kirish xatosi): GTA SA da ped_frontseat
+      // va ped_backseat HAR DOIM mashinaning O'NG (yo'lovchi, +X) tomonidagi o'rindiqni bildiradi --
+      // haydovchi o'rindig'ini o'yin o'zi chapga AKSLANTIRIB oladi (original SA mashinalarida bu
+      // dummylar doim o'ngda). GTA V dagi seat_dside_* ("driver side") esa CHAPDA (x<0), shuning
+      // uchun ularni to'g'ridan-to'g'ri qo'ysak SA mashinani "o'ng rulli" deb hisoblaydi: haydovchi
+      // o'ngdan kiradi va tomga chiqib o'tiradi. Shu sabab bu ikkala dummyning X si doim musbat
+      // (o'ng tomon) qilinadi; Y va Z o'zgarmaydi.
+      const seatX=(sa==='ped_frontseat'||sa==='ped_backseat')?Math.abs(W[12]):W[12];
+      addFrame(sa,0,[seatX,W[13],W[14]]);have.add(sa);
+    }
   }
   if(bboxFallbackUsed.length)report.warnings.push('Ba\'zi qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi, shuning uchun geometriyaning o‘zidan (bbox markazi) taxminiy joy olindi: '+[...new Set(bboxFallbackUsed)].join(', ')+'. Imkon qadar ZModeler/CodeWalker\'da aniq o‘rnini tekshiring.');
   // seat fallback from body bbox
   if(!objectMode&&bodyXms.length&&(!have.has('ped_frontseat')||!have.has('ped_backseat'))){
     const bb=bboxOf(bodyXms),len=bb.mx[1]-bb.mn[1],h=bb.mn[2]+(bb.mx[2]-bb.mn[2])*0.42;
-    if(!have.has('ped_frontseat')){addFrame('ped_frontseat',0,[-0.4,bb.mn[1]+len*0.57,h]);report.warnings.push('ped_frontseat o‘rindiq suyagi topilmadi — taxminiy joy qo‘yildi (ZModeler’da tekshiring).');}
-    if(!have.has('ped_backseat')){addFrame('ped_backseat',0,[-0.4,bb.mn[1]+len*0.30,h]);}
+    // X = +0.4 (o'ng/yo'lovchi tomon) -- SA haydovchi o'rindig'ini shundan chapga akslantirib oladi.
+    if(!have.has('ped_frontseat')){addFrame('ped_frontseat',0,[0.4,bb.mn[1]+len*0.57,h]);report.warnings.push('ped_frontseat o‘rindiq suyagi topilmadi — taxminiy joy qo‘yildi (ZModeler’da tekshiring).');}
+    if(!have.has('ped_backseat')){addFrame('ped_backseat',0,[0.4,bb.mn[1]+len*0.30,h]);}
   }
   }
   // 5. very-low LOD (chassis_vlo)
