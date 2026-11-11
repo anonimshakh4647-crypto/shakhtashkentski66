@@ -917,7 +917,7 @@ function atomicChunk(frame,geom,ver){
  * shunga yaqin sodda to'qnashuv shaklidan foydalanadi): mukammal emas, lekin o'yin qotishining
  * oldini olish uchun yetarli va to'liq tekshirilgan, xavfsiz tuzilma.
  */
-function buildCol3(name,boxSpec){
+function buildCol3(name,boxSpec,sphereSpec){
   // boxSpec: {min,max} (bitta quti, eski uslub) YOKI qutilar massivi [{min,max},...]
   // YOKI {boxes:[...]}. Bir nechta quti -- masalan mashina kuzovini "pol" va "tom"
   // qutilariga bo'lib, orasida (salon balandligida) hech qanday quti qo'ymaslik --
@@ -929,7 +929,12 @@ function buildCol3(name,boxSpec){
   const dx=(mx[0]-mn[0])/2,dy=(mx[1]-mn[1])/2,dz=(mx[2]-mn[2])/2;
   const radius=Math.max(0.05,Math.sqrt(dx*dx+dy*dy+dz*dz));
   const numBoxes=boxes.length;
-  const CONTENT_LEN=22+2+40+48+28*numBoxes; // name+modelId+Bounds+countsHeader+N box
+  // sferalar (ixtiyoriy): [{c:[x,y,z],r}]. Haqiqiy SA mashinalarida (masalan Infernus) devor/bino bilan to'qnashuvni
+  // aynan SFERALAR beradi (u yerda 19 ta sfera, 0 ta quti); faqat qutidan iborat COL ni dunyo geometriyasi "sezmaydi"
+  // -> mashina devor va binolardan "arvoh"dek o'tib ketadi. sphereSpec berilmasa chiqish avvalgidek (bayt-bayt bir xil).
+  const spheres=Array.isArray(sphereSpec)?sphereSpec:[];
+  const numSph=spheres.length;
+  const CONTENT_LEN=22+2+40+48+20*numSph+28*numBoxes; // name+modelId+Bounds+countsHeader+N sphere+N box
   const w=new BW();
   w.bytes(new Uint8Array([0x43,0x4f,0x4c,0x33])); // "COL3"
   w.u32(CONTENT_LEN);
@@ -939,10 +944,14 @@ function buildCol3(name,boxSpec){
   w.f32(mx[0]);w.f32(mx[1]);w.f32(mx[2]);
   w.f32(cx);w.f32(cy);w.f32(cz);
   w.f32(radius);
-  w.u16(0);w.u16(numBoxes);w.u16(0);w.u8(0);w.u8(0); // numSpheres,numBoxes,numFaces,numWheels,pad
+  w.u16(numSph);w.u16(numBoxes);w.u16(0);w.u8(0);w.u8(0); // numSpheres,numBoxes,numFaces,numWheels,pad
   w.u32(2); // flags: 2 = "bo'sh emas"
-  w.u32(0);w.u32(116);w.u32(0);w.u32(0);w.u32(0);w.u32(0); // offSpheres,offBoxes,offSusp,offVerts,offFaces,offPlanes (offBoxes har doim 116 -- qutilar soni nechchi bo'lishidan qat'iy nazar, sobit 120-baytlik sarlavhadan keyin boshlanadi)
+  w.u32(numSph?116:0);w.u32(116+20*numSph);w.u32(0);w.u32(0);w.u32(0);w.u32(0); // offSpheres,offBoxes,offSusp,offVerts,offFaces,offPlanes (sferalar sarlavhadan keyin (116), qutilar ulardan keyin; sferasiz holda offBoxes avvalgidek 116)
   w.u32(0);w.u32(0);w.u32(0); // numShadowFaces,offShadowVerts,offShadowFaces
+  for(const sp of spheres){
+    w.f32(sp.c[0]);w.f32(sp.c[1]);w.f32(sp.c[2]);w.f32(sp.r);
+    w.u8(63);w.u8(0);w.u8(187);w.u8(64); // surface: haqiqiy mashina sferalaridagi qiymatlar (material 63, qism 0 = umumiy, 187, 64)
+  }
   for(const b of boxes){
     w.f32(b.min[0]);w.f32(b.min[1]);w.f32(b.min[2]);
     w.f32(b.max[0]);w.f32(b.max[1]);w.f32(b.max[2]);
@@ -2282,8 +2291,32 @@ function convertToSA(model,texLookup,opts){
   // yoki o'yin tomonidan ishlatiladigan animatsiya nuqtasi) sabab bo'yicha, haqiqiy
   // eksport qilingan fayl ustida tekshirish kerak.
   const colBoxes=[{min:colMn,max:colMx}];
-  const col=DFF.buildCol3(name,colBoxes);
+  // Dunyo (devor, bino, to'siq) bilan to'qnashuv uchun SFERALAR (faqat mashina; obyekt rejimida emas). Joylashuv haqiqiy
+  // mashina COL iga o'xshash: kuzov perimetri bo'ylab, yerdan ~0.2 m balandda (g'ildirak yer bilan sferaga emas, chiziqlarga tayanadi).
+  let colSpheres=null;
+  if(!objectMode){
+    const bb=colBox?{mn:colBox.mn,mx:colBox.mx}:{mn:[-0.95,-2,-0.6],mx:[0.95,2,0.8]};
+    const hw=(bb.mx[0]-bb.mn[0])/2,cxm=(bb.mx[0]+bb.mn[0])/2,len=bb.mx[1]-bb.mn[1],hgt=bb.mx[2]-bb.mn[2];
+    const r=Math.min(0.55,Math.max(0.3,0.47*hw));
+    const sx=Math.max(0,hw-r+0.02);
+    const y0=bb.mn[1]+r*0.85,y1=bb.mx[1]-r*0.85;
+    const n=Math.max(2,Math.ceil((y1-y0)/(1.5*r))+1);
+    const rows=[bb.mn[2]+0.18+r];
+    if(hgt>1.9)rows.push(bb.mn[2]+hgt*0.7); // baland mashinalar (furgon/avtobus): yuqorida ikkinchi qator
+    const L=[];
+    for(const zc of rows){
+      for(let i=0;i<n;i++){const y=y0+(y1-y0)*i/(n-1);
+        if(sx>0.12){L.push({c:[cxm-sx,y,zc],r},{c:[cxm+sx,y,zc],r});}
+        else L.push({c:[cxm,y,zc],r});}
+      if(sx>0.12){ // markaziy chiziq (old/orqa uchlarida va oraliqda): yon sferalar orasidagi bo'shliqni yopadi
+        const m=Math.max(2,Math.round((y1-y0)/1.2)+1);
+        for(let i=0;i<m;i++)L.push({c:[cxm,y0+(y1-y0)*i/(m-1),zc],r});}
+    }
+    colSpheres=L.slice(0,48);
+  }
+  const col=DFF.buildCol3(name,colBoxes,colSpheres);
   report.info.push('To‘qnashuv (collision) modeli avtomatik yaratildi: butun qismni qamrab oluvchi oddiy quti ('+(colMx[0]-colMn[0]).toFixed(2)+'×'+(colMx[1]-colMn[1]).toFixed(2)+'×'+(colMx[2]-colMn[2]).toFixed(2)+' m). Bu YANGI (hali o‘yinda yo‘q) mashina sifatida spawn qilinganda qotishning oldini oladi; mukammal shakl emas, lekin barqaror.');
+  if(colSpheres)report.info.push('Devor, bino va to‘siqlar bilan to‘qnashuv uchun '+colSpheres.length+' ta sfera qo‘shildi (haqiqiy SA mashinalari COL i kabi). Faqat quti bo‘lsa mashina devordan "arvoh"dek o‘tib ketadi. Yangi DFF ni (ichida COL bor) va alohida .col ni qayta joylang.');
   const dff=DFF.serialize([DFF.buildClump({frames,geoms,atomics,col},DFF.VER_SA)]);
   const txd=G.buildTXD(txdTexs);
   if(opts.preset!=='hq'&&dff.length>2.1e6)report.warnings.push('DFF hajmi '+(dff.length/1048576).toFixed(1)+' MB. Original (modsiz) GTA SA da ~2 MB dan katta mashina fayli qotishi mumkin: agar o‘yinda qotsa, «Maks. poligon» ni 36 000 ga tushiring yoki streaming xotirasini oshiradigan limit adjuster o‘rnating.');
