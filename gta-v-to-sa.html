@@ -1738,6 +1738,233 @@ function convertToSA(model,texLookup,opts){
   const addFrame=(n,parent,pos)=>{frames.push({name:n,pos,parent});return frames.length-1;};
   const addGeoms=(frame,specs)=>{for(const s of specs){geoms.push(s);atomics.push({frame,geom:geoms.length-1});}};
   const rot0=W=>{const w=W.slice();w[12]=w[13]=w[14]=0;return w;};
+  // YUQORIGA KO'CHIRILDI (ilgari "3. movable parts" bo'limida edi): "other"/merge
+  // qilinadigan qismlar (FAROL/LANTERNA/MOTOR kabi) ham xuddi eshik/bamper kabi
+  // "begona (contamination) vertekslar" muammosiga duchor bo'lishi MUMKINLIGI
+  // aniqlandi (haqiqiy foydalanuvchi fayli: FAROL ~4.44m, LANTERNA ~4.14m
+  // bo'ylab cho'zilgan -- butun mashina kengligicha!). Shu sabab bu yordamchi
+  // funksiyalar endi pastdagi "1-bo'lim" (body/other merge) ichida ham
+  // ishlatilishi uchun ERTAROQ e'lon qilinadi.
+  const isZeroPos=(x,y,z)=>Math.abs(x)<1e-5&&Math.abs(y)<1e-5&&Math.abs(z)<1e-5;
+  const NO_DATA_SIZE_CAP=1.8; // metr -- haqiqiy SA detali o'lchamidan sezilarli katta bo'lmagan "xavfsiz" chegara
+  const TRIM_CANDIDATES=[0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.2,1.4,1.6];
+  // TUZATISH (haqiqiy foydalanuvchi "felon_hi.yft" fayli ustida sinab ANIQLANGAN):
+  // bump_rear kabi ba'zi "joylashuv ma'lumoti yo'q" qismlarning XOM mesh ma'lumotida
+  // ikkita (yoki undan ko'p) MUSTAQIL (bir-biriga umuman ulanmagan) katta parcha
+  // birga kelgan -- masalan haqiqiy orqa bamper (~1750 vertex, orqa qismda) VA old
+  // qism atrofidagi butunlay BOSHQA, aloqasiz geometriya (~1018 vertex). Eski
+  // "global median + radiusni asta kattalashtirish" usuli bunday holatda ikkala
+  // parchani ARALASHTIRIB, markazni ikkisi orasidagi (haqiqatda bo'sh) joyga
+  // qo'yib yuborardi -- natijada bamper mashina markazi atrofida, assimmetrik
+  // joyda chiqardi. Endi avval BOG'LANGAN KOMPONENTLARGA (connected components)
+  // ajratiladi, so'ngra "xavfsiz" (COMPONENT_SIZE_CAP dan kichik) komponentlar
+  // orasidan ENG TO'G'RISI tanlanadi: agar qism nomi old/orqa ("_f"/"_r") ni
+  // bildirsa, g'ildirak o'qlaridan olingan ISHONCHLI old/orqa Y mos yozuviga ENG
+  // YAQIN komponent tanlanadi (front/rear eshik yoki bamperni bir-biridan farqlash
+  // uchun); aks holda eng ko'p vertexli (kattaroq, ehtimol haqiqiy) komponent
+  // tanlanadi. Faqat shu usul mos natija bermasa (masalan hammasi bitta ulangan
+  // geometriya bo'lsa), eski median-radius usuliga qaytiladi (pastda, o'zgarishsiz).
+  const COMPONENT_SIZE_CAP=2.4; // metr -- butun yarim-mashina kabi "hammasi"ni tanlab qo'yishning oldini oladi
+  const MIN_COMPONENT_VERTS=20; // juda mayda, ahamiyatsiz "chang" komponentlarni e'tiborsiz qoldirish
+  let frontRefY=null,rearRefY=null; // "2. wheels" bo'limida to'ldiriladi (old/orqa o'q Y o'rtachasi)
+  const yPrefFor=p=>{const n=String(p&&p.name||'').toLowerCase();if(n.endsWith('_f'))return'front';if(n.endsWith('_r'))return'rear';return null;};
+  const bestComponentFilter=(xms,prefY,sideSign)=>{
+    let totalV=0;const offs=xms.map(xm=>{const o=totalV;totalV+=xm.pos.length/3;return o;});
+    if(!totalV)return null;
+    const parent=new Int32Array(totalV);for(let i=0;i<totalV;i++)parent[i]=i;
+    const find=x=>{while(parent[x]!==x){parent[x]=parent[parent[x]];x=parent[x];}return x;};
+    const union=(a,b)=>{a=find(a);b=find(b);if(a!==b)parent[a]=b;};
+    xms.forEach((xm,xi)=>{const off=offs[xi];for(let t=0;t<xm.idx.length;t+=3){union(xm.idx[t]+off,xm.idx[t+1]+off);union(xm.idx[t+1]+off,xm.idx[t+2]+off);}});
+    const stat=new Map();
+    xms.forEach((xm,xi)=>{const off=offs[xi];for(let i=0;i<xm.pos.length/3;i++){
+      const r=find(off+i);let g=stat.get(r);if(!g){g={n:0,mn:[1e9,1e9,1e9],mx:[-1e9,-1e9,-1e9]};stat.set(r,g);}
+      g.n++;for(let k=0;k<3;k++){g.mn[k]=Math.min(g.mn[k],xm.pos[i*3+k]);g.mx[k]=Math.max(g.mx[k],xm.pos[i*3+k]);}
+    }});
+    const all=[...stat.entries()].map(([r,g])=>({r,g,diag:diag3(g.mn,g.mx)})).filter(e=>e.diag<=COMPONENT_SIZE_CAP);
+    let cand=all.filter(e=>e.g.n>=MIN_COMPONENT_VERTS);
+    if(!cand.length)cand=all;
+    if(!cand.length)return null;
+    // Y-yaqinlikka qarab tanlash FAQAT "katta" (haqiqiy qism bo'lishi mumkin
+    // bo'lgan) komponentlar orasida qilinadi — aks holda, tasodifan mos Y'da
+    // joylashgan mayda "chang" komponent (bir necha o'nlab vertex) katta,
+    // to'g'ri geometriyani (masalan markazdagi bamperni) chetlab o'tib tanlanib
+    // qolishi mumkin edi (haqiqiy xato shu edi).
+    const maxN=cand.reduce((m,e)=>Math.max(m,e.g.n),0);
+    const majorFloor=Math.max(MIN_COMPONENT_VERTS,maxN*0.12);
+    const major=cand.filter(e=>e.g.n>=majorFloor);
+    let pool=major.length?major:cand;
+    // Agar qism bir tomonga tegishli bo'lsa (dside/pside), markaz chizig'iga
+    // yaqin (TOL ichida, filterXmBySide'dan "yumshoq" o'tgan) begona
+    // komponentlarni Y-afzallikdan OLDIN chetga suramiz: avval HAQIQATAN HAM
+    // o'z tomonida (markazdan ancha uzoqda) joylashgan komponentlar bo'lsa,
+    // faqat ular orasidan tanlanadi.
+    if(sideSign){
+      const SIDE_STRONG=0.2; // metr -- "aniq o'z tomonida" chegarasi (SIDE_CENTER_TOL=0.15 dan kattaroq)
+      const strong=pool.filter(e=>{const cx=(e.g.mn[0]+e.g.mx[0])/2;return cx*sideSign>=SIDE_STRONG;});
+      if(strong.length)pool=strong;
+    }
+    // Old/orqa afzalligi: g'ildirak o'qi Y'siga ENG YAQIN komponent emas —
+    // chunki eshik panelining o'zi odatda o'qdan uzoqroqda, kichikroq
+    // qovurg'a/ilgak esa o'q yoniga tasodifan to'g'ri kelib qolishi mumkin
+    // (haqiqiy xato shu edi). Shuning uchun faqat Y ISHORASI (markazdan
+    // oldinda/orqada ekanligi) bilan tekshirilib, so'ng SHU yarmidagi ENG KO'P
+    // vertexli (demak eng katta, ehtimol haqiqiy qism) komponent tanlanadi.
+    if(prefY!=null){
+      const prefSign=prefY>=0?1:-1;
+      const signMatched=pool.filter(e=>{const cy=(e.g.mn[1]+e.g.mx[1])/2;return cy*prefSign>0;});
+      if(signMatched.length)pool=signMatched;
+    }
+    let best=null,bestScore=-Infinity;
+    for(const e of pool){const score=e.g.n;if(score>bestScore){bestScore=score;best=e;}}
+    // "best" endi ISHONCHLI tayanch nuqta (markaz) beradi -- lekin bu faylda
+    // haqiqiy qismning o'zi ko'pincha YUZLAB ALOHIDA-ALOHIDA, bir-biriga
+    // ULANMAGAN mayda bo'lakka bo'lingan (masalan "door_dside_f" uchun 166+
+    // bo'lak!), shuning uchun faqat "katta" (ulangan-komponent darajasida)
+    // bo'laklarni tanlash/birlashtirish baribir qismning ko'p qismini (masalan
+    // eshikning aksariyat sirti) tashlab yuborar edi -- natija ko'rinishda
+    // eshik "yetishmayotgandek" chiqardi. Shu sababli endi ulanish grafigidan
+    // umuman qat'iy nazar: "best" markazi atrofidagi MA'LUM RADIUS ichidagi
+    // BARCHA (hatto juda mayda, ulanmagan) vertekslar qism tarkibiga olinadi.
+    // Radius "best" ning o'z o'lchamiga moslashadi (kichik yorliq uchun kichik,
+    // katta panel uchun kattaroq), shunda uzoqdagi haqiqatan ham begona
+    // (masalan markazdagi bagaj yoki qarama-qarshi tomon) qismlar saqlanib
+    // qoladi.
+    const anchorCenter=[(best.g.mn[0]+best.g.mx[0])/2,(best.g.mn[1]+best.g.mx[1])/2,(best.g.mn[2]+best.g.mx[2])/2];
+    const FILL_RADIUS=Math.max(best.diag*0.9,0.65);
+    // TUZATISH #4 (foydalanuvchi skrinshoti orqali TASDIQLANGAN, JIDDIY xato:
+    // "Sifatli" (_hq, hideHidden=false) rejimida eshikning TASHQI (bo'yoqli)
+    // yuzasi UMUMAN YO'Q bo'lib, to'g'ridan-to'g'ri salon/panel ko'rinib qolgan).
+    // Sabab topildi: FILL_RADIUS (kamida 0.65 metr!) -- bu HAR TOMONGA (shu
+    // jumladan mashinaning CHAP-O'NG/X o'qi bo'yicha) teng ishlaydigan SFERA.
+    // Lekin eshik kabi "bir tomonlama" (sideSign bor) qismning X (chap-o'ng)
+    // yo'nalishidagi haqiqiy qalinligi atigi ~0.2-0.3 metr -- 0.65 metrli sfera
+    // esa markaziy konsol/panel (torpedo) kabi narsalarni ham ichiga olib,
+    // ularni "eshik" sifatida qo'shib yuboradi, natijada eshikning haqiqiy
+    // tashqi sirti ULKAN, NOTO'G'RI geometriya orasida "yo'qolib" qoladi va
+    // ko'rinmay qoladi ("game" rejimida bu chalkashlik hideHidden/decimatsiya
+    // orqali qisman YASHIRILIB kelingan, lekin aslida hamon bor edi). Tuzatish:
+    // sideSign bor qismlar uchun endi SFERA o'rniga ELLIPSOID ishlatiladi --
+    // Y (oldinga-orqaga) va Z (yuqoriga-pastga) bo'yicha FILL_RADIUS saqlanadi
+    // (eshikning uzunligi/balandligi uchun kerak), lekin X (chap-o'ng,
+    // qalinlik) bo'yicha ancha TORROQ chegara (CAP_X) qo'yiladi -- shu orqali
+    // markaziy konsol/torpedo kabi uzoqdagi begona geometriya kirmay qoladi.
+    const CAP_X=sideSign?Math.min(FILL_RADIUS,0.32):FILL_RADIUS;
+    let mn=[...best.g.mn],mx=[...best.g.mx];
+    const filtered=xms.map(xm=>{
+      const nV=xm.pos.length/3,keep=new Uint8Array(nV);
+      for(let i=0;i<nV;i++){
+        const dx=xm.pos[i*3]-anchorCenter[0],dy=xm.pos[i*3+1]-anchorCenter[1],dz=xm.pos[i*3+2]-anchorCenter[2];
+        const inside=sideSign?((dx/CAP_X)*(dx/CAP_X)+(dy/FILL_RADIUS)*(dy/FILL_RADIUS)+(dz/FILL_RADIUS)*(dz/FILL_RADIUS)<=1):(Math.hypot(dx,dy,dz)<=FILL_RADIUS);
+        if(inside){keep[i]=1;for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i*3+k]);mx[k]=Math.max(mx[k],xm.pos[i*3+k]);}}
+      }
+      // Radius ichidagi 3 ta vertex ham tasodifan (ularning ESKI, boshqa
+      // uzoqdagi uchburchaklardan meros qolgan) g'alati, juda UZUN qirrali
+      // "ko'prik" uchburchak hosil qilishi mumkin (mos kelmaydigan, uzoqdagi
+      // begona bo'lakka tegishli uchburchaklar ustma-ust tasodifan radius
+      // ichiga tushganda). Shunday uchburchaklar eshik/bamper yuzasida
+      // "ignadek" cho'zilgan g'alati chiqindi (spike) sifatida ko'rinadi --
+      // shuning uchun eng uzun qirrasi FILL_RADIUS'ning o'zidan ancha katta
+      // bo'lgan uchburchaklar (haqiqiy, zich yuzadagi uchburchak bunchalik
+      // katta bo'lmaydi) bu yerda chetga suriladi.
+      const EDGE_CAP=FILL_RADIUS*0.7;
+      const idx=[];
+      for(let t=0;t<xm.idx.length;t+=3){
+        const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];
+        if(!(keep[a]&&keep[b]&&keep[c]))continue;
+        const d=(i,j)=>Math.hypot(xm.pos[i*3]-xm.pos[j*3],xm.pos[i*3+1]-xm.pos[j*3+1],xm.pos[i*3+2]-xm.pos[j*3+2]);
+        if(d(a,b)>EDGE_CAP||d(b,c)>EDGE_CAP||d(a,c)>EDGE_CAP)continue;
+        idx.push(a,b,c);
+      }
+      return compactXm(Object.assign({},xm,{idx}));
+    });
+    if(!filtered.some(f=>f.idx.length))return null;
+    return{center:[(mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2],diag:diag3(mn,mx),xms:filtered,fillRadius:FILL_RADIUS,capX:CAP_X};
+  };
+  const diag3=(mn,mx)=>Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2]);
+  const recenterPos=(pos,ctr)=>{const out=new Float32Array(pos.length);for(let i=0;i<pos.length;i+=3){out[i]=pos[i]-ctr[0];out[i+1]=pos[i+1]-ctr[1];out[i+2]=pos[i+2]-ctr[2];}return out;};
+  const trimXmByCenter=(xm,ctr,th)=>{
+    const nV=xm.pos.length/3,keep=new Uint8Array(nV);
+    for(let i=0;i<nV;i++){const dx=xm.pos[i*3]-ctr[0],dy=xm.pos[i*3+1]-ctr[1],dz=xm.pos[i*3+2]-ctr[2];keep[i]=Math.hypot(dx,dy,dz)<=th?1:0;}
+    const idx=[];for(let t=0;t<xm.idx.length;t+=3){const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];if(keep[a]&&keep[b]&&keep[c])idx.push(a,b,c);}
+    return Object.assign({},xm,{idx});
+  };
+  // MUHIM (foydalanuvchi skrinshotidan ANIQLANGAN yangi topilma): ba'zi "mov"
+  // qismlarning (ayniqsa orqa eshiklar, masalan door_dside_r) xom mesh
+  // ma'lumotida chap VA o'ng eshikning ikkalasi ham (bir-biriga oyna aks kabi,
+  // X belgisi teskari) birga, BITTA qism sifatida kelgan ekan -- bu sodda
+  // "markazdan th radius ichida qolsin" filtri ikkala eshikni aralashtirib,
+  // "yirtilgan/zigzag" shakl hosil qilardi (chunki ikkala eshik ham bir xil
+  // markazga nisbatan masofada joylashgan). Haqiqiy tuzatish: avval BOG'LANGAN
+  // KOMPONENTLARGA (connected components, umumiy uchburchak orqali bog'langan
+  // vertekslar) ajratib, FAQAT shu qism uchun to'g'ri tomondagi (dside->manfiy
+  // X, pside->musbat X) komponentlarni qoldirish, so'ngra ULARNI ZICHLASH
+  // (ishlatilmagan vertekslarni butunlay olib tashlash -- shu bilan birga
+  // eksport qilingan fayldagi keraksiz "ko'rinmas" vertekslar hajmini ham
+  // kamaytiradi).
+  const sideSignFor=p=>{const n=String(p&&p.name||'').toLowerCase();if(n.indexOf('dside')>=0)return -1;if(n.indexOf('pside')>=0)return 1;return 0;};
+  const compactXm=xm=>{
+    const nV=xm.pos.length/3,used=new Uint8Array(nV);
+    for(let t=0;t<xm.idx.length;t++)used[xm.idx[t]]=1;
+    const remap=new Int32Array(nV).fill(-1);let n=0;
+    for(let i=0;i<nV;i++)if(used[i])remap[i]=n++;
+    const pos=new Float32Array(n*3),nrm=new Float32Array(n*3),uv=xm.uv?new Float32Array(n*2):null;
+    for(let i=0;i<nV;i++){const j=remap[i];if(j<0)continue;
+      pos[j*3]=xm.pos[i*3];pos[j*3+1]=xm.pos[i*3+1];pos[j*3+2]=xm.pos[i*3+2];
+      nrm[j*3]=xm.nrm[i*3];nrm[j*3+1]=xm.nrm[i*3+1];nrm[j*3+2]=xm.nrm[i*3+2];
+      if(uv){uv[j*2]=xm.uv[i*2];uv[j*2+1]=xm.uv[i*2+1];}}
+    const idx=new Array(xm.idx.length);for(let t=0;t<xm.idx.length;t++)idx[t]=remap[xm.idx[t]];
+    return Object.assign({},xm,{pos,nrm,uv,idx});
+  };
+  const SIDE_CENTER_TOL=0.15; // metr -- markaz chizig'iga yaqin (masalan ilgak/qulf) kichik qismlarni noto'g'ri tashlab yubormaslik uchun bo'shliq
+  const filterXmBySide=(xm,sideSign)=>{
+    if(!sideSign)return xm.idx;
+    const nV=xm.pos.length/3,parent=new Int32Array(nV);for(let i=0;i<nV;i++)parent[i]=i;
+    const find=x=>{while(parent[x]!==x){parent[x]=parent[parent[x]];x=parent[x];}return x;};
+    const union=(a,b)=>{a=find(a);b=find(b);if(a!==b)parent[a]=b;};
+    for(let t=0;t<xm.idx.length;t+=3){union(xm.idx[t],xm.idx[t+1]);union(xm.idx[t+1],xm.idx[t+2]);}
+    const sumX=new Map(),cnt=new Map();
+    for(let i=0;i<nV;i++){const r=find(i);sumX.set(r,(sumX.get(r)||0)+xm.pos[i*3]);cnt.set(r,(cnt.get(r)||0)+1);}
+    const keep=new Map();for(const[r,s]of sumX)keep.set(r,(s/cnt.get(r))*sideSign>=-SIDE_CENTER_TOL);
+    const idx=[];for(let t=0;t<xm.idx.length;t+=3){const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];if(keep.get(find(a))&&keep.get(find(b))&&keep.get(find(c)))idx.push(a,b,c);}
+    return idx;
+  };
+  // qism (p.meshes) uchun "ishonchli markaz"ni va -- zarur bo'lsa -- begona vertekslardan
+  // tozalangan xm (world-fazodagi, hali markazga nisbatan surilmagan) ro'yxatini topadi.
+  // sideSign berilsa (-1=dside/chap, 1=pside/o'ng), avval shu tomonga tegishli
+  // bog'langan komponentlar saqlanadi (qarang yuqoridagi izoh).
+  // Qaytaradi: {center:[x,y,z], xms:[...], trimmed:bool} yoki (mesh yo'q bo'lsa) null.
+  const robustNoDataPart=(p,sideSign)=>{
+    let rawXms=p.meshes.map(m=>xformMesh(m,M.id(),true));
+    if(sideSign)rawXms=rawXms.map(xm=>compactXm(Object.assign({},xm,{idx:filterXmBySide(xm,sideSign)})));
+    const bb0=bboxOf(rawXms);
+    if(!(bb0.mx[0]>bb0.mn[0]))return null;
+    const fullDiag=diag3(bb0.mn,bb0.mx);
+    if(fullDiag<=NO_DATA_SIZE_CAP)return{center:[(bb0.mn[0]+bb0.mx[0])/2,(bb0.mn[1]+bb0.mx[1])/2,(bb0.mn[2]+bb0.mx[2])/2],xms:rawXms,trimmed:false};
+    const yp=yPrefFor(p);
+    const prefY=yp==='front'?frontRefY:(yp==='rear'?rearRefY:null);
+    const bc=bestComponentFilter(rawXms,prefY,sideSign);
+    if(bc)return{center:bc.center,xms:bc.xms,trimmed:true,fillRadius:bc.fillRadius,capX:bc.capX};
+    const xs=[],ys=[],zs=[];
+    for(const xm of rawXms)for(let i=0;i<xm.pos.length;i+=3){xs.push(xm.pos[i]);ys.push(xm.pos[i+1]);zs.push(xm.pos[i+2]);}
+    const med=v=>{const s=v.slice().sort((a,b)=>a-b);return s[Math.floor(s.length/2)];};
+    const mc=[med(xs),med(ys),med(zs)];
+    let chosen=null;
+    for(const th of TRIM_CANDIDATES){
+      let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9],cnt=0;
+      for(const xm of rawXms)for(let i=0;i<xm.pos.length;i+=3){
+        const dx=xm.pos[i]-mc[0],dy=xm.pos[i+1]-mc[1],dz=xm.pos[i+2]-mc[2];
+        if(Math.hypot(dx,dy,dz)<=th){cnt++;for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}}
+      }
+      if(!cnt)continue;
+      const d=diag3(mn,mx);
+      chosen={th,diag:d,center:[(mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2]};
+      if(d<=NO_DATA_SIZE_CAP)break;
+    }
+    if(!chosen)return{center:mc,xms:rawXms,trimmed:false};
+    const filtered=rawXms.map(xm=>compactXm(trimXmByCenter(xm,mc,chosen.th)));
+    if(!filtered.some(f=>f.idx.length))return{center:mc,xms:rawXms,trimmed:false};
+    return{center:chosen.center,xms:filtered,trimmed:true};
+  };
   // 1. body
   const bodyAcc=new GeoAcc(),chassisFrame=objectMode?0:addFrame('chassis',0,[0,0,0]);
   // keepParts: har bir GTA V qismi o‘z frame/geometriyasida qoladi (attach qilib bitta qilib yuborilmaydi)
@@ -1745,10 +1972,55 @@ function convertToSA(model,texLookup,opts){
   const partAccOf=p=>{let a=partAccs.find(x=>x.p===p);if(!a){a={p,acc:new GeoAcc()};partAccs.push(a);}return a.acc;};
   const bodyXms=[];
   const wheels=[],movs=[],extras=[],dummies=[],steer=[];
-  for(const {p,c} of cls){
+  // MUHIM (foydalanuvchi skrinshoti orqali TASDIQLANGAN yangi topilma):
+  // "felon" faylida ba'zi qismlarning (masalan bumper_r, bumper_f,
+  // door_dside_f, steeringwheel) p.meshes ro'yxati ichida G'ILDIRAK-ga
+  // tegishli (shader "vehicle_blurredrotor" -- disk/rotor, yoki
+  // "vehicle_tire" -- shina) mesh bo'laklari ham bor ekan -- bular manba
+  // faylning o'zida shu qismga NOTO'G'RI biriktirilgan (kontaminatsiya),
+  // va pozitsiya bo'yicha filtrlashning o'ziga bog'liq emas (hatto haqiqiy
+  // joylashuv matritsasi bo'lgan qismlarda ham bo'lishi mumkin). Natijada
+  // bamper/eshik yuzasida g'ildirak teksturasidan (masalan kulrang disk)
+  // kelib chiqqan g'alati dog'/yamoq ko'rinardi. Shuning uchun g'ildirakdan
+  // boshqa HAR QANDAY qism uchun bunday shaderli mesh bo'laklari OLIB
+  // TASHLANADI -- lekin asl `model.parts` obyekti o'zgartirilmaydi (faqat
+  // shu funksiya ichida ishlatiladigan YUZAKI nusxa yaratiladi), shuning
+  // uchun "GTA V (asl)" ko'rinishi va boshqa joylar ta'sirlanmaydi.
+  const WHEEL_ONLY_SHADER=/^vehicle_(blurredrotor|tire)$/i;
+  let wheelContamRemoved=0;
+  for(const {p:p0,c} of cls){
+    let p=p0;
+    if(c.t!=='wheel'){
+      const fm=p0.meshes.filter(m=>!(m&&m.mat&&WHEEL_ONLY_SHADER.test(m.mat.shaderName||'')));
+      if(fm.length!==p0.meshes.length){wheelContamRemoved+=p0.meshes.length-fm.length;p=Object.assign({},p0,{meshes:fm});}
+    }
     const rec={name:p.name,sa:c.sa||'(body ga qo‘shildi)',type:c.t,meshes:p.meshes.length,verts:p.meshes.reduce((s,m)=>s+m.pos.length/3,0)};
     report.parts.push(rec);
-    if(c.t==='body'||(c.t==='other'&&opts.mergeOther)){if(keepParts)rec.sa='(alohida qism)';for(const m of p.meshes){const xm=xformMesh(m,p.matrix,true);(keepParts&&!(!objectMode&&String(p.name).toLowerCase()==='chassis')?partAccOf(p):bodyAcc).add(xm,m,p.name);bodyXms.push(xm);}}
+    if(c.t==='body'||(c.t==='other'&&opts.mergeOther)){
+      if(keepParts)rec.sa='(alohida qism)';
+      // MUHIM (foydalanuvchi skrinshoti orqali TASDIQLANGAN yangi topilma): "other"
+      // sifatida kuzovga biriktiriladigan qismlar (masalan FAROL/farol korpusi,
+      // LANTERNA/stop-signal korpusi, MOTOR) ham xuddi eshik/bamper kabi "begona
+      // (contamination) vertekslar" muammosiga duchor bo'lishi mumkin ekan -- haqiqiy
+      // foydalanuvchi faylida FAROL ~4.44m, LANTERNA ~4.14m bo'ylab (butun mashina
+      // kengligicha!) cho'zilgan holda topildi, va joylashuv matritsasi yo'q (isZeroPos)
+      // edi. Bular oldingi tuzatishdan (faqat movs/extras/steer) chetda qolgani uchun
+      // hamon "uchib ketgan parcha" bo'lib chiqayotgan edi. Endi "mov" qismlaridagi bilan
+      // AYNAN BIR XIL median-asosidagi tozalash shu yerda ham qo'llaniladi.
+      let useMeshes=null;
+      if(c.t==='other'){
+        const mx0=p.matrix,noData0=!mx0||isZeroPos(mx0[12],mx0[13],mx0[14]);
+        if(noData0){const r=robustNoDataPart(p,sideSignFor(p));if(r&&r.trimmed)useMeshes=r.xms;}
+      }
+      if(useMeshes){
+        // DIQQAT: useMeshes[i] va p.meshes[i] bir xil tartibda (robustNoDataPart ham
+        // xuddi shu p.meshes bo'yicha, bir xil tartibda xms yaratadi) -- shu sabab
+        // material to'g'ri bog'lanishi uchun indeks orqali mos p.meshes[i] uzatiladi.
+        for(let i=0;i<useMeshes.length;i++){const xm=useMeshes[i];if(!xm.idx.length)continue;(keepParts&&!(!objectMode&&String(p.name).toLowerCase()==='chassis')?partAccOf(p):bodyAcc).add(xm,p.meshes[i],p.name);bodyXms.push(xm);}
+      }else{
+        for(const m of p.meshes){const xm=xformMesh(m,p.matrix,true);(keepParts&&!(!objectMode&&String(p.name).toLowerCase()==='chassis')?partAccOf(p):bodyAcc).add(xm,m,p.name);bodyXms.push(xm);}
+      }
+    }
     else if(c.t==='wheel')wheels.push({p,c});
     else if(c.t==='mov')movs.push({p,c});
     else if(c.t==='extra')extras.push({p,c});
@@ -1781,6 +2053,12 @@ function convertToSA(model,texLookup,opts){
   const gtavName={wheel_lf:'wheel_lf',wheel_rf:'wheel_rf',wheel_lb:'wheel_lr',wheel_rb:'wheel_rr',wheel_lm:'wheel_lm1',wheel_rm:'wheel_rm1'};
   for(const w of wheels)wheelPos[w.c.sa]={W:w.p.matrix,w};
   for(const sa of want){if(!wheelPos[sa]){const bm=boneByName(gtavName[sa]);if(bm)wheelPos[sa]={W:bm,w:null};}}
+  // old/orqa o'q g'ildiraklari deyarli har doim HAQIQIY joylashuv ma'lumotiga ega
+  // bo'ladi -- shu sabab ularning Y koordinatasi "joylashuvi yo'q" eshik/bamper
+  // qismlari uchun ISHONCHLI old/orqa mos yozuvi sifatida ishlatiladi (qarang
+  // yuqoridagi bestComponentFilter/robustNoDataPart).
+  {const fys=['wheel_lf','wheel_rf'].map(k=>wheelPos[k]&&wheelPos[k].W[13]).filter(v=>v!=null);if(fys.length)frontRefY=fys.reduce((a,b)=>a+b,0)/fys.length;
+   const rys=['wheel_lb','wheel_rb'].map(k=>wheelPos[k]&&wheelPos[k].W[13]).filter(v=>v!=null);if(rys.length)rearRefY=rys.reduce((a,b)=>a+b,0)/rys.length;}
   let wheelSpecs=null;
   const pref=['wheel_lf','wheel_lb','wheel_lm','wheel_rf','wheel_rb','wheel_rm'].map(k=>wheelPos[k]&&wheelPos[k].w).filter(Boolean);
   if(pref.length){
@@ -1848,7 +2126,6 @@ function convertToSA(model,texLookup,opts){
   // matritsa (0,0,0) atrofida bo'lsa, QISMNING O'Z GEOMETRIYASI (mesh)ining markazidan
   // (dunyo fazosidagi bbox markazi) foydalanamiz -- bu haqiqiy modeldagi qismning qayerda
   // turganini mesh orqali bera oladi, hatto transform ma'lumoti yo'qolgan bo'lsa ham.
-  const isZeroPos=(x,y,z)=>Math.abs(x)<1e-5&&Math.abs(y)<1e-5&&Math.abs(z)<1e-5;
   const partBBoxCenter=p=>{
     if(!p||!p.meshes||!p.meshes.length)return null;
     const xms=p.meshes.map(m=>xformMesh(m,p.matrix,false));
@@ -1865,33 +2142,41 @@ function convertToSA(model,texLookup,opts){
     return mx?[mx[12],mx[13],mx[14]]:[0,0,0];
   };
   // 3. movable parts
-  // MUHIM (yangi topilgan xato, haqiqiy foydalanuvchi fayli + Node.js test orqali
-  // TASDIQLANGAN): ba'zi GTA V fayllarida "child" (eshik/bamper/bagaj kabi) qismning
-  // matritsasi (joylashuvi) manbada YO'Q (isZeroPos=true) -- bunday holatda ESKI kod
-  // qismni ALOHIDA dummy+ok freym juftligiga, taxminiy (bbox markazi) POZITSIYAGA
-  // joylashtirardi. Lekin test shuni ko'rsatdi: bunday hollarda qismning MESH
-  // vertekslari ALLAQACHON mashinaning o'z (kuzov) fazosida (uzun, mashina bo'ylab
-  // cho'zilgan koordinatalarda) saqlangan bo'ladi -- ularni KICHIK, deyarli (0,0,0)
-  // atrofidagi dummy'ga "bog'lab qo'yish" vertekslarni o'z joyidan uzoqqa, mashinadan
-  // "ajralib osilib turgandek" chiqarib yuboradi (bu aynan foydalanuvchi screenshot'ida
-  // ko'rsatgan, kuzovdan uzoqlashgan "qanot/parcha" shaklga sabab bo'lgan). Shu sabab:
-  // ANIQ joylashuv ma'lumoti yo'q bo'lsa, qism ENDI alohida harakatlanadigan
-  // dummy+ok sifatida EMAS, balki o'ZINING XOM (hech qanday qo'shimcha surilishsiz)
-  // koordinatalari bilan to'g'ridan-to'g'ri kuzov (chassis) freymiga BIRIKTIRILADI --
-  // bu eshik mustaqil ochilish animatsiyasini yo'qotadi, LEKIN qism vizual jihatdan
-  // kuzov bilan BIR XIL, to'g'ri joyida qoladi (uchib/ajralib ketmaydi). Haqiqiy
-  // joylashuv ma'lumoti (matritsa) BOR bo'lgan fayllar uchun hech narsa o'zgarmadi --
-  // ular hamon alohida, ochiladigan eshik/bamper sifatida eksport qilinadi.
-  let movMergedNoData=[];
+  // MUHIM -- YANGILANGAN YECHIM (foydalanuvchi videosi orqali TASDIQLANGAN muammo:
+  // avvalgi "statik biriktirish" tuzatishi "uchib ketgan parcha"ni yo'qotgan edi, LEKIN
+  // shu bilan eshik/bamper/bagajning mustaqil ochilish animatsiyasini ham butunlay
+  // o'ldirgan edi -- xaydovchi mashinaga o'tirganda eshik yopiq qolib, tana eshikka
+  // kirib ketgan). Haqiqiy foydalanuvchi fayli (felon_hi.yft) ustida Node.js orqali
+  // chuqur tekshirilganda ANIQLANDI: muammo shunda ki, joylashuv matritsasi yo'q
+  // ("child") qismlarning mesh vertekslari ko'pincha IKKI XIL ma'lumotni ARALASH
+  // saqlaydi -- (a) qismning o'zining haqiqiy, KICHIK geometriyasi + (b) qandaydir
+  // texnik sabab bilan qo'shilib qolgan, mashinaning juda KATTA qismini qamrab oluvchi
+  // "begona" (contamination) vertekslar. STATISTIK MEDIAN pozitsiyadan uzoqlikka qarab
+  // filtrlash orqali bu begona vertekslarni chiqarib tashlab, faqat qismning haqiqiy,
+  // mahalliy (lokal) geometriyasini qoldirish mumkinligi 4 xil qism (old bamper, bagaj,
+  // 2 ta eshik) ustida sinovdan o'tkazilib ISBOTLANDI -- barcha hollarda natija mantiqan
+  // to'g'ri joyga tushdi (bamper old qismda, bagaj orqa qismda, eshiklar mashina yon
+  // tomonida). Shu sabab: ANIQ joylashuv ma'lumoti yo'q bo'lsa, endi avval qism
+  // geometriyasi (agar u "haqiqiy SA qismi" uchun kutilganidan ancha katta -- 1.8m dan
+  // uzun bo'lsa) MEDIAN asosida begona vertekslardan TOZALANADI, so'ngra -- ESKI
+  // (haqiqiy joylashuv ma'lumoti bor fayllar uchun ishlatiladigan) dummy+ok juft freym
+  // tuzilishi ORQALI eksport qilinadi -- demak eshik/bamper/bagaj YANA mustaqil
+  // ochiladi/animatsiyalanadi, LEKIN endi "uchib ketgan" begona geometriyasiz.
+  // (NO_DATA_SIZE_CAP, TRIM_CANDIDATES, diag3, recenterPos, trimXmByCenter,
+  // robustNoDataPart -- bu funksiyalar endi YUQORIDA, "1. body" bo'limidan OLDIN
+  // e'lon qilingan, chunki ular "other" qismlar uchun ham kerak bo'lib qoldi.)
+  let movTrimmedNoData=[],movMergedNoData=[];
   for(const {p,c} of movs){
     const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
     if(noData){
-      // Alohida (statik) freym -- chassisFrame'ning bolasi, pos=[0,0,0], hech qanday
-      // qo'shimcha aylanish/surilishsiz (identity) -- mesh o'z XOM koordinatalarida qoladi.
-      const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,M.id(),true),m,p.name);
+      const r=robustNoDataPart(p,sideSignFor(p));if(!r)continue;
+      const acc=new GeoAcc();
+      for(let i=0;i<r.xms.length;i++){const xm=r.xms[i];if(!xm.idx.length)continue;acc.add(Object.assign({},xm,{pos:recenterPos(xm.pos,r.center)}),p.meshes[i],p.name);}
       const specs=acc.build(matResolver);if(!specs.length)continue;
-      const f=addFrame(c.sa+'_ok',chassisFrame,[0,0,0]);addGeoms(f,specs);
-      movMergedNoData.push(c.sa);
+      const d=addFrame(c.sa+'_dummy',0,r.center);
+      const ok=addFrame(c.sa+'_ok',d,[0,0,0]);addGeoms(ok,specs);
+      if(opts.damCopy){const dam=addFrame(c.sa+'_dam',d,[0,0,0]);for(let i=0;i<specs.length;i++)atomics.push({frame:dam,geom:geoms.length-specs.length+i});}
+      (r.trimmed?movTrimmedNoData:movMergedNoData).push(c.sa);
       continue;
     }
     const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,false),m,p.name);
@@ -1911,12 +2196,21 @@ function convertToSA(model,texLookup,opts){
   const SA_MAX_EXTRA=2;let extraN=0;
   for(const {p,c} of extras){
     const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
-    // movs bo'limidagi kabi: joylashuv ma'lumoti yo'q bo'lsa, "extraN" (yoqib/o'chirib
-    // bo'ladigan) slot sifatida EMAS, balki XOM koordinatalari bilan kuzovga biriktirilgan
-    // statik qism sifatida chiqariladi -- aks holda "havoda osilib qolgan parcha" chiqadi.
-    const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,noData?M.id():p.matrix,noData),m,p.name);
+    if(noData){
+      // movs bo'limidagi kabi: begona vertekslar MEDIAN asosida filtrlanadi, so'ngra
+      // qism yana haqiqiy "extraN" (yoqib/o'chiriladigan) slot sifatida chiqariladi.
+      const r=robustNoDataPart(p,sideSignFor(p));if(!r)continue;
+      const acc=new GeoAcc();
+      for(let i=0;i<r.xms.length;i++){const xm=r.xms[i];if(!xm.idx.length)continue;acc.add(Object.assign({},xm,{pos:recenterPos(xm.pos,r.center)}),p.meshes[i],p.name);}
+      const specs=acc.build(matResolver);if(!specs.length)continue;
+      extraN++;
+      const fname=extraN<=SA_MAX_EXTRA?('extra'+extraN):('p_extra'+extraN);
+      const f=addFrame(fname,0,r.center);addGeoms(f,specs);
+      (r.trimmed?movTrimmedNoData:movMergedNoData).push(fname);
+      continue;
+    }
+    const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,false),m,p.name);
     const specs=acc.build(matResolver);if(!specs.length)continue;
-    if(noData){const fn=(p.name||'extra').toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,20)+'_fixed';const f=addFrame(fn,0,[0,0,0]);addGeoms(f,specs);movMergedNoData.push(fn);continue;}
     extraN++;
     // GTA V'dagi asl raqam (masalan "11") ISHLATILMAYDI -- faqat ketma-ket qayta
     // raqamlanadi (1,2,...), chunki asl raqamning o'zi SA diapazonidan chiqib ketgan bo'lishi
@@ -1926,13 +2220,41 @@ function convertToSA(model,texLookup,opts){
   }
   for(const {p,c} of steer){
     const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
-    const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,noData?M.id():p.matrix,noData),m,p.name);
-    const specs=acc.build(matResolver);const f=addFrame('steering',0,noData?[0,0,0]:safePartPos(p,'steering'));addGeoms(f,specs);
-    if(noData)movMergedNoData.push('steering');
+    if(noData){
+      const r=robustNoDataPart(p,sideSignFor(p));
+      if(r){
+        const acc=new GeoAcc();
+        for(let i=0;i<r.xms.length;i++){const xm=r.xms[i];if(!xm.idx.length)continue;acc.add(Object.assign({},xm,{pos:recenterPos(xm.pos,r.center)}),p.meshes[i],p.name);}
+        const specs=acc.build(matResolver);
+        const f=addFrame('steering',0,r.center);addGeoms(f,specs);
+        (r.trimmed?movTrimmedNoData:movMergedNoData).push('steering');
+      }
+      continue;
+    }
+    const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,false),m,p.name);
+    const specs=acc.build(matResolver);const f=addFrame('steering',0,safePartPos(p,'steering'));addGeoms(f,specs);
   }
-  if(movMergedNoData.length)report.warnings.push('Qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi: '+[...new Set(movMergedNoData)].join(', ')+'. Ular "uchib ketgan parcha" bo‘lib chiqmasligi uchun kuzovga BIRIKTIRILDI (statik) -- lekin shu sabab endi alohida ESHIK/BAMPER/EXTRA sifatida OCHILMAYDI yoki boshqarilmaydi. Haqiqiy harakatlanadigan qilish uchun ZModeler/CodeWalker\'da manba faylidagi shu qism(lar)ning joylashuvini tekshiring.');
+  if(movTrimmedNoData.length)report.info.push('Qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi, lekin geometriya tahlili (statistik median asosida begona/aralashgan vertekslarni avtomatik filtrlash) orqali ANIQLANDI va TUZATILDI: '+[...new Set(movTrimmedNoData)].join(', ')+'. Bu qismlar hamon alohida ESHIK/BAMPER/BAGAJ/EXTRA sifatida ochiladi va animatsiyalanadi (eski "statik biriktirish" usuli endi ishlatilmaydi).');
+  if(movMergedNoData.length)report.warnings.push('Diqqat: '+[...new Set(movMergedNoData)].join(', ')+' uchun geometriya avtomatik filtrlashdan keyin ham ishonchli, kichik hajmga tushmadi -- xavfsizlik uchun bular kuzovga STATIK biriktirildi (mustaqil ochilmaydi/animatsiyalanmaydi). Haqiqiy harakatlanadigan qilish uchun ZModeler/CodeWalker\'da manba faylidagi shu qism(lar)ning joylashuvini tekshiring.');
   // 4. dummies (lights, seats, exhaust) from parts or bones
   frames.forEach(f=>have.add(f.name));
+  // TUZATISH #2 (haydovchi: "tomdan oshib o'tib kirish" + noto'g'ri tomonda
+  // o'tirish): avvalgi tuzatish (X ishorasini flip qilmaslik) YETARLI bo'lmadi --
+  // sinovda haydovchi hamon noto'g'ri tomondan chiqib, kirish animatsiyasi mashina
+  // ustidan oshib o'tgandek chiqdi. Sabab: "seat_dside_f/r" suyagi ba'zi fayllarda
+  // eshik (door_lf/door_lr) bilan BIR XIL tomonda chiqmaydi (ikkisi mustaqil
+  // o'qiladi) -- shu nomuvofiqlik tufayli o'rindiq eshikka QARAMA-QARSHI tomonda
+  // qolib qoladi. Endi: avval eshiklarning HAQIQIY (hisoblangan) X tomoni
+  // olinadi, so'ngra o'rindiq SHU TOMONGA majburan tenglashtiriladi (faqat ishora,
+  // masofa o'zgarmaydi) -- shunda ikkisi hech qachon mos kelmay qolmaydi, kirish
+  // animatsiyasi to'g'ridan-to'g'ri bo'ladi, va haydovchi eshik qaysi tomonda
+  // bo'lsa, o'sha (chap) tomonda o'tiradi.
+  // TUZATISH #3: foydalanuvchi aniq talab qildi -- eshik tomonini "aniqlashga"
+  // bog'liq bo'lmagan, SHARTSIZ yechim: haydovchi va orqa o'rindiq ENDI doim
+  // CHAP tomonda (X < 0) majburlanadi, boshqa hech qanday aniqlash mantig'iga
+  // qaramasdan. (Eski "eshik tomoniga moslashtirish" mantig'i olib tashlandi --
+  // chunki u hali ham noto'g'ri natija berishi mumkin edi.)
+  const seatSideX=(x)=>-Math.abs(x);
   const dumSrc=[['headlights','headlight_l'],['taillights','taillight_l'],['taillights','brakelight_l'],['exhaust_ok','exhaust'],['petrolcap','petrolcap'],['ped_frontseat','seat_dside_f'],['ped_backseat','seat_dside_r']];
   for(const [sa,bn] of dumSrc){
     if(have.has(sa))continue;
@@ -1943,14 +2265,19 @@ function convertToSA(model,texLookup,opts){
       else{const c=partBBoxCenter(dp.p);if(c){W=[1,0,0,0,0,1,0,0,0,0,1,0,c[0],c[1],c[2],1];bboxFallbackUsed.push(sa);}}
     }
     if(!W){const bm=boneByName(bn);if(bm&&!isZeroPos(bm[12],bm[13],bm[14]))W=bm;}
-    if(W){addFrame(sa,0,[W[12],W[13],W[14]]);have.add(sa);}
+    if(W){
+      const x=(sa==='ped_frontseat'||sa==='ped_backseat')?seatSideX(W[12]):W[12];
+      addFrame(sa,0,[x,W[13],W[14]]);have.add(sa);
+    }
   }
   if(bboxFallbackUsed.length)report.warnings.push('Ba\'zi qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi, shuning uchun geometriyaning o‘zidan (bbox markazi) taxminiy joy olindi: '+[...new Set(bboxFallbackUsed)].join(', ')+'. Imkon qadar ZModeler/CodeWalker\'da aniq o‘rnini tekshiring.');
   // seat fallback from body bbox
   if(!objectMode&&bodyXms.length&&(!have.has('ped_frontseat')||!have.has('ped_backseat'))){
     const bb=bboxOf(bodyXms),len=bb.mx[1]-bb.mn[1],h=bb.mn[2]+(bb.mx[2]-bb.mn[2])*0.42;
-    if(!have.has('ped_frontseat')){addFrame('ped_frontseat',0,[-0.4,bb.mn[1]+len*0.57,h]);report.warnings.push('ped_frontseat o‘rindiq suyagi topilmadi — taxminiy joy qo‘yildi (ZModeler’da tekshiring).');}
-    if(!have.has('ped_backseat')){addFrame('ped_backseat',0,[-0.4,bb.mn[1]+len*0.30,h]);}
+    // TUZATISH #3: bone orqali topilmagan holatda ham SHARTSIZ chap tomon (-0.4).
+    const fx=-0.4;
+    if(!have.has('ped_frontseat')){addFrame('ped_frontseat',0,[fx,bb.mn[1]+len*0.57,h]);report.warnings.push('ped_frontseat o‘rindiq suyagi topilmadi — taxminiy joy qo‘yildi (ZModeler’da tekshiring).');}
+    if(!have.has('ped_backseat')){addFrame('ped_backseat',0,[fx,bb.mn[1]+len*0.30,h]);}
   }
   }
   // 5. very-low LOD (chassis_vlo)
