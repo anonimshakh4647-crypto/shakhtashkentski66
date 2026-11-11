@@ -1102,7 +1102,8 @@ function modelFromDff(bytes,filename){
   if(wIdx>=0){
     const base=parts[wIdx],clones=[];
     fr.forEach((f,i)=>{const m=/^wheel_([lr])([fbm])_dummy$/.exec(f.name||'');if(!m)return;
-      let mat=world(i);if(m[1]==='r')mat=M.mul([-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1],mat);
+      // SA: "wheel" obyekti o'ng (+X) tomonga qaragan; o'yin CHAP g'ildiraklarni Z atrofida 180° buradi
+      let mat=world(i);if(m[1]==='l')mat=M.mul([-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1],mat);
       clones.push({key:'dff:wheel:'+f.name,name:f.name.replace('_dummy',''),lod:'high',matrix:mat,meshes:base.meshes,source:'dff'});});
     if(clones.length){parts.splice(wIdx,1,...clones);}
   }
@@ -1808,6 +1809,15 @@ function convertToSA(model,texLookup,opts){
     // darajasida tasdiqlangan tuzatish; agar yana regressiya ko'rinsa,
     // faqat shu qatorni qaytarish kifoya.
     let W=w.p.matrix.slice();if(M.det3(W)<0){W[0]=-W[0];W[1]=-W[1];W[2]=-W[2];}
+    // MUHIM (g'ildiraklar o'yinda "teskari/ichkariga qarab" chiqishi xatosi): yuqorida g'ildirak CHAP
+    // tomon (disk yuzasi tashqarida = -X) holatida olinadi. Lekin GTA SA da yagona "wheel" obyekti
+    // doim O'NG old dummy (wheel_rf_dummy) ostida turadi -- ya'ni uning asl yo'nalishi O'NG tomonga
+    // (disk yuzasi tashqarida = +X) qaragan bo'lishi kerak; chap g'ildiraklarni esa o'yinning o'zi
+    // shu obyektni Z o'qi atrofida 180° burib hosil qiladi. Shu sabab chapdan olingan g'ildirak
+    // o'sha yerda -X ga (ichkariga) qarab qolgan va o'yinda ikkala tomonda ham teskari chiqqan.
+    // Chap g'ildirakni Z atrofida 180° burib +X ga qaratamiz (burilish -- akslantirish emas, shuning
+    // uchun chap tomonda o'yin aynan asl chap g'ildirakni, o'ngda burilgan nusxasini ko'rsatadi).
+    W=M.mul(W,[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1]);
     for(const m of w.p.meshes){const xm=xformMesh(m,W,false);acc.add(xm,m,w.p.name);xms.push(xm);}
     wheelSpecs=acc.build(matResolver);
     const bb=bboxOf(xms);wheelDiam=Math.max(bb.mx[1]-bb.mn[1],bb.mx[2]-bb.mn[2]);
