@@ -1633,6 +1633,12 @@ G.decimateSpec=decimateSpec;
 const {M,DFF}=G;
 const SA_COL={paint1:[60,255,0,255],paint2:[255,0,175,255],paint3:[0,255,255,255],paint4:[255,0,255,255],
   light_fl:[255,175,0,255],light_fr:[0,255,200,255],light_rl:[185,255,0,255],light_rr:[255,60,0,255],glass:[160,185,205,80],black:[20,20,20,255],plain:[200,200,200,255]};
+/* SA chiroq oynasi: o'yin "vehiclelights128" (global vehicle.txd) teksturasini chiroq yonganda "vehiclelightson128" ga almashtiradi.
+   Almashtirish FAQAT material shu global teksturani ishlatsa va rangi 4 ta kalit rangdan biri bo'lsa ishlaydi (teksturasiz material
+   hech qachon almashmaydi -> chiroq "yonmaydi"). Shuning uchun lens materiali teksturali bo'ladi, TXD ga esa bu tekstura QO'SHILMAYDI.
+   SA_LIGHT_UV: atlas ichidagi rang nuqtasi (oq=old chiroq, qizil=orqa chiroq); haqiqiy chiroqlari tuzatilgan Infernus DFF dan olingan. */
+const SA_LIGHT_TEX='vehiclelights128';
+const SA_LIGHT_UV={light_fl:[0.845,0.886],light_fr:[0.845,0.886],light_rl:[0.605,0.186],light_rr:[0.605,0.186]};
 const ROLES=[['auto','Avto'],['paint1','Asosiy rang (1)'],['paint2','Ikkinchi rang (2)'],['paint3','Uchinchi rang (3)'],['paint4','To‘rtinchi rang (4)'],['glass','Oyna (shaffof)'],['light','Chiroq (avto chap/o‘ng)'],['texture','Tekstura saqlansin'],['black','Qora plastik'],['skip','Eksport qilinmasin']];
 /* GTA V bone name -> SA part description */
 function classify(raw){
@@ -1717,14 +1723,24 @@ class GeoAcc{
       for(let i=0;i<nV*3;i++){cur.P.push(it.xm.pos[i]);cur.N.push(it.xm.nrm[i]);}
       if(it.xm.uv){cur.anyUV=true;for(let i=0;i<nV*2;i++)cur.UV.push(it.xm.uv[i]);}else for(let i=0;i<nV*2;i++)cur.UV.push(0);
       const idx=it.xm.idx;
+      const claim=new Map(),dup=new Map(); // chiroq lensi: vertexning UV si (kalit bo'yicha); boshqa kalit kelsa vertex nusxalanadi
+      const lensV=(v,mk)=>{
+        const cl=claim.get(v);
+        if(cl===undefined){claim.set(v,mk.key);cur.anyUV=true;cur.UV[(base+v)*2]=mk.uv[0];cur.UV[(base+v)*2+1]=mk.uv[1];return base+v;}
+        if(cl===mk.key)return base+v;
+        const dk=v+'|'+mk.key;let ni=dup.get(dk);
+        if(ni===undefined){ni=cur.P.length/3;const o=(base+v)*3;
+          cur.P.push(cur.P[o],cur.P[o+1],cur.P[o+2]);cur.N.push(cur.N[o],cur.N[o+1],cur.N[o+2]);cur.UV.push(mk.uv[0],mk.uv[1]);dup.set(dk,ni);}
+        return ni;};
       for(let t=0;t<idx.length;t+=3){
         const a=idx[t],b=idx[t+1],c=idx[t+2];
-        const mk=resolveMat(it,a,b,c,it.xm); // {key,color,tex}
+        const mk=resolveMat(it,a,b,c,it.xm); // {key,color,tex,uv?}
         if(!mk)continue;
-        let mi=cur.matIdx.get(mk.key);if(mi===undefined){mi=cur.mats.length;cur.mats.push({color:mk.color,tex:mk.tex||'',mask:''});cur.matIdx.set(mk.key,mi);}
-        cur.tris.push(a+base,b+base,c+base,mi);
+        let mi=cur.matIdx.get(mk.key);if(mi===undefined){mi=cur.mats.length;cur.mats.push(mk.uv?{color:mk.color,tex:mk.tex||'',mask:'',flat:true}:{color:mk.color,tex:mk.tex||'',mask:''});cur.matIdx.set(mk.key,mi);}
+        if(mk.uv)cur.tris.push(lensV(a,mk),lensV(b,mk),lensV(c,mk),mi);
+        else cur.tris.push(a+base,b+base,c+base,mi);
       }
-      cur.nV+=nV;
+      cur.nV=cur.P.length/3;
     }
     return out.filter(g=>g.tris.length).map(g=>({pos:new Float32Array(g.P),nrm:new Float32Array(g.N),uv:g.anyUV?new Float32Array(g.UV):null,tris:g.tris,materials:g.mats,day:null,night:null,fx2d:null}));
   }
@@ -1792,7 +1808,7 @@ function convertToSA(model,texLookup,opts){
       // oynasi (lens) uchburchaklarining markazidan hisoblash uchun yig'ib boramiz (eshik qismlari
       // o'z lokal fazosida bo'lgani uchun hisobga olinmaydi).
       if(xm&&classify(it.partName).t!=='mov'){const kp=lightByPos(xm,a,b,c),q=lightAcc[kp]||(lightAcc[kp]={n:0,x:0,y:0,z:0});q.n++;q.x+=cx;q.y+=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3;q.z+=(xm.pos[a*3+2]+xm.pos[b*3+2]+xm.pos[c*3+2])/3;}
-      return{key:k,color:SA_COL[k]};
+      return{key:k,color:SA_COL[k],tex:SA_LIGHT_TEX,uv:SA_LIGHT_UV[k]};
     }
     const t=it.mesh.mat.tex;
     if(t){
@@ -2219,7 +2235,7 @@ function convertToSA(model,texLookup,opts){
   }
   // 6. textures
   const used=new Set();
-  for(const g of geoms)for(const m of g.materials)if(m.tex)used.add(m.tex);
+  for(const g of geoms)for(const m of g.materials)if(m.tex&&m.tex!==SA_LIGHT_TEX)used.add(m.tex); // vehiclelights128 global vehicle.txd da bor -- TXD ga qo'shilmaydi
   report.requiredTex=[...used].length+report.missingTex.length;
   const txdTexs=[],texMap={},usedSafe=new Set(),renamed=[];
   const safeTexName=n=>{let r=String(n).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'').slice(0,23);return r||'tex';};
@@ -2234,6 +2250,8 @@ function convertToSA(model,texLookup,opts){
     }
     else{report.missingTex.push(tn);for(const g of geoms)for(const m of g.materials)if(m.tex===tn){m.tex='';m.color=SA_COL.plain.slice();}}
   }
+  {let ln=0;for(const g of geoms)for(const m of g.materials)if(m.tex===SA_LIGHT_TEX)ln++;
+    if(ln)report.info.push('Chiroq oynalari ('+ln+' material) global "vehiclelights128" teksturasi bilan chiqdi: chiroq yonganda o‘yin uni "vehiclelightson128" ga almashtiradi. Bu teksturani mashina TXD siga QO‘SHMANG (qo‘shilsa chiroq yonmay qoladi).');}
   report.shaders=(model.shaders||[]).map((sh,i)=>{const r=opts.roles[i]||'auto';return{i,name:sh.name,hash:sh.nameHash,fileHash:sh.fileHash,role:r==='auto'?autoRole(sh.name,sh.diffuse,''):r,textures:(sh.textures||[]).map(t=>({kind:t.kind,hash:t.hash,name:t.name,found:!!(t.name&&texLookup&&texLookup(t.name)&&texLookup(t.name).rgba)}))};});
   const unk=report.shaders.filter(s=>isUnknownShader(s.name)).length;
   if(unk)report.warnings.push(unk+' ta shader nomi tanilmadi (hash). Materiallar bo‘limida rolni qo‘lda tanlang (Asosiy rang / Oyna / Chiroq / Tekstura).');
