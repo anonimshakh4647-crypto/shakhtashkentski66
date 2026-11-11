@@ -1659,7 +1659,7 @@ function classify(raw){
   const mov={bonnet:'bonnet',boot:'boot',bumper_f:'bump_front',bumper_r:'bump_rear',door_dside_f:'door_lf',door_dside_r:'door_lr',door_pside_f:'door_rf',door_pside_r:'door_rr',windscreen:'windscreen',bumper_f2:'bump_front',boot2:'boot'};
   if(mov[n])return{t:'mov',sa:mov[n]};
   if(m=n.match(/^extra_?(\d+)$/))return{t:'extra',sa:'extra'+m[1]};
-  if(n==='steeringwheel')return{t:'steer',sa:'steering'};
+  if(/^(steer(ing)?[_ ]?(wheel)?|volante|rule?)$/.test(n))return{t:'steer',sa:'steering'};
   if(n==='exhaust')return{t:'dummy',sa:'exhaust_ok'};
   if(n==='petrolcap')return{t:'dummy',sa:'petrolcap'};
   if(n==='headlight_l')return{t:'dummy',sa:'headlights'};
@@ -1756,9 +1756,94 @@ class GeoAcc{
   }
 }
 function bboxOf(xms){let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];for(const xm of xms)for(let i=0;i<xm.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}return{mn,mx};}
+/* mesh ichidan faqat berilgan uchburchaklarni (tl = uchburchak raqamlari) ajratib oladi (vertexlar qayta raqamlanadi) */
+function steerSub(me,tl){
+  const nV=me.pos.length/3,map=new Int32Array(nV).fill(-1),idx=new Uint16Array(tl.length*3);let n=0;
+  for(let i=0;i<tl.length;i++){const t=tl[i];for(let j=0;j<3;j++){const v=me.idx[t*3+j];if(map[v]<0)map[v]=n++;idx[i*3+j]=map[v];}}
+  const pos=new Float32Array(n*3),nrm=me.nrm?new Float32Array(n*3):null,uv=me.uv?new Float32Array(n*2):null,col=me.col?new Uint8Array(n*4):null,vb=me.vbone?new Uint8Array(n):null;
+  for(let v=0;v<nV;v++){const k=map[v];if(k<0)continue;
+    pos[k*3]=me.pos[v*3];pos[k*3+1]=me.pos[v*3+1];pos[k*3+2]=me.pos[v*3+2];
+    if(nrm){nrm[k*3]=me.nrm[v*3];nrm[k*3+1]=me.nrm[v*3+1];nrm[k*3+2]=me.nrm[v*3+2];}
+    if(uv){uv[k*2]=me.uv[v*2];uv[k*2+1]=me.uv[v*2+1];}
+    if(col){col[k*4]=me.col[v*4];col[k*4+1]=me.col[v*4+1];col[k*4+2]=me.col[v*4+2];col[k*4+3]=me.col[v*4+3];}
+    if(vb)vb[k]=me.vbone[v];}
+  return Object.assign({},me,{pos,nrm,uv,col,idx,vbone:vb});
+}
+/* ---------- Rul (steering wheel) tahlili ----------
+ * SA'ning o'zi rulni aylantirmaydi; aylanishni VehFuncs plagini "f_steer" nomli frame uchun bajaradi: frame o'zining lokal
+ * Y o'qi atrofida buriladi (frame boshi = aylanish markazi). Shuning uchun rul geometriyasi frame ichida LOKAL bo'lishi,
+ * frame boshi rul markazida va frame Y o'qi rul o'qiga (qiyalikka) mos kelishi shart. GTA V "steeringwheel" qismida esa ba'zan
+ * rul bilan birga mayda begona bo'laklar (masalan old bamper yaqinidagi detallar) ham bo'ladi -- ular rul bilan birga
+ * "aylanib" ketmasligi uchun alohida (statik) qilinadi.
+ * xws: [{pos:Float32Array (model fazosi), idx}] -> {ok,wheel:[tri[]],rest:[tri[]],pivot,basis,rot9,diam,tiltDeg,ratio,axisFallback,wheelTris,restTris}
+ */
+function eig3(C){
+  const A=[C[0].slice(),C[1].slice(),C[2].slice()],V=[[1,0,0],[0,1,0],[0,0,1]];
+  for(let it=0;it<50;it++){
+    let p=0,q=1,mx=Math.abs(A[0][1]);
+    if(Math.abs(A[0][2])>mx){p=0;q=2;mx=Math.abs(A[0][2]);}
+    if(Math.abs(A[1][2])>mx){p=1;q=2;mx=Math.abs(A[1][2]);}
+    if(mx<1e-15)break;
+    const th=(A[q][q]-A[p][p])/(2*A[p][q]),t=(th>=0?1:-1)/(Math.abs(th)+Math.sqrt(th*th+1)),c=1/Math.sqrt(t*t+1),s=t*c;
+    for(let k=0;k<3;k++){const a=A[k][p],b=A[k][q];A[k][p]=c*a-s*b;A[k][q]=s*a+c*b;}
+    for(let k=0;k<3;k++){const a=A[p][k],b=A[q][k];A[p][k]=c*a-s*b;A[q][k]=s*a+c*b;}
+    for(let k=0;k<3;k++){const a=V[k][p],b=V[k][q];V[k][p]=c*a-s*b;V[k][q]=s*a+c*b;}
+  }
+  return{w:[A[0][0],A[1][1],A[2][2]],vec:i=>[V[0][i],V[1][i],V[2][i]]};
+}
+function analyzeSteer(xws){
+  const comps=[];
+  xws.forEach((xw,mi)=>{
+    const nV=xw.pos.length/3,key=new Map(),rep=new Int32Array(nV);
+    for(let i=0;i<nV;i++){const k=Math.round(xw.pos[i*3]*1000)+','+Math.round(xw.pos[i*3+1]*1000)+','+Math.round(xw.pos[i*3+2]*1000);if(!key.has(k))key.set(k,i);rep[i]=key.get(k);}
+    const par=new Int32Array(nV);for(let i=0;i<nV;i++)par[i]=i;
+    const find=x=>{while(par[x]!==x){par[x]=par[par[x]];x=par[x];}return x;};
+    const nT=Math.floor(xw.idx.length/3);
+    for(let t=0;t<nT;t++){const a=find(rep[xw.idx[t*3]]),b=find(rep[xw.idx[t*3+1]]),c=find(rep[xw.idx[t*3+2]]);if(a!==b)par[a]=b;const d=find(a);if(c!==d)par[c]=d;}
+    const map=new Map();
+    for(let t=0;t<nT;t++){
+      const r=find(rep[xw.idx[t*3]]);let c=map.get(r);
+      if(!c){c={mi,tris:[],mn:[1e9,1e9,1e9],mx:[-1e9,-1e9,-1e9]};map.set(r,c);comps.push(c);}
+      c.tris.push(t);
+      for(let j=0;j<3;j++){const v=xw.idx[t*3+j];for(let a=0;a<3;a++){const q=xw.pos[v*3+a];if(q<c.mn[a])c.mn[a]=q;if(q>c.mx[a])c.mx[a]=q;}}
+    }
+  });
+  if(!comps.length)return null;
+  const mxExt=c=>Math.max(c.mx[0]-c.mn[0],c.mx[1]-c.mn[1],c.mx[2]-c.mn[2]);
+  const cand=comps.filter(c=>{const e=mxExt(c);return e>=0.2&&e<=0.7;}); // haqiqiy rul diametri ~0.3-0.5 m
+  if(!cand.length)return{ok:false,reason:'rulga o‘xshash alohida qism (diametri 20-70 sm) topilmadi'};
+  const main=cand.reduce((b,c)=>c.tris.length>b.tris.length?c:b,cand[0]);
+  const PAD=0.04;
+  const inW=comps.map(c=>c===main||(c.mn[0]<=main.mx[0]+PAD&&c.mx[0]>=main.mn[0]-PAD&&c.mn[1]<=main.mx[1]+PAD&&c.mx[1]>=main.mn[1]-PAD&&c.mn[2]<=main.mx[2]+PAD&&c.mx[2]>=main.mn[2]-PAD));
+  const wheel=xws.map(()=>[]),rest=xws.map(()=>[]);
+  comps.forEach((c,i)=>{(inW[i]?wheel:rest)[c.mi].push(...c.tris);});
+  // rul vertexlari
+  const pts=[];
+  xws.forEach((xw,mi)=>{const seen=new Set();for(const t of wheel[mi])for(let j=0;j<3;j++){const v=xw.idx[t*3+j];if(!seen.has(v)){seen.add(v);pts.push([xw.pos[v*3],xw.pos[v*3+1],xw.pos[v*3+2]]);}}});
+  const n=pts.length;let mean=[0,0,0];for(const q of pts){mean[0]+=q[0];mean[1]+=q[1];mean[2]+=q[2];}mean=mean.map(v=>v/n);
+  const C=[[0,0,0],[0,0,0],[0,0,0]];
+  for(const q of pts){const d=[q[0]-mean[0],q[1]-mean[1],q[2]-mean[2]];for(let i=0;i<3;i++)for(let j=0;j<3;j++)C[i][j]+=d[i]*d[j]/n;}
+  const E=eig3(C),ord=[0,1,2].sort((a,b)=>E.w[a]-E.w[b]);
+  let a=E.vec(ord[0]);const ratio=E.w[ord[0]]/Math.max(E.w[ord[1]],1e-12);
+  if(a[1]<0)a=a.map(v=>-v); // old tomonga (+Y) qaragan o'q
+  let axisFallback=false;
+  if(!(ratio<0.5&&a[1]>=0.5)){axisFallback=true;a=[0,1,0];} // disk shaklida emas / o'q mashina bo'ylab emas -> oddiy Y o'qi
+  // frame bazisi: Y = o'q, X ~ mashina X, Z = X x Y (o'ng qo'l tizimi, RW frame qatorlari)
+  const dx=a[0];let r0=[1-dx*a[0],-dx*a[1],-dx*a[2]];const l0=Math.hypot(r0[0],r0[1],r0[2]);r0=r0.map(v=>v/l0);
+  const r2=[r0[1]*a[2]-r0[2]*a[1],r0[2]*a[0]-r0[0]*a[2],r0[0]*a[1]-r0[1]*a[0]];
+  const r1=a;
+  // markaz: tekislikdagi (X,Z lokal) o'lchamlar o'rtasi -- rim shu yerda aniqlaydi; o'q bo'yicha -- o'rtacha
+  let u0=1e9,u1=-1e9,w0=1e9,w1=-1e9,am=0;
+  for(const q of pts){const u=q[0]*r0[0]+q[1]*r0[1]+q[2]*r0[2],w=q[0]*r2[0]+q[1]*r2[1]+q[2]*r2[2];
+    if(u<u0)u0=u;if(u>u1)u1=u;if(w<w0)w0=w;if(w>w1)w1=w;am+=q[0]*r1[0]+q[1]*r1[1]+q[2]*r1[2];}
+  am/=n;const uc=(u0+u1)/2,wc=(w0+w1)/2;
+  const pivot=[uc*r0[0]+am*r1[0]+wc*r2[0],uc*r0[1]+am*r1[1]+wc*r2[1],uc*r0[2]+am*r1[2]+wc*r2[2]];
+  return{ok:true,wheel,rest,pivot,basis:[r0,r1,r2],rot9:[...r0,...r1,...r2],diam:Math.max(u1-u0,w1-w0),tiltDeg:Math.asin(Math.min(1,Math.abs(a[2])))*180/Math.PI,ratio,axisFallback,
+    wheelTris:wheel.reduce((s,t)=>s+t.length,0),restTris:rest.reduce((s,t)=>s+t.length,0)};
+}
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255]},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,lightMode:'rear',steerSpin:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255]},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -1780,7 +1865,10 @@ function convertToSA(model,texLookup,opts){
     if(a==='paint1'&&opts.paintMode==='orig'&&mesh.mat.tex&&texLookup&&texLookup(mesh.mat.tex))return'texture';
     return a;};
   const paintCol=(role)=>(opts.paintMode==='fixed'||opts.paintMode==='orig')?(opts.paintColor||[255,255,255,255]).slice(0,3).concat(255):SA_COL[role];
-  const lightByPos=(xm,a,b,c)=>{const x=(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3,y=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3;return'light_'+(y>=0?'f':'r')+(x<0?'l':'r');};
+  // old/orqa kuzovning HAQIQIY o'rtasiga nisbatan aniqlanadi (o'rta Y = kuzov bbox markazi)
+  let lensMidY=null;
+  const lensMid=()=>{if(lensMidY===null){const bb=bodyXms.length?bboxOf(bodyXms):null;lensMidY=bb?(bb.mn[1]+bb.mx[1])/2:0;}return lensMidY;};
+  const lightByPos=(xm,a,b,c)=>{const x=(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3,y=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3;return'light_'+(y>=lensMid()?'f':'r')+(x<0?'l':'r');};
   const texFound=new Map(),fallbackPaint=new Set();
   const neutralMemo=new Map();
   const neutralTex=t=>{ // near-white/grey map (safe to tint with the SA paint colour)
@@ -1814,6 +1902,10 @@ function convertToSA(model,texLookup,opts){
       // esa nomdan qoladi. Shu bilan o'ng chiroq materiali chap rangda chiqib qolmaydi.
       const cx=xm?(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3:0;
       if(xm&&Math.abs(cx)>0.1)k=k.slice(0,-1)+(cx<0?'l':'r');
+      // OLD chiroqlar HAR DOIM oq, ORQA chiroqlar HAR DOIM qizil: old/orqa nomdan emas, uchburchakning haqiqiy joyidan olinadi
+      // (aks holda old chiroq korpusidagi "reversinglight"/"indicator" kabi nomli lampa qizil chiqib qolardi). Eshik ichidagi
+      // qismlar lokal fazoda bo'lgani uchun ular uchun nom bo'yicha qoladi.
+      if(xm&&classify(it.partName).t!=='mov'){const pk=lightByPos(xm,a,b,c);k='light_'+pk.charAt(6)+k.slice(-1);}
       // chiroq dummylari (headlights/taillights) topilmasa yoki noto'g'ri joyda bo'lsa, ularni chiroq
       // oynasi (lens) uchburchaklarining markazidan hisoblash uchun yig'ib boramiz (eshik qismlari
       // o'z lokal fazosida bo'lgani uchun hisobga olinmaydi).
@@ -2067,17 +2159,49 @@ function convertToSA(model,texLookup,opts){
   }
   for(const {p,c} of steer){
     const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
-    const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,noData?M.id():p.matrix,noData),m,p.name);
-    const specs=acc.build(matResolver);const f=addFrame('steering',0,noData?[0,0,0]:safePartPos(p,'steering'));addGeoms(f,specs);
-    if(noData)movMergedNoData.push('steering');
+    const W=noData?M.id():p.matrix;
+    // Rulni aylantirish: rul geometriyasi (model fazosida) tahlil qilinadi -> markaz va o'q topiladi, rul frame ichiga LOKAL qo'yiladi
+    const xws=p.meshes.map(m=>xformMesh(m,W,true));
+    let an=null;try{an=analyzeSteer(xws);}catch(e){console.warn('analyzeSteer',e);}
+    if(an&&an.ok&&an.wheelTris>0){
+      const spin=opts.steerSpin!==false,[r0,r1,r2]=an.basis,pv=an.pivot;
+      const wAcc=new GeoAcc(),rAcc=new GeoAcc();
+      p.meshes.forEach((m,mi)=>{
+        const wt=an.wheel[mi],rt=an.rest[mi];
+        if(wt.length){
+          const sm=wt.length*3===m.idx.length?m:steerSub(m,wt),xm=xformMesh(sm,W,true),nV=xm.pos.length/3,lp=new Float32Array(nV*3),ln=new Float32Array(nV*3);
+          for(let i=0;i<nV;i++){
+            const x=xm.pos[i*3]-pv[0],y=xm.pos[i*3+1]-pv[1],z=xm.pos[i*3+2]-pv[2];
+            lp[i*3]=x*r0[0]+y*r0[1]+z*r0[2];lp[i*3+1]=x*r1[0]+y*r1[1]+z*r1[2];lp[i*3+2]=x*r2[0]+y*r2[1]+z*r2[2];
+            const nx=xm.nrm[i*3],ny=xm.nrm[i*3+1],nz=xm.nrm[i*3+2];
+            ln[i*3]=nx*r0[0]+ny*r0[1]+nz*r0[2];ln[i*3+1]=nx*r1[0]+ny*r1[1]+nz*r1[2];ln[i*3+2]=nx*r2[0]+ny*r2[1]+nz*r2[2];
+          }
+          wAcc.add(Object.assign({},xm,{pos:lp,nrm:ln}),sm,p.name);
+        }
+        if(rt.length){const sm=steerSub(m,rt);rAcc.add(xformMesh(sm,W,true),sm,p.name);}
+      });
+      const wspecs=wAcc.build(matResolver);wspecs.forEach(x=>{x._k='steer';});
+      const fi=addFrame(spin?'f_steer':'steering',0,pv.slice());frames[fi].rot=an.rot9;addGeoms(fi,wspecs);
+      const rspecs=rAcc.build(matResolver);
+      if(rspecs.length){rspecs.forEach(x=>{x._k='steer';});const rf=addFrame('p_steer_rest',0,[0,0,0]);addGeoms(rf,rspecs);}
+      report.info.push('Rul: '+(spin?'"f_steer"':'"steering"')+' frame — diametri ≈ '+(an.diam*100).toFixed(0)+' sm, qiyaligi ≈ '+an.tiltDeg.toFixed(0)+'°'+(an.axisFallback?' (o‘q aniqlanmadi — oddiy Y o‘qi olindi)':'')+', markazi ('+pv.map(v=>v.toFixed(2)).join(', ')+')'+(an.restTris?'; rulga tegishli bo‘lmagan '+an.restTris+' ta poligon (begona bo‘laklar) rul bilan aylanmasligi uchun alohida statik frame ga ajratildi':'')+'.'+(spin?' DIQQAT: original GTA SA rulni o‘zi aylantirmaydi — aylanishi uchun VehFuncs plagini (ASI) o‘rnatilgan bo‘lishi kerak; plaginsiz rul joyida turadi (qolgan hammasi bir xil).':''));
+    }else{
+      // rulni boshqa detallardan ajratib bo'lmadi: eski usul -- statik "steering" (aylanmaydi, lekin joyidan siljimaydi ham)
+      const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,W,true),m,p.name);
+      const specs=acc.build(matResolver);const f=addFrame('steering',0,[0,0,0]);addGeoms(f,specs);
+      report.warnings.push('Rul ('+p.name+') aylanadigan qilib ajratilmadi'+(an&&an.reason?' — '+an.reason:'')+'. U statik qoldi (burilganda qimirlamaydi). ZModeler/Blender da rulni alohida obyekt qilib, frame nomini "f_steer" qiling.');
+    }
   }
   if(doorsPivoted.length)report.info.push('Eshiklar ochiladigan qilindi (manbada joylashuv ma\'lumoti yo\'q edi, menteşe nuqtasi eshik geometriyasi/suyagidan aniqlandi): '+doorsPivoted.join('; ')+'. Agar eshik noto‘g‘ri nuqta atrofida ochilsa, ZModeler\'da door_*_dummy ni eshikning old chetiga suring.');
   if(movMergedNoData.length)report.warnings.push('Qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi: '+[...new Set(movMergedNoData)].join(', ')+'. Ular "uchib ketgan parcha" bo‘lib chiqmasligi uchun kuzovga BIRIKTIRILDI (statik) -- lekin shu sabab endi alohida ESHIK/BAMPER/EXTRA sifatida OCHILMAYDI yoki boshqarilmaydi. Haqiqiy harakatlanadigan qilish uchun ZModeler/CodeWalker\'da manba faylidagi shu qism(lar)ning joylashuvini tekshiring.');
   // 4. dummies (lights, seats, exhaust) from parts or bones
   frames.forEach(f=>have.add(f.name));
   const dumSrc=[['headlights','headlight_l'],['taillights','taillight_l'],['taillights','brakelight_l'],['exhaust_ok','exhaust'],['petrolcap','petrolcap'],['ped_frontseat','seat_dside_f'],['ped_backseat','seat_dside_r']];
+  const lightMode=opts.lightMode||'rear'; // 'rear' | 'none' | 'full'
   for(const [sa,bn] of dumSrc){
     if(have.has(sa))continue;
+    // O'yin yer nuri va corona ni FAQAT shu dummylar joyida chizadi: tanlangan rejimga qarab ba'zilari qo'yilmaydi
+    if((sa==='headlights'&&lightMode!=='full')||(sa==='taillights'&&lightMode==='none'))continue;
     let W=null;const dp=dummies.find(d=>d.c.sa===sa&&d.p.name.toLowerCase()===bn);
     if(dp){
       const mx=dp.p.matrix;
@@ -2125,8 +2249,9 @@ function convertToSA(model,texLookup,opts){
       have.add(sa);
       (how.indexOf('taxminiy')>=0?report.warnings:report.info).push(sa+' dummy '+(cur?'noto‘g‘ri joyda edi':'topilmadi')+' — '+how+' qo‘yildi ('+np.map(v=>v.toFixed(2)).join(', ')+'). Chiroqlar yonishi uchun shu dummy kerak.'+(how.indexOf('taxminiy')>=0?' ZModeler\'da tekshiring.':''));
     };
-    fixLightDummy('headlights',true);
-    fixLightDummy('taillights',false);
+    if(lightMode==='full')fixLightDummy('headlights',true);
+    if(lightMode!=='none')fixLightDummy('taillights',false);
+    report.info.push(lightMode==='full'?'Chiroq rejimi: TO‘LIQ — old/orqa dummylar bor (o‘yin corona va yer nurini chizadi).':lightMode==='rear'?'Chiroq rejimi: old yer nuri YO‘Q (headlights dummy qo‘yilmadi), orqa qizil nur bor (taillights dummy). Old chiroq oynalari (oq) baribir yonadi. Yer nuri hali ham ko‘rinsa — «Faqat chiroq oynalari» rejimini tanlang.':'Chiroq rejimi: faqat chiroq oynalari — old oq, orqa qizil lampa yonadi; o‘yin yer nuri va coronani chizmaydi (dummylar qo‘yilmadi).');
   }
   if(bboxFallbackUsed.length)report.warnings.push('Ba\'zi qismlar uchun aniq joylashuv (transform) ma\'lumoti manba faylda topilmadi, shuning uchun geometriyaning o‘zidan (bbox markazi) taxminiy joy olindi: '+[...new Set(bboxFallbackUsed)].join(', ')+'. Imkon qadar ZModeler/CodeWalker\'da aniq o‘rnini tekshiring.');
   // seat fallback from body bbox
@@ -2164,11 +2289,11 @@ function convertToSA(model,texLookup,opts){
     const total=geoms.reduce((n,g)=>n+triCount(g),0);
     if(total>opts.maxTris){
       const wheelCap=2000,HID=0.25;let fixed=0,wsum=0;
-      const body=geoms.filter(g=>g._k!=='wheel'&&g._k!=='vlo');
+      const body=geoms.filter(g=>g._k!=='wheel'&&g._k!=='vlo'&&g._k!=='steer');
       let vi={visible:0,total:0};
       try{vi=G.computeVisibility(body,m=>m.color&&m.color[3]<250&&!m.tex);}catch(e){console.warn('visibility',e);body.forEach(g=>{g._vis=null;});}
       for(const g of geoms){
-        if(g._k==='vlo'){fixed+=triCount(g);continue;}
+        if(g._k==='vlo'||g._k==='steer'){fixed+=triCount(g);continue;}
         if(g._k==='wheel'){fixed+=Math.min(triCount(g),wheelCap);continue;}
         let v=0;const n=triCount(g);if(g._vis){for(let t=0;t<n;t++)v+=g._vis[t];}else v=n;
         g._v=v;wsum+=v+HID*(n-v);
@@ -2183,11 +2308,11 @@ function convertToSA(model,texLookup,opts){
         if(removed)report.info.push('Tashqaridan umuman ko‘rinmaydigan ichki poligonlar olib tashlandi: '+removed.toLocaleString()+'.');
       }
       wsum=0;
-      for(const g of geoms){if(g._k==='vlo'||g._k==='wheel')continue;const n=triCount(g);let v=0;if(g._vis){for(let t=0;t<n;t++)v+=g._vis[t];}else v=n;g._v=v;wsum+=v+HID*(n-v);}
+      for(const g of geoms){if(g._k==='vlo'||g._k==='wheel'||g._k==='steer')continue;const n=triCount(g);let v=0;if(g._vis){for(let t=0;t<n;t++)v+=g._vis[t];}else v=n;g._v=v;wsum+=v+HID*(n-v);}
       const rv=Math.max(0.01,(opts.maxTris-fixed)/Math.max(1,wsum));
       for(let i=0;i<geoms.length;i++){
         const g=geoms[i],n=triCount(g);let tgt;
-        if(g._k==='vlo')continue;
+        if(g._k==='vlo'||g._k==='steer')continue;
         else if(g._k==='wheel')tgt=Math.min(n,wheelCap);
         else tgt=Math.max(Math.min(n,150),Math.ceil(rv*(g._v+HID*(n-g._v))));
         if(tgt>=n){continue;}
@@ -2198,7 +2323,7 @@ function convertToSA(model,texLookup,opts){
         const ref=new Map();for(const a of atomics)ref.set(a.geom,(ref.get(a.geom)||0)+1);
         const byFrame=new Map();for(const a of atomics){if(!byFrame.has(a.frame))byFrame.set(a.frame,[]);byFrame.get(a.frame).push(a.geom);}
         for(const gl of byFrame.values()){
-          if(gl.some(i=>ref.get(i)!==1||geoms[i]._k==='vlo'||geoms[i]._k==='wheel'))continue;
+          if(gl.some(i=>ref.get(i)!==1||geoms[i]._k==='vlo'||geoms[i]._k==='wheel'||geoms[i]._k==='steer'))continue;
           for(let round=0;round<3;round++){
             const tot=gl.reduce((n,i)=>n+geoms[i].pos.length/3,0);if(tot<=CAPV)break;
             const f=Math.min(0.97,CAPV/tot*0.985);
@@ -2325,7 +2450,7 @@ function convertToSA(model,texLookup,opts){
   if(renamed.length)report.info.push('Tekstura nomlari SA uchun moslandi (bo‘sh joy/maxsus belgisiz, ≤23 belgi): '+renamed.slice(0,6).join(', ')+(renamed.length>6?'…':''));
   return{dff,txd,col,ide,report,name,texNames:txdTexs.map(t=>t.name),texMap};
 }
-Object.assign(G,{isUnknownShader,convertToSA,classify,autoRole,ROLES,SA_COL,defaultRoles});
+Object.assign(G,{isUnknownShader,convertToSA,classify,autoRole,ROLES,SA_COL,defaultRoles,analyzeSteer,eig3});
 })(GV);
 
 /* ===== minimal WebGL1 model viewer (Z-up) ===== */
@@ -2741,7 +2866,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,lightMode:'rear',steerSpin:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -3036,7 +3161,9 @@ function paneConv(p){
   const lods=['high','med','low','vlow'].filter(l=>m.parts.some(x=>x.lod===l));
   p.appendChild(sel('Asosiy LOD','lod',lods.map(l=>[l,({high:'Yuqori (HD)',med:'O‘rta',low:'Past',vlow:'Juda past'})[l]])));
   p.appendChild(chk('Qismlarni alohida saqlash (attach qilmaslik)','keepParts'));
-  if(car){p.appendChild(chk('Boshqa qismlar → chassis','mergeOther'));p.appendChild(chk('chassis_vlo (past LOD)','vlo'));p.appendChild(chk('_dam nusxalari (zarar)','damCopy'));p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));p.appendChild(inp('G‘ildirak o‘lchami ×','wheelScale','number',{step:'0.05',min:'0.3',max:'3'}));}
+  if(car){p.appendChild(chk('Boshqa qismlar → chassis','mergeOther'));p.appendChild(chk('chassis_vlo (past LOD)','vlo'));p.appendChild(chk('_dam nusxalari (zarar)','damCopy'));p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));p.appendChild(inp('G‘ildirak o‘lchami ×','wheelScale','number',{step:'0.05',min:'0.3',max:'3'}));
+    p.appendChild(sel('Chiroq nuri (o‘yin dvigateli)','lightMode',[['rear','Old: yer nurisiz · Orqa: qizil nur bor (tavsiya)'],['none','Faqat chiroq oynalari (yer nuri ham, corona ham yo‘q)'],['full','To‘liq: corona + yer nuri (o‘yin odatdagidek chizadi)']]));
+    p.appendChild(chk('Rul burilsin (VehFuncs plagini, f_steer)','steerSpin'));}
   if(car){
     const pm=el('select',{},[['game','Standart: o‘yin rangi (yashil belgi, o‘yinda o‘zgaradi; tekstura detallari saqlanadi)'],['orig','Asl ko‘rinish (oq/tekstura qat‘iy, o‘yinda rang o‘zgarmaydi)'],['fixed','Qat‘iy rang (quyidan)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.paintMode===v})));
     pm.addEventListener('change',()=>{O.paintMode=pm.value;});
