@@ -39,7 +39,7 @@ button.secondary{background:#132333;color:#dcecff;border:1px solid #28435d}
   <div class="crumb">Tools / Telegram Dumaloq Video Maker</div>
   <div class="card">
     <h1>Telegram Dumaloq Video Maker</h1>
-    <p class="hint">Video yuklang — u avtomatik kvadrat shaklga kesiladi va yuqori sifatli MP4 ga aylantiriladi, Telegramning "dumaloq video xabar" (video note) uchun tayyor bo'ladi. Hammasi to'liq brauzeringizda (lokal) ishlaydi — video hech qayerga yuklanmaydi.</p>
+    <p class="hint">Video yuklang — u avtomatik kvadrat shaklga kesiladi va haqiqiy DUMALOQ shaklga (burchaklar tanlangan fon rangi bilan) o'tkazilib, yuqori sifatli MP4 qilib tayyorlanadi. Fayl o'zi dumaloq ko'rinadi — har qanday ilova/pleyerda. Hammasi to'liq brauzeringizda (lokal) ishlaydi, video hech qayerga yuklanmaydi.</p>
     <div class="grid">
       <section class="stagebox">
         <h2>Ko'rinish</h2>
@@ -81,12 +81,18 @@ button.secondary{background:#132333;color:#dcecff;border:1px solid #28435d}
             </select>
           </div>
         </div>
-        <div class="field"><label>Kodlash tezligi</label>
-          <select id="preset"><option>slow</option><option selected>medium</option><option>fast</option></select>
+        <div class="row">
+          <div class="field"><label>Kodlash tezligi</label>
+            <select id="preset"><option value="ultrafast">ultrafast — Eng tezkor</option><option value="veryfast" selected>veryfast — Tezkor (tavsiya)</option><option value="faster">faster</option><option value="fast">fast</option><option value="medium">medium — Sekinroq, sifatliroq</option></select>
+          </div>
+          <div class="field"><label>Burchak foni rangi</label><input id="bgColor" type="color" value="#000000"></div>
         </div>
         <div class="small" id="meta">Video tanlanmagan.</div>
+        <div class="note" id="perfNote">
+          <b>Diqqat (tezlik):</b> dumaloq shaklga o'tkazish qo'shimcha hisoblash talab qiladi — katta o'lchamli manba (masalan 4K) yoki uzunroq davomiylik ishlov berishni sezilarli sekinlashtirishi mumkin (ba'zan bir necha daqiqa). Tezroq natija uchun: qisqaroq kesib oling, "Chiqish o'lchami"ni pastroq tanlang va "Kodlash tezligi"da ultrafast/veryfast'ni tanlang. Ishlov ketayotganda sahifa "javob bermayapti" (Page Unresponsive) ko'rinishi mumkin — bu normal, shunchaki kuting (Wait), sahifani yopmang.
+        </div>
         <div class="note">
-          <b>Qanday ishlatiladi:</b> faylni yuklab oling, so'ngra Telegram'da shu MP4 faylni oddiy video sifatida yuboring — fayl kvadrat va qisqa (≤60 son.) bo'lgani uchun Telegram ilovasi (telefon/desktop) odatda uni avtomatik "dumaloq video xabar" shaklida ko'rsatadi yoki yuborishdan oldin dumaloq rejimga o'tkazish tugmasini taklif qiladi. Bu dumaloq effektni oxirida Telegram ilovasining o'zi qo'llaydi — bu sahifa esa unga mos kvadrat, yuqori sifatli faylni tayyorlab beradi.
+          <b>Qanday ishlatiladi:</b> faylni yuklab oling va Telegram'da (yoki istalgan messenjerda) shu MP4 faylni oddiy video sifatida yuboring — fayl ENDI haqiqatan ham dumaloq ko'rinadi (burchaklar tanlangan fon rangida), chunki dumaloq shakl videoning o'zига ishlov berish vaqtida "pishirib" qo'yiladi, Telegramning alohida funksiyasiga bog'liq emas.
         </div>
       </section>
     </div>
@@ -137,12 +143,31 @@ drop.onclick=e=>{if(e.target.tagName!=='INPUT')fileEl.click()};
 ['dragleave','drop'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.style.borderColor=''}));
 drop.addEventListener('drop',e=>choose(e.dataTransfer.files[0]));
 
+function hex2rgb(h){
+  h=String(h||'#000000').replace('#','');
+  if(h.length===3)h=h.split('').map(c=>c+c).join('');
+  const n=parseInt(h,16)||0;
+  return [(n>>16)&255,(n>>8)&255,n&255];
+}
+
+// Progress UI yangilanishini cheklash (throttle): WASM juda tez-tez progress
+// xabarini yuborishi mumkin — har safar DOM'ni yangilash asosiy oqimni band qilib,
+// brauzerni "javob bermayapti" holatiga olib kelishini kamaytirish uchun.
+let lastProgUi=0,lastProgPct=-1;
+function progressUi(pct){
+  const now=(typeof performance!=='undefined')?performance.now():Date.now();
+  if(pct===100||pct===0||(pct!==lastProgPct&&now-lastProgUi>200)){
+    lastProgUi=now;lastProgPct=pct;
+    status('Kodlanmoqda… '+pct+'%',pct);
+  }
+}
+
 async function init(){
   convert.disabled=true;
   status('FFmpeg mexanizmi yuklanmoqda…',0);
   try{
     ffmpeg.setProgress(({ratio})=>{
-      if(ffmpegReady&&ratio>=0) status('Kodlanmoqda… '+Math.min(100,Math.round(ratio*100))+'%',Math.min(100,ratio*100));
+      if(ffmpegReady&&ratio>=0) progressUi(Math.min(100,Math.round(ratio*100)));
     });
     if(!ffmpeg.isLoaded()) await ffmpeg.load();
     ffmpegReady=true;
@@ -170,8 +195,16 @@ convert.onclick=async()=>{
     try{ffmpeg.FS('unlink',a)}catch(_){}
     try{ffmpeg.FS('unlink',b)}catch(_){}
     ffmpeg.FS('writeFile',a,await fetchFile(source));
+    lastProgUi=0;lastProgPct=-1;
     status('Kodlanmoqda…',0);
-    const vf='crop='+cropSize+':'+cropSize+':'+xPix+':'+yPix+',scale='+outSize+':'+outSize;
+    const [bgR,bgG,bgB]=hex2rgb($('bgColor').value);
+    // Dumaloq niqobni videoning o'zi ustiga "pishirib" qo'yish (geq): markazdan R radiusdan
+    // tashqaridagi har bir piksel tanlangan fon rangiga almashtiriladi — natija HAR QANDAY
+    // pleyerda dumaloq ko'rinadi, Telegram'ning o'z "video note" funksiyasiga bog'liq emas.
+    const distExpr='(X-(W/2))*(X-(W/2))+(Y-(H/2))*(Y-(H/2))';
+    const rad2='(W/2)*(W/2)';
+    const geq='geq=r=\'if(lte('+distExpr+'\,'+rad2+')\,r(X\\,Y)\,'+bgR+')\':g=\'if(lte('+distExpr+'\,'+rad2+')\,g(X\\,Y)\,'+bgG+')\':b=\'if(lte('+distExpr+'\,'+rad2+')\,b(X\\,Y)\,'+bgB+')\'';
+    const vf='crop='+cropSize+':'+cropSize+':'+xPix+':'+yPix+',scale='+outSize+':'+outSize+',format=rgb24,'+geq+',format=yuv420p';
     await ffmpeg.run(
       '-ss',String(start),'-i',a,'-t',String(trimDur),
       '-map','0:v:0','-map','0:a:0?',
