@@ -353,7 +353,16 @@ function readGeometry(rr,g){
     for(let s=0;s<4;s++){const wv=vd[wC.off+s];if(wv>maxW){maxW=wv;maxS=s;}}
     rigidBone=vd[iC.off+maxS];
   }
-  return{vcount,pos,nrm:hasN?nrm:null,uv:hasUV?uv:null,col:hasC?col:null,idx,decl:'0x'+types[1].toString(16)+types[0].toString(16).padStart(8,'0'),rigidBone};
+  // Har bir vertexning O'Z asosiy suyagi (eng katta vazn). Ba'zi (masalan modlangan) mashinalarda BITTA
+  // katta geometriya ichida bir nechta eshik/panel vertexlari turli suyaklarga bog'langan bo'ladi --
+  // yuqoridagi rigidBone esa faqat 0-vertexga qaraydi. Shu sabab eshiklarni to'g'ri ajratish uchun
+  // (modelFromFragment ichida) har vertexning suyagi ham saqlanadi.
+  let vbone=null;
+  if(wC&&iC&&wC.ty===9&&iC.ty===9){
+    vbone=new Uint8Array(vcount);
+    for(let i=0;i<vcount;i++){const b=i*vstride;let mw=-1,ms=0;for(let s=0;s<4;s++){const wv=vd[b+wC.off+s];if(wv>mw){mw=wv;ms=s;}}vbone[i]=vd[b+iC.off+ms];}
+  }
+  return{vcount,pos,nrm:hasN?nrm:null,uv:hasUV?uv:null,col:hasC?col:null,idx,decl:'0x'+types[1].toString(16)+types[0].toString(16).padStart(8,'0'),rigidBone,vbone};
 }
 function readModels(rr,hdrPtr){
   const out=[];if(!hdrPtr)return out;
@@ -1009,10 +1018,53 @@ function meshesFromModels(models,shaders,partName){
     for(const g of m.geoms){
       if(g.error||!g.idx)continue;
       const sh=shaders&&shaders[g.shader]||{name:'?',diffuse:''};
-      out.push({pos:g.pos,nrm:g.nrm,uv:g.uv,col:g.col,idx:g.idx,shaderIndex:g.shader,mat:{color:[255,255,255,255],tex:(sh.diffuse||'').toLowerCase(),shaderName:sh.name,shaderIndex:g.shader}});
+      out.push({pos:g.pos,nrm:g.nrm,uv:g.uv,col:g.col,idx:g.idx,shaderIndex:g.shader,vbone:g.vbone||null,mat:{color:[255,255,255,255],tex:(sh.diffuse||'').toLowerCase(),shaderName:sh.name,shaderIndex:g.shader}});
     }
   }
   return out;
+}
+/* MUHIM (eshiklar ochilganda ichki panel/o'rindiq uchib ketishi xatosi): ba'zi YFT larda (ayniqsa modlarda)
+   BITTA katta mesh ichida 4 ta eshikning tashqi qoplamasi, ichki paneli, oyna romi aralash turadi va ularning
+   vertexlari alohida eshik suyaklariga (door_dside_f, door_pside_f ...) bog'langan bo'ladi. Konvertor esa
+   butun meshni bitta suyakka (0-vertexnikiga) berardi -- natijada eshik ochilganda hamma eshiklarning
+   ichki panellari bir joydan aylanib, yerga sochilib qolardi, tashqi oq qoplama esa joyida qolardi.
+   Bu yerda mesh uchburchaklari o'z vertexlarining suyagi bo'yicha ajratiladi: eshik suyagiga tegishli
+   uchburchaklar o'sha eshik qismiga o'tadi. Faqat ARALASH (bir nechta suyakka bog'langan) meshlar ajratiladi;
+   bitta suyakka bog'langan oddiy mesh (masalan haqiqiy GTA V eshigi) o'zgarmaydi. */
+function subMeshByTris(me,tl){
+  const nV=me.pos.length/3,map=new Int32Array(nV).fill(-1),idx=new Uint16Array(tl.length*3);let n=0;
+  for(let i=0;i<tl.length;i++){const t=tl[i];for(let j=0;j<3;j++){const v=me.idx[t*3+j];if(map[v]<0)map[v]=n++;idx[i*3+j]=map[v];}}
+  const pos=new Float32Array(n*3),nrm=me.nrm?new Float32Array(n*3):null,uv=me.uv?new Float32Array(n*2):null,col=me.col?new Uint8Array(n*4):null,vb=me.vbone?new Uint8Array(n):null;
+  for(let v=0;v<nV;v++){const k=map[v];if(k<0)continue;
+    pos[k*3]=me.pos[v*3];pos[k*3+1]=me.pos[v*3+1];pos[k*3+2]=me.pos[v*3+2];
+    if(nrm){nrm[k*3]=me.nrm[v*3];nrm[k*3+1]=me.nrm[v*3+1];nrm[k*3+2]=me.nrm[v*3+2];}
+    if(uv){uv[k*2]=me.uv[v*2];uv[k*2+1]=me.uv[v*2+1];}
+    if(col){col[k*4]=me.col[v*4];col[k*4+1]=me.col[v*4+1];col[k*4+2]=me.col[v*4+2];col[k*4+3]=me.col[v*4+3];}
+    if(vb)vb[k]=me.vbone[v];}
+  return Object.assign({},me,{pos,nrm,uv,col,idx,vbone:vb});
+}
+function splitDoorMeshes(meshes,doorIdx){
+  const rest=[],doors=new Map();
+  if(!doorIdx||!doorIdx.size)return{rest:meshes,doors};
+  for(const me of meshes){
+    if(!me.vbone){rest.push(me);continue;}
+    const nT=me.idx.length/3,groups=new Map();
+    for(let t=0;t<nT;t++){
+      const a=me.vbone[me.idx[t*3]],b=me.vbone[me.idx[t*3+1]],c=me.vbone[me.idx[t*3+2]];
+      const k=(a===b||a===c)?a:(b===c?b:a),g=doorIdx.has(k)?k:-1;
+      let l=groups.get(g);if(!l){l=[];groups.set(g,l);}l.push(t);
+    }
+    if(groups.size<2){ // hammasi bir xil suyakka tegishli -- meshning o'zi o'zgarmaydi, faqat qaysi qismga ketishi hal qilinadi
+      const g=groups.keys().next().value;
+      if(g<0)rest.push(me);else{let l=doors.get(g);if(!l){l=[];doors.set(g,l);}l.push(me);}
+      continue;
+    }
+    for(const [g,tl] of groups){
+      const sm=subMeshByTris(me,tl);
+      if(g<0)rest.push(sm);else{let l=doors.get(g);if(!l){l=[];doors.set(g,l);}l.push(sm);}
+    }
+  }
+  return{rest,doors};
 }
 function modelFromFragment(fr,filename){
   const d=fr.drawable,skel=d.skeleton||{bones:[]},cache={},parts=[],byKey=new Map();
@@ -1023,6 +1075,8 @@ function modelFromFragment(fr,filename){
     if(!p){p={key,name,lod,matrix,meshes:[],source:src,tag};byKey.set(key,p);parts.push(p);}
     p.meshes.push(...meshes);
   };
+  const doorIdx=new Map();
+  skel.bones.forEach((b,i)=>{if(/^door_[dp]side_[fr]$/i.test(b.name||''))doorIdx.set(i,b);});
   for(const lod of ['high','med','low','vlow']){
     const byBone=new Map();
     for(const m of d.lods[lod]){const arr=byBone.get(m.bone)||[];arr.push(m);byBone.set(m.bone,arr);}
@@ -1030,7 +1084,17 @@ function modelFromFragment(fr,filename){
       const b=skel.bones[bi];const name=b?b.name:('bone'+bi);
       const skinned=ms.some(x=>x.skinned);
       let mat=skinned||!skel.bones.length?M.id():boneWorld(fr,skel,Math.min(bi,Math.max(0,skel.bones.length-1)),cache);
-      addPart(lod,name,mat,meshesFromModels(ms,d.shaders),'main',b&&b.tag);
+      let meshes=meshesFromModels(ms,d.shaders);
+      if(skinned&&doorIdx.size){ // aralash meshlardan eshik uchburchaklarini o'z eshiklariga ajratish (yuqoridagi izohga qarang)
+        const sp=splitDoorMeshes(meshes,doorIdx);
+        meshes=sp.rest;
+        for(const [dbi,dm] of sp.doors){const db=skel.bones[dbi];addPart(lod,db.name,M.id(),dm,'main',db.tag);if(dbi!==bi)info.doorsSplit=(info.doorsSplit||0)+dm.reduce((s,x)=>s+x.idx.length/3,0);}
+        if(doorIdx.has(bi)&&meshes.length){ // eshik suyagi nomi bilan kelgan, lekin eshikka tegishli bo'lmagan uchburchaklar -- kuzovga (chassis) qo'shiladi
+          const ci=Math.max(0,skel.bones.findIndex(x=>/^chassis$/i.test(x.name||''))),cb=skel.bones[ci];
+          addPart(lod,cb?cb.name:'chassis',M.id(),meshes,'main',cb&&cb.tag);meshes=[];
+        }
+      }
+      addPart(lod,name,mat,meshes,'main',b&&b.tag);
     }
   }
   const usedChildNames=new Set();
@@ -1718,10 +1782,16 @@ function convertToSA(model,texLookup,opts){
       if(/_l$|_lf$|_lr$/.test(pn)&&/light/.test(pn))k=(/tail|brake|rever|indicator_lr/.test(pn)?'light_rl':'light_fl');
       else if(/_r$|_rf$|_rr$/.test(pn)&&/light/.test(pn))k=(/tail|brake|rever|indicator_rr/.test(pn)?'light_rr':'light_fr');
       else k=lightByPos(xm,a,b,c);
+      // MUHIM: qism nomi bo'yicha (masalan "reversinglight_l") tanlangan tomon noto'g'ri bo'lishi mumkin --
+      // modlarda bitta "_l" qismi ichida ikkala tomonning chiroqlari turadi. Uchburchak aniq o'ng yoki
+      // chap tomonda (markazdan >10 sm) bo'lsa, tomon (l/r) uning haqiqiy joyidan olinadi; old/orqa (f/r)
+      // esa nomdan qoladi. Shu bilan o'ng chiroq materiali chap rangda chiqib qolmaydi.
+      const cx=xm?(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3:0;
+      if(xm&&Math.abs(cx)>0.1)k=k.slice(0,-1)+(cx<0?'l':'r');
       // chiroq dummylari (headlights/taillights) topilmasa yoki noto'g'ri joyda bo'lsa, ularni chiroq
       // oynasi (lens) uchburchaklarining markazidan hisoblash uchun yig'ib boramiz (eshik qismlari
       // o'z lokal fazosida bo'lgani uchun hisobga olinmaydi).
-      if(xm&&classify(it.partName).t!=='mov'){const q=lightAcc[k]||(lightAcc[k]={n:0,x:0,y:0,z:0});q.n++;q.x+=(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3;q.y+=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3;q.z+=(xm.pos[a*3+2]+xm.pos[b*3+2]+xm.pos[c*3+2])/3;}
+      if(xm&&classify(it.partName).t!=='mov'){const kp=lightByPos(xm,a,b,c),q=lightAcc[kp]||(lightAcc[kp]={n:0,x:0,y:0,z:0});q.n++;q.x+=cx;q.y+=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3;q.z+=(xm.pos[a*3+2]+xm.pos[b*3+2]+xm.pos[c*3+2])/3;}
       return{key:k,color:SA_COL[k]};
     }
     const t=it.mesh.mat.tex;
@@ -2013,7 +2083,9 @@ function convertToSA(model,texLookup,opts){
     const fixLightDummy=(sa,front)=>{
       const fi=frames.findIndex(f=>f.name===sa),cur=fi>=0?frames[fi].pos:null;
       const midY=bbL?(bbL.mn[1]+bbL.mx[1])/2:0,len=bbL?(bbL.mx[1]-bbL.mn[1]):0;
-      const okPos=p=>p&&!isZeroPos(p[0],p[1],p[2])&&(!bbL||(front?p[1]>midY+0.2*len:p[1]<midY-0.2*len));
+      // chiroq: old/orqa uchida, markazdan chetda (chap/o'ng) va kuzov balandligi ichida bo'lishi kerak
+      // (modlarda suyak joyi mashina tagida yoki o'rtasida, qism bbox markazi esa x=0 da chiqishi mumkin)
+      const okPos=p=>p&&!isZeroPos(p[0],p[1],p[2])&&(!bbL||((front?p[1]>midY+0.2*len:p[1]<midY-0.2*len)&&Math.abs(p[0])>0.12*(bbL.mx[0]-bbL.mn[0])&&p[2]>=bbL.mn[2]-0.1&&p[2]<=bbL.mx[2]+0.1));
       if(okPos(cur))return;
       const L=lensC(front?'light_fl':'light_rl'),R=lensC(front?'light_fr':'light_rr');
       let np=null,how='';
