@@ -1738,97 +1738,6 @@ function convertToSA(model,texLookup,opts){
   const addFrame=(n,parent,pos)=>{frames.push({name:n,pos,parent});return frames.length-1;};
   const addGeoms=(frame,specs)=>{for(const s of specs){geoms.push(s);atomics.push({frame,geom:geoms.length-1});}};
   const rot0=W=>{const w=W.slice();w[12]=w[13]=w[14]=0;return w;};
-  // YUQORIGA KO'CHIRILDI (ilgari "3. movable parts" bo'limida edi): "other"/merge
-  // qilinadigan qismlar (FAROL/LANTERNA/MOTOR kabi) ham xuddi eshik/bamper kabi
-  // "begona (contamination) vertekslar" muammosiga duchor bo'lishi MUMKINLIGI
-  // aniqlandi (haqiqiy foydalanuvchi fayli: FAROL ~4.44m, LANTERNA ~4.14m
-  // bo'ylab cho'zilgan -- butun mashina kengligicha!). Shu sabab bu yordamchi
-  // funksiyalar endi pastdagi "1-bo'lim" (body/other merge) ichida ham
-  // ishlatilishi uchun ERTAROQ e'lon qilinadi.
-  const isZeroPos=(x,y,z)=>Math.abs(x)<1e-5&&Math.abs(y)<1e-5&&Math.abs(z)<1e-5;
-  const NO_DATA_SIZE_CAP=1.8; // metr -- haqiqiy SA detali o'lchamidan sezilarli katta bo'lmagan "xavfsiz" chegara
-  const TRIM_CANDIDATES=[0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.2,1.4,1.6];
-  const diag3=(mn,mx)=>Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2]);
-  const recenterPos=(pos,ctr)=>{const out=new Float32Array(pos.length);for(let i=0;i<pos.length;i+=3){out[i]=pos[i]-ctr[0];out[i+1]=pos[i+1]-ctr[1];out[i+2]=pos[i+2]-ctr[2];}return out;};
-  const trimXmByCenter=(xm,ctr,th)=>{
-    const nV=xm.pos.length/3,keep=new Uint8Array(nV);
-    for(let i=0;i<nV;i++){const dx=xm.pos[i*3]-ctr[0],dy=xm.pos[i*3+1]-ctr[1],dz=xm.pos[i*3+2]-ctr[2];keep[i]=Math.hypot(dx,dy,dz)<=th?1:0;}
-    const idx=[];for(let t=0;t<xm.idx.length;t+=3){const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];if(keep[a]&&keep[b]&&keep[c])idx.push(a,b,c);}
-    return Object.assign({},xm,{idx});
-  };
-  // MUHIM (foydalanuvchi skrinshotidan ANIQLANGAN yangi topilma): ba'zi "mov"
-  // qismlarning (ayniqsa orqa eshiklar, masalan door_dside_r) xom mesh
-  // ma'lumotida chap VA o'ng eshikning ikkalasi ham (bir-biriga oyna aks kabi,
-  // X belgisi teskari) birga, BITTA qism sifatida kelgan ekan -- bu sodda
-  // "markazdan th radius ichida qolsin" filtri ikkala eshikni aralashtirib,
-  // "yirtilgan/zigzag" shakl hosil qilardi (chunki ikkala eshik ham bir xil
-  // markazga nisbatan masofada joylashgan). Haqiqiy tuzatish: avval BOG'LANGAN
-  // KOMPONENTLARGA (connected components, umumiy uchburchak orqali bog'langan
-  // vertekslar) ajratib, FAQAT shu qism uchun to'g'ri tomondagi (dside->manfiy
-  // X, pside->musbat X) komponentlarni qoldirish, so'ngra ULARNI ZICHLASH
-  // (ishlatilmagan vertekslarni butunlay olib tashlash -- shu bilan birga
-  // eksport qilingan fayldagi keraksiz "ko'rinmas" vertekslar hajmini ham
-  // kamaytiradi).
-  const sideSignFor=p=>{const n=String(p&&p.name||'').toLowerCase();if(n.indexOf('dside')>=0)return -1;if(n.indexOf('pside')>=0)return 1;return 0;};
-  const compactXm=xm=>{
-    const nV=xm.pos.length/3,used=new Uint8Array(nV);
-    for(let t=0;t<xm.idx.length;t++)used[xm.idx[t]]=1;
-    const remap=new Int32Array(nV).fill(-1);let n=0;
-    for(let i=0;i<nV;i++)if(used[i])remap[i]=n++;
-    const pos=new Float32Array(n*3),nrm=new Float32Array(n*3),uv=xm.uv?new Float32Array(n*2):null;
-    for(let i=0;i<nV;i++){const j=remap[i];if(j<0)continue;
-      pos[j*3]=xm.pos[i*3];pos[j*3+1]=xm.pos[i*3+1];pos[j*3+2]=xm.pos[i*3+2];
-      nrm[j*3]=xm.nrm[i*3];nrm[j*3+1]=xm.nrm[i*3+1];nrm[j*3+2]=xm.nrm[i*3+2];
-      if(uv){uv[j*2]=xm.uv[i*2];uv[j*2+1]=xm.uv[i*2+1];}}
-    const idx=new Array(xm.idx.length);for(let t=0;t<xm.idx.length;t++)idx[t]=remap[xm.idx[t]];
-    return Object.assign({},xm,{pos,nrm,uv,idx});
-  };
-  const SIDE_CENTER_TOL=0.15; // metr -- markaz chizig'iga yaqin (masalan ilgak/qulf) kichik qismlarni noto'g'ri tashlab yubormaslik uchun bo'shliq
-  const filterXmBySide=(xm,sideSign)=>{
-    if(!sideSign)return xm.idx;
-    const nV=xm.pos.length/3,parent=new Int32Array(nV);for(let i=0;i<nV;i++)parent[i]=i;
-    const find=x=>{while(parent[x]!==x){parent[x]=parent[parent[x]];x=parent[x];}return x;};
-    const union=(a,b)=>{a=find(a);b=find(b);if(a!==b)parent[a]=b;};
-    for(let t=0;t<xm.idx.length;t+=3){union(xm.idx[t],xm.idx[t+1]);union(xm.idx[t+1],xm.idx[t+2]);}
-    const sumX=new Map(),cnt=new Map();
-    for(let i=0;i<nV;i++){const r=find(i);sumX.set(r,(sumX.get(r)||0)+xm.pos[i*3]);cnt.set(r,(cnt.get(r)||0)+1);}
-    const keep=new Map();for(const[r,s]of sumX)keep.set(r,(s/cnt.get(r))*sideSign>=-SIDE_CENTER_TOL);
-    const idx=[];for(let t=0;t<xm.idx.length;t+=3){const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];if(keep.get(find(a))&&keep.get(find(b))&&keep.get(find(c)))idx.push(a,b,c);}
-    return idx;
-  };
-  // qism (p.meshes) uchun "ishonchli markaz"ni va -- zarur bo'lsa -- begona vertekslardan
-  // tozalangan xm (world-fazodagi, hali markazga nisbatan surilmagan) ro'yxatini topadi.
-  // sideSign berilsa (-1=dside/chap, 1=pside/o'ng), avval shu tomonga tegishli
-  // bog'langan komponentlar saqlanadi (qarang yuqoridagi izoh).
-  // Qaytaradi: {center:[x,y,z], xms:[...], trimmed:bool} yoki (mesh yo'q bo'lsa) null.
-  const robustNoDataPart=(p,sideSign)=>{
-    let rawXms=p.meshes.map(m=>xformMesh(m,M.id(),true));
-    if(sideSign)rawXms=rawXms.map(xm=>compactXm(Object.assign({},xm,{idx:filterXmBySide(xm,sideSign)})));
-    const bb0=bboxOf(rawXms);
-    if(!(bb0.mx[0]>bb0.mn[0]))return null;
-    const fullDiag=diag3(bb0.mn,bb0.mx);
-    if(fullDiag<=NO_DATA_SIZE_CAP)return{center:[(bb0.mn[0]+bb0.mx[0])/2,(bb0.mn[1]+bb0.mx[1])/2,(bb0.mn[2]+bb0.mx[2])/2],xms:rawXms,trimmed:false};
-    const xs=[],ys=[],zs=[];
-    for(const xm of rawXms)for(let i=0;i<xm.pos.length;i+=3){xs.push(xm.pos[i]);ys.push(xm.pos[i+1]);zs.push(xm.pos[i+2]);}
-    const med=v=>{const s=v.slice().sort((a,b)=>a-b);return s[Math.floor(s.length/2)];};
-    const mc=[med(xs),med(ys),med(zs)];
-    let chosen=null;
-    for(const th of TRIM_CANDIDATES){
-      let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9],cnt=0;
-      for(const xm of rawXms)for(let i=0;i<xm.pos.length;i+=3){
-        const dx=xm.pos[i]-mc[0],dy=xm.pos[i+1]-mc[1],dz=xm.pos[i+2]-mc[2];
-        if(Math.hypot(dx,dy,dz)<=th){cnt++;for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}}
-      }
-      if(!cnt)continue;
-      const d=diag3(mn,mx);
-      chosen={th,diag:d,center:[(mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2]};
-      if(d<=NO_DATA_SIZE_CAP)break;
-    }
-    if(!chosen)return{center:mc,xms:rawXms,trimmed:false};
-    const filtered=rawXms.map(xm=>compactXm(trimXmByCenter(xm,mc,chosen.th)));
-    if(!filtered.some(f=>f.idx.length))return{center:mc,xms:rawXms,trimmed:false};
-    return{center:chosen.center,xms:filtered,trimmed:true};
-  };
   // 1. body
   const bodyAcc=new GeoAcc(),chassisFrame=objectMode?0:addFrame('chassis',0,[0,0,0]);
   // keepParts: har bir GTA V qismi o‘z frame/geometriyasida qoladi (attach qilib bitta qilib yuborilmaydi)
@@ -1839,31 +1748,7 @@ function convertToSA(model,texLookup,opts){
   for(const {p,c} of cls){
     const rec={name:p.name,sa:c.sa||'(body ga qo‘shildi)',type:c.t,meshes:p.meshes.length,verts:p.meshes.reduce((s,m)=>s+m.pos.length/3,0)};
     report.parts.push(rec);
-    if(c.t==='body'||(c.t==='other'&&opts.mergeOther)){
-      if(keepParts)rec.sa='(alohida qism)';
-      // MUHIM (foydalanuvchi skrinshoti orqali TASDIQLANGAN yangi topilma): "other"
-      // sifatida kuzovga biriktiriladigan qismlar (masalan FAROL/farol korpusi,
-      // LANTERNA/stop-signal korpusi, MOTOR) ham xuddi eshik/bamper kabi "begona
-      // (contamination) vertekslar" muammosiga duchor bo'lishi mumkin ekan -- haqiqiy
-      // foydalanuvchi faylida FAROL ~4.44m, LANTERNA ~4.14m bo'ylab (butun mashina
-      // kengligicha!) cho'zilgan holda topildi, va joylashuv matritsasi yo'q (isZeroPos)
-      // edi. Bular oldingi tuzatishdan (faqat movs/extras/steer) chetda qolgani uchun
-      // hamon "uchib ketgan parcha" bo'lib chiqayotgan edi. Endi "mov" qismlaridagi bilan
-      // AYNAN BIR XIL median-asosidagi tozalash shu yerda ham qo'llaniladi.
-      let useMeshes=null;
-      if(c.t==='other'){
-        const mx0=p.matrix,noData0=!mx0||isZeroPos(mx0[12],mx0[13],mx0[14]);
-        if(noData0){const r=robustNoDataPart(p,sideSignFor(p));if(r&&r.trimmed)useMeshes=r.xms;}
-      }
-      if(useMeshes){
-        // DIQQAT: useMeshes[i] va p.meshes[i] bir xil tartibda (robustNoDataPart ham
-        // xuddi shu p.meshes bo'yicha, bir xil tartibda xms yaratadi) -- shu sabab
-        // material to'g'ri bog'lanishi uchun indeks orqali mos p.meshes[i] uzatiladi.
-        for(let i=0;i<useMeshes.length;i++){const xm=useMeshes[i];if(!xm.idx.length)continue;(keepParts&&!(!objectMode&&String(p.name).toLowerCase()==='chassis')?partAccOf(p):bodyAcc).add(xm,p.meshes[i],p.name);bodyXms.push(xm);}
-      }else{
-        for(const m of p.meshes){const xm=xformMesh(m,p.matrix,true);(keepParts&&!(!objectMode&&String(p.name).toLowerCase()==='chassis')?partAccOf(p):bodyAcc).add(xm,m,p.name);bodyXms.push(xm);}
-      }
-    }
+    if(c.t==='body'||(c.t==='other'&&opts.mergeOther)){if(keepParts)rec.sa='(alohida qism)';for(const m of p.meshes){const xm=xformMesh(m,p.matrix,true);(keepParts&&!(!objectMode&&String(p.name).toLowerCase()==='chassis')?partAccOf(p):bodyAcc).add(xm,m,p.name);bodyXms.push(xm);}}
     else if(c.t==='wheel')wheels.push({p,c});
     else if(c.t==='mov')movs.push({p,c});
     else if(c.t==='extra')extras.push({p,c});
@@ -1963,6 +1848,7 @@ function convertToSA(model,texLookup,opts){
   // matritsa (0,0,0) atrofida bo'lsa, QISMNING O'Z GEOMETRIYASI (mesh)ining markazidan
   // (dunyo fazosidagi bbox markazi) foydalanamiz -- bu haqiqiy modeldagi qismning qayerda
   // turganini mesh orqali bera oladi, hatto transform ma'lumoti yo'qolgan bo'lsa ham.
+  const isZeroPos=(x,y,z)=>Math.abs(x)<1e-5&&Math.abs(y)<1e-5&&Math.abs(z)<1e-5;
   const partBBoxCenter=p=>{
     if(!p||!p.meshes||!p.meshes.length)return null;
     const xms=p.meshes.map(m=>xformMesh(m,p.matrix,false));
@@ -1999,14 +1885,57 @@ function convertToSA(model,texLookup,opts){
   // (haqiqiy joylashuv ma'lumoti bor fayllar uchun ishlatiladigan) dummy+ok juft freym
   // tuzilishi ORQALI eksport qilinadi -- demak eshik/bamper/bagaj YANA mustaqil
   // ochiladi/animatsiyalanadi, LEKIN endi "uchib ketgan" begona geometriyasiz.
-  // (NO_DATA_SIZE_CAP, TRIM_CANDIDATES, diag3, recenterPos, trimXmByCenter,
-  // robustNoDataPart -- bu funksiyalar endi YUQORIDA, "1. body" bo'limidan OLDIN
-  // e'lon qilingan, chunki ular "other" qismlar uchun ham kerak bo'lib qoldi.)
+  const NO_DATA_SIZE_CAP=1.8; // metr -- haqiqiy SA eshik/bamper/bagaj o'lchamidan sezilarli katta bo'lmagan "xavfsiz" chegara
+  const TRIM_CANDIDATES=[0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.2,1.4,1.6];
+  const diag3=(mn,mx)=>Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2]);
+  const recenterPos=(pos,ctr)=>{const out=new Float32Array(pos.length);for(let i=0;i<pos.length;i+=3){out[i]=pos[i]-ctr[0];out[i+1]=pos[i+1]-ctr[1];out[i+2]=pos[i+2]-ctr[2];}return out;};
+  const trimXmByCenter=(xm,ctr,th)=>{
+    const nV=xm.pos.length/3,keep=new Uint8Array(nV);
+    for(let i=0;i<nV;i++){const dx=xm.pos[i*3]-ctr[0],dy=xm.pos[i*3+1]-ctr[1],dz=xm.pos[i*3+2]-ctr[2];keep[i]=Math.hypot(dx,dy,dz)<=th?1:0;}
+    const idx=[];for(let t=0;t<xm.idx.length;t+=3){const a=xm.idx[t],b=xm.idx[t+1],c=xm.idx[t+2];if(keep[a]&&keep[b]&&keep[c])idx.push(a,b,c);}
+    return Object.assign({},xm,{idx});
+  };
+  // qism (p.meshes) uchun "ishonchli markaz"ni va -- zarur bo'lsa -- begona vertekslardan
+  // tozalangan xm (world-fazodagi, hali markazga nisbatan surilmagan) ro'yxatini topadi.
+  // Qaytaradi: {center:[x,y,z], xms:[...], trimmed:bool} yoki (mesh yo'q bo'lsa) null.
+  const robustNoDataPart=p=>{
+    const rawXms=p.meshes.map(m=>xformMesh(m,M.id(),true));
+    const bb0=bboxOf(rawXms);
+    if(!(bb0.mx[0]>bb0.mn[0]))return null;
+    const fullDiag=diag3(bb0.mn,bb0.mx);
+    if(fullDiag<=NO_DATA_SIZE_CAP)return{center:[(bb0.mn[0]+bb0.mx[0])/2,(bb0.mn[1]+bb0.mx[1])/2,(bb0.mn[2]+bb0.mx[2])/2],xms:rawXms,trimmed:false};
+    const xs=[],ys=[],zs=[];
+    for(const xm of rawXms)for(let i=0;i<xm.pos.length;i+=3){xs.push(xm.pos[i]);ys.push(xm.pos[i+1]);zs.push(xm.pos[i+2]);}
+    const med=v=>{const s=v.slice().sort((a,b)=>a-b);return s[Math.floor(s.length/2)];};
+    const mc=[med(xs),med(ys),med(zs)];
+    // DIQQAT: bboxOf() xm.idx'ni HISOBGA OLMAYDI -- u doim BUTUN xm.pos buferini
+    // skanerlaydi (trimXmByCenter esa faqat .idx'ni qisqartiradi, .pos'ni emas). Shu
+    // sabab bbox/markazni TOG'RI tanlash uchun avval HAR BIR VERTEKS uchun to'g'ridan-
+    // to'g'ri "median'dan uzoqlik <= th" mezoni bo'yicha bbox hisoblanadi (pastda) --
+    // faqat shundan keyin, TANLANGAN th qiymati bilan uchburchak (triangle) darajasida
+    // filtrlash (trimXmByCenter) qo'llaniladi, geometriya eksporti uchun.
+    let chosen=null;
+    for(const th of TRIM_CANDIDATES){
+      let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9],cnt=0;
+      for(const xm of rawXms)for(let i=0;i<xm.pos.length;i+=3){
+        const dx=xm.pos[i]-mc[0],dy=xm.pos[i+1]-mc[1],dz=xm.pos[i+2]-mc[2];
+        if(Math.hypot(dx,dy,dz)<=th){cnt++;for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}}
+      }
+      if(!cnt)continue;
+      const d=diag3(mn,mx);
+      chosen={th,diag:d,center:[(mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2]};
+      if(d<=NO_DATA_SIZE_CAP)break;
+    }
+    if(!chosen)return{center:mc,xms:rawXms,trimmed:false};
+    const filtered=rawXms.map(xm=>trimXmByCenter(xm,mc,chosen.th));
+    if(!filtered.some(f=>f.idx.length))return{center:mc,xms:rawXms,trimmed:false};
+    return{center:chosen.center,xms:filtered,trimmed:true};
+  };
   let movTrimmedNoData=[],movMergedNoData=[];
   for(const {p,c} of movs){
     const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
     if(noData){
-      const r=robustNoDataPart(p,sideSignFor(p));if(!r)continue;
+      const r=robustNoDataPart(p);if(!r)continue;
       const acc=new GeoAcc();
       for(let i=0;i<r.xms.length;i++){const xm=r.xms[i];if(!xm.idx.length)continue;acc.add(Object.assign({},xm,{pos:recenterPos(xm.pos,r.center)}),p.meshes[i],p.name);}
       const specs=acc.build(matResolver);if(!specs.length)continue;
@@ -2036,7 +1965,7 @@ function convertToSA(model,texLookup,opts){
     if(noData){
       // movs bo'limidagi kabi: begona vertekslar MEDIAN asosida filtrlanadi, so'ngra
       // qism yana haqiqiy "extraN" (yoqib/o'chiriladigan) slot sifatida chiqariladi.
-      const r=robustNoDataPart(p,sideSignFor(p));if(!r)continue;
+      const r=robustNoDataPart(p);if(!r)continue;
       const acc=new GeoAcc();
       for(let i=0;i<r.xms.length;i++){const xm=r.xms[i];if(!xm.idx.length)continue;acc.add(Object.assign({},xm,{pos:recenterPos(xm.pos,r.center)}),p.meshes[i],p.name);}
       const specs=acc.build(matResolver);if(!specs.length)continue;
@@ -2058,7 +1987,7 @@ function convertToSA(model,texLookup,opts){
   for(const {p,c} of steer){
     const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
     if(noData){
-      const r=robustNoDataPart(p,sideSignFor(p));
+      const r=robustNoDataPart(p);
       if(r){
         const acc=new GeoAcc();
         for(let i=0;i<r.xms.length;i++){const xm=r.xms[i];if(!xm.idx.length)continue;acc.add(Object.assign({},xm,{pos:recenterPos(xm.pos,r.center)}),p.meshes[i],p.name);}
