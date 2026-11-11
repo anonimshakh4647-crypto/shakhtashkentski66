@@ -1953,7 +1953,28 @@ function convertToSA(model,texLookup,opts){
   const partAccOf=p=>{let a=partAccs.find(x=>x.p===p);if(!a){a={p,acc:new GeoAcc()};partAccs.push(a);}return a.acc;};
   const bodyXms=[];
   const wheels=[],movs=[],extras=[],dummies=[],steer=[];
-  for(const {p,c} of cls){
+  // MUHIM (foydalanuvchi skrinshoti orqali TASDIQLANGAN yangi topilma):
+  // "felon" faylida ba'zi qismlarning (masalan bumper_r, bumper_f,
+  // door_dside_f, steeringwheel) p.meshes ro'yxati ichida G'ILDIRAK-ga
+  // tegishli (shader "vehicle_blurredrotor" -- disk/rotor, yoki
+  // "vehicle_tire" -- shina) mesh bo'laklari ham bor ekan -- bular manba
+  // faylning o'zida shu qismga NOTO'G'RI biriktirilgan (kontaminatsiya),
+  // va pozitsiya bo'yicha filtrlashning o'ziga bog'liq emas (hatto haqiqiy
+  // joylashuv matritsasi bo'lgan qismlarda ham bo'lishi mumkin). Natijada
+  // bamper/eshik yuzasida g'ildirak teksturasidan (masalan kulrang disk)
+  // kelib chiqqan g'alati dog'/yamoq ko'rinardi. Shuning uchun g'ildirakdan
+  // boshqa HAR QANDAY qism uchun bunday shaderli mesh bo'laklari OLIB
+  // TASHLANADI -- lekin asl `model.parts` obyekti o'zgartirilmaydi (faqat
+  // shu funksiya ichida ishlatiladigan YUZAKI nusxa yaratiladi), shuning
+  // uchun "GTA V (asl)" ko'rinishi va boshqa joylar ta'sirlanmaydi.
+  const WHEEL_ONLY_SHADER=/^vehicle_(blurredrotor|tire)$/i;
+  let wheelContamRemoved=0;
+  for(const {p:p0,c} of cls){
+    let p=p0;
+    if(c.t!=='wheel'){
+      const fm=p0.meshes.filter(m=>!(m&&m.mat&&WHEEL_ONLY_SHADER.test(m.mat.shaderName||'')));
+      if(fm.length!==p0.meshes.length){wheelContamRemoved+=p0.meshes.length-fm.length;p=Object.assign({},p0,{meshes:fm});}
+    }
     const rec={name:p.name,sa:c.sa||'(body ga qo‘shildi)',type:c.t,meshes:p.meshes.length,verts:p.meshes.reduce((s,m)=>s+m.pos.length/3,0)};
     report.parts.push(rec);
     if(c.t==='body'||(c.t==='other'&&opts.mergeOther)){
