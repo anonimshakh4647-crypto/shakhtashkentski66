@@ -3528,6 +3528,24 @@ function modScaled(m, k) {
     }
     s = { dff: C.serialize(roots), meshes: m.r.meshes.map(me => Object.assign({}, me, { pos: me.pos.map(v => v * k) })) }; m.sc.set(key, s); return s;
 }
+/* GTA SA da obyekt (IDE "objs") DFF ning FAQAT BIRINCHI atomikini ko'rsatadi. Ko'p atomikli modni (masalan teleminora: 7 atomik) shundayligicha
+   qo'ysak, xaritada faqat 1 ta qism chiqadi, qolgani yo'q. Shuning uchun har bir atomik alohida DFF (1 atomik) + alohida IDE/IPL/COL qatori bo'ladi;
+   hammasi BIR XIL nuqtaga qo'yiladi (qismlar bir koordinata sistemasida), shunda minora to'liq chiqadi. 1 atomikli modlar o'zgarishsiz qoladi. */
+function modParts(m, k) {
+    m.spl = m.spl || new Map(); const key = k.toFixed(4); let r = m.spl.get(key); if (r) return r;
+    const sc = modScaled(m, k), C = CVDFF, T = C.T, n = C.childs(C.parseChunks(sc.dff, 0, sc.dff.length).find(c => c.type === T.CLUMP), T.ATOMIC).length;
+    if (n <= 1) { r = [{ dff: sc.dff, meshes: sc.meshes }]; m.spl.set(key, r); return r; }
+    r = [];
+    for (let a = 0; a < n; a++) {
+        const roots = C.parseChunks(sc.dff, 0, sc.dff.length), cl = roots.find(c => c.type === T.CLUMP), at = C.childs(cl, T.ATOMIC)[a], gl = C.child(cl, T.GEOLIST), u32 = (d, o, v) => new DataView(d.buffer, d.byteOffset, d.byteLength).setUint32(o, v, true);
+        const ast = C.child(at, T.STRUCT).data, gi = new DataView(ast.buffer, ast.byteOffset, ast.byteLength).getUint32(4, true), geo = C.childs(gl, T.GEOMETRY)[gi];
+        u32(ast, 4, 0); u32(C.child(gl, T.STRUCT).data, 0, 1); u32(C.child(cl, T.STRUCT).data, 0, 1);
+        gl.children = gl.children.filter(c => c.type !== T.GEOMETRY || c === geo); cl.children = cl.children.filter(c => c.type !== T.ATOMIC || c === at);
+        r.push({ dff: C.serialize(roots), meshes: sc.meshes.length === n ? [sc.meshes[a]] : (a === 0 ? sc.meshes : []) });
+    }
+    m.spl.set(key, r); return r;
+}
+const modPartName = (m, k, a, n) => n <= 1 ? m.def.file + kName(k) : m.def.file + '_' + (a + 1) + kName(k);
 function modThree(m) { // bir marta quriladi, nusxalar geometriyani baham ko'radi
     if (m.parts) return m.parts;
     m.parts = m.r.meshes.map(me => {
@@ -3571,17 +3589,19 @@ function drawModsPlan() {
 }
 /* --- GTA paketi uchun --- */
 const modColOf = (m, k, name, id) => exportCol({ name, meshes: modScaled(m, k).meshes, mats: m.r.mats }, { name, id, mode: 'auto', minSize: Math.max(0.1, 0.5 * Math.min(1, k)), maxTris: 30000, surface: 0 });
+const modColPart = (m, k, p, name, id) => exportCol({ name, meshes: p.meshes, mats: m.r.mats }, { name, id, mode: 'auto', minSize: Math.max(0.1, 0.5 * Math.min(1, k)), maxTris: 30000, surface: 0 });
 const modDraw = (def, k) => Math.round(Math.min(3000, Math.max(100, def.draw * k)));
 function modQuat(rz) { const h = (rz || 0) * Math.PI / 360; return [0, 0, -Math.sin(h), Math.cos(h)].map(v => String(Math.round(v * 10000) / 10000)).join(', '); }
 const fmtN = v => String(Math.round(v * 10000) / 10000);
 async function exportModPack(id, k) {
     try {
-        k = k > 0 ? k : 1; const m = modLoad(id), E = S.P.exp, def = m.def, fn = def.file + kName(k), z = E.z - m.mn[2] * k, dr = modDraw(def, k), sc = modScaled(m, k);
-        const po = { name: fn, txd: def.file, id: E.id, x: E.x, y: E.y, rot: E.rot || 0, z, draw: dr, flags: 0, interior: 0, parts: [{ name: fn, id: E.id, dx: 0, dy: 0, dz: 0 }] }, colB = modColOf(m, k, fn, E.id);
-        const img = buildImg([{ name: fn + '.dff', data: sc.dff }, { name: def.file + '.txd', data: m.txd }]);
-        const sz = modSize(m, k), rd = mapReadme(Object.assign({ colInfo: colB.info, txdInfo: 'TXD asl fayl (o‘zgartirilmagan).' }, po)) + '\r\nMOD: ' + def.name + ' — hajm ×' + fmtN(k) + ', model o‘lchami ' + sz.map(v => v.toFixed(0)).join(' × ') + ' m. Joy Z = ' + fmtN(z) + ' (pastki qismi yerga tegadi). Teksturalar: ' + def.file + '.txd.\r\n';
-        const z0 = zipStore([{ name: fn + '.img', data: img }, { name: fn + '.col', data: colB.bytes }, { name: fn + '.ide', data: TE.encode(exportIde(po)) }, { name: fn + '.ipl', data: TE.encode(exportIpl(po)) }, { name: 'README.txt', data: TE.encode(rd) }]);
-        dlFile(z0, fn + '_gta_xarita.zip'); toast('Mod paketi saqlandi (' + (z0.size / 1048576).toFixed(2) + ' MB): ' + def.name + ' ×' + fmtN(k) + ' (' + sz.map(v => v.toFixed(0)).join(' × ') + ' m), ID ' + E.id + ', joy ' + E.x + ', ' + E.y + ', ' + fmtN(z) + '. COL: ' + colB.info + '.');
+        k = k > 0 ? k : 1; const m = modLoad(id), E = S.P.exp, def = m.def, fn = def.file + kName(k), z = E.z - m.mn[2] * k, dr = modDraw(def, k), parts = modParts(m, k), np = parts.length, pn = a => modPartName(m, k, a, np), pid = a => Math.min(19999, E.id + a);
+        const po = { name: fn, txd: def.file, id: E.id, x: E.x, y: E.y, rot: E.rot || 0, z, draw: dr, flags: 0, interior: 0, parts: parts.map((p, a) => ({ name: pn(a), id: pid(a), dx: 0, dy: 0, dz: 0 })) };
+        const colBs = parts.map((p, a) => p.meshes.length ? modColPart(m, k, p, pn(a), pid(a)) : null).filter(Boolean); let colLen = 0; colBs.forEach(c => colLen += c.bytes.length); const colAll = new Uint8Array(colLen); { let p0 = 0; for (const c of colBs) { colAll.set(c.bytes, p0); p0 += c.bytes.length; } }
+        const img = buildImg(parts.map((p, a) => ({ name: pn(a) + '.dff', data: p.dff })).concat([{ name: def.file + '.txd', data: m.txd }]));
+        const sz = modSize(m, k), colInfo = Array.from(new Set(colBs.map(c => c.info))).join('; '), rd = mapReadme(Object.assign({ colInfo, txdInfo: 'TXD asl fayl (o‘zgartirilmagan).' }, po)) + '\r\nMOD: ' + def.name + ' — hajm ×' + fmtN(k) + ', model o‘lchami ' + sz.map(v => v.toFixed(0)).join(' × ') + ' m. Joy Z = ' + fmtN(z) + ' (pastki qismi yerga tegadi). Teksturalar: ' + def.file + '.txd.' + (np > 1 ? ' GTA bitta DFF dan faqat birinchi qismni ko‘rsatgani uchun mod ' + np + ' ta modelga (qismga) ajratildi — hammasi bir nuqtada turadi.' : '') + '\r\n';
+        const z0 = zipStore([{ name: fn + '.img', data: img }, { name: fn + '.col', data: colAll }, { name: fn + '.ide', data: TE.encode(exportIde(po)) }, { name: fn + '.ipl', data: TE.encode(exportIpl(po)) }, { name: 'README.txt', data: TE.encode(rd) }]);
+        dlFile(z0, fn + '_gta_xarita.zip'); toast('Mod paketi saqlandi (' + (z0.size / 1048576).toFixed(2) + ' MB): ' + def.name + ' ×' + fmtN(k) + ' (' + sz.map(v => v.toFixed(0)).join(' × ') + ' m), ID ' + parts.map((p, a) => pid(a)).join(', ') + ', joy ' + E.x + ', ' + E.y + ', ' + fmtN(z) + '. COL: ' + colInfo + '.');
     } catch (e) { console.error(e); toast('Mod eksportida xato: ' + e.message, true); }
 }
 /* uy paketiga qo'shiladigan modlar: {files, col, ide, ipl, info, ids} */
@@ -3589,10 +3609,16 @@ function modsForPack(E, c, firstId) {
     const list = modInst().filter(i => i.on !== false); if (!list.length) return null; const used = new Map(), txdDone = new Set(), files = [], cols = [], ideL = [], iplL = [], info = []; let next = firstId;
     for (const it of list) {
         const m = modLoad(it.id); if (!m) continue; const k = modK(it), fn = m.def.file + kName(k), key = it.id + '@' + k.toFixed(4); let u = used.get(key);
-        if (!u) { u = { id: Math.min(19999, next++), m, fn }; used.set(key, u); files.push({ name: fn + '.dff', data: modScaled(m, k).dff }); if (!txdDone.has(it.id)) { txdDone.add(it.id); files.push({ name: m.def.file + '.txd', data: m.txd }); } cols.push(modColOf(m, k, fn, u.id)); ideL.push([u.id, fn, m.def.file, modDraw(m.def, k), 0].join(', ')); }
-        const ar = (E.rot || 0) * Math.PI / 180, ca = Math.cos(ar), sa = Math.sin(ar), mx = it.x - c[0], my = it.y - c[1], X = E.x + mx * ca - my * sa, Y = E.y + mx * sa + my * ca, Z = E.z + it.z; iplL.push([u.id, fn, 0, fmtN(X), fmtN(Y), fmtN(Z), modQuat((it.rz || 0) + (E.rot || 0)), -1].join(', ')); info.push(m.def.name + ' ×' + fmtN(k) + ' → ' + fn + ' (ID ' + u.id + ', X ' + fmtN(X) + ' Y ' + fmtN(Y) + ' Z ' + fmtN(Z) + ')');
+        if (!u) {
+            const parts = modParts(m, k), np = parts.length; u = { ids: parts.map(() => Math.min(19999, next++)), np, m, fn }; used.set(key, u);
+            parts.forEach((p, a) => { const pn = modPartName(m, k, a, np); files.push({ name: pn + '.dff', data: p.dff }); if (p.meshes.length) cols.push(modColPart(m, k, p, pn, u.ids[a])); ideL.push([u.ids[a], pn, m.def.file, modDraw(m.def, k), 0].join(', ')); });
+            if (!txdDone.has(it.id)) { txdDone.add(it.id); files.push({ name: m.def.file + '.txd', data: m.txd }); }
+        }
+        const ar = (E.rot || 0) * Math.PI / 180, ca = Math.cos(ar), sa = Math.sin(ar), mx = it.x - c[0], my = it.y - c[1], X = E.x + mx * ca - my * sa, Y = E.y + mx * sa + my * ca, Z = E.z + it.z;
+        u.ids.forEach((pid, a) => iplL.push([pid, modPartName(m, k, a, u.np), 0, fmtN(X), fmtN(Y), fmtN(Z), modQuat((it.rz || 0) + (E.rot || 0)), -1].join(', ')));
+        info.push(m.def.name + ' ×' + fmtN(k) + ' → ' + fn + (u.np > 1 ? ' (' + u.np + ' qism: ID ' + u.ids.join(', ') + ')' : ' (ID ' + u.ids[0] + ')') + ' X ' + fmtN(X) + ' Y ' + fmtN(Y) + ' Z ' + fmtN(Z));
     }
-    return { files, cols, ide: ideL, ipl: iplL, info, ids: Array.from(used.values()).map(u => u.id) };
+    return { files, cols, ide: ideL, ipl: iplL, info, ids: Array.from(used.values()).flatMap(u => u.ids), n: used.size };
 }
 /* --- panel --- */
 function modNum(parent, label, it, key, step, after) {
@@ -3636,7 +3662,7 @@ function renderMods() {
         card.appendChild(el('b', '', esc(def.name))); card.appendChild(el('div', 'note', esc(def.desc)));
         if (m) card.appendChild(el('div', 'stat', m.r.meshes.length + ' qism · ' + m.tris.toLocaleString() + ' △ · ' + m.texs.size + ' tekstura · o‘lcham ' + m.size.map(v => v.toFixed(0)).join(' × ') + ' m · DFF ' + (m.dff.length / 1024).toFixed(0) + ' KB, TXD ' + (m.txd.length / 1024).toFixed(0) + ' KB'));
         const a = el('div', 'acts'); card.appendChild(a); const have = modInst().some(i => i.id === def.id), add = btn(a, have ? '👁 Loyihada bor — ko‘rish' : '＋ Loyihaga qo‘shish', () => modAdd(def.id), 'pri'); add.style.flex = '1 1 100%'; if (have) btn(a, '＋ Yana bitta', () => modAdd(def.id, true));
-        btn(a, 'GTA paketi (alohida)', () => exportModPack(def.id, modK(modInst().find(i => i.id === def.id)))); btn(a, 'DFF', () => dlFile(m.dff, def.file + '.dff')); btn(a, 'TXD', () => dlFile(m.txd, def.file + '.txd')); box.appendChild(card);
+        btn(a, 'GTA paketi (alohida)', () => exportModPack(def.id, modK(modInst().find(i => i.id === def.id)))); btn(a, 'DFF', () => { dlFile(m.dff, def.file + '.dff'); const na = modParts(m, 1).length; if (na > 1) toast('DFF saqlandi. ⚠ Unda ' + na + ' atomik bor — GTA faqat birinchisini ko‘rsatadi. Xaritaga qo‘yish uchun “GTA paketi (alohida)” yoki “Loyihaga qo‘shish” + paket eksportidan foydalaning (u qismlarga ajratadi).', true); }); btn(a, 'TXD', () => dlFile(m.txd, def.file + '.txd')); box.appendChild(card);
     }
     box.appendChild(el('div', 'h', 'Loyihadagi modlar'));
     const list = modInst(); if (!list.length) box.appendChild(el('div', 'note', 'Hozircha yo‘q.'));
@@ -4000,7 +4026,7 @@ async function exportPack() {
             { name: 'README.txt', data: TE.encode(mapReadme(Object.assign({ colInfo: Array.from(new Set(colParts.map(c => c.info))).join('; '), txdInfo }, po)) + (dls.length ? doorReadme(name, dls) : '') + (MP ? '\r\nMODLAR (paket ichida, IMG/IDE/IPL/COL ga qo‘shilgan):\r\n  ' + MP.info.join('\r\n  ') + '\r\n' : '')) }];
         if (dls.length) { files.push({ name: name + '_eshik.lua', data: TE.encode(genDoorLua(name, dls)) }, { name: name + '_eshik.inc', data: TE.encode(genDoorPawn(name, dls)) }); }
         const z = zipStore(files); dlFile(z, name + '_gta_xarita.zip');
-        toast('GTA paketi saqlandi (' + (z.size / 1048576).toFixed(2) + ' MB): ' + parts.length + ' model (DFF ' + (dffBytes / 1024).toFixed(0) + ' KB), ' + (keys.length ? keys.length + ' tekstura (TXD ' + txdKB.toFixed(0) + ' KB)' : 'teksturasiz') + ', COL ' + colParts[0].mode + ' ' + (colLen / 1024).toFixed(0) + ' KB. ID ' + ids.concat(dls.map(d => d.model), MP ? MP.ids : []).join(', ') + (MP ? ' (' + MP.ids.length + ' ta mod)' : '') + (dls.length ? ' (' + dls.length + ' ta ochiladigan eshik + skript)' : '') + ', joy ' + E.x + ', ' + E.y + ', ' + E.z + '.' + (multi ? ' ⚠ ' + multi + ' qism ko‘p atomikka bo‘lindi.' : '') + fontWarn(X), !!multi || !!(X.bad && X.bad.length));
+        toast('GTA paketi saqlandi (' + (z.size / 1048576).toFixed(2) + ' MB): ' + parts.length + ' model (DFF ' + (dffBytes / 1024).toFixed(0) + ' KB), ' + (keys.length ? keys.length + ' tekstura (TXD ' + txdKB.toFixed(0) + ' KB)' : 'teksturasiz') + ', COL ' + colParts[0].mode + ' ' + (colLen / 1024).toFixed(0) + ' KB. ID ' + ids.concat(dls.map(d => d.model), MP ? MP.ids : []).join(', ') + (MP ? ' (' + MP.n + ' ta mod' + (MP.ids.length !== MP.n ? ', ' + MP.ids.length + ' qism' : '') + ')' : '') + (dls.length ? ' (' + dls.length + ' ta ochiladigan eshik + skript)' : '') + ', joy ' + E.x + ', ' + E.y + ', ' + E.z + '.' + (multi ? ' ⚠ ' + multi + ' qism ko‘p atomikka bo‘lindi.' : '') + fontWarn(X), !!multi || !!(X.bad && X.bad.length));
     } catch (e) { console.error(e); toast('Eksportda xato: ' + e.message, true); }
 }
 
