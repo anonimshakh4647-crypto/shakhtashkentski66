@@ -1810,7 +1810,7 @@ class GeoAcc{
 function bboxOf(xms){let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];for(const xm of xms)for(let i=0;i<xm.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}return{mn,mx};}
 /* mesh ichidan faqat berilgan uchburchaklarni (tl = uchburchak raqamlari) ajratib oladi (vertexlar qayta raqamlanadi) */
 function steerSub(me,tl){
-  const nV=me.pos.length/3,map=new Int32Array(nV).fill(-1),idx=new Uint16Array(tl.length*3);let n=0;
+  const nV=me.pos.length/3,map=new Int32Array(nV).fill(-1),idx=new Uint32Array(tl.length*3);let n=0;
   for(let i=0;i<tl.length;i++){const t=tl[i];for(let j=0;j<3;j++){const v=me.idx[t*3+j];if(map[v]<0)map[v]=n++;idx[i*3+j]=map[v];}}
   const pos=new Float32Array(n*3),nrm=me.nrm?new Float32Array(n*3):null,uv=me.uv?new Float32Array(n*2):null,col=me.col?new Uint8Array(n*4):null,vb=me.vbone?new Uint8Array(n):null;
   for(let v=0;v<nV;v++){const k=map[v];if(k<0)continue;
@@ -2597,16 +2597,30 @@ function convertToSA(model,texLookup,opts){
     const collect=kind=>{const xms=[];for(const o of bikeSp)if(o.c.t===kind)for(const m of o.p.meshes)xms.push({p:o.p,m,xm:xformMesh(m,o.p.matrix,true)});return xms;};
     const mkGrp=xms=>({xms,names:[...new Set(xms.map(q=>q.p.name))],b:xms.length?bboxOf(xms.map(q=>q.xm)):null});
     // Rul bilan buriladigan qismlar (vilka, rul, old qanot) zonasi: vilka tubi old g'ildirak yonida, rul/ko'zgu esa balandda bo'ladi.
-    // Old g'ildirakdan 0.4 g'ildirak-bazasidan ko'p ORTDA VA g'ildirak o'qidan 0.6 diametrdan ortiq PASTDA turgan bo'lak (egzoz quvurlari,
-    // dvigatel tomoni) vilkaga tegishli emas: u statik qilinadi.
+    // Faqat PAST zonadagi (markazi g'ildirak o'qidan 0.6 diametrdan baland BO'LMAGAN) bo'lak vilkaga tegishli emasligi mumkin; u quyidagi
+    // belgilardan BIRORTASI bo'lsa statik qilinadi (egzoz quvurlari, dvigatel tomoni):
+    //  A) markazi old g'ildirakdan 0.3 baza ORTDA;
+    //  B) eng orqa nuqtasi old g'ildirakdan 0.5 baza ORTGA yetib boradi (vilka hech qachon bunchalik orqaga cho'zilmaydi — uzun quvur
+    //     markazi old tomonga yaqin bo'lsa ham shu bilan tutiladi);
+    //  C) g'ildirak o'qidan 0.3 diametrdan ko'p PASTGA tushadi VA markazi old g'ildirakdan 0.15 baza ORTDA.
+    // (Haqiqiy chopper faylida quvurning markazi 0.38 baza ortda edi -- eski 0.4 chegara uni o'tkazib yuborgan.)
     const wbk=wf&&wr?wf.c[1]-wr.c[1]:0,canZone=wbk>0.5;
-    const strayFront=c=>canZone&&c.cen[1]<wf.c[1]-0.4*wbk&&c.cen[2]<wf.c[2]+0.6*wf.diam;
+    const strayFront=c=>{
+      if(!canZone||!(c.cen[2]<wf.c[2]+0.6*wf.diam))return false;
+      const dy=wf.c[1]-c.cen[1];
+      return dy>0.3*wbk||wf.c[1]-c.mn[1]>0.5*wbk||(c.mn[2]<wf.c[2]-0.3*wf.diam&&dy>0.15*wbk);};
     let fx=collect('forkF'),bx=collect('bars'),sx=collect('swing'),mx=collect('mud');
     if(canZone){fx=cleanGrp(fx,strayFront,'forks_front');bx=cleanGrp(bx,strayFront,'handlebars1');}
     // g'ildirak qismlaridan ajralgan begona bo'laklar: old g'ildirakniki -- vilka yonida bo'lsa vilkaga, aks holda statik; orqa g'ildirakniki -- statik
     {const wfS=[];wF.forEach(o=>pushAll(wfS,o.stray));const wrS=[];wR.forEach(o=>pushAll(wrS,o.stray));
      if(wfS.length)fx=fx.concat(cleanGrp(wfS,canZone?strayFront:()=>true,'wheel_front'));
      wrS.forEach(q=>strays.push(Object.assign({from:'wheel_rear'},q)));}
+    // Bir nechta mesh umumiy vertex buffer ishlatsa (masalan DFF dan o'qilganda), tozalangandan keyin ham begona bo'laklarning
+    // ishlatilmaydigan vertexlari qolib, bbox / aylanish markazi / hisobotni buzadi: har bir mesh faqat o'z uchburchaklari vertexlarigacha qisqartiriladi.
+    const tight=q=>{const I=q.xm.idx,nV=q.xm.pos.length/3,seen=new Uint8Array(nV);let n=0;
+      for(let i=0;i<I.length;i++)if(!seen[I[i]]){seen[I[i]]=1;n++;}
+      if(n===nV)return q;const all=[];for(let t=0;t<I.length/3;t++)all.push(t);return subOf(q,all);};
+    fx=fx.map(tight);bx=bx.map(tight);sx=sx.map(tight);mx=mx.map(tight);
     const gF=mkGrp(fx),gB=mkGrp(bx),gS=mkGrp(sx),gM=mkGrp(mx);
     const mudF=gM.xms.filter(q=>bbC(bboxOf([q.xm]))[1]>=midY),mudR=gM.xms.filter(q=>!mudF.includes(q));
     const topPivot=g=>{const b=g.b,h=b.mx[2]-b.mn[2],zc=b.mx[2]-0.12*h;let sy=0,n=0;
