@@ -806,7 +806,7 @@
                 <label class="chk" title="O‘chiq: modeldagi asl bo‘yoq rangi saqlanadi (yaltirash bilan). Yoqiq: kuzov o‘yindagi 1-rang bilan bo‘yaladi — o‘yinda rangini almashtirish mumkin."><input type="checkbox" id="saPaint"> Kuzov rangi o‘yinda o‘zgarsin</label>
                 <label class="chk" title="Tashqaridan ko‘rinmaydigan ichki uchburchaklarni olib tashlaydi — poligon va og‘irlik kamayadi (ko‘p vaqt oladi)."><input type="checkbox" id="saHidden" checked> Ichki (ko‘rinmas) yuzlarni olib tashlash</label>
                 <label class="chk" title="Past LOD (_vlo) nusxasini yaratadi — uzoqda mashina yengil chiziladi."><input type="checkbox" id="saVlo" checked> Uzoqdagi LOD (_vlo)</label>
-                <label class="chk" title="headlights dummy yaratilmaydi (sizning oldingi tanlovingiz). Yoqilsa o‘yin old chiroq yaltirashini shu nuqtadan chizadi."><input type="checkbox" id="saNoHead" checked> Old chiroq dummy qo‘yilmasin</label>
+                <label class="chk" title="Belgilansa headlights dummy yaratilmaydi (GTA V konverterdagi oldingi tanlovingiz). Belgilanmasa o‘yin tunda old chiroq nuri/yaltirashini shu nuqtadan chizadi — chiroqlar ishlashi uchun BELGILAMANG."><input type="checkbox" id="saNoHead"> Old chiroq dummy qo‘yilmasin</label>
                 <label class="chk"><input type="checkbox" id="saFlip"> Eshik burilish yo‘nalishi teskari</label>
             </div>
             <div class="export-grid" style="grid-template-columns:1fr">
@@ -9910,12 +9910,12 @@ Object.assign(G,{isUnknownShader,convertToSA,splitWheelParts,classify,classifyBi
 'use strict';
 const G=root.SAGV;
 const S=a=>new Set(a);
-const toks=s=>String(s==null?'':s).replace(/([a-z0-9])([A-Z])/g,'$1_$2').toLowerCase().split(/[^a-z0-9\u0430-\u044f\u0451]+/).filter(Boolean);
+const toks=s=>String(s==null?'':s).replace(/([a-zA-Z])([0-9])/g,'$1_$2').replace(/([0-9])([a-zA-Z])/g,'$1_$2').replace(/([a-z0-9])([A-Z])/g,'$1_$2').toLowerCase().split(/[^a-z0-9\u0430-\u044f\u0451]+/).filter(Boolean);
 const any=(T,set)=>T.some(t=>set.has(t));
 const ROLE_LABEL={body:'Kuzov (qotib turadi)',wheel_lf:'G‘ildirak — old chap',wheel_rf:'G‘ildirak — old o‘ng',wheel_lb:'G‘ildirak — orqa chap',wheel_rb:'G‘ildirak — orqa o‘ng',
-  door_lf:'Eshik — old chap',door_rf:'Eshik — old o‘ng',door_lr:'Eshik — orqa chap',door_rr:'Eshik — orqa o‘ng',bonnet:'Kapot',boot:'Bagaj',bump_front:'Bamper — old',bump_rear:'Bamper — orqa',skip:'Chiqarilmasin'};
+  door_lf:'Eshik — old chap',door_rf:'Eshik — old o‘ng',door_lr:'Eshik — orqa chap',door_rr:'Eshik — orqa o‘ng',bonnet:'Kapot',boot:'Bagaj',bump_front:'Bamper — old',bump_rear:'Bamper — orqa',lens:'Chiroq oynasi (obyekt butunlay)',skip:'Chiqarilmasin'};
 const PART_OF={body:'chassis',wheel_lf:'wheel_lf',wheel_rf:'wheel_rf',wheel_lb:'wheel_lr',wheel_rb:'wheel_rr',door_lf:'door_dside_f',door_rf:'door_pside_f',door_lr:'door_dside_r',door_rr:'door_pside_r',
-  bonnet:'bonnet',boot:'boot',bump_front:'bumper_f',bump_rear:'bumper_r'};
+  bonnet:'bonnet',boot:'boot',bump_front:'bumper_f',bump_rear:'bumper_r',lens:'chassis'};
 const MAT_ROLE_LABEL={auto:'Avto',paintc:'Kuzov bo‘yog‘i (asl rang + yaltirash)',paint1:'Kuzov bo‘yog‘i (o‘yin rangi bilan bo‘yaladi)',glass:'Oyna (shaffof)',light:'Chiroq oynasi',texture:'Tekstura saqlansin',color:'Asl rang (oddiy)',black:'Qora plastik',skip:'Chiqarilmasin'};
 const W_WHEEL=S(['wheel','wheels','tyre','tire','tyres','tires','rim','rims','hubcap','hubcaps','hub','rotor','caliper','koleso','kolesa','kolyosa','rueda','llanta','shina','disk','disc','pneu','felge','reifen','gildirak','ildirak','\u043a\u043e\u043b\u0435\u0441\u043e','\u043a\u043e\u043b\u0451\u0441\u0430','\u043a\u043e\u043b\u0435\u0441\u0430','\u0434\u0438\u0441\u043a','\u0448\u0438\u043d\u0430','\u043f\u043e\u043a\u0440\u044b\u0448\u043a\u0430']);
 const W_NOTWHEEL=S(['steering','steer','volant','arch','well','housing','fender','guard','liner','spare','wiper','cover','light','lights','lamp']);
@@ -9933,7 +9933,9 @@ const N_FRONT=S(['front','frnt','bonnet','hood','grille','grill','radiator','hea
 const N_REAR=S(['rear','back','tail','taillight','taillights','tailgate','boot','trunk','exhaust','muffler','spoiler','hatch','bagaj','zad','zadniy','\u0437\u0430\u0434','\u0437\u0430\u0434\u043d\u0438\u0439','\u0431\u0430\u0433\u0430\u0436\u043d\u0438\u043a']);
 const SKIP_RX=/(^|[_\s.-])(lod[1-9]|vlo|dam|collision|collider|hitbox|shadow)(\d*)($|[_\s.-])/i;
 const M_GLASS=S(['glass','glas','window','windows','windscreen','windshield','steklo','vidrio','cristal','lunette','vetro','oyna','\u0441\u0442\u0435\u043a\u043b\u043e']);
-const M_LIGHT=S(['lens','lamp','lamps','light','lights','headlight','taillight','brakelight','blinker','indicator','signal','foglight','reflector','stoplight']);
+const M_LIGHT=S(['lens','lenses','lamp','lamps','light','lights','headlight','headlights','taillight','taillights','brakelight','blinker','indicator','signal','foglight','reflector','stoplight','stop','fara','fary','fonar','chiroq','head','tail','brake','\u0444\u0430\u0440\u0430','\u0444\u043e\u043d\u0430\u0440\u044c','\u0441\u0442\u043e\u043f']);
+const O_LENS=S(['headlight','headlights','headlamp','taillight','taillights','tail','brakelight','foglight','blinker','indicator','signal','stoplight','fara','fary','fonar','chiroq','\u0444\u0430\u0440\u0430','\u0444\u043e\u043d\u0430\u0440\u044c']);
+const O_LENSNOT=S(['housing','bracket','base','body','frame','chrome','reflector','mount','holder','trim','socket','bulb','cap']);
 const M_LIGHTNOT=S(['grey','gray','silver','metal','metallic','chrome','interior','dash','dashboard','cabin','seat','plastic','housing','body','paint','steering','door','trim']);
 const M_PAINT=S(['paint','carpaint','bodypaint','lak','lacquer','kuzov','karoser','clearcoat','coat','exterior']);
 const M_PAINTNOT=S(['interior','inside','inner','dash','dashboard']);
@@ -10062,7 +10064,7 @@ function detect(cv,P,opts){
   if(!Object.keys(doorGroups).length&&!opts.noDoorGuess){
     const best={};
     for(const i of live){if(roles[i]!=='body')continue;const p=P[i],e=p.e;
-      if(e[0]>0.03&&e[0]<0.30&&e[1]>0.5&&e[1]<1.3&&e[2]>0.45&&e[2]<1.25&&Math.abs(p.c[0]-xc)>0.30*W&&p.c[2]>zmin+0.25*H&&p.c[2]<zmin+0.8*H&&Math.abs(p.c[1]-wheelMid)<0.42*E[1]){
+      if(e[0]>0.03&&e[0]<0.45&&e[1]>0.45&&e[1]<1.5&&e[2]>0.40&&e[2]<1.45&&Math.abs(p.c[0]-xc)>0.30*W&&p.c[2]>zmin+0.25*H&&p.c[2]<zmin+0.8*H&&Math.abs(p.c[1]-wheelMid)<0.42*E[1]){
         const key='door_'+(p.c[0]<xc?'l':'r')+(p.c[1]>wheelMid?'f':'r'),v=e[0]*e[1]*e[2];
         if(!best[key]||v>best[key].v)best[key]={i,v};}}
     for(const key of Object.keys(best)){const i=best[key].i;roles[i]=key;why[i]='eshik (shakl bo‘yicha TAXMIN)';(doorGroups[key]=doorGroups[key]||[]).push(i);doorGuess=true;}
@@ -10074,6 +10076,10 @@ function detect(cv,P,opts){
     if(any(T,W_BONNET)&&!any(T,S(['light','lamp','badge','lock','release','hinge']))){roles[i]='bonnet';why[i]='kapot';continue;}
     if(any(T,W_BOOT)&&!any(T,S(['light','lamp','badge','lock','release','hinge','handle','exhaust']))){roles[i]='boot';why[i]='bagaj';continue;}
   }
+  // chiroq obyektlari: nomida headlight/taillight/lamp... (korpus/kronshteyn emas) yoki "lens/glass" + light/lamp
+  for(const i of live){if(roles[i]!=='body')continue;const T=toks(cv.meshes[i].name);
+    const lensWord=any(T,S(['lens','lenses']))||(any(T,S(['glass','glas','steklo']))&&any(T,S(['light','lights','lamp','lamps','headlight','taillight','fara','fonar'])));
+    if(lensWord||(any(T,O_LENS)&&!any(T,O_LENSNOT)&&!any(T,W_DOOR)&&!any(T,W_WHEEL))){roles[i]='lens';why[i]='chiroq (nom bo‘yicha)';}}
   for(const i of live){if(roles[i]!=='body')continue;const T=toks(cv.meshes[i].name),p=P[i];
     if(!(any(T,W_MIRROR)||any(T,W_HANDLE)))continue;
     let best=null,bd=1e9;for(const k of Object.keys(doorBB)){const b=doorBB[k],m=0.14;
@@ -10087,18 +10093,41 @@ function detect(cv,P,opts){
 /* ---- 4. materiallar ---- */
 function detectMats(cv,P,det,opts){
   const nm=cv.mats.length,area=new Float64Array(nm),tris=new Int32Array(nm);
+  const bx=new Float64Array(nm*6);for(let i=0;i<nm;i++){bx[i*6]=bx[i*6+1]=bx[i*6+2]=1e9;bx[i*6+3]=bx[i*6+4]=bx[i*6+5]=-1e9;}
+  const bbm=det.bb,xc=(bbm.mn[0]+bbm.mx[0])/2,Wd=det.dims[0];
+  const sideL=new Uint8Array(nm),sideR=new Uint8Array(nm),midM=new Uint8Array(nm);
   cv.meshes.forEach((m,mi)=>{const r=det.roles[mi];if(r==='skip')return;const p=P[mi].pos;
     for(let t=0;t<m.idx.length/3;t++){const a=m.idx[t*3],b=m.idx[t*3+1],c=m.idx[t*3+2],mt=m.tm[t];tris[mt]++;
+      if(r==='body'||r==='lens'||/^(door|bonnet|boot|bump)/.test(r)){const q=mt*6;for(const v of [a,b,c]){const x=p[v*3],y=p[v*3+1],z=p[v*3+2];
+        if(x<bx[q])bx[q]=x;if(y<bx[q+1])bx[q+1]=y;if(z<bx[q+2])bx[q+2]=z;if(x>bx[q+3])bx[q+3]=x;if(y>bx[q+4])bx[q+4]=y;if(z>bx[q+5])bx[q+5]=z;
+        if(x<xc-0.18*Wd)sideL[mt]=1;else if(x>xc+0.18*Wd)sideR[mt]=1;else midM[mt]=1;}}
       if(r==='body'||/^(door|bonnet|boot|bump)/.test(r)){const ux=p[b*3]-p[a*3],uy=p[b*3+1]-p[a*3+1],uz=p[b*3+2]-p[a*3+2],vx=p[c*3]-p[a*3],vy=p[c*3+1]-p[a*3+1],vz=p[c*3+2]-p[a*3+2];
         area[mt]+=0.5*Math.hypot(uy*vz-uz*vy,uz*vx-ux*vz,ux*vy-uy*vx);}}});
   const out=[];let paintNamed=false;
   for(let i=0;i<nm;i++){
     const m=cv.mats[i],T=toks(m.name),col=m.color||[200,200,200,255],hasTex=!!(m.tex&&cv.tex&&cv.tex.has(m.tex));let role='color',why='';
-    if(any(T,M_GLASS)||(col[3]<200&&!hasTex)){role='glass';why='nom/shaffoflik';}
+    const warmLens=col[3]<250&&!hasTex&&col[0]>150&&col[1]<135&&col[2]<100&&col[0]>col[1]*1.25;
+    if(warmLens){role='light';why='shaffof qizil/to‘q sariq — chiroq oynasi';}
+    else if(any(T,M_GLASS)||(col[3]<200&&!hasTex)){role='glass';why='nom/shaffoflik';}
     else if(any(T,M_LIGHT)&&!any(T,M_LIGHTNOT)){role='light';why='chiroq oynasi nomi';}
     else if(any(T,M_PAINT)&&!any(T,M_PAINTNOT)){role=hasTex?'texture':(opts&&opts.paintGame?'paint1':'paintc');why='bo‘yoq nomi';paintNamed=true;}
     else if(hasTex){role='texture';why='tekstura bor';}
     out.push({i,name:m.name||('mat'+i),role,why,color:col.slice(),tex:m.tex||'',hasTex,tris:tris[i],area:area[i]});
+  }
+  { // chiroq materiali nomi/rangidan topilmasa: joylashuv bo'yicha TAXMIN (old/orqa burchaklarda, ikki yonda, past va kichik)
+    const hasLight=out.some(o=>o.role==='light'&&o.tris>0)||det.roles.some(r=>r==='lens');
+    if(!hasLight){
+      const Lb=det.dims[1],H=det.dims[2],yc=(bbm.mn[1]+bbm.mx[1])/2,z0=bbm.mn[2];let totT=0;for(const o of out)totT+=o.tris;
+      const cand=[];
+      // o'rtada vertex bo'lsa (bamper, old oyna) chiroq emas: chiroqlar chap va o'ngda alohida turadi
+      for(const o of out){if(o.tris<=0||o.hasTex||o.role==='paintc'||o.role==='paint1'||o.role==='texture')continue;
+        if(o.tris>0.08*totT||midM[o.i])continue;const q=o.i*6;if(bx[q]>1e8)continue;
+        const ex=bx[q+3]-bx[q],ez=bx[q+5]-bx[q+2],cy=(bx[q+1]+bx[q+4])/2,cz=(bx[q+2]+bx[q+5])/2-z0;
+        const endY=Math.abs(cy-yc)>0.36*Lb||(bx[q+1]<yc-0.3*Lb&&bx[q+4]>yc+0.3*Lb),both=sideL[o.i]&&sideR[o.i];
+        if(endY&&both&&ez<0.22*H&&ex>0.45*Wd&&cz>0.22*H&&cz<0.72*H)cand.push(o);}
+      cand.sort((a,b)=>b.tris-a.tris);
+      for(const o of cand.slice(0,2)){o.role='light';o.why='old/orqa chetda, chap-o‘ngda alohida, kichik — chiroq oynasi (TAXMIN)';o.guess=true;}
+    }
   }
   if(!paintNamed){ // bo'yoq nomi yo'q: tashqi qismlardagi eng katta sirtli (oyna/chiroq bo'lmagan, teksturasiz) material -- kuzov bo'yog'i
     let best=-1,ba=0;for(const o of out){if(o.role==='color'&&o.area>ba&&!o.hasTex){ba=o.area;best=o.i;}}
@@ -10137,12 +10166,16 @@ function analyze(cv,plan,opts){
   finalize(cv,P,det);
   const mats=detectMats(cv,P,det,opts);
   if(plan.matRole)for(const k of Object.keys(plan.matRole)){const i=+k;if(mats[i]&&plan.matRole[k]&&plan.matRole[k]!=='auto'){mats[i].role=plan.matRole[k];mats[i].why='qo‘lda';}}
+  {const nLens=det.roles.filter(r=>r==='lens').length,nLightMat=mats.filter(o=>o.role==='light'&&o.tris>0).length;
+   det.lightInfo={lensObjs:nLens,lightMats:nLightMat};
+   if(mats.some(o=>o.guess))det.warnings.push('Chiroq oynasi materiali joylashuvidan TAXMIN qilindi — «Materiallar» jadvalida nomini bosib (sxemada sariq bo‘lib ko‘rinadi) to‘g‘riligini tekshiring.');
+   if(!nLens&&!nLightMat)det.warnings.push('Chiroq oynasi topilmadi — chiroqlar o‘yinda yonmaydi (kulrang qoladi). Materiallar jadvalida chiroq materialini «Chiroq oynasi» qiling, yoki obyektlar jadvalida chiroq obyektini «Chiroq oynasi (obyekt butunlay)» qiling.');}
   const e=det.dims;if(e[2]>Math.max(e[0],e[1])*0.95)det.warnings.push('Model balandligi uzunligidan katta ko‘rinadi — «Yuqori o‘q» (6-bo‘lim) noto‘g‘ri bo‘lishi mumkin.');
   const L=Math.max(e[0],e[1]);if(L>7||L<2)det.warnings.push('Mashina uzunligi '+L.toFixed(2)+' m — odatda 3.5–6 m. «Mashina uzunligi (m)» maydoniga kerakli qiymatni yozing.');
   return{fwd:fd.fwd,fwdConfident:fd.confident,fwdWhy:fd.why,scale:sc,P,det,mats,tris:cv.meshes.map((m,i)=>m.idx.length/3)};
 }
 function build(cv,plan,opts,an){
-  opts=Object.assign({name:'',maxTris:36000,maxTex:512,shine:'high',glass:'normal',doorStyle:'auto',doorFlip:false,hideHidden:true,vlo:true,noHeadlights:true,paintGame:false,wheelScale:1},opts||{});
+  opts=Object.assign({name:'',maxTris:36000,maxTex:512,shine:'high',glass:'normal',doorStyle:'auto',doorFlip:false,hideHidden:true,vlo:true,noHeadlights:false,paintGame:false,wheelScale:1},opts||{});
   an=an||analyze(cv,plan,opts);
   const {P,det,mats}=an,roles=det.roles;
   const live=[];for(let i=0;i<cv.meshes.length;i++)if(roles[i]!=='skip')live.push(i);
@@ -10178,9 +10211,10 @@ function build(cv,plan,opts,an){
   const hasLeftWheel=!!(cen.wheel_lf||cen.wheel_lb);
   const centers={};for(const k of wh){if(cen[k])centers[k]=[cen[k][0]-sh[0],cen[k][1]-sh[1],cen[k][2]-sh[2]];}
   const remapBuf0=new Int32Array(1);let remapBuf=remapBuf0;
+  const virt=new Set();
   for(const mi of live){
     const m=cv.meshes[mi],p=P[mi],role=roles[mi],part0=PART_OF[role];if(!part0)continue;
-    const local=LOCAL(role),cw=local?cen[role]:null;
+    const local=LOCAL(role),cw=local?cen[role]:null,forceLight=role==='lens';
     const partName=useMulti&&role.startsWith('wheel_')?'wheel_lf':part0;
     let mtx=null;
     if(local){mtx=[1,0,0,0,0,1,0,0,0,0,1,0,cw[0]-sh[0],cw[1]-sh[1],cw[2]-sh[2],1];
@@ -10200,15 +10234,21 @@ function build(cv,plan,opts,an){
       for(let t=0;t<tl.length;t++)for(let q=0;q<3;q++)idx[t*3+q]=remapBuf[m.idx[tl[t]*3+q]];
       for(const v of verts)remapBuf[v]=-1;
       const mm=cv.mats[mt]||{color:[200,200,200,255]};
-      part.meshes.push({name:m.name,pos,nrm,uv,col:null,idx,mat:{color:(mm.color||[200,200,200,255]).slice(),tex:(mm.tex&&cv.tex&&cv.tex.has(mm.tex))?mm.tex:'',shaderName:'',shaderIndex:mt}});
+      part.meshes.push({name:m.name,pos,nrm,uv,col:null,idx,mat:{color:(mm.color||[200,200,200,255]).slice(),tex:(mm.tex&&cv.tex&&cv.tex.has(mm.tex))?mm.tex:'',shaderName:'',shaderIndex:forceLight?(100000+mt):mt}});
+      if(forceLight)virt.add(mt);
     }
   }
   const roleMap={};mats.forEach(o=>{roleMap[o.i]=o.role;});
+  virt.forEach(mt=>{roleMap[100000+mt]='light';});
   const name=String(opts.name||cv.name||'car').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20)||'car';
   const model={kind:'yft',name,parts:Array.from(parts.values()),shaders:[],embedded:[],bones:[],boneMats:[],info:{}};
   const cop={name,lod:'high',maxTris:opts.maxTris,maxTex:opts.maxTex,shine:opts.shine,glass:opts.glass,doorStyle:opts.doorStyle,doorFlip:!!opts.doorFlip,hideHidden:!!opts.hideHidden,vlo:opts.vlo!==false,
-    noHeadlights:opts.noHeadlights!==false,paintMode:'game',roles:roleMap,keepParts:false,mergeOther:true,wheelScale:opts.wheelScale||1,glassBoth:true,doorGlass:true,missTex:'plain',preset:'game',compress:opts.compress||'auto',mips:true,damCopy:false};
+    noHeadlights:opts.noHeadlights===true,paintMode:'game',roles:roleMap,keepParts:false,mergeOther:true,wheelScale:opts.wheelScale||1,glassBoth:true,doorGlass:true,missTex:'plain',preset:'game',compress:opts.compress||'auto',mips:true,damCopy:false};
   const res=G.convertToSA(model,lookupFactory(cv),cop);
+  try{ // diagnostika: eshik va chiroq soni (o'yinda tekshirish uchun)
+    const nDoor=Object.keys(det.found).filter(k=>/^door_/.test(k)).length,nLM=mats.filter(o=>o.role==='light'&&o.tris>0).length+virt.size;
+    res.report.info.unshift('Diagnostika: ochiladigan eshik '+nDoor+' ta (4 tagacha bo‘lishi mumkin), chiroq oynasi materiali '+nLM+' ta. '+(nLM?'Chiroqlar o‘yinda TUNDA yoki tormoz bosilganda yonadi (kunduzi yonmaydi).':'Chiroq oynasi yo‘q — chiroqlar yonmaydi.'));
+  }catch(e){}
   res.analysis={scale:an.scale,fwd:an.fwd,fwdWhy:an.fwdWhy,origin:{ground:gz,height:oh,shift:sh},wheelCenters:centers,found:det.found};
   return res;
 }
@@ -10461,11 +10501,11 @@ Object.assign(G,{poolSuggest,loadFile,poolGet,poolList,poolClear,poolAdd,poolRem
 const $=id=>document.getElementById(id);
 if(!$('saCard')||!window.CVCONV||!window.SACAR||!window.SAGV){console.warn('SACAR: bo‘lim ishga tushmadi');return;}
 const SACAR=window.SACAR,SAGV=window.SAGV,CVS=window.CVCONV.S;
-const ROLE_COL={body:'#7d8ba3',wheel:'#f59e0b',door:'#22d3ee',bonnet:'#a3e635',boot:'#f472b6',bump:'#c084fc',skip:'#ef4444'};
+const ROLE_COL={body:'#7d8ba3',wheel:'#f59e0b',door:'#22d3ee',bonnet:'#a3e635',boot:'#f472b6',bump:'#c084fc',skip:'#ef4444',lens:'#fde047'};
 const roleCol=r=>/^wheel_/.test(r)?ROLE_COL.wheel:/^door_/.test(r)?ROLE_COL.door:/^bump_/.test(r)?ROLE_COL.bump:ROLE_COL[r]||ROLE_COL.body;
 const ROLE_KEYS=Object.keys(SACAR.ROLE_LABEL);
 const MAT_KEYS=['paintc','paint1','glass','light','texture','color','black','skip'];
-const st={an:null,plan:{fwd:'auto',objRole:{},matRole:{}},sel:-1,hl:-1,res:null,busy:false,worker:null,viewer:null,samp:null,onlyRoles:false,timer:0,t0:0};
+const st={an:null,plan:{fwd:'auto',objRole:{},matRole:{}},sel:-1,hl:-1,hlM:-1,msamp:null,res:null,busy:false,worker:null,viewer:null,samp:null,onlyRoles:false,timer:0,t0:0};
 const model=()=>CVS&&CVS.model&&CVS.model.meshes&&CVS.model.meshes.length?CVS.model:null;
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtN=n=>Number(n).toLocaleString('en-US').replace(/,/g,' ');
@@ -10510,6 +10550,13 @@ function buildSamples(){
     for(let k=0;k<n;k++){const v=Math.min(nV-1,Math.floor(k*step));xs.push(p.pos[v*3]);ys.push(p.pos[v*3+1]);zs.push(p.pos[v*3+2]);oi.push(i);}
   });
   st.samp={x:Float32Array.from(xs),y:Float32Array.from(ys),z:Float32Array.from(zs),o:Int32Array.from(oi)};
+  // materiallar uchun: uchburchak markazlari
+  let totT=0;for(const me of m.meshes)totT+=me.idx.length/3;
+  const mx=[],my=[],mz=[],mm=[],stp=Math.max(1,Math.ceil(totT/30000));
+  m.meshes.forEach((me,i)=>{const p=an.P[i];if(!p)return;const pos=p.pos,idx=me.idx,tm=me.tm,nT=idx.length/3;
+    for(let t=0;t<nT;t+=stp){const a=idx[t*3]*3,b=idx[t*3+1]*3,c=idx[t*3+2]*3;
+      mx.push((pos[a]+pos[b]+pos[c])/3);my.push((pos[a+1]+pos[b+1]+pos[c+1])/3);mz.push((pos[a+2]+pos[b+2]+pos[c+2])/3);mm.push(tm[t]);}});
+  st.msamp={x:Float32Array.from(mx),y:Float32Array.from(my),z:Float32Array.from(mz),m:Int32Array.from(mm)};
 }
 function schemGeom(cv,which){ // 'top': gorizontal=X, vertikal=Y (old tepada); 'side': gorizontal=Y (old o'ngda), vertikal=Z
   const an=st.an,b=an.det.bb,dpr=Math.min(2,window.devicePixelRatio||1);
@@ -10528,6 +10575,11 @@ function drawOne(cv,which){
   const draw=(filter,size,colFn)=>{for(let i=0;i<A.length;i++){const o=sp.o[i];if(!filter(o))continue;ctx.fillStyle=colFn(o);ctx.fillRect(g.px(A[i])-size/2,g.py(B[i])-size/2,size,size);}};
   draw(o=>o!==st.sel&&o!==st.hl,1.6,o=>roleCol(roles[o])+(roles[o]==='body'?'88':'dd'));
   draw(o=>o===st.sel||o===st.hl,3,()=>'#ffffff');
+  const ms=st.msamp;
+  if(ms){const MA=which==='top'?ms.x:ms.y,MB=which==='top'?ms.y:ms.z,mrole={};an.mats.forEach(o=>{mrole[o.i]=o.role;});
+    const dm=(filter,size,col)=>{ctx.fillStyle=col;for(let i=0;i<MA.length;i++){const k=ms.m[i];if(!filter(k))continue;ctx.fillRect(g.px(MA[i])-size/2,g.py(MB[i])-size/2,size,size);}};
+    dm(k=>mrole[k]==='light'&&k!==st.hlM,3.2,'#fde047');
+    if(st.hlM>=0)dm(k=>k===st.hlM,4,'#ffffff');}
   ctx.fillStyle='#8b9bb6';ctx.font='600 11px sans-serif';
   if(which==='top'){ctx.textAlign='center';ctx.fillText('▲ OLD',g.w/2,12);ctx.fillText('ORQA',g.w/2,g.h-4);ctx.textAlign='left';ctx.fillText('chap',4,g.h/2);ctx.textAlign='right';ctx.fillText('o‘ng',g.w-4,g.h/2);}
   else{ctx.textAlign='right';ctx.fillText('OLD ▶',g.w-4,12);ctx.textAlign='left';ctx.fillText('ORQA',4,12);}
@@ -10535,7 +10587,7 @@ function drawOne(cv,which){
 }
 function drawSchem(){if(!st.an)return;drawOne($('saTop'),'top');drawOne($('saSide'),'side');}
 function renderLegend(){
-  const items=[['body','Kuzov'],['wheel','G‘ildirak'],['door','Eshik'],['bonnet','Kapot'],['boot','Bagaj'],['bump','Bamper'],['skip','Chiqarilmaydi']];
+  const items=[['body','Kuzov'],['wheel','G‘ildirak'],['door','Eshik'],['bonnet','Kapot'],['boot','Bagaj'],['bump','Bamper'],['lens','Chiroq'],['skip','Chiqarilmaydi']];
   $('saLegend').innerHTML=items.map(([k,t])=>'<span><i style="background:'+ROLE_COL[k]+'"></i>'+t+'</span>').join('');
 }
 function pickOnCanvas(ev,which){
@@ -10578,7 +10630,7 @@ function renderTables(){
   let hm='';
   an.mats.forEach(o=>{
     const man=st.plan.matRole[o.i],lab=SACAR.MAT_ROLE_LABEL;
-    hm+='<div class="sa-row mat"><i class="sw" style="background:rgb('+o.color[0]+','+o.color[1]+','+o.color[2]+')"></i><span class="nm" title="'+esc(o.name+(o.hasTex?' (tekstura: '+o.tex+')':''))+'">'+esc(o.name)+(o.hasTex?' 🖼':'')+'</span><span class="dim tri">'+fmtN(o.tris)+' poligon</span>'
+    hm+='<div class="sa-row mat" data-m="'+o.i+'"><i class="sw" style="background:rgb('+o.color[0]+','+o.color[1]+','+o.color[2]+')"></i><span class="nm" title="'+esc(o.name+(o.hasTex?' (tekstura: '+o.tex+')':''))+'">'+esc(o.name)+(o.hasTex?' 🖼':'')+'</span><span class="dim tri">'+fmtN(o.tris)+' poligon</span>'
       +'<select data-m="'+o.i+'" class="'+(man?'manual':'')+'" title="'+esc(o.why||'')+'"><option value="auto"'+(!man?' selected':'')+'>Avto: '+esc(lab[o.role]||o.role)+'</option>'+MAT_KEYS.map(k=>'<option value="'+k+'"'+(man===k?' selected':'')+'>'+esc(lab[k])+'</option>').join('')+'</select></div>';
   });
   mt.innerHTML=hm;
@@ -10696,6 +10748,9 @@ function init(){
   $('saBulkGo').addEventListener('click',bulkApply);
   $('saObjTbl').addEventListener('change',e=>{const s=e.target.closest('select[data-i]');if(!s)return;const i=+s.dataset.i;if(s.value==='auto')delete st.plan.objRole[i];else st.plan.objRole[i]=s.value;st.sel=i;analyze(true);});
   $('saMatTbl').addEventListener('change',e=>{const s=e.target.closest('select[data-m]');if(!s)return;const i=+s.dataset.m;if(s.value==='auto')delete st.plan.matRole[i];else st.plan.matRole[i]=s.value;analyze(true);});
+  const mtb=$('saMatTbl');
+  mtb.addEventListener('mouseover',e=>{const r=e.target.closest('.sa-row[data-m]');const i=r?+r.dataset.m:-1;if(i!==st.hlM){st.hlM=i;drawSchem();}});
+  mtb.addEventListener('mouseleave',()=>{if(st.hlM!==-1){st.hlM=-1;drawSchem();}});
   const tbl=$('saObjTbl');
   tbl.addEventListener('mouseover',e=>{const r=e.target.closest('.sa-row[data-i]');const i=r?+r.dataset.i:-1;if(i!==st.hl){st.hl=i;drawSchem();}});
   tbl.addEventListener('mouseleave',()=>{if(st.hl!==-1){st.hl=-1;drawSchem();}});
