@@ -121,6 +121,9 @@ details.adv{border-top:1px dashed var(--line);margin-top:10px;padding-top:6px}
 #logoPrev{display:block;max-width:100%;max-height:130px;margin:0 auto 10px;border-radius:8px;background-image:linear-gradient(45deg,#1a2540 25%,transparent 25%,transparent 75%,#1a2540 75%),linear-gradient(45deg,#1a2540 25%,#0c1322 25%,#0c1322 75%,#1a2540 75%);background-size:14px 14px;background-position:0 0,7px 7px;border:1px solid var(--line)}
 .lint{font-size:12px;color:var(--warn)}
 .lint:empty{display:none}
+.audit{font-size:12px;line-height:1.5;color:var(--mute);margin:0 0 10px;white-space:pre-wrap}
+.audit:empty{display:none}
+.audit b.ok{color:#4ade80}.audit b.bad{color:var(--warn)}
 #readme{white-space:pre-wrap;font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#c9d4e8;background:var(--bg0);border:1px solid var(--line);border-radius:8px;padding:10px;max-height:220px;overflow:auto;user-select:text;margin-top:6px}
 #status{grid-column:1/-1;display:flex;gap:18px;align-items:center;padding:0 14px;background:var(--bg1);border-top:1px solid var(--line);color:var(--mute);font:11.5px ui-monospace,Menlo,Consolas,monospace;white-space:nowrap;overflow:hidden}
 #toast{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);background:#0b101d;border:1px solid var(--accent);border-radius:9px;padding:9px 16px;font-size:13px;z-index:120;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;text-align:center}
@@ -917,7 +920,7 @@ class Viewer{
   /* detal qismlari: [{mi, idx:Uint16Array}] -> GL bufer */
   mkParts(parts){return parts.map(p=>({mi:p.mi,n:p.idx.length,ib:this._buf(p.idx,this.gl.ELEMENT_ARRAY_BUFFER)}));}
   freeParts(ps){if(ps)ps.forEach(p=>this.gl.deleteBuffer(p.ib));}
-  setDetails(list){this.details.forEach(d=>this.freeParts(d.gl));this.details=list.map(d=>({color:d.color,active:d.active,veh:!!d.veh,gl:this.mkParts(d.parts)}));this.dirty=true;}
+  setDetails(list){this.details.forEach(d=>this.freeParts(d.gl));this.details=list.map(d=>({color:d.color,active:d.active,veh:!!d.veh,always:!!d.always,gl:this.mkParts(d.parts)}));this.dirty=true;}
   setPreview(parts){this.freeParts(this.preview);this.preview=parts&&parts.length?this.mkParts(parts):null;this.dirty=true;}
   setCoronas(c,pl){this.coronas=c;this.plights=pl;this.dirty=true;}
   setVisible(i,v){if(this.meshes[i])this.meshes[i].visible=v;this.dirty=true;}
@@ -970,8 +973,8 @@ class Viewer{
     const amb=mix([.55,.57,.62],[.045,.055,.1],n),sun=mix([.62,.58,.5],[.03,.04,.08],n);
     gl.uniform3fv(p.u.uAmb,amb);gl.uniform3fv(p.u.uSun,sun);gl.uniform3fv(p.u.uL,V.norm([.4,-.5,.8]));gl.uniform1f(p.u.uEmis,0);gl.uniform1f(p.u.uUseTex,0);gl.uniform1f(p.u.uFlat,0);
     {const pls=(this.pointOn?this.plights:[]).slice(0,6),LP=new Float32Array(18),LC=new Float32Array(18),LR=new Float32Array(6).fill(1);
-     pls.forEach((l,i)=>{LP.set(l.p,i*3);LC.set(l.c.map(v=>v*n),i*3);LR[i]=Math.max(.5,l.range);});
-     gl.uniform3fv(p.u.uLP,LP);gl.uniform3fv(p.u.uLC,LC);gl.uniform1fv(p.u.uLR,LR);gl.uniform1f(p.u.uNL,n>0.02?pls.length:0);}
+     pls.forEach((l,i)=>{LP.set(l.p,i*3);LC.set(l.c.map(v=>v*(l.day?1:n)),i*3);LR[i]=Math.max(.5,l.range);});
+     gl.uniform3fv(p.u.uLP,LP);gl.uniform3fv(p.u.uLC,LC);gl.uniform1fv(p.u.uLR,LR);gl.uniform1f(p.u.uNL,(n>0.02||pls.some(l=>l.day))?pls.length:0);}
     // ground
     const b=this.bounds,g=Math.max(V.len(V.sub(b.max,b.min))*3,12),z=b.min[2]-.001,cx=(b.min[0]+b.max[0])/2,cy=(b.min[1]+b.max[1])/2;
     const gq=new Float32Array([cx-g,cy-g,z,cx+g,cy-g,z,cx+g,cy+g,z,cx-g,cy+g,z]);
@@ -997,13 +1000,13 @@ class Viewer{
         gl.uniform4fv(p.u.uCol,[col[0],col[1],col[2],a]);gl.uniform3fv(p.u.uAmb,[1,1,1]);gl.uniform3fv(p.u.uSun,[0,0,0]);gl.uniform1f(p.u.uEmis,emis);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,pt.ib);gl.drawElements(gl.TRIANGLES,pt.n,gl.UNSIGNED_SHORT,0);}};
       for(const d of this.details){
-        const c=d.color.map(v=>v/255);
+        const c=d.color.map(v=>v/255),nn=d.always?1:n;
         if(d.veh){ // mashina chirog'iga ulangan: fara yoqilganda yonadi (kun/tundan qat'i nazar)
           if(this.lampOn){gl.disable(gl.BLEND);paint(d.gl,[1,.93,.75],1,.9);}
           else if(d.active){gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);paint(d.gl,[1,.62,.1],.5,0);gl.disable(gl.BLEND);}
           continue;
         }
-        if(n>.35){gl.disable(gl.BLEND);paint(d.gl,c.map(v=>Math.min(1,v*.9+.1)),1,.35*n);}
+        if(nn>.35){gl.disable(gl.BLEND);paint(d.gl,c.map(v=>Math.min(1,v*.9+.1)),1,.35*nn);}
         else{gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);paint(d.gl,[1,.62,.1],d.active?.78:.5,0);gl.disable(gl.BLEND);}
       }
       if(this.preview){gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);paint(this.preview,[.2,.85,1],.55,0);gl.disable(gl.BLEND);}
@@ -1023,7 +1026,7 @@ class Viewer{
       gl.depthMask(true);gl.disable(gl.BLEND);
     }
     // glow halo + coronas (additive)
-    if((n>0.02&&(this.haloOn||this.coronaOn||this.coronas.length))||(this.lampOn&&this.coronas.some(l=>l.always))){
+    if((n>0.02&&(this.haloOn||this.coronaOn||this.coronas.length))||(this.lampOn&&this.coronas.some(l=>l.always))||this.coronas.some(l=>l.day)){
       const q=this.pGlow;gl.useProgram(q.p);gl.uniformMatrix4fv(q.u.uVP,false,new Float32Array(M.vp));
       gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);gl.depthMask(false);gl.uniform1i(q.u.uTex,0);
       if(this.haloOn&&this.halo&&this.texGlow){
@@ -1036,7 +1039,7 @@ class Viewer{
         gl.bindTexture(gl.TEXTURE_2D,this.radial);
         for(const l of this.coronas){
           const d=V.len(V.sub(l.p,M.eye)),sz=l.size*.38*Math.min(1.6,Math.max(.6,1.7-d/(this.cam.dist*4+20)));
-          if(l.always&&!this.lampOn)continue;let k=l.always?1:n;if(l.blink){k*=.55+.45*Math.sin(performance.now()/180*l.blink);this.dirty=true;}
+          if(l.always&&!this.lampOn)continue;let k=(l.always||l.day)?1:n;if(l.blink){k*=.55+.45*Math.sin(performance.now()/180*l.blink);this.dirty=true;}
           const a=V.mul(s,sz),b=V.mul(u,sz),c=V.add(l.p,V.mul(V.norm(V.sub(M.eye,l.p)),sz*.9)),pos=[],uv=[];
           [[-1,-1,0,1],[1,-1,1,1],[1,1,1,0],[-1,1,0,0]].forEach(([x,y,tu,tv])=>{pos.push(c[0]+a[0]*x+b[0]*y,c[1]+a[1]*x+b[1]*y,c[2]+a[2]*x+b[2]*y);uv.push(tu,tv);});
           const pb=this._buf(new Float32Array(pos)),tb=this._buf(new Float32Array(uv)),ib=this._buf(new Uint16Array([0,1,2,0,2,3]),gl.ELEMENT_ARRAY_BUFFER);
@@ -1126,7 +1129,7 @@ const S={
   logo:{mode:'text',text:'IT SHAKH',font:'Impact, "Arial Black", sans-serif',weight:'800',color:'#ffd24a',outline:0,outlineColor:'#000000',img:null,removeLight:true,threshold:200,base:256,tex:'logo_glow'},
   place:{width:.55,rot:0,lift:6,grid:24,hit:null},
   glow:{on:true,day:190,count:8,size:.22,farClip:80,range:0,color:[255,200,70],auto:true},
-  tex:null,glowTex:null,decal:null,haloDc:null,lights:[]
+  tex:null,glowTex:null,decal:null,haloDc:null,lights:[],vehCorona:false,audit:null
 };
 let viewer;
 try{viewer=new GLSViewer($('#gl'));}catch(e){document.body.insertAdjacentHTML('beforeend','<div style="position:fixed;inset:0;display:grid;place-items:center;background:#070b16;color:#fb7185;padding:30px;text-align:center;z-index:99">'+e.message+'</div>');throw e;}
@@ -1189,6 +1192,17 @@ function addDetail(mi,mask){
   else toast('Detal qo\'shildi: '+countOf(mask)+' uchburchak.');
   detailsChanged(true);
 }
+/* butun modelni bir bosishda yonadigan qilish (har bir ko'rinadigan qism = bitta detal, dummy qo'shilmaydi) */
+function addAllParts(){
+  if(!S.meshes.length){toast('Avval DFF modelni oching.');return;}
+  const list=[];
+  S.meshes.forEach((m,mi)=>{if(!m.visible)return;const mask=new Uint8Array(m.nT).fill(1);
+    const d=newDetail(mi,mask,'fanar');d.vcolor=null;d.auto=false;d.k=1;d.name=m.name+' · butun qism';list.push(d);});
+  if(!list.length){toast('Ko\'rinadigan qism yo\'q — qismlar ro\'yxatidan birini yoqing.');return;}
+  S.details=list;S.active=0;if(viewer.night()<.5)setHour(22);
+  detailsChanged(true);
+  toast('Butun model yonadigan qilindi: '+list.length+' qism'+(S.vehicle?' (mashina modeli — tunda yonadigan rejimda, fara bilan emas)':'')+'. Pastdan yonish turini sozlang.');
+}
 function removeDetail(i){S.details.splice(i,1);S.active=Math.min(S.active,S.details.length-1);detailsChanged(true);}
 /* nur nuqtalari (dunyo koordinatasida) */
 function lightPoints(d){
@@ -1207,14 +1221,16 @@ function lightPoints(d){
   return pickd.map(v=>V.add([m.wpos[v*3],m.wpos[v*3+1],m.wpos[v*3+2]],V.mul([m.wnrm[v*3],m.wnrm[v*3+1],m.wnrm[v*3+2]],lift)));
 }
 function detailsChanged(rebuildUi){
-  viewer.setDetails(S.details.map((d,i)=>({color:d.vcolor||d.color,veh:!!d.vcolor,active:i===S.active,parts:[{mi:d.mi,idx:idxOf(d.mi,d.mask)}]})));
+  viewer.setDetails(S.details.map((d,i)=>({color:d.vcolor||d.color,veh:!!d.vcolor,always:!d.vcolor&&d.when==='always',active:i===S.active,parts:[{mi:d.mi,idx:idxOf(d.mi,d.mask)}]})));
   const cor=[],pl=[];
   S.details.forEach(d=>{const pts=lightPoints(d),col=d.vcolor?[1,.9,.65]:d.color.map(v=>v/255);
-    if(d.vcolor){pts.forEach(p=>cor.push({p,size:d.size,c:col,blink:0,always:true}));return;}
-    pts.forEach(p=>cor.push({p,size:d.size,c:col,blink:d.blink?4:0}));
-    if(d.atmo&&d.range>0&&pts.length)pl.push({p:pts[0],c:col,range:d.range});});
+    if(d.vcolor){if(S.vehCorona)pts.forEach(p=>cor.push({p,size:d.size,c:col,blink:0,always:true}));return;}
+    const dy=d.when==='always';
+    pts.forEach(p=>cor.push({p,size:d.size,c:col,blink:d.blink?4:0,day:dy}));
+    if(d.atmo&&d.range>0&&pts.length)pl.push({p:pts[0],c:col,range:d.range,day:dy});});
   viewer.setCoronas(cor,pl);
   if(rebuildUi){renderDetailUi();}
+  S.audit=null;renderAudit();
   updateStatus();lintUpdate();
 }
 /* ---------- model ---------- */
@@ -1227,7 +1243,7 @@ function loadDffBytes(bytes,name){
     S.bytes=bytes;S.dff=dff;S.fileName=name;S.vehicle=D.isVehicle(dff);S.place.hit=null;S.details=[];S.active=-1;
     S.meshes=ms;viewer.setModel(ms);viewer.setDetails([]);viewer.setPreview(null);viewer.setCoronas([],[]);
     $('#empty').classList.add('hide');setHour(13);
-    renderModelUi();detailsChanged(true);rebuildDecal();
+    renderModelUi();renderSelUi();detailsChanged(true);rebuildDecal();
     toast('Yuklandi: '+name+' ('+ms.length+' qism). Endi yonadigan detalga bosing.');
   }catch(e){console.error(e);toast('DFF o\'qilmadi: '+e.message);}
 }
@@ -1329,21 +1345,60 @@ function buildDff(){
     for(const e of byCol.values())D.assignLightMaterial(d,gi,e.sel,e.rgb);
     if(!glow.length)continue;
     const nT=glow[0].m.nT,gid=new Uint8Array(nT),groups=[],lights=[],Winv=G.invAffine(glow[0].m.world);
-    glow.forEach(({det,m},k)=>{for(let i=0;i<nT;i++)if(det.mask[i])gid[i]=k+1;groups.push({night:boost(det.color)});lights.push(...detailLights(det,G.invAffine(m.world)));});
+    glow.forEach(({det,m},k)=>{for(let i=0;i<nT;i++)if(det.mask[i])gid[i]=k+1;groups.push({night:boost(det.color),day:det.when==='always'?boost(det.color):null});lights.push(...detailLights(det,G.invAffine(m.world)));});
     const r=D.patchGeometry(d,gi,{gid,groups,dark:S.dark.on?S.dark.v:null,lights});report.push(r);
   }
   if(logoOn){const {g,parent}=decalGeom();D.addDecalAtomic(d,g,S.logo.tex,parent);}
   return D.serialize(d.roots);
 }
+/* ---------- dummy / frame tekshiruvi: asl fayl bilan tayyor faylni solishtiradi ---------- */
+function auditDff(srcBytes,outBytes){
+  const B=D.parseDff(outBytes),A=srcBytes?D.parseDff(srcBytes):null,T=D.T;
+  const fx=d=>{let n=0;d.geoChunks.forEach(g=>{const e=D.child(g,T.EXT),c=e&&D.child(e,T.FX2D);
+    if(c&&c.data&&c.data.length>=4)n+=new DataView(c.data.buffer,c.data.byteOffset,c.data.byteLength).getUint32(0,true);});return n;};
+  const nt=d=>d.geoChunks.filter(g=>{const e=D.child(g,T.EXT);return e&&D.child(e,T.NIGHT);}).length;
+  const r={hasSrc:!!A,framesB:B.frames.length,atomB:B.atomics.length,fxB:fx(B),nightB:nt(B),added:[],changed:false,framesA:0,atomA:0,fxA:0,nightA:0};
+  if(A){
+    r.framesA=A.frames.length;r.atomA=A.atomics.length;r.fxA=fx(A);r.nightA=nt(A);
+    r.changed=A.frames.some((f,i)=>!B.frames[i]||B.frames[i].name!==f.name||B.frames[i].parent!==f.parent);
+    r.added=B.frames.slice(A.frames.length).map((f,i)=>f.name||('frame_'+(A.frames.length+i)));
+  }else r.added=B.frames.map(f=>f.name||'frame');
+  r.clean=!!A&&!r.changed&&r.added.length===0&&r.atomB===r.atomA;
+  return r;
+}
+function auditLines(r){
+  const L=[];
+  if(!r.hasSrc)L.push('Modelsiz rejim: yangi DFF yaratildi ('+r.framesB+' ta frame — logo obyekti).');
+  else if(r.clean)L.push('✓ Yangi dummy/frame qo\'shilmadi — '+r.framesA+' ta frame va '+r.atomA+' ta atomic aynan asl holida.');
+  else{
+    if(r.changed)L.push('⚠ Asl frame tuzilmasi o\'zgargan.');
+    if(r.added.length)L.push('⚠ '+r.added.length+' ta yangi frame/obyekt qo\'shildi: '+r.added.join(', ')+' (logo uchun yangi geometriya; dummy emas).');
+    if(r.atomB!==r.atomA&&!r.added.length)L.push('⚠ Atomic soni o\'zgargan: '+r.atomA+' → '+r.atomB+'.');
+  }
+  L.push('Tungi rangli geometriya: '+(r.hasSrc?r.nightA+' → ':'')+r.nightB+' · 2DFX yozuvlari: '+(r.hasSrc?r.fxA+' → ':'')+r.fxB+'.');
+  return L;
+}
+function renderAudit(){
+  const e=$('#audit');if(!e)return;const r=S.audit;e.replaceChildren();if(!r)return;
+  const L=auditLines(r);e.append(h('b',{class:r.clean?'ok':'bad'},L[0]),'\n'+L.slice(1).join('\n'));
+}
+function runAudit(){
+  try{const b=buildDff();S.audit=auditDff(S.bytes,b);renderAudit();const l=auditLines(S.audit);toast(l[0]);}
+  catch(e){console.error(e);toast(e.message);}
+}
 function save(blob,name){const u=URL.createObjectURL(blob),a=h('a',{href:u,download:name});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000);}
 const baseName=()=>(S.fileName||'logo').replace(/\.dff$/i,'').replace(/[^\w\-]+/g,'_')||'model';
 const outName=()=>baseName()+(S.details.length||S.decal?'_light':'')+'.dff';
-function exportDff(){try{const b=buildDff();save(new Blob([b],{type:'application/octet-stream'}),outName());toast('Saqlandi: '+outName()+' ('+(b.length/1024).toFixed(0)+' KB). Yo\'riqnoma uchun ZIP ni oling.');}catch(e){console.error(e);toast(e.message);}}
+function exportDff(){try{const b=buildDff();let note='';try{S.audit=auditDff(S.bytes,b);renderAudit();note=' '+auditLines(S.audit)[0];}catch(e2){console.error(e2);}
+  save(new Blob([b],{type:'application/octet-stream'}),outName());toast('Saqlandi: '+outName()+' ('+(b.length/1024).toFixed(0)+' KB).'+note);}catch(e){console.error(e);toast(e.message);}}
 const pngBlob=()=>new Promise(r=>S.tex.toBlob(r,'image/png'));
 function readme(){
   const L=[],t=S.logo.tex,nDet=S.details.filter(d=>!d.vcolor),nV=S.details.filter(d=>d.vcolor);
   L.push('GTA LIGHT STUDIO — QISQA YO\'RIQNOMA','===========================','');
   L.push('1) Yangi DFF ('+outName()+') ni eski faylning o\'rniga qo\'ying (IMG yoki Mod Loader).','   Eskisini zaxira qilib qo\'ying.','');
+  L.push('DUMMY QO\'SHILMAYDI','   Yonish geometriyaning o\'ziga yoziladi: tungi vertex ranglari, 2DFX yozuvlari va (mashina uchun) chiroq materialining rangi.','   Hech qanday dummy yoki yangi frame kerak emas'+(S.decal?' (faqat logo yangi obyekt sifatida qo\'shiladi).':'.'));
+  try{if(S.audit)auditLines(S.audit).forEach(x=>L.push('   '+x));}catch(e){}
+  L.push('');
   if(nDet.length)L.push('2) Oddiy detallar: yoqish kerak emas — TUNDA O\'ZI YONADI (taxminan 21:00–05:00).','   Tez sinash uchun o\'yinda vaqtni 23:00 ga qo\'ying.','');
   if(nV.length)L.push('2) Mashina detallari: mashina FARASI yoqilsa (H tugmasi) detal ham yonadi, o\'chirsangiz o\'chadi.','   Mashinaga o\'tirib H ni bosib sinang (kunduz ham ishlaydi).','');
   if(nDet.length){L.push('Yonuvchi detallar ('+nDet.length+' ta):');nDet.forEach(d=>L.push(' - '+d.name+': '+d.preset+', rang '+rgb2hex(d.color)+', korona '+d.size+', yoritish '+(d.atmo&&d.range>0?d.range+' m':'yo\'q')+', '+(d.when==='always'?'doim':'faqat tunda')+(d.blink?', miltillaydi':'')));L.push('');}
@@ -1368,10 +1423,11 @@ function makeZip(entries){
   return new Blob([...chunks,...central,new Uint8Array(end.buffer)],{type:'application/zip'});
 }
 async function exportZip(){try{
-  const b=buildDff(),dir='gta-light-studio/',ent=[{name:dir+outName(),data:b},{name:dir+'YORIQNOMA.txt',data:readme()}];
+  const b=buildDff(),dir='gta-light-studio/';try{S.audit=auditDff(S.bytes,b);renderAudit();}catch(e2){console.error(e2);}
+  const ent=[{name:dir+outName(),data:b},{name:dir+'YORIQNOMA.txt',data:readme()}];
   if(S.decal&&S.tex){ent.push({name:dir+S.logo.tex+'.png',data:new Uint8Array(await (await pngBlob()).arrayBuffer())},{name:dir+S.logo.tex+'.tga',data:LOGO.tga(S.tex)});}
   save(makeZip(ent),'gta-light-studio_'+baseName()+'.zip');toast('ZIP tayyor.');}catch(e){console.error(e);toast(e.message);}}
-window.__GLS.buildDff=buildDff;
+window.__GLS.buildDff=buildDff;window.__GLS.auditDff=auditDff;window.__GLS.addAllParts=addAllParts;
 
 /* ---------- interfeys ---------- */
 const dock=$('#dock');
@@ -1403,7 +1459,8 @@ function renderSelUi(){
   elSel.replaceChildren();
   const seg=h('div',{class:'seg'});MODES.forEach(([k,t])=>seg.append(h('button',{type:'button','aria-pressed':String(S.sel.mode===k),onclick:()=>{S.sel.mode=k;hoverKey='';renderSelUi();}},t)));
   const cur=MODES.find(m=>m[0]===S.sel.mode);
-  elSel.append(h('p',{class:'step'},'Modelga bosing — bosilgan joy tanlanadi. Bosishdan oldin ko\'k rangda ko\'rinadi.'),seg,h('p',{class:'mode'},cur[2]));
+  elSel.append(h('p',{class:'step'},'Modelga bosing — bosilgan joy tanlanadi. Bosishdan oldin ko\'k rangda ko\'rinadi.'),seg,h('p',{class:'mode'},cur[2]),
+    h('div',{class:'row'},h('button',{class:'btn sm',type:'button',disabled:!S.meshes.length,onclick:addAllParts,title:'Barcha ko\'rinadigan qismlar yonadigan bo\'ladi, dummy qo\'shilmaydi'},'💡 Butun modelni yoqish')));
   if(S.sel.mode==='brush')elSel.append(slider('Cho\'tka radiusi',{min:.01,max:Math.max(.5,+(diag()/3).toFixed(2)),step:.01,get:()=>S.sel.brush,set:v=>{S.sel.brush=v;hoverKey='';},fmt:v=>(v*100).toFixed(0)+' sm'}));
 }
 function renderDetailUi(){
@@ -1432,7 +1489,8 @@ function renderLookUi(){
     const lampBtn=h('button',{type:'button',class:'btn sm '+(viewer.lampOn?'pri':''),onclick:()=>{setLamp(!viewer.lampOn);}},viewer.lampOn?'🚗 Fara yoqilgan — o\'chirib ko\'ring':'🚗 Fara o\'chiq — yoqib ko\'ring');
     lampBtn.id='lampBtnCard';
     elLook.append(h('div',{class:'lbl'},'Qaysi chiroq bilan?'),g,lampBtn,
-      h('p',{class:'hint'},'O\'yinda shu detal mashina farasi yoqilganda o\'zi yonadi, o\'chirilganda o\'chadi. Yonish rangini o\'yinning o\'zi belgilaydi (mashina chirog\'i rangi), shuning uchun bu yerda rang tanlanmaydi.'),
+      h('p',{class:'hint'},'O\'yinda shu detal mashina farasi yoqilganda o\'zi yonadi, o\'chirilganda o\'chadi. Dummy qo\'shilmaydi: faqat detalning materiali chiroq rangiga o\'zgaradi. Yonish rangini o\'yinning o\'zi belgilaydi, shuning uchun bu yerda rang tanlanmaydi.'),
+      chk('Ko\'rinishda nur dog\'ini ham ko\'rsat','O\'yinda dummy\'siz bu dog\' chiqmaydi — faqat detalning o\'zi yonadi',()=>S.vehCorona,v=>{S.vehCorona=v;detailsChanged(false);}),
       h('details',{class:'adv'},h('summary',null,'Chap / o\'ng chiroqni alohida tanlash'),(()=>{const gg=h('div',{class:'vgrid'});VLIGHTS.forEach(([t,c])=>gg.append(h('button',{type:'button',class:'btn sm'+(rgb2hex(c)===rgb2hex(d.vcolor)?' on':''),onclick:()=>{d.vcolor=c.slice();detailsChanged(true);}},t)));return gg;})()));
     return;
   }
@@ -1441,7 +1499,7 @@ function renderLookUi(){
     const dm=diag(),f=dm<3?Math.max(.25,dm/3):1;d.size=+(p.size*f).toFixed(2);d.range=+(p.range*(dm<3?Math.max(.3,dm/3):1)).toFixed(1);d.far=p.far;detailsChanged(true);}},h('span',{class:'ic'},p.icon),h('b',null,p.name),h('small',null,p.desc))));
   const colIn=h('input',{type:'color',value:rgb2hex(d.color)});colIn.addEventListener('input',()=>{d.color=hex2rgb(colIn.value);d.preset='custom';upd();});colIn.addEventListener('change',()=>renderLookUi());
   const sw=h('div',{class:'sw'});SWATCH.forEach(c=>sw.append(h('button',{type:'button',class:'swb',style:'background:'+rgb2hex(c),'aria-label':rgb2hex(c),onclick:()=>{d.color=c.slice();d.preset='custom';detailsChanged(true);}})));
-  const when=h('div',{class:'seg'});[['night','Faqat tunda'],['always','Doim yonib tursin']].forEach(([k,t])=>when.append(h('button',{type:'button','aria-pressed':String(d.when===k),onclick:()=>{d.when=k;renderLookUi();}},t)));
+  const when=h('div',{class:'seg'});[['night','Faqat tunda'],['always','Doim yonib tursin']].forEach(([k,t])=>when.append(h('button',{type:'button','aria-pressed':String(d.when===k),onclick:()=>{d.when=k;detailsChanged(true);}},t)));
   const adv=h('details',{class:'adv'},h('summary',null,'Qo\'shimcha sozlamalar'),
     slider('Nur nuqtalari soni',{min:0,max:12,step:1,get:()=>d.auto?0:d.k,set:v=>{d.auto=v===0;d.k=Math.max(1,v);},live:upd,fmt:v=>v===0?'avto':v}),
     slider('Ko\'rinish masofasi',{min:20,max:250,step:5,get:()=>d.far,set:v=>{d.far=v;},fmt:v=>v+' m'}),
@@ -1452,6 +1510,7 @@ function renderLookUi(){
     slider('Yorqinlik (nur kattaligi)',{min:.1,max:4,step:.05,get:()=>d.size,set:v=>{d.size=v;},live:upd,fmt:v=>v.toFixed(2)}),
     slider('Atrofni yoritish masofasi',{min:0,max:30,step:.5,get:()=>d.atmo?d.range:0,set:v=>{d.range=v;d.atmo=v>0;},live:upd,fmt:v=>v===0?'o\'chiq':v+' m'}),
     h('div',{class:'lbl'},'Qachon yonadi'),when,
+    h('p',{class:'hint'},d.when==='always'?'Kunduz ham yonadi: kunduzi ham detal tanlangan rangda, to\'liq yorqinlikda ko\'rinadi (kunduzgi soyalar shu qismda o\'chadi). Dummy kerak emas.':'Faqat tunda yonadi: kunduzi detal oddiy ko\'rinadi.'),
     chk('Miltillasin',null,()=>!!d.blink,v=>{d.blink=v?1:0;d.show=v?1:0;upd();}),
     adv);
 }
@@ -1482,7 +1541,8 @@ function renderLogoUi(){
 }
 function renderExpUi(){
   elExp.replaceChildren();
-  elExp.append(elLint,h('button',{class:'btn pri big',type:'button',id:'bDl',onclick:exportDff},'⬇ DFF ni yuklab olish'),
+  elExp.append(elLint,h('div',{class:'audit',id:'audit'}),h('button',{class:'btn pri big',type:'button',id:'bDl',onclick:exportDff},'⬇ DFF ni yuklab olish'),
+    h('button',{class:'btn sm',type:'button',id:'bAudit',onclick:runAudit,title:'Tayyor fayl asl fayl bilan solishtiriladi'},'🔍 Dummy tekshiruvi'),h('div',{style:'height:8px'}),
     h('div',{class:'g2'},h('button',{class:'btn',type:'button',onclick:exportZip},'ZIP + yo\'riqnoma'),h('button',{class:'btn',type:'button',onclick:()=>{const t=readme();const w=$('#readme');w.textContent=t;w.parentElement.open=true;}},'Yo\'riqnomani ko\'rish')),
     h('details',null,h('summary',null,'Yo\'riqnoma'),h('div',{id:'readme'},'')),
     h('details',{class:'adv'},h('summary',null,'Umumiy sozlama'),
