@@ -1899,8 +1899,12 @@ function analyzeSteer(xws){
  * o'yinda esa umuman yo'q. Bu yerda: har bir oyna uchburchagi mashina markazidan tashqariga qaraydimi, tekshiriladi
  * (tashqariga qarash tomoni — kuzovning o'zidagi ko'pchilik uchburchaklardan aniqlanadi, shuning uchun RW o'rash qoidasini
  * oldindan bilish shart emas). Oyna asosan (>75%) ichkariga qaragan bo'lsa, ichkariga qaragan uchburchaklarning teskari
- * (tashqariga qaragan) nusxasi qo'shiladi. Ikki qatlamli oynalar (ichki+tashqi) yoki to'g'ri o'ralgan oynalar O'ZGARMAYDI. */
-function fixGlassSides(geoms,atomics,frames,center){
+ * (tashqariga qaragan) nusxasi qo'shiladi. Ikki qatlamli oynalar (ichki+tashqi) yoki to'g'ri o'ralgan oynalar O'ZGARMAYDI.
+ * IKKI TOMONLAMA rejim (both=true): oyna deyarli butunlay TASHQARIGA qaragan bitta qatlam bo'lsa (>=75%), uning har bir
+ * uchburchagiga teskari (ichkariga qaragan) nusxa qo'shiladi. Sabab (o'yin videosidan): eshik ochilganda eshik oynasi eshik
+ * panelining ICHKI tomonidan qaraladi -- orqa yuz chizilmagani uchun oyna butunlay yo'qolib qolardi. Tashqaridan ko'rinish
+ * O'ZGARMAYDI (qo'shilgan nusxa tashqaridan orqa yuz bo'lgani uchun chizilmaydi). */
+function fixGlassSides(geoms,atomics,frames,center,both){
   const isGlass=m=>!!m.glass;
   const chainOf=fi=>{const ch=[];let c=fi,n=0;while(c!=null&&c>=0&&n++<32){ch.push(frames[c]);c=frames[c].parent;}return ch;};
   const world=(ch,x,y,z)=>{for(const f of ch){const r=f.rot,p=f.pos||[0,0,0];
@@ -1921,17 +1925,22 @@ function fixGlassSides(geoms,atomics,frames,center){
     for(let t=0;t<g.tris.length/4;t++){if(gl[g.tris[t*4+3]])continue;ref+=triDir(g,ch,t).d;}}
   const sRef=ref>=0?1:-1;
   // 2) oyna uchburchaklari
-  let outA=0,inA=0,nGlass=0;const todo=[];
+  let outA=0,inA=0,nGlass=0;const todo=[],todoOut=[];
   for(const a of atomics){const g=geoms[a.geom],ch=chains.get(a.frame),gl=g.materials.map(isGlass);if(!gl.some(Boolean))continue;
-    const list=[];
+    const list=[],listOut=[];
     for(let t=0;t<g.tris.length/4;t++){if(!gl[g.tris[t*4+3]])continue;nGlass++;const r=triDir(g,ch,t);
-      if(r.d*sRef>=0)outA+=r.area;else{inA+=r.area;list.push(t);}}
-    if(list.length)todo.push({a,g,list});}
+      if(r.d*sRef>=0){outA+=r.area;listOut.push(t);}else{inA+=r.area;list.push(t);}}
+    if(list.length)todo.push({a,g,list});
+    if(listOut.length)todoOut.push({a,g,list:listOut});}
   const tot=outA+inA,outPct=tot>0?outA/tot:1;
-  const res={glassTris:nGlass,outPct,added:0,skipped:0,fixed:false};
-  if(!nGlass||outPct>=0.25)return res;
+  const res={glassTris:nGlass,outPct,added:0,skipped:0,fixed:false,both:false};
+  if(!nGlass)return res;
+  let work=null;
+  if(outPct<0.25)work=todo;                       // asosan ichkariga qaragan: tashqariga qaragan nusxa
+  else if(both&&outPct>=0.75){work=todoOut;res.both=true;} // bitta qatlam, tashqariga qaragan: ichkariga qaragan nusxa (ikki tomonlama)
+  if(!work)return res;
   // 3) asosan ichkariga qaragan: teskari nusxa (vertex nusxalari teskari normal bilan)
-  for(const {a,g,list} of todo){
+  for(const {a,g,list} of work){
     const nV=g.pos.length/3;
     if(nV+list.length*3>65000){res.skipped+=list.length;continue;}
     const P=Array.from(g.pos),N=Array.from(g.nrm),UV=g.uv?Array.from(g.uv):null,T=g.tris.slice?Array.from(g.tris):g.tris;
@@ -1950,7 +1959,7 @@ function fixGlassSides(geoms,atomics,frames,center){
 }
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',noHeadlights:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],vehType:'car',bikeHandling:'PCJ600',bikeAnim:'bikes'},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,noHeadlights:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],vehType:'car',bikeHandling:'PCJ600',bikeAnim:'bikes'},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -2640,10 +2649,15 @@ function convertToSA(model,texLookup,opts){
   if(report.missingTex.length)report.warnings.push('Topilmagan teksturalar ('+report.missingTex.length+'): '+report.missingTex.slice(0,12).join(', ')+(report.missingTex.length>12?'…':'')+(report.missingTex.every(n=>/^(script_rt_|black$|white$)/i.test(n))?'. Bu tizim teksturalari (script_rt_* — spidometr/ekran uchun dinamik tekstura, black — oddiy qora) mashina .ytd ichida bo‘lmaydi, shuning uchun bu ogohlantirish normal: faqat shu detallar oddiy rangda chiqadi, qolgan teksturalar to‘liq o‘tdi.':'. Mashinaning .ytd faylini ham qo‘shing (masalan '+name.replace(/_hi$/,'')+'.ytd) yoki PNG/DDS nomi shu tekstura nomi bilan bir xil bo‘lsin.'));
   // oynalar o'yinda ko'rinishi uchun (orqa yuzlar chizilmaydi): ichkariga qaragan oynaga teskari nusxa qo'shiladi
   if(!objectMode&&bodyXms.length){
-    const bbg=bboxOf(bodyXms),gres=fixGlassSides(geoms,atomics,frames,[(bbg.mn[0]+bbg.mx[0])/2,(bbg.mn[1]+bbg.mx[1])/2,(bbg.mn[2]+bbg.mx[2])/2]);
+    const bbg=bboxOf(bodyXms),gres=fixGlassSides(geoms,atomics,frames,[(bbg.mn[0]+bbg.mx[0])/2,(bbg.mn[1]+bbg.mx[1])/2,(bbg.mn[2]+bbg.mx[2])/2],opts.glassBoth!==false);
     if(gres.glassTris){
-      report.info.push('Oyna: '+gres.glassTris.toLocaleString()+' ta uchburchak, ularning '+Math.round(gres.outPct*100)+'% tashqariga qaragan.'+(gres.fixed?' Oyna asosan ICHKARIGA qarab o‘ralgan edi (oldindan ko‘rishda ko‘rinadi, o‘yinda esa orqa yuzlar chizilmagani uchun yo‘qolardi) — shuning uchun '+gres.added.toLocaleString()+' ta teskari nusxa qo‘shildi.':' Tomonlari to‘g‘ri — o‘zgartirilmadi.'));
+      report.info.push('Oyna: '+gres.glassTris.toLocaleString()+' ta uchburchak, ularning '+Math.round(gres.outPct*100)+'% tashqariga qaragan.'+(gres.both?' Oyna bir qatlamli va bir tomonlama edi (o‘yinda orqa yuzlar chizilmaydi) — eshik ochilganda eshik oynasi ichki tomondan qaralsa yo‘qolib qolardi, salon ichidan ham ko‘rinmasdi. Shuning uchun '+gres.added.toLocaleString()+' ta teskari nusxa qo‘shildi (tashqaridan ko‘rinish o‘zgarmaydi).':(gres.fixed?' Oyna asosan ICHKARIGA qarab o‘ralgan edi (oldindan ko‘rishda ko‘rinadi, o‘yinda esa orqa yuzlar chizilmagani uchun yo‘qolardi) — shuning uchun '+gres.added.toLocaleString()+' ta teskari nusxa qo‘shildi.':' Tomonlari to‘g‘ri — o‘zgartirilmadi.')));
       if(gres.skipped)report.warnings.push('Oyna: '+gres.skipped+' ta uchburchakka teskari nusxa qo‘shib bo‘lmadi (geometriya 65 000 vertexga yaqin).');
+      { // oyna uchburchaklari qaysi frame larga tushdi (teskari nusxalar bilan) — diagnostika
+        const per=new Map();
+        for(const at of atomics){const g=geoms[at.geom],gl=g.materials.map(m=>!!m.glass);if(!gl.some(Boolean))continue;let n=0;for(let t=0;t<g.tris.length/4;t++)if(gl[g.tris[t*4+3]])n++;if(n)per.set(frames[at.frame].name,(per.get(frames[at.frame].name)||0)+n);}
+        if(per.size)report.info.push('Oyna qaysi frame larda: '+[...per].map(([k,v])=>k+' '+v).join(', ')+' (uchburchak; ikki tomonlama bo‘lsa teskari nusxalari bilan). Eshik oynasi eshik frame ida (door_xx_ok) bo‘lishi kerak — shunda eshik bilan birga ochiladi.');
+      }
     }
   }
   // mototsikl: shaffof (alfa<255) materiallar HAQIQIY SA mototsikl DFF idagidek alohida "<frame>_alpha" frame/atomiga ajratiladi
@@ -3154,8 +3168,8 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false},
-  bopts:{name:'',lod:'high',vehType:'bike',preset:'game',keepParts:true,vlo:true,rot180:false,shine:'high',glass:'normal',noHeadlights:true,paintMode:'game',paintColor:[255,255,255,255],hideHidden:true,maxTris:36000,maxTex:512,compress:'auto',mips:true,missTex:'auto',bikeHandling:'PCJ600',bikeAnim:'bikes'}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false},
+  bopts:{name:'',lod:'high',vehType:'bike',preset:'game',keepParts:true,vlo:true,rot180:false,shine:'high',glass:'normal',glassBoth:true,noHeadlights:true,paintMode:'game',paintColor:[255,255,255,255],hideHidden:true,maxTris:36000,maxTex:512,compress:'auto',mips:true,missTex:'auto',bikeHandling:'PCJ600',bikeAnim:'bikes'}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -3454,6 +3468,7 @@ function paneConv(p){
   if(car){p.appendChild(chk('Boshqa qismlar → chassis','mergeOther'));p.appendChild(chk('chassis_vlo (past LOD)','vlo'));p.appendChild(chk('_dam nusxalari (zarar)','damCopy'));p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));p.appendChild(inp('G‘ildirak o‘lchami ×','wheelScale','number',{step:'0.05',min:'0.3',max:'3'}));
     p.appendChild(sel('Yaltirash (kuzov va oynaning aksi)','shine',[['high','Kuchli (tavsiya)'],['normal','Standart (original SA darajasi)'],['off','O‘chiq (mat)']]));
     p.appendChild(sel('Oyna rangi (zichlik)','glass',[['normal','O‘rtacha (tavsiya) — ko‘rinadigan, och tus'],['dark','Quyuq (qoramtir tonirovka)'],['light','Juda shaffof (eski, deyarli ko‘rinmaydi)']]));
+    p.appendChild(chk('Oyna ikki tomonlama (eshik ochilganda va salon ichidan ham ko‘rinadi)','glassBoth'));
     p.appendChild(chk('"headlights" dummy qo‘yilmasin','noHeadlights'));
     p.appendChild(chk('Rul burilsin (VehFuncs plagini, f_steer)','steerSpin'));
     p.appendChild(sel('Rul burilish burchagi (VehFuncs)','steerAngle',[['100','100° — CJ qo‘llari bilan bir xil (standart animatsiya)'],['180','180° (tavsiya)'],['270','270°'],['360','360° (to‘liq aylanish)'],['540','540° (haqiqiy mashinadek)']]));}
@@ -3512,6 +3527,7 @@ function paneBike(p){
   p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));
   p.appendChild(sel('Yaltirash (kuzov va oynaning aksi)','shine',[['high','Kuchli (tavsiya)'],['normal','Standart (original SA darajasi)'],['off','O‘chiq (mat)']]));
   p.appendChild(sel('Oyna rangi (zichlik)','glass',[['normal','O‘rtacha (tavsiya)'],['dark','Quyuq (qoramtir)'],['light','Juda shaffof']]));
+  p.appendChild(chk('Oyna ikki tomonlama (ichkaridan ham ko‘rinadi)','glassBoth'));
   p.appendChild(chk('"headlights" dummy qo‘yilmasin','noHeadlights'));
   {const pm=el('select',{},[['game','Standart: o‘yin rangi (yashil belgi, o‘yinda o‘zgaradi; tekstura detallari saqlanadi)'],['orig','Asl ko‘rinish (oq/tekstura qat‘iy, o‘yinda rang o‘zgarmaydi)'],['fixed','Qat‘iy rang (quyidan)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.paintMode===v})));
    pm.addEventListener('change',()=>{O.paintMode=pm.value;});p.appendChild(el('div',{class:'row'},[el('label',{text:'Kuzov rangi'}),pm]));
