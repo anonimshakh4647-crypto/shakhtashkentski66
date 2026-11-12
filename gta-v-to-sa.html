@@ -1669,6 +1669,16 @@ const SA_GLASS={light:[160,185,205,80],normal:[150,175,195,150],dark:[40,45,55,1
    (o'chiq ~(163,141,125), yoqilgan (255,255,255)); orqa chiroq = qizil panel (o'chiq ~(86,20,20), yoqilgan ~(142,10,10)). */
 const SA_LIGHT_TEX='vehiclelights128';
 const SA_LIGHT_UV={light_fl:[0.375,0.885],light_fr:[0.375,0.885],light_rl:[0.605,0.186],light_rr:[0.605,0.186]};
+/* Disk atrofidagi yonuvchi halqa (opts.rimGlow): plaginsiz, faqat SA ning o'z chiroq materiali bilan. Halqa "old chap chiroq" materiali
+   (kalit rang + vehiclelights128) bilan chiqadi, shuning uchun fara yonganda o'yin uni "vehiclelightson128" ga almashtiradi. Rangni
+   atlasdagi UV nuqtasi belgilaydi -- ya'ni ixtiyoriy RGB emas, faqat SHU 5 ta nuqta (vehicle.txd 128x128 piksellari bo'yicha olingan,
+   3x3 oynada tekis rangli nuqtalar): [UV, o'chiq rang, yonganda rang]. */
+const SA_RIM_GLOW={
+  white:{n:'oq',uv:[0.375,0.885],off:[146,123,107],on:[255,254,245]},
+  red:{n:'qizil',uv:[0.543,0.6914],off:[146,20,40],on:[255,0,21]},
+  blue:{n:'ko‘k (binafsharang-ko‘k)',uv:[0.6602,0.543],off:[89,66,187],on:[164,97,255]},
+  orange:{n:'to‘q sariq',uv:[0.707,0.6914],off:[161,73,25],on:[255,116,3]},
+  yellow:{n:'sariq',uv:[0.8633,0.582],off:[138,89,27],on:[255,227,56]}};
 const ROLES=[['auto','Avto'],['paint1','Asosiy rang (1)'],['paint2','Ikkinchi rang (2)'],['paint3','Uchinchi rang (3)'],['paint4','To‘rtinchi rang (4)'],['glass','Oyna (shaffof)'],['light','Chiroq (avto chap/o‘ng)'],['texture','Tekstura saqlansin'],['black','Qora plastik'],['skip','Eksport qilinmasin']];
 /* GTA V bone name -> SA part description */
 function classify(raw){
@@ -1808,6 +1818,54 @@ class GeoAcc{
   }
 }
 function bboxOf(xms){let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];for(const xm of xms)for(let i=0;i<xm.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],xm.pos[i+k]);mx[k]=Math.max(mx[k],xm.pos[i+k]);}return{mn,mx};}
+/* ---------- Disk atrofidagi yonuvchi halqa (opts.rimGlow) ----------
+ * Kirish: g'ildirak QISMLARI [{pos:Float32Array (disk yuzasi +X ga qaragan, markaz ~ koordinata boshi), tex:'material/shader nomi'}].
+ * Shina diskdan MATERIAL emas, manba mesh bo'yicha ajratiladi (nomi tyre/tire/... yoki eng tashqi radiusi >= 0.93 shina radiusi) --
+ * shunda tekstura topilmay hammasi bitta "plain" materialga tushsa ham ishlaydi. Disk gardishining radiusi va tashqi yuzasi X holati
+ * topiladi va shu gardish ichida X o'qi atrofida yupqa torus (halqa) quriladi. Barcha halqa uchlari BITTA atlas nuqtasiga (uv) qaraydi --
+ * rang tekis, chiroq yonganda esa o'yin atlasni almashtiradi.
+ * Qaytaradi: {ok:true,spec,Rt,Rf,R,tube,xc} yoki {ok:false,why}. Ishonchli radius topilmasa halqa QO'SHILMAYDI (taxmin qilib joylashtirmaymiz). */
+const RIM_TIRE_RE=/tyre|tire|tread|rubber|dunlop|goodyear|michelin|pirelli|bridgestone|yokohama|continental|hankook/i;
+function ringPartsFromSpecs(specs){ // DFF/spec -> qismlar (har bir material = bitta qism)
+  const parts=[];
+  for(const g of specs){const by=new Map();
+    for(let t=0;t<g.tris.length;t+=4){const m=g.tris[t+3];let st=by.get(m);if(!st){st=new Set();by.set(m,st);}st.add(g.tris[t]);st.add(g.tris[t+1]);st.add(g.tris[t+2]);}
+    for(const [m,st] of by){const pos=new Float32Array(st.size*3);let i=0;for(const v of st){pos[i++]=g.pos[v*3];pos[i++]=g.pos[v*3+1];pos[i++]=g.pos[v*3+2];}
+      parts.push({pos,tex:(g.materials[m]&&g.materials[m].tex)||''});}}
+  return parts;
+}
+function makeRimRing(parts,uv,o){
+  o=o||{};
+  let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9],nv=0;
+  for(const q of parts)for(let i=0;i<q.pos.length;i+=3){nv++;for(let k=0;k<3;k++){const v=q.pos[i+k];if(v<mn[k])mn[k]=v;if(v>mx[k])mx[k]=v;}}
+  if(!nv||!(mx[0]>mn[0]))return{ok:false,why:'g‘ildirak geometriyasi bo‘sh'};
+  let cy=(mn[1]+mx[1])/2,cz=(mn[2]+mx[2])/2;
+  const rad=(q,i)=>Math.hypot(q.pos[i+1]-cy,q.pos[i+2]-cz);
+  let Rt=0;
+  for(const q of parts){q.rmax=0;for(let i=0;i<q.pos.length;i+=3){const r=rad(q,i);if(r>q.rmax)q.rmax=r;}if(q.rmax>Rt)Rt=q.rmax;}
+  if(!(Rt>0.05))return{ok:false,why:'g‘ildirak radiusi topilmadi'};
+  const disc=parts.filter(q=>!(RIM_TIRE_RE.test(q.tex||'')||q.rmax>=0.93*Rt));
+  if(!disc.length)return{ok:false,why:'shinadan boshqa (disk) qism topilmadi — barcha qismlar shina radiusida yoki shina nomli'};
+  let Rf=0;for(const q of disc)for(let i=0;i<q.pos.length;i+=3){const r=rad(q,i);if(r>Rf)Rf=r;}
+  // markazni disk gardishining o'zidan aniqlaymiz (shina protektori bbox ni biroz siljitishi mumkin): eng katta radiusli disk qismlari bbox markazi
+  {let a0=1e9,a1=-1e9,b0=1e9,b1=-1e9;
+   for(const q of disc){if(q.rmax<0.9*Rf)continue;for(let i=0;i<q.pos.length;i+=3){const y=q.pos[i+1],z=q.pos[i+2];if(y<a0)a0=y;if(y>a1)a1=y;if(z<b0)b0=z;if(z>b1)b1=z;}}
+   if(a1>a0&&b1>b0&&Math.hypot((a0+a1)/2-cy,(b0+b1)/2-cz)<0.05*Rt){cy=(a0+a1)/2;cz=(b0+b1)/2;Rf=0;for(const q of disc)for(let i=0;i<q.pos.length;i+=3){const r=rad(q,i);if(r>Rf)Rf=r;}}}
+  if(Rf>0.92*Rt||Rf<0.25*Rt)return{ok:false,why:'disk gardishi radiusi ishonchsiz (disk '+Rf.toFixed(3)+' m, shina '+Rt.toFixed(3)+' m)'};
+  let xe=-1e9;
+  for(const q of disc)for(let i=0;i<q.pos.length;i+=3){if(rad(q,i)>=0.93*Rf&&q.pos[i]>xe)xe=q.pos[i];}
+  const tube=Math.min(0.02,Math.max(0.005,0.022*Rt)),R=Rf-1.5*tube,xc=xe-0.2*tube;
+  const NA=o.segA||40,NT=o.segT||6,P=[],N=[],UV=[],T=[];
+  for(let i=0;i<NA;i++){const a=i/NA*2*Math.PI,ca=Math.cos(a),sa=Math.sin(a);
+    for(let j=0;j<NT;j++){const b=j/NT*2*Math.PI,cb=Math.cos(b),sb=Math.sin(b);
+      P.push(xc+tube*sb,cy+(R+tube*cb)*ca,cz+(R+tube*cb)*sa);N.push(sb,cb*ca,cb*sa);UV.push(uv[0],uv[1]);}}
+  for(let i=0;i<NA;i++){const i2=(i+1)%NA;
+    for(let j=0;j<NT;j++){const j2=(j+1)%NT,v00=i*NT+j,v10=i2*NT+j,v11=i2*NT+j2,v01=i*NT+j2;
+      T.push(v00,v10,v11,0,v00,v11,v01,0);}}
+  const spec={pos:new Float32Array(P),nrm:new Float32Array(N),uv:new Float32Array(UV),tris:T,
+    materials:[{color:SA_COL.light_fl.slice(),tex:SA_LIGHT_TEX,mask:'',flat:true}],day:null,night:null,fx2d:null};
+  return{ok:true,spec,Rt,Rf,R,tube,xc,cy,cz};
+}
 /* mesh ichidan faqat berilgan uchburchaklarni (tl = uchburchak raqamlari) ajratib oladi (vertexlar qayta raqamlanadi) */
 function steerSub(me,tl){
   const nV=me.pos.length/3,map=new Int32Array(nV).fill(-1),idx=new Uint32Array(tl.length*3);let n=0;
@@ -2170,7 +2228,7 @@ function attachSteerParts(geoms,atomics,frames){
 }
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,noHeadlights:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],vehType:'car',bikeHandling:'PCJ600',bikeAnim:'bikes'},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,noHeadlights:true,vlo:true,wheelScale:1,rot180:false,rimGlow:false,rimGlowColor:'white',maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],vehType:'car',bikeHandling:'PCJ600',bikeAnim:'bikes'},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -2324,7 +2382,7 @@ function convertToSA(model,texLookup,opts){
   const gtavName={wheel_lf:'wheel_lf',wheel_rf:'wheel_rf',wheel_lb:'wheel_lr',wheel_rb:'wheel_rr',wheel_lm:'wheel_lm1',wheel_rm:'wheel_rm1'};
   for(const w of wheels)wheelPos[w.c.sa]={W:w.p.matrix,w};
   for(const sa of want){if(!wheelPos[sa]){const bm=boneByName(gtavName[sa]);if(bm)wheelPos[sa]={W:bm,w:null};}}
-  let wheelSpecs=null;
+  let wheelSpecs=null,wheelParts=null;
   const pref=['wheel_lf','wheel_lb','wheel_lm','wheel_rf','wheel_rb','wheel_rm'].map(k=>wheelPos[k]&&wheelPos[k].w).filter(Boolean);
   if(pref.length){
     const w=pref[0],acc=new GeoAcc(),xms=[];
@@ -2362,6 +2420,7 @@ function convertToSA(model,texLookup,opts){
     W=M.mul(W,[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1]);
     for(const m of w.p.meshes){const xm=xformMesh(m,W,false);acc.add(xm,m,w.p.name);xms.push(xm);}
     wheelSpecs=acc.build(matResolver);
+    wheelParts=acc.items.map(it=>({pos:it.xm.pos,tex:(it.mesh.mat&&it.mesh.mat.tex)||''}));
     const bb=bboxOf(xms);wheelDiam=Math.max(bb.mx[1]-bb.mn[1],bb.mx[2]-bb.mn[2]);
     report.info.push('G‘ildirak diametri ≈ '+wheelDiam.toFixed(2)+' m ('+w.p.name+' asos qilib olindi)');
   }
@@ -2384,8 +2443,17 @@ function convertToSA(model,texLookup,opts){
   // sinalganda g'ildiraklarni 3 burchakda BUTUNLAY YO'QOLISHIGA sabab bo'ldi (video bilan
   // tasdiqlangan regressiya), shuning uchun ORIGINAL (ishlaydigan) tartibga qaytarildi.
   const wheelParentSa=['wheel_rf','wheel_lf','wheel_rb','wheel_lb','wheel_lm','wheel_rm'].find(k=>dummyIdx[k]!=null);
-  if(wheelSpecs&&wheelParentSa!=null){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',dummyIdx[wheelParentSa],[0,0,0]);addGeoms(wf,wheelSpecs);}
-  else if(wheelSpecs){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',0,[0,0,0]);addGeoms(wf,wheelSpecs);report.warnings.push('G‘ildirak dummy pozitsiyasi topilmadi — g‘ildirak modeli mashina markazida qolishi mumkin.');}
+  let wheelFrameIdx=null;
+  if(wheelSpecs&&wheelParentSa!=null){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',dummyIdx[wheelParentSa],[0,0,0]);addGeoms(wf,wheelSpecs);wheelFrameIdx=wf;}
+  else if(wheelSpecs){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',0,[0,0,0]);addGeoms(wf,wheelSpecs);wheelFrameIdx=wf;report.warnings.push('G‘ildirak dummy pozitsiyasi topilmadi — g‘ildirak modeli mashina markazida qolishi mumkin.');}
+  // Disk atrofidagi yonuvchi halqa (ixtiyoriy): shu "wheel" geometriyasiga qo'shimcha spec sifatida qo'shiladi (frame tuzilishi O'ZGARMAYDI).
+  if(opts.rimGlow&&wheelSpecs&&wheelFrameIdx!=null){
+    const cfg=SA_RIM_GLOW[opts.rimGlowColor]||SA_RIM_GLOW.white;
+    const rr=makeRimRing(wheelParts||ringPartsFromSpecs(wheelSpecs),cfg.uv);
+    if(!rr.ok)report.warnings.push('Disk halqasi qo‘shilmadi: '+rr.why+'.');
+    else{rr.spec._k='wheel';addGeoms(wheelFrameIdx,[rr.spec]);report.rimGlow={color:opts.rimGlowColor,R:rr.R,tube:rr.tube,xc:rr.xc,Rt:rr.Rt,Rf:rr.Rf,cy:rr.cy,cz:rr.cz,tris:rr.spec.tris.length/4};
+      report.info.push('Disk halqasi (fara bilan yonadi, '+cfg.n+'): radius '+rr.R.toFixed(3)+' m (disk gardishi '+rr.Rf.toFixed(3)+', shina '+rr.Rt.toFixed(3)+' m), '+(rr.spec.tris.length/4)+' poligon. Plaginsiz usul: halqa SA ning "old chap chiroq" materiali bilan chiqdi. HALI O‘YINDA TASDIQLANMAGAN: SA chiroq materialini g‘ildirak obyektida ham almashtirishi va rangi o‘ngda/chapda to‘g‘ri chiqishi sinab ko‘rilmagan; chap old chiroq sinsa halqa ham o‘chadi.');}
+  }
   if(!want.some(k=>wheelPos[k]))report.warnings.push('G‘ildirak (wheel_*) qismlari/suyaklari topilmadi — g‘ildirak dummylari yaratilmadi.');
   // GTA V manbasida ba'zi qismlar (eshik, bamper va h.k.) uchun haqiqiy joylashuv
   // matritsasi (ch.matrix) ham, mos suyak (bone) ham topilmay, kodning boshqa joyida
@@ -3114,7 +3182,7 @@ function convertToSA(model,texLookup,opts){
   if(renamed.length)report.info.push('Tekstura nomlari SA uchun moslandi (bo‘sh joy/maxsus belgisiz, ≤23 belgi): '+renamed.slice(0,6).join(', ')+(renamed.length>6?'…':''));
   return{dff,txd,col,ide,report,name,kind:bikeMode?'bike':'car',texNames:txdTexs.map(t=>t.name),texMap};
 }
-Object.assign(G,{isUnknownShader,convertToSA,classify,classifyBike,looksLikeBike,autoRole,ROLES,SA_COL,defaultRoles,analyzeSteer,eig3,fixGlassSides,attachDoorGlass,attachSteerParts,meshComps,stripQ});
+Object.assign(G,{isUnknownShader,convertToSA,makeRimRing,ringPartsFromSpecs,SA_RIM_GLOW,classify,classifyBike,looksLikeBike,autoRole,ROLES,SA_COL,defaultRoles,analyzeSteer,eig3,fixGlassSides,attachDoorGlass,attachSteerParts,meshComps,stripQ});
 })(GV);
 
 /* ===== minimal WebGL1 model viewer (Z-up) ===== */
@@ -3530,7 +3598,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,doorGlass:true,doorStyle:'auto',doorFlip:false,noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false},
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,doorGlass:true,doorStyle:'auto',doorFlip:false,rimGlow:false,rimGlowColor:'white',noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false},
   bopts:{name:'',lod:'high',vehType:'bike',preset:'game',keepParts:true,vlo:true,rot180:false,shine:'high',glass:'normal',glassBoth:true,noHeadlights:true,steerAdopt:true,paintMode:'game',paintColor:[255,255,255,255],hideHidden:true,maxTris:36000,maxTex:512,compress:'auto',mips:true,missTex:'auto',bikeHandling:'PCJ600',bikeAnim:'bikes'}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
@@ -3835,6 +3903,9 @@ function paneConv(p){
     p.appendChild(sel('Eshik ochilishi','doorStyle',[['auto','Avto (GTA V eshik suyagi yo‘nalishidan; oddiy eshiklar o‘zgarmaydi)'],['normal','Oddiy (yon tomonga)'],['scissor','Qaychi (Lamborghini) — yuqoriga'],['butterfly','Kapalak (Ferrari/McLaren) — yuqoriga va tashqariga'],['gullwing','Gullwing (tom o‘rtasidan) — yuqoriga']]));
     p.appendChild(chk('Eshik ochilish yo‘nalishini teskari qilish (eshik pastga yoki ichkariga ketsa yoqing)','doorFlip'));
     p.appendChild(el('div',{class:'note',html:'<b>Eshik ochilishi.</b> «Avto» — GTA V eshik suyagining o‘qi og‘gan bo‘lsa (yuqoriga ochiladigan mashina) shu o‘qni oladi, oddiy mashinalarda hech narsa o‘zgarmaydi. Mashina GTA V da yuqoriga ochilsa-yu, SA da yon tomonga ochilsa — ro‘yxatdan <b>Kapalak</b> yoki <b>Qaychi</b> ni tanlang. SA eshikni dummy ning Z o‘qi atrofida buradi; yuqoriga ochilish uchun dummy ning ota freymi (<code>d_lf</code>, <code>d_rf</code>…) burib qo‘yiladi (ZModeler qo‘llanmalaridagi usul). O‘yinda hali tasdiqlanmagan: eshik pastga/ichkariga ketsa — «teskari» katagini yoqing.'}));
+    p.appendChild(chk('Disk atrofida yonuvchi halqa (fara yonganda halqa ham yonadi)','rimGlow'));
+    p.appendChild(sel('Halqa rangi (faqat SA ning o‘z fara ranglaridan)','rimGlowColor',[['white','Oq (issiq-oq, old fara kabi)'],['red','Qizil'],['blue','Ko‘k (binafsharang-ko‘k)'],['orange','To‘q sariq'],['yellow','Sariq']]));
+    p.appendChild(el('div',{class:'note',html:'<b>Disk halqasi.</b> Plaginsiz usul: disk gardishi ichiga yupqa halqa qo‘shiladi va u SA ning <b>old chap chiroq</b> materiali bilan chiqadi — fara yonganda o‘yinning o‘zi uni «yonib turgan» teksturaga almashtiradi. Rang ixtiyoriy emas: faqat SA ning fara atlasidagi 5 ta rang. Fara o‘chiq paytda halqa shu rangning xira tusida turadi. <b>O‘yinda hali tasdiqlanmagan:</b> SA chiroq materialini g‘ildirak obyektida ham almashtirishi sinab ko‘rilmagan; chap old chiroq sinsa halqa ham o‘chadi. Ishlamasa — katakni o‘chirib qayta konvert qiling, boshqa narsa o‘zgarmaydi.'}));
     p.appendChild(chk('"headlights" dummy qo‘yilmasin','noHeadlights'));
     p.appendChild(chk('Rul burilsin (VehFuncs plagini, f_steer)','steerSpin'));
     p.appendChild(sel('Rul burilish burchagi (VehFuncs)','steerAngle',[['100','100° — CJ qo‘llari bilan bir xil (standart animatsiya)'],['180','180° (tavsiya)'],['270','270°'],['360','360° (to‘liq aylanish)'],['540','540° (haqiqiy mashinadek)']]));}
