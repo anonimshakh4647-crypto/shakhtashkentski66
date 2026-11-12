@@ -1688,6 +1688,38 @@ function classify(raw){
   if(n==='seat_dside_r')return{t:'dummy',sa:'ped_backseat'};
   return{t:'other',sa:null};
 }
+/* ---------- MOTOSIKL (SA "bike") ----------
+ * GTA SA mototsikli mashinadan boshqacha tuzilgan (MTA wiki "Vehicle Components": bike toifasida chassis, forks_front, forks_rear,
+ * wheel_front, wheel_rear, mudguard, handlebars, misc_a, misc_b). Quyidagi tasniflash GTA V mototsikl QISM nomlariga qaraydi.
+ * ESLATMA: GTA V mototsikl suyaklarining aniq nomlari tekshirilmagan (internetdan ro'yxat topilmadi) — shuning uchun nomlar keng
+ * andoza (regex) bilan olinadi, qolgani joylashuv (geometriya) bo'yicha aniqlanadi. Hamma qism natijada hisobotda ko'rsatiladi. */
+function classifyBike(raw){
+  const n=(raw||'').toLowerCase();
+  if(/^(chassis|bodyshell|chassis_dummy)$/.test(n))return{t:'body',sa:'chassis'};
+  if(/^wheel/.test(n)&&!/(dummy|hub|brake|disc|rotor)/.test(n))return{t:'wheel',sa:'wheel_front/rear'};
+  if(/swing/.test(n)||/^forks?_?r(ear)?$/.test(n))return{t:'swing',sa:'forks_rear'};
+  if(/^forks?(_|\d|$)/.test(n))return{t:'forkF',sa:'forks_front'};
+  if(/handle_?bar|^bars?$/.test(n))return{t:'bars',sa:'handlebars1'};
+  if(/^mud_?g[ua]+rd|^fender/.test(n))return{t:'mud',sa:'mudguard'};
+  if(/^headlight/.test(n))return{t:'dummy',sa:'headlights'};
+  if(/^(taillight|brakelight)/.test(n))return{t:'dummy',sa:'taillights'};
+  if(/^seat_[dp]side_f$/.test(n))return{t:'dummy',sa:'ped_frontseat'};
+  if(/^seat_[dp]side_r$/.test(n))return{t:'dummy',sa:'ped_backseat'};
+  if(n==='exhaust')return{t:'dummy',sa:'exhaust'};
+  if(n==='petrolcap')return{t:'dummy',sa:'petrolcap'};
+  return{t:'other',sa:null};
+}
+/* model mototsiklga o'xshaydimi: vilka/rul/mayatnik qismlari bor, yoki g'ildirak faqat chap (lf, lr) va eshiklar yo'q */
+function looksLikeBike(model){
+  if(!model||model.kind!=='yft')return false;
+  const names=new Set((model.parts||[]).map(p=>String(p.name||'').toLowerCase()));
+  (model.bones||[]).forEach(b=>names.add(String(b.name||'').toLowerCase()));
+  const has=re=>[...names].some(n=>re.test(n));
+  if(has(/^forks?(_|\d|$)/)||has(/handle_?bar/)||has(/swing/))return true;
+  return has(/^wheel_lf$/)&&has(/^wheel_lr$/)&&!has(/^wheel_rf$/)&&!has(/^wheel_rr$/)&&!has(/^door_/);
+}
+/* xformMesh natijasini (dunyo fazosi) frame markaziga nisbatan lokal qiladi: pos -= c */
+function shiftXm(xm,c){const n=xm.pos.length,pos=new Float32Array(n);for(let i=0;i<n;i+=3){pos[i]=xm.pos[i]-c[0];pos[i+1]=xm.pos[i+1]-c[1];pos[i+2]=xm.pos[i+2]-c[2];}return Object.assign({},xm,{pos,off:c.slice()});}
 function autoRole(shaderName,texName,partName){
   const s=(shaderName||'').toLowerCase(),t=(texName||'').toLowerCase(),p=(partName||'').toLowerCase();
   if(/paint/.test(s)&&!/ped/.test(s))return'paint1';
@@ -1918,7 +1950,7 @@ function fixGlassSides(geoms,atomics,frames,center){
 }
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',noHeadlights:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255]},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',noHeadlights:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],vehType:'car',bikeHandling:'PCJ600',bikeAnim:'bikes'},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -1928,11 +1960,24 @@ function convertToSA(model,texLookup,opts){
   if(!parts.length){const alt=['high','med','low','vlow'].find(l=>model.parts.some(p=>p.lod===l));parts=model.parts.filter(p=>p.lod===alt);opts._lodFallback=alt;}
   const report={warnings:[],info:[],parts:[],missingTex:[],usedTex:[]};
   if(opts._lodFallback)report.warnings.push('"'+opts.lod+'" LOD topilmadi, "'+opts._lodFallback+'" ishlatildi.');
-  let name=(opts.name||model.name||'car').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20)||'car';
+  const bikeMode=opts.vehType==='bike'&&model.kind==='yft';
+  let name=(opts.name||model.name||(bikeMode?'bike':'car')).toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20)||(bikeMode?'bike':'car');
   if(opts.preset==='hq')name=name.slice(0,17)+'_hq';
   // part classes
   const objectMode=model.kind!=='yft';
-  const cls=parts.map(p=>({p,c:objectMode?{t:'body',sa:'object'}:classify(p.name)}));
+  const clsFn=bikeMode?classifyBike:classify;
+  // mototsikl: "wheel*" nomli qism topilmasa, g'ildirakni shakl bo'yicha qidiramiz (diski yupqa, aylana, 0.4–1.1 m)
+  const bikeWheelSet=new Set();
+  if(bikeMode&&!parts.some(p=>classifyBike(p.name).t==='wheel')){
+    const cand=[];
+    for(const p of parts){if(classifyBike(p.name).t!=='other')continue;
+      const b=bboxOf(p.meshes.map(m=>xformMesh(m,p.matrix,true)));const ex=b.mx[0]-b.mn[0],ey=b.mx[1]-b.mn[1],ez=b.mx[2]-b.mn[2];
+      if(ex>0&&ex<0.45&&ey>0.4&&ey<1.1&&Math.abs(ey-ez)<0.12*Math.max(ey,ez))cand.push({p,z:b.mn[2]});}
+    cand.sort((a,b)=>a.z-b.z);
+    cand.slice(0,2).forEach(o=>bikeWheelSet.add(o.p));
+    if(cand.length)report.warnings.push('Mototsikl: "wheel*" nomli qism topilmadi — g‘ildirak shakl bo‘yicha aniqlandi: '+cand.slice(0,2).map(o=>o.p.name).join(', ')+'.');
+  }
+  const cls=parts.map(p=>({p,c:objectMode?{t:'body',sa:'object'}:(bikeWheelSet.has(p)?{t:'wheel',sa:'wheel_front/rear'}:clsFn(p.name))}));
   const roleFor=(mesh,partName)=>{const r=opts.roles[mesh.mat.shaderIndex]||'auto';
     if(r!=='auto')return r;if(objectMode)return'texture';
     const a=autoRole(mesh.mat.shaderName,mesh.mat.tex,partName);
@@ -1943,7 +1988,7 @@ function convertToSA(model,texLookup,opts){
   // old/orqa kuzovning HAQIQIY o'rtasiga nisbatan aniqlanadi (o'rta Y = kuzov bbox markazi)
   let lensMidY=null;
   const lensMid=()=>{if(lensMidY===null){const bb=bodyXms.length?bboxOf(bodyXms):null;lensMidY=bb?(bb.mn[1]+bb.mx[1])/2:0;}return lensMidY;};
-  const lightByPos=(xm,a,b,c)=>{const x=(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3,y=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3;return'light_'+(y>=lensMid()?'f':'r')+(x<0?'l':'r');};
+  const lightByPos=(xm,a,b,c)=>{const o=xm.off||[0,0,0],x=(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3+o[0],y=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3+o[1];return'light_'+(y>=lensMid()?'f':'r')+(x<0?'l':'r');};
   const texFound=new Map(),fallbackPaint=new Set();
   const neutralMemo=new Map();
   const neutralTex=t=>{ // near-white/grey map (safe to tint with the SA paint colour)
@@ -1979,16 +2024,16 @@ function convertToSA(model,texLookup,opts){
       // modlarda bitta "_l" qismi ichida ikkala tomonning chiroqlari turadi. Uchburchak aniq o'ng yoki
       // chap tomonda (markazdan >10 sm) bo'lsa, tomon (l/r) uning haqiqiy joyidan olinadi; old/orqa (f/r)
       // esa nomdan qoladi. Shu bilan o'ng chiroq materiali chap rangda chiqib qolmaydi.
-      const cx=xm?(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3:0;
+      const cx=xm?(xm.pos[a*3]+xm.pos[b*3]+xm.pos[c*3])/3+(xm.off?xm.off[0]:0):0;
       if(xm&&Math.abs(cx)>0.1)k=k.slice(0,-1)+(cx<0?'l':'r');
       // OLD chiroqlar HAR DOIM oq, ORQA chiroqlar HAR DOIM qizil: old/orqa nomdan emas, uchburchakning haqiqiy joyidan olinadi
       // (aks holda old chiroq korpusidagi "reversinglight"/"indicator" kabi nomli lampa qizil chiqib qolardi). Eshik ichidagi
       // qismlar lokal fazoda bo'lgani uchun ular uchun nom bo'yicha qoladi.
-      if(xm&&classify(it.partName).t!=='mov'){const pk=lightByPos(xm,a,b,c);k='light_'+pk.charAt(6)+k.slice(-1);}
+      if(xm&&clsFn(it.partName).t!=='mov'){const pk=lightByPos(xm,a,b,c);k='light_'+pk.charAt(6)+k.slice(-1);}
       // chiroq dummylari (headlights/taillights) topilmasa yoki noto'g'ri joyda bo'lsa, ularni chiroq
       // oynasi (lens) uchburchaklarining markazidan hisoblash uchun yig'ib boramiz (eshik qismlari
       // o'z lokal fazosida bo'lgani uchun hisobga olinmaydi).
-      if(xm&&classify(it.partName).t!=='mov'){const kp=lightByPos(xm,a,b,c),q=lightAcc[kp]||(lightAcc[kp]={n:0,x:0,y:0,z:0});q.n++;q.x+=cx;q.y+=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3;q.z+=(xm.pos[a*3+2]+xm.pos[b*3+2]+xm.pos[c*3+2])/3;}
+      if(xm&&clsFn(it.partName).t!=='mov'){const kp=lightByPos(xm,a,b,c),q=lightAcc[kp]||(lightAcc[kp]={n:0,x:0,y:0,z:0});q.n++;q.x+=cx;q.y+=(xm.pos[a*3+1]+xm.pos[b*3+1]+xm.pos[c*3+1])/3+(xm.off?xm.off[1]:0);q.z+=(xm.pos[a*3+2]+xm.pos[b*3+2]+xm.pos[c*3+2])/3+(xm.off?xm.off[2]:0);}
       return{key:k,color:SA_COL[k],tex:SA_LIGHT_TEX,uv:SA_LIGHT_UV[k]};
     }
     const t=it.mesh.mat.tex;
@@ -2000,7 +2045,7 @@ function convertToSA(model,texLookup,opts){
         return pshade&&SH?{key:'tex:'+t+'|p',color:[255,255,255,255],tex:t,fx:SH.paint}:{key:'tex:'+t,color:[255,255,255,255],tex:t};}
     }
     // no texture available -> choose a sensible colour instead of flat grey
-    const sn=it.mesh.mat.shaderName,pc=objectMode?'body':classify(it.partName).t;
+    const sn=it.mesh.mat.shaderName,pc=objectMode?'body':clsFn(it.partName).t;
     const dark=/tyre|tire|rubber|brake|disc/.test(((t||'')+' '+it.partName).toLowerCase());
     const bodyish=pc!=='wheel'&&pc!=='dummy'&&pc!=='steer';
     if(dark)return{key:'black',color:SA_COL.black};
@@ -2008,26 +2053,28 @@ function convertToSA(model,texLookup,opts){
     if(opts.missTex==='auto'&&bodyish&&!objectMode&&isUnknownShader(sn)){fallbackPaint.add(sn||'?');return{key:'paint1',color:paintCol('paint1'),fx:SH&&SH.paint};}
     return{key:'plain',color:SA_COL.plain};
   };
-  const frames=[{name:objectMode?name:'chassis_dummy',pos:[0,0,0],parent:-1}];
+  const frames=[{name:(objectMode||bikeMode)?name:'chassis_dummy',pos:[0,0,0],parent:-1}];
   const geoms=[],atomics=[];
   const addFrame=(n,parent,pos)=>{frames.push({name:n,pos,parent});return frames.length-1;};
   const addGeoms=(frame,specs)=>{for(const s of specs){geoms.push(s);atomics.push({frame,geom:geoms.length-1});}};
   const rot0=W=>{const w=W.slice();w[12]=w[13]=w[14]=0;return w;};
   // 1. body
-  const bodyAcc=new GeoAcc(),chassisFrame=objectMode?0:addFrame('chassis',0,[0,0,0]);
+  const cdFrame=bikeMode?addFrame('chassis_dummy',0,[0,0,0]):0; // mototsikl: ildiz = model nomi, chassis_dummy uning bolasi (haqiqiy SA mototsikl DFF si kabi)
+  const bodyAcc=new GeoAcc(),chassisFrame=objectMode?0:addFrame('chassis',cdFrame,[0,0,0]);
   // keepParts: har bir GTA V qismi o‘z frame/geometriyasida qoladi (attach qilib bitta qilib yuborilmaydi)
   const keepParts=opts.keepParts!==false,partAccs=[];
   const partAccOf=p=>{let a=partAccs.find(x=>x.p===p);if(!a){a={p,acc:new GeoAcc()};partAccs.push(a);}return a.acc;};
   const bodyXms=[];
-  const wheels=[],movs=[],extras=[],dummies=[],steer=[];
+  const wheels=[],movs=[],extras=[],dummies=[],steer=[],bikeSp=[];
   for(const {p,c} of cls){
     const rec={name:p.name,sa:c.sa||'(body ga qo‘shildi)',type:c.t,meshes:p.meshes.length,verts:p.meshes.reduce((s,m)=>s+m.pos.length/3,0)};
     report.parts.push(rec);
-    if(c.t==='body'||(c.t==='other'&&opts.mergeOther)){if(keepParts)rec.sa='(alohida qism)';for(const m of p.meshes){const xm=xformMesh(m,p.matrix,true);(keepParts&&!(!objectMode&&String(p.name).toLowerCase()==='chassis')?partAccOf(p):bodyAcc).add(xm,m,p.name);bodyXms.push(xm);}}
+    if(c.t==='body'||(c.t==='other'&&opts.mergeOther)){if(keepParts)rec.sa='(alohida qism)';for(const m of p.meshes){const xm=xformMesh(m,p.matrix,true);(keepParts&&!(!objectMode&&/^(chassis|chassis_dummy)$/.test(String(p.name).toLowerCase()))?partAccOf(p):bodyAcc).add(xm,m,p.name);bodyXms.push(xm);}}
     else if(c.t==='wheel')wheels.push({p,c});
     else if(c.t==='mov')movs.push({p,c});
     else if(c.t==='extra')extras.push({p,c});
     else if(c.t==='steer')steer.push({p,c});
+    else if(c.t==='forkF'||c.t==='bars'||c.t==='swing'||c.t==='mud')bikeSp.push({p,c});
     else if(c.t==='dummy'){dummies.push({p,c});for(const m of p.meshes){const xm=xformMesh(m,p.matrix,true);bodyAcc.add(xm,m,p.name);bodyXms.push(xm);}}
   }
   // light-dummy parts have a mesh too -> merged into body above (positions come from matrix)
@@ -2035,7 +2082,7 @@ function convertToSA(model,texLookup,opts){
   const bodySpecs=bodyAcc.build(matResolver);
   addGeoms(chassisFrame,bodySpecs);
   if(partAccs.length){
-    const RESERVED=/^(chassis|bonnet|boot|door_|bump_|wing_|windscreen|wheel|ped_|exhaust|headlights|taillights|indicator|petrol|extra_|misc_|hub|steer|brakelight|reversing|fog|light_|boat_|smoke|tyre|spoiler)/;
+    const RESERVED=/^(chassis|bonnet|boot|door_|bump_|wing_|windscreen|wheel|ped_|exhaust|headlights|taillights|indicator|petrol|extra_|misc_|hub|steer|brakelight|reversing|fog|light_|boat_|smoke|tyre|spoiler|forks|handlebars|mudguard|swingarm|plate)/;
     const used=new Set(frames.map(f=>f.name.toLowerCase()));let n=0;
     for(const {p,acc} of partAccs){
       const specs=acc.build(matResolver);if(!specs.length)continue;
@@ -2049,7 +2096,7 @@ function convertToSA(model,texLookup,opts){
   }
   // 2. wheels
   let wheelDiam=0.7;const have=new Set();
-  if(!objectMode){
+  if(!objectMode&&!bikeMode){
   const wheelPos={};
   const want=['wheel_lf','wheel_rf','wheel_lb','wheel_rb','wheel_lm','wheel_rm'];
   const boneByName=n=>{const i=(model.bones||[]).findIndex(b=>b.name.toLowerCase()===n);return i>=0&&model.boneMats?model.boneMats[i]:null;};
@@ -2343,15 +2390,133 @@ function convertToSA(model,texLookup,opts){
     if(!have.has('ped_backseat')){addFrame('ped_backseat',0,[0.4,bb.mn[1]+len*0.30,h]);}
   }
   }
+
+  // ===== MOTOSIKL: HAQIQIY SA mototsikl DFF si (pcj600.dff, foydalanuvchi yuborgan) tuzilishi bo'yicha =====
+  //   <model nomi> (ildiz)
+  //   ├ dummylar: taillights, headlights, ped_frontseat, ped_backseat, exhaust, petrolcap
+  //   └ chassis_dummy ├ forks_rear  (aylanish o'qi = mayatnikning old uchi)  └ wheel_rear   (bola, markazi = g'ildirak o'qi)
+  //                   ├ forks_front (aylanish o'qi = vilkaning yuqori uchi)   ├ handlebars1 ├ mudguard └ wheel_front (bolalar)
+  //                   ├ chassis (+ p_* qismlar, shaffof qismlar chassis_alpha da)
+  //                   └ chassis_vlo
+  // Frame joylari ota-frame ga NISBATAN (lokal), geometriya esa o'z frame boshiga nisbatan lokal: g'ildirak geometriyasi markazi frame
+  // boshida, vilka geometriyasi yuqori uchi frame boshida (haqiqiy faylda ham shunday tekshirilgan).
+  const bikeXms=[],bikeInfo={fd:0.65,rd:0.65,fY:null,rY:null,axZ:null};
+  if(bikeMode){
+    const zero=(x,y,z)=>Math.abs(x)<1e-5&&Math.abs(y)<1e-5&&Math.abs(z)<1e-5;
+    const boneM=n=>{const i=(model.bones||[]).findIndex(b=>String(b.name||'').toLowerCase()===n);return i>=0&&model.boneMats?model.boneMats[i]:null;};
+    const bbC=b=>[(b.mn[0]+b.mx[0])/2,(b.mn[1]+b.mx[1])/2,(b.mn[2]+b.mx[2])/2];
+    const snapX=v=>Math.abs(v)<0.06?0:v;
+    const f2=a=>a.map(v=>v.toFixed(2)).join(', ');
+    const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+    const bodyBB=bodyXms.length?bboxOf(bodyXms):null;
+    const est=[];
+    // --- g'ildiraklar: old = Y kattaroq (SA/GTA V da +Y = oldinga) ---
+    const wl=wheels.map(({p})=>{const xms=p.meshes.map(m=>xformMesh(m,p.matrix,true)),b=bboxOf(xms);return{p,xms,b,c:bbC(b)};}).filter(o=>o.b.mx[0]>o.b.mn[0]);
+    let midY;
+    if(wl.length>=2){const ys=wl.map(o=>o.c[1]);midY=(Math.min(...ys)+Math.max(...ys))/2;}
+    else midY=bodyBB?(bodyBB.mn[1]+bodyBB.mx[1])/2:0;
+    const wF=wl.filter(o=>o.c[1]>=midY),wR=wl.filter(o=>o.c[1]<midY);
+    const wheelData=list=>{
+      if(!list.length)return null;
+      const all=[];list.forEach(o=>o.xms.forEach(x=>all.push(x)));
+      const b=bboxOf(all),c=bbC(b);c[0]=snapX(c[0]);
+      const acc=new GeoAcc();
+      for(const o of list)o.p.meshes.forEach((m,i)=>acc.add(shiftXm(o.xms[i],c),m,o.p.name));
+      const specs=acc.build(matResolver);specs.forEach(x=>{x._k='wheel';});
+      all.forEach(x=>bikeXms.push(x));
+      return{c,diam:Math.max(b.mx[1]-b.mn[1],b.mx[2]-b.mn[2]),w:b.mx[0]-b.mn[0],specs,names:list.map(o=>o.p.name)};
+    };
+    const wf=wheelData(wF),wr=wheelData(wR);
+    const wbGuess=wf&&wr?wf.c[1]-wr.c[1]:(bodyBB?(bodyBB.mx[1]-bodyBB.mn[1])*0.75:1.4);
+    const axZ=wf?wf.c[2]:wr?wr.c[2]:(bodyBB?bodyBB.mn[2]+0.32:0.32);
+    const wfC=wf?wf.c:[0,wr?wr.c[1]+wbGuess:(bodyBB?bodyBB.mx[1]-0.25:0.7),axZ];
+    const wrC=wr?wr.c:[0,wf?wf.c[1]-wbGuess:(bodyBB?bodyBB.mn[1]+0.25:-0.7),axZ];
+    if(!wf)report.warnings.push('Mototsikl: OLD g‘ildirak topilmadi — bo‘sh "wheel_front" frame taxminiy joyga qo‘yildi (g‘ildirak ko‘rinmaydi). Qism nomlarini "Qismlar" bo‘limida tekshiring.');
+    if(!wr)report.warnings.push('Mototsikl: ORQA g‘ildirak topilmadi — bo‘sh "wheel_rear" frame taxminiy joyga qo‘yildi (g‘ildirak ko‘rinmaydi). Qism nomlarini "Qismlar" bo‘limida tekshiring.');
+    if(wf&&wr&&Math.abs(wf.c[1]-wr.c[1])<0.3)report.warnings.push('Mototsikl: old va orqa g‘ildirak deyarli bir joyda ('+f2(wf.c)+' / '+f2(wr.c)+') — g‘ildiraklar noto‘g‘ri aniqlangan bo‘lishi mumkin.');
+    bikeInfo.fd=wf?wf.diam:(wr?wr.diam:0.65);bikeInfo.rd=wr?wr.diam:bikeInfo.fd;bikeInfo.fY=wfC[1];bikeInfo.rY=wrC[1];bikeInfo.axZ=axZ;
+    wheelDiam=bikeInfo.fd;
+    // --- vilka / rul / mayatnik / old qanot ---
+    const grp=kind=>{const xms=[];for(const o of bikeSp)if(o.c.t===kind)for(const m of o.p.meshes)xms.push({p:o.p,m,xm:xformMesh(m,o.p.matrix,true)});
+      return{xms,names:[...new Set(xms.map(q=>q.p.name))],b:xms.length?bboxOf(xms.map(q=>q.xm)):null};};
+    const gF=grp('forkF'),gB=grp('bars'),gS=grp('swing'),gM=grp('mud');
+    const mudF=gM.xms.filter(q=>bbC(bboxOf([q.xm]))[1]>=midY),mudR=gM.xms.filter(q=>!mudF.includes(q));
+    const topPivot=g=>{const b=g.b,h=b.mx[2]-b.mn[2],zc=b.mx[2]-0.12*h;let sy=0,n=0;
+      for(const q of g.xms){const P=q.xm.pos;for(let i=0;i<P.length;i+=3)if(P[i+2]>=zc){sy+=P[i+1];n++;}}
+      return[snapX((b.mn[0]+b.mx[0])/2),n?sy/n:(b.mn[1]+b.mx[1])/2,b.mx[2]-0.03*h];};
+    const endPivot=g=>{const b=g.b,l=b.mx[1]-b.mn[1],yc=b.mx[1]-0.12*l;let sz=0,n=0;
+      for(const q of g.xms){const P=q.xm.pos;for(let i=0;i<P.length;i+=3)if(P[i+1]>=yc){sz+=P[i+2];n++;}}
+      return[snapX((b.mn[0]+b.mx[0])/2),b.mx[1]-0.03*l,n?sz/n:(b.mn[2]+b.mx[2])/2];};
+    const localSpecs=(items,pv)=>{const acc=new GeoAcc();for(const q of items)acc.add(shiftXm(q.xm,pv),q.m,q.p.name);items.forEach(q=>bikeXms.push(q.xm));return acc.build(matResolver);};
+    let pivF;
+    if(gF.b)pivF=topPivot(gF);
+    else if(gB.b)pivF=[snapX((gB.b.mn[0]+gB.b.mx[0])/2),(gB.b.mn[1]+gB.b.mx[1])/2,gB.b.mn[2]];
+    else{pivF=[0,wfC[1]-0.15,wfC[2]+0.9*bikeInfo.fd];est.push('forks_front/handlebars1');}
+    let pivS;
+    if(gS.b)pivS=endPivot(gS);
+    else{pivS=[0,wrC[1]+0.45*wbGuess,wrC[2]];est.push('forks_rear');}
+    // --- frame lar (ota-bola tartibida) ---
+    const frS=addFrame('forks_rear',cdFrame,pivS.slice());if(gS.b)addGeoms(frS,localSpecs(gS.xms,pivS));
+    const frWR=addFrame('wheel_rear',frS,sub(wrC,pivS));if(wr)addGeoms(frWR,wr.specs);
+    const frF=addFrame('forks_front',cdFrame,pivF.slice());if(gF.b)addGeoms(frF,localSpecs(gF.xms,pivF));
+    const frH=addFrame('handlebars1',frF,[0,0,0]);if(gB.b)addGeoms(frH,localSpecs(gB.xms,pivF));
+    const frM=addFrame('mudguard',frF,sub(wfC,pivF));if(mudF.length)addGeoms(frM,localSpecs(mudF,wfC));
+    const frWF=addFrame('wheel_front',frF,sub(wfC,pivF));if(wf)addGeoms(frWF,wf.specs);
+    if(mudR.length){const fr=addFrame('p_mudguard_r',chassisFrame,[0,0,0]);addGeoms(fr,localSpecs(mudR,[0,0,0]));}
+    // --- dummylar (ildiz frame ning bolalari, dunyo koordinatalarida) ---
+    const dumPos=names=>{
+      for(const n of names){
+        const dp=dummies.find(d=>String(d.p.name).toLowerCase()===n);
+        if(dp){const mx=dp.p.matrix;if(mx&&!zero(mx[12],mx[13],mx[14]))return[mx[12],mx[13],mx[14]];
+          const b=bboxOf(dp.p.meshes.map(m=>xformMesh(m,dp.p.matrix,true)));if(b.mx[0]>b.mn[0])return bbC(b);}
+        const bm=boneM(n);if(bm&&!zero(bm[12],bm[13],bm[14]))return[bm[12],bm[13],bm[14]];
+      }
+      return null;};
+    const have2=new Set(frames.map(f=>f.name));
+    const addDum=(n,pos)=>{if(have2.has(n)||!pos)return false;addFrame(n,0,pos);have2.add(n);return true;};
+    const lensPts=keys=>keys.map(k=>lightAcc[k]).filter(q=>q&&q.n).map(q=>[q.x/q.n,q.y/q.n,q.z/q.n]);
+    const lightPos=front=>{
+      const c=lensPts(front?['light_fl','light_fr']:['light_rl','light_rr']);
+      if(c.length){const left=c.find(q=>q[0]<-0.12);if(left)return left.slice(); // ikkita chiroq: chap tomoni (o'ng tomonni o'yin akslantiradi)
+        const a=c.reduce((t,q)=>[t[0]+q[0],t[1]+q[1],t[2]+q[2]],[0,0,0]).map(v=>v/c.length);a[0]=Math.abs(a[0])<0.12?0:a[0];return a;}
+      const dp=dumPos(front?['headlight_l','headlight_r','headlight']:['taillight_l','taillight_r','taillight','brakelight_l','brakelight_r','brakelight']);
+      if(dp){const q=dp.slice();if(Math.abs(q[0])<0.12)q[0]=0;return q;}
+      return null;};
+    const AA=(()=>{const xs=bodyXms.concat(bikeXms);return xs.length?bboxOf(xs):null;})();
+    const HH=AA?AA.mx[2]-AA.mn[2]:1.2;
+    const noHead=opts.noHeadlights!==false;
+    let hp=lightPos(true),tp=lightPos(false);
+    if(!hp&&AA){hp=[0,AA.mx[1]-0.1,AA.mn[2]+0.62*HH];est.push('headlights');}
+    if(!tp&&AA){tp=[0,AA.mn[1]+0.1,AA.mn[2]+0.55*HH];est.push('taillights');}
+    addDum('taillights',tp);
+    if(!noHead)addDum('headlights',hp);
+    let fs=dumPos(['seat_dside_f','seat_pside_f']),bs=dumPos(['seat_dside_r','seat_pside_r']);
+    if(!fs||!bs){
+      const sp=parts.find(q=>/seat/.test(String(q.name||'').toLowerCase())&&classifyBike(q.name).t==='other');
+      let sb=null;if(sp){const b=bboxOf(sp.meshes.map(m=>xformMesh(m,sp.matrix,true)));if(b.mx[0]>b.mn[0])sb=b;}
+      const rY=wrC[1],fY=wfC[1],wb=fY-rY,top=bodyBB?bodyBB.mx[2]:(AA?AA.mx[2]:1),zA=wrC[2];
+      if(!fs){fs=sb?[0,sb.mn[1]+0.62*(sb.mx[1]-sb.mn[1]),sb.mx[2]]:[0,rY+0.42*wb,zA+0.55*(top-zA)];est.push('ped_frontseat');}
+      if(!bs){bs=sb?[0,sb.mn[1]+0.18*(sb.mx[1]-sb.mn[1]),sb.mx[2]]:[0,rY+0.2*wb,fs[2]];est.push('ped_backseat');}
+    }
+    addDum('ped_frontseat',[0,fs[1],fs[2]]);
+    const exP=dumPos(['exhaust']);if(exP)addDum('exhaust',exP);
+    addDum('ped_backseat',[0,bs[1],bs[2]]); // mototsiklda o'rindiq markazda (x=0), haqiqiy faylda ham shunday
+    const pcP=dumPos(['petrolcap']);if(pcP)addDum('petrolcap',pcP);
+    // --- hisobot ---
+    report.info.push('MOTOSIKL rejimi (haqiqiy SA mototsikl DFF si tuzilishida). G‘ildiraklar: old "wheel_front" '+(wf?'('+wf.names.join('+')+') markazi ('+f2(wf.c)+'), diametri ≈ '+wf.diam.toFixed(2)+' m':'YO‘Q')+'; orqa "wheel_rear" '+(wr?'('+wr.names.join('+')+') markazi ('+f2(wr.c)+'), diametri ≈ '+wr.diam.toFixed(2)+' m':'YO‘Q')+'. Old g‘ildirak, qanot (mudguard) va rul (handlebars1) "forks_front" ning, orqa g‘ildirak "forks_rear" ning bolasi.');
+    report.info.push('Vilka "forks_front": '+(gF.b?gF.names.join('+'):'qism topilmadi (bo‘sh frame)')+'; rul "handlebars1": '+(gB.b?gB.names.join('+'):'qism topilmadi (bo‘sh frame)')+'; mayatnik "forks_rear": '+(gS.b?gS.names.join('+'):'qism topilmadi (bo‘sh frame)')+'; old qanot "mudguard": '+(mudF.length?gM.names.join('+'):'yo‘q (kuzov bilan)')+'. Vilka/rul aylanish markazi: ('+f2(pivF)+'), mayatnik o‘qi: ('+f2(pivS)+').');
+    report.info.push('Dummylar: '+[...have2].filter(n=>/^(headlights|taillights|ped_frontseat|ped_backseat|exhaust|petrolcap)$/.test(n)).join(', ')+(noHead?' (headlights QO‘YILMADI — sizning tanlovingiz)':'')+'. Ildiz frame nomi: "'+name+'", uning bolasi "chassis_dummy" (real SA mototsiklidagidek).');
+    if(est.length)report.warnings.push('Mototsikl: quyidagilar uchun aniq joylashuv topilmadi, TAXMINIY qo‘yildi (o‘yinda tekshiring): '+est.join(', ')+'.');
+  }
   // 5. very-low LOD (chassis_vlo)
   if(opts.vlo&&!objectMode){
     const vl=model.parts.filter(p=>p.lod==='vlow'||p.lod==='low');
     const lodSel=vl.filter(p=>p.lod==='vlow').length?vl.filter(p=>p.lod==='vlow'):vl;
     if(lodSel.length&&opts.lod==='high'){
       const acc=new GeoAcc();
-      for(const p of lodSel){const c=classify(p.name);if(c.t==='wheel'||c.t==='mov'&&false)continue;for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,true),m,p.name);}
+      for(const p of lodSel){const c=clsFn(p.name);if(c.t==='wheel'||c.t==='mov'&&false)continue;for(const m of p.meshes)acc.add(xformMesh(m,p.matrix,true),m,p.name);}
       const specs=acc.build(matResolver);
-      if(specs.length){specs.forEach(x=>{x._k='vlo';});const f=addFrame('chassis_vlo',0,[0,0,0]);addGeoms(f,specs);report.info.push('chassis_vlo (past LOD) qo‘shildi: '+specs.reduce((s,g)=>s+g.tris.length/4,0)+' poligon.');}
+      if(specs.length){specs.forEach(x=>{x._k='vlo';});const f=addFrame('chassis_vlo',cdFrame,[0,0,0]);addGeoms(f,specs);report.info.push('chassis_vlo (past LOD) qo‘shildi: '+specs.reduce((s,g)=>s+g.tris.length/4,0)+' poligon.');}
     }
   }
   // 5c. flag plain (uniform-colour) textures so the simplifier may treat them like flat colour
@@ -2481,6 +2646,25 @@ function convertToSA(model,texLookup,opts){
       if(gres.skipped)report.warnings.push('Oyna: '+gres.skipped+' ta uchburchakka teskari nusxa qo‘shib bo‘lmadi (geometriya 65 000 vertexga yaqin).');
     }
   }
+  // mototsikl: shaffof (alfa<255) materiallar HAQIQIY SA mototsikl DFF idagidek alohida "<frame>_alpha" frame/atomiga ajratiladi
+  // (haqiqiy faylda: chassis_alpha, lights_glass, forks_rear_alpha... — shaffof va zich uchburchaklar bitta atomda aralashmaydi)
+  if(bikeMode){
+    let nSplit=0,nTr=0;
+    // faqat ishlatilgan materiallarni qoldiradi (indekslarni qayta raqamlaydi)
+    const compactMats=sp=>{const used=new Map(),mats=[];
+      for(let t=0;t<sp.tris.length/4;t++){const mi=sp.tris[t*4+3];if(!used.has(mi)){used.set(mi,mats.length);mats.push(sp.materials[mi]);}sp.tris[t*4+3]=used.get(mi);}
+      sp.materials=mats;return sp;};
+    for(const a of atomics.slice()){
+      const g=geoms[a.geom],tr=g.materials.map(m=>m.color[3]<255);if(!tr.some(Boolean))continue;
+      const nT=g.tris.length/4,mT=new Uint8Array(nT),mO=new Uint8Array(nT);let cT=0;
+      for(let t=0;t<nT;t++){if(tr[g.tris[t*4+3]]){mT[t]=1;cT++;}else mO[t]=1;}
+      nTr+=cT;if(cT===0||cT===nT)continue;
+      const k=g._k,og=compactMats(G.subsetSpec(g,mO)),tg=compactMats(G.subsetSpec(g,mT));if(k!==undefined)og._k=k;
+      geoms[a.geom]=og;geoms.push(tg);
+      atomics.push({frame:addFrame(frames[a.frame].name.slice(0,17)+'_alpha',a.frame,[0,0,0]),geom:geoms.length-1});nSplit++;
+    }
+    if(nTr)report.info.push('Shaffof (oyna) poligonlar: '+nTr.toLocaleString()+'. Aralash qismlarda ular alohida "_alpha" frame ga ajratildi: '+nSplit+' ta (haqiqiy SA mototsikl DFF idagidek).');
+  }
   // compact geoms (unused materials fine)
   const tris=geoms.reduce((s,g)=>s+g.tris.length/4,0),verts=geoms.reduce((s,g)=>s+g.pos.length/3,0);
   report.stats={frames:frames.length,geoms:geoms.length,tris,verts,textures:txdTexs.length};
@@ -2493,8 +2677,8 @@ function convertToSA(model,texLookup,opts){
   let colBox=bodyXms.length?bboxOf(bodyXms):null;
   if(colBox&&!(colBox.mx[0]>colBox.mn[0])) colBox=null;
   const padXY=0.15,padTop=0.12,padBottom=Math.max(0.2,(wheelDiam||0.6)/2+0.05);
-  const colMn=colBox?[colBox.mn[0]-padXY,colBox.mn[1]-padXY,colBox.mn[2]-padBottom]:[-1,-2,-0.6];
-  const colMx=colBox?[colBox.mx[0]+padXY,colBox.mx[1]+padXY,colBox.mx[2]+padTop]:[1,2,1];
+  let colMn=colBox?[colBox.mn[0]-padXY,colBox.mn[1]-padXY,colBox.mn[2]-padBottom]:[-1,-2,-0.6];
+  let colMx=colBox?[colBox.mx[0]+padXY,colBox.mx[1]+padXY,colBox.mx[2]+padTop]:[1,2,1];
   // ESLATMA: bu yerda bir vaqtlar kuzovni 2 qutiga (past+tom, salon bo'sh) bo'lish
   // sinab ko'rilgan edi ("tomiga chiqib o'tirish" muammosini yechish umidida) -- lekin
   // haqiqiy o'yinda sinalganda bu YANGI, OG'IRROQ muammoga olib keldi: mashina qismlari
@@ -2504,7 +2688,7 @@ function convertToSA(model,texLookup,opts){
   // ochiq -- uni to'qnashuv shaklini o'zgartirmasdan, boshqa (masalan ped_frontseat
   // yoki o'yin tomonidan ishlatiladigan animatsiya nuqtasi) sabab bo'yicha, haqiqiy
   // eksport qilingan fayl ustida tekshirish kerak.
-  const colBoxes=[{min:colMn,max:colMx}];
+  let colBoxes=[{min:colMn,max:colMx}];
   // Dunyo (devor, bino, to'siq) bilan to'qnashuv uchun SFERALAR (faqat mashina; obyekt rejimida emas). Joylashuv haqiqiy
   // mashina COL iga o'xshash: kuzov perimetri bo'ylab, yerdan ~0.2 m balandda (g'ildirak yer bilan sferaga emas, chiziqlarga tayanadi).
   let colSpheres=null;
@@ -2528,6 +2712,21 @@ function convertToSA(model,texLookup,opts){
     }
     colSpheres=L.slice(0,48);
   }
+
+  if(bikeMode){ // mototsikl: haqiqiy SA mototsikl COL i (13 sfera, 0 quti) kabi sferalar + bounds uchun tor quti
+    const xs=bodyXms.concat(bikeXms);
+    if(xs.length){
+      const A=bboxOf(xs),bw=bodyXms.length?bboxOf(bodyXms):A,hw=Math.min(0.4,Math.max(0.2,(bw.mx[0]-bw.mn[0])/2));
+      const wR=Math.max(0.2,(bikeInfo.fd+bikeInfo.rd)/4),yR=bikeInfo.rY,yF=bikeInfo.fY,zc=bikeInfo.axZ+0.16;
+      const y0=yR+0.1,y1=yF-0.15,rC=Math.min(0.35,Math.max(0.25,wR*1.1)),n=Math.max(2,Math.ceil((y1-y0)/(1.3*rC))+1),L=[];
+      for(let i=0;i<n;i++)L.push({c:[0,y0+(y1-y0)*i/(n-1),zc],r:rC}); // markaziy chiziq (r≈0.35)
+      const rU=0.2,ys=[yR+0.18,(yR+yF)/2-0.05,yF-0.25]; // yon va yuqori sferalar (r=0.2)
+      for(const y of ys){L.push({c:[hw>0.3?0.148:Math.max(0.1,hw-0.05),y,zc+0.2],r:rU},{c:[-(hw>0.3?0.148:Math.max(0.1,hw-0.05)),y,zc+0.2],r:rU},{c:[0,y,zc+0.41],r:rU});}
+      const zb=bikeInfo.axZ+0.05;let zt=A.mx[2]-0.15;if(zt<zb+0.35)zt=zb+0.35;
+      colMn=[-hw,yR-0.15,zb];colMx=[hw,yF+0.15,zt];colBoxes=[{min:colMn,max:colMx}];
+      colSpheres=L.slice(0,32);
+    }
+  }
   const col=DFF.buildCol3(name,colBoxes,colSpheres);
   report.info.push('To‘qnashuv (collision) modeli avtomatik yaratildi: butun qismni qamrab oluvchi oddiy quti ('+(colMx[0]-colMn[0]).toFixed(2)+'×'+(colMx[1]-colMn[1]).toFixed(2)+'×'+(colMx[2]-colMn[2]).toFixed(2)+' m). Bu YANGI (hali o‘yinda yo‘q) mashina sifatida spawn qilinganda qotishning oldini oladi; mukammal shakl emas, lekin barqaror.');
   if(colSpheres)report.info.push('Devor, bino va to‘siqlar bilan to‘qnashuv uchun '+colSpheres.length+' ta sfera qo‘shildi (haqiqiy SA mashinalari COL i kabi). Faqat quti bo‘lsa mashina devordan "arvoh"dek o‘tib ketadi. Yangi DFF ni (ichida COL bor) qayta joylang — alohida .col kerak emas.');
@@ -2535,11 +2734,11 @@ function convertToSA(model,texLookup,opts){
   const txd=G.buildTXD(txdTexs);
   if(opts.preset!=='hq'&&dff.length>2.1e6)report.warnings.push('DFF hajmi '+(dff.length/1048576).toFixed(1)+' MB. Original (modsiz) GTA SA da ~2 MB dan katta mashina fayli qotishi mumkin: agar o‘yinda qotsa, «Maks. poligon» ni 36 000 ga tushiring yoki streaming xotirasini oshiradigan limit adjuster o‘rnating.');
   const ws=Math.max(0.2,wheelDiam*opts.wheelScale);
-  const ide=objectMode?'ID, '+name+', '+name+', 299, 0':'ID, '+name+', '+name+', car, '+name.toUpperCase()+', '+name.toUpperCase()+', null, richfolk, 10, 0, 0, -1, '+ws.toFixed(2)+', '+ws.toFixed(2)+', 0';
+  const ide=objectMode?'ID, '+name+', '+name+', 299, 0':bikeMode?'ID, '+name+', '+name+', bike, '+String(opts.bikeHandling||'PCJ600').toUpperCase()+', '+name.toUpperCase()+', '+(opts.bikeAnim||'bikes')+', richfolk, 10, 0, 0, -1, '+bikeInfo.fd.toFixed(2)+', '+bikeInfo.rd.toFixed(2)+', 0':'ID, '+name+', '+name+', car, '+name.toUpperCase()+', '+name.toUpperCase()+', null, richfolk, 10, 0, 0, -1, '+ws.toFixed(2)+', '+ws.toFixed(2)+', 0';
   if(renamed.length)report.info.push('Tekstura nomlari SA uchun moslandi (bo‘sh joy/maxsus belgisiz, ≤23 belgi): '+renamed.slice(0,6).join(', ')+(renamed.length>6?'…':''));
-  return{dff,txd,col,ide,report,name,texNames:txdTexs.map(t=>t.name),texMap};
+  return{dff,txd,col,ide,report,name,kind:bikeMode?'bike':'car',texNames:txdTexs.map(t=>t.name),texMap};
 }
-Object.assign(G,{isUnknownShader,convertToSA,classify,autoRole,ROLES,SA_COL,defaultRoles,analyzeSteer,eig3,fixGlassSides});
+Object.assign(G,{isUnknownShader,convertToSA,classify,classifyBike,looksLikeBike,autoRole,ROLES,SA_COL,defaultRoles,analyzeSteer,eig3,fixGlassSides});
 })(GV);
 
 /* ===== minimal WebGL1 model viewer (Z-up) ===== */
@@ -2955,7 +3154,8 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false},
+  bopts:{name:'',lod:'high',vehType:'bike',preset:'game',keepParts:true,vlo:true,rot180:false,shine:'high',glass:'normal',noHeadlights:true,paintMode:'game',paintColor:[255,255,255,255],hideHidden:true,maxTris:36000,maxTex:512,compress:'auto',mips:true,missTex:'auto',bikeHandling:'PCJ600',bikeAnim:'bikes'}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -2998,7 +3198,7 @@ function showModel(){
 }
 function refresh(full){renderTabs();renderPane();if(full!==false)showModel();}
 /* ---------- tabs ---------- */
-const TABS=[['files','Fayllar'],['parts','Qismlar'],['mats','Materiallar'],['tex','Teksturalar'],['conv','SA konvertor'],['log','Log']];
+const TABS=[['files','Fayllar'],['parts','Qismlar'],['mats','Materiallar'],['tex','Teksturalar'],['conv','SA konvertor'],['bike','Mototsikl'],['log','Log']];
 function renderTabs(){
   const nav=$('#tabs');nav.innerHTML='';
   const counts={files:S.items.length,tex:G.poolList().length,parts:curItem()&&curItem().model?curItem().model.parts.filter(p=>p.lod===S.lod).length:0};
@@ -3006,7 +3206,7 @@ function renderTabs(){
 }
 function renderPane(){
   const p=$('#pane');p.innerHTML='';
-  ({files:paneFiles,parts:paneParts,mats:paneMats,tex:paneTex,conv:paneConv,log:paneLog})[S.tab](p);
+  ({files:paneFiles,parts:paneParts,mats:paneMats,tex:paneTex,conv:paneConv,bike:paneBike,log:paneLog})[S.tab](p);
 }
 /* ---------- files ---------- */
 const ICON={yft:'YFT',ytd:'YTD',ydr:'YDR',ydd:'YDD',dff:'DFF',txd:'TXD',dds:'DDS',png:'IMG',jpg:'IMG',jpeg:'IMG',webp:'IMG',bmp:'IMG',gif:'IMG'};
@@ -3126,7 +3326,7 @@ async function addFiles(list){
       const rec=await G.loadFile(f);
       const ex=S.items.findIndex(x=>x.file===f.name);if(ex>=0){G.poolRemoveByOrigin(f.name);S.items.splice(ex,1);}
       S.items.push(rec);
-      if(rec.model&&(S.cur<0||!curItem().model||true)){S.cur=S.items.length-1;S.result=null;S.view='orig';S.hidden=new Set();S.hl=null;S.lod='high';S.opts.name='';}
+      if(rec.model&&(S.cur<0||!curItem().model||true)){S.cur=S.items.length-1;S.result=null;S.view='orig';S.hidden=new Set();S.hl=null;S.lod='high';S.opts.name='';S.bopts.name='';}
       log(f.name+': '+rec.summary,'o');
       if(rec.model&&rec.model.kind==='yft'&&!G.poolList().length)log('Eslatma: hali tekstura yuklanmagan. '+rec.model.name+'.ytd faylini ham qo‘shing.','w');
     }catch(e){log(f.name+': '+e.message,'e');toast(f.name+': '+e.message);console.error(e);}
@@ -3147,7 +3347,7 @@ function paneParts(p){
   if(!parts.length)p.appendChild(el('div',{class:'note',text:'Bu LOD da qism yo‘q.'}));
   const car=m.kind==='yft';
   for(const part of parts){
-    const tris=part.meshes.reduce((s,x)=>s+x.idx.length/3,0),c=car&&S.view!=='sa'?G.classify(part.name):null;
+    const tris=part.meshes.reduce((s,x)=>s+x.idx.length/3,0),c=car&&S.view!=='sa'?(G.looksLikeBike(m)?G.classifyBike:G.classify)(part.name):null;
     const cb=el('input',{type:'checkbox',checked:!S.hidden.has(part.key)});
     cb.addEventListener('click',e=>e.stopPropagation());
     cb.addEventListener('change',()=>{if(cb.checked)S.hidden.delete(part.key);else S.hidden.add(part.key);viewer.opt.hidden=S.hidden;viewer.need=true;});
@@ -3239,6 +3439,7 @@ function paneConv(p){
   const m=it.model,car=m.kind==='yft',O=S.opts;
   if(!O.name)O.name=(m.name||'car').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20);
   p.appendChild(el('h3',{text:car?'Mashina → GTA San Andreas':'Obyekt → GTA San Andreas'}));
+  if(car&&G.looksLikeBike(m))p.appendChild(el('div',{class:'card',style:'border-left:3px solid #fbbf24'},[el('div',{class:'note',style:'color:#fbbf24',html:'<b>Bu model mototsiklga o‘xshaydi.</b> Bu bo‘lim faqat mashinalar uchun (4 g‘ildirak, eshik, rul). Mototsikl uchun alohida bo‘lim bor: g‘ildirak, vilka, rul va mayatnik SA mototsikl nomlari bilan chiqadi.'}),el('div',{class:'row'},[el('button',{class:'btn pri',type:'button',onclick:()=>{S.tab='bike';renderTabs();renderPane();}},['🏍 Mototsikl bo‘limiga o‘tish'])])]));
   const inp=(label,key,type,extra)=>{const i=el('input',Object.assign({type},extra||{}));i.value=O[key];i.addEventListener('input',()=>{O[key]=type==='number'?parseFloat(i.value)||1:i.value;});return el('div',{class:'row'},[el('label',{text:label}),i]);};
   const chk=(label,key)=>{const i=el('input',{type:'checkbox',checked:!!O[key]});i.addEventListener('change',()=>{O[key]=i.checked;});return el('div',{class:'row'},[el('label',{text:label}),i]);};
   const sel=(label,key,opts)=>{const s=el('select',{},opts.map(([v,t])=>el('option',{value:v,text:t,selected:String(O[key])===String(v)})));s.addEventListener('change',()=>{O[key]=isNaN(+s.value)||s.value===''?s.value:+s.value;});return el('div',{class:'row'},[el('label',{text:label}),s]);};
@@ -3272,15 +3473,70 @@ function paneConv(p){
   p.appendChild(chk('Mipmap yaratish','mips'));
   if(car)p.appendChild(sel('Tekstura topilmasa','missTex',[['auto','Avto (noma’lum shader → asosiy rang)'],['paint','Hammasi → asosiy rang'],['plain','Kulrang']]));
   if(car)preCheck(p,m);
-  p.appendChild(el('div',{class:'row'},[el('button',{class:'btn pri',type:'button',id:'btnConv',onclick:runConvert},['⚙ SA GA KONVERTLASH'])]));
-  if(S.result)renderResult(p);
+  p.appendChild(el('div',{class:'row'},[el('button',{class:'btn pri',type:'button',id:'btnConv',onclick:()=>runConvert('car')},['⚙ SA GA KONVERTLASH'])]));
+  if(S.result&&S.result.kind!=='bike')renderResult(p);
   paneExport(p,it);
 }
-async function runConvert(){
-  const it=curItem();if(!it||busy)return;const m=it.model;
+/* ---------- mototsikl (alohida bo'lim) ---------- */
+function paneBike(p){
+  const it=curItem();
+  if(!it||!it.model||it.model.kind!=='yft'){p.appendChild(el('div',{class:'note',text:it&&it.model&&it.model.kind==='dff'?'DFF allaqachon SA formatida.':'Mototsikl konvertlash uchun avval mototsikl YFT faylini (va .ytd teksturalarini) qo‘shing.'}));if(it&&it.model)paneExport(p,it);return;}
+  const m=it.model,O=S.bopts;
+  if(!O.name)O.name=(m.name||'bike').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20);
+  p.appendChild(el('h3',{text:'Mototsikl → GTA San Andreas'}));
+  const looks=G.looksLikeBike(m);
+  p.appendChild(el('div',{class:'card'},[
+    el('div',{class:'note',style:'color:'+(looks?'#34d399':'#fbbf24'),html:looks?'<b>Mototsikl aniqlandi.</b>':'<b>Bu model mototsiklga o‘xshamayapti</b> (mashina bo‘lishi mumkin) — mashina uchun «SA konvertor» bo‘limidan foydalaning.'}),
+    el('div',{class:'note',html:'Faqat <b>mototsikl</b> uchun. Frame tuzilishi haqiqiy SA mototsikl DFF si (<code>pcj600.dff</code>) bo‘yicha quriladi: <code>chassis_dummy</code> ichida <code>forks_rear</code> → <code>wheel_rear</code> (mayatnik va orqa g‘ildirak), <code>forks_front</code> → <code>handlebars1</code>, <code>mudguard</code>, <code>wheel_front</code> (vilka, rul, old qanot va old g‘ildirak), <code>chassis</code>; yonida <code>taillights</code>, <code>ped_frontseat</code>, <code>ped_backseat</code>, <code>exhaust</code>, <code>petrolcap</code> dummylari. Aylanish markazlari (vilka tepasi, mayatnik old uchi) joylariga qo‘yiladi; shaffof oyna poligonlari haqiqiy faylidagidek alohida <code>_alpha</code> frame ga ajratiladi. Eshik, mashina g‘ildirak dummylari va rul (f_steer) <b>yo‘q</b>. Aylantirishni o‘yinning o‘zi bajaradi (plagin kerak emas). <span style="color:#fbbf24">Tuzilish haqiqiy faylga solishtirib qurilgan, lekin GTA V mototsikl modeli bilan o‘yinda hali sinalmagan — natijani yozing.</span>'})]));
+  // qismlar -> SA frame
+  const parts=m.parts.filter(x=>x.lod===O.lod),cl=parts.map(x=>({x,c:G.classifyBike(x.name)}));
+  const cnt=t=>cl.filter(o=>o.c.t===t).length;
+  const sum=el('details',{open:true},[el('summary',{text:'Qismlar → SA mototsikl ('+parts.length+' qism)'})]);
+  cl.forEach(o=>sum.appendChild(el('div',{style:'display:flex;gap:8px;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(148,163,184,.15)'},[el('div',{title:o.x.name,style:'min-width:0;word-break:break-all;font-size:12px'},[o.x.name+'  ',o.c.sa?el('span',{class:'tag car',text:'→ '+o.c.sa}):el('span',{class:'tag',text:'→ chassis (kuzov)'})]),el('small',{style:'white-space:nowrap',text:o.x.meshes.reduce((a,b)=>a+b.idx.length/3,0).toLocaleString()+' △'})])));
+  const miss=[];if(!cnt('wheel'))miss.push('g‘ildirak (wheel*) — shakl bo‘yicha qidiriladi');if(!cnt('forkF'))miss.push('vilka (forks*)');if(!cnt('bars'))miss.push('rul (handlebars)');if(!cnt('swing'))miss.push('mayatnik (swingarm)');
+  if(miss.length)sum.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'Nomi bo‘yicha topilmadi: '+miss.join(', ')+'. Topilmagan qism uchun bo‘sh frame yaratiladi (o‘yin qotmasligi uchun), geometriya esa kuzov bilan qoladi.'}));
+  p.appendChild(el('div',{class:'card'},[sum]));
+  const inp=(label,key,type,extra)=>{const i=el('input',Object.assign({type},extra||{}));i.value=O[key];i.addEventListener('input',()=>{O[key]=type==='number'?parseFloat(i.value)||1:i.value;});return el('div',{class:'row'},[el('label',{text:label}),i]);};
+  const chk=(label,key)=>{const i=el('input',{type:'checkbox',checked:!!O[key]});i.addEventListener('change',()=>{O[key]=i.checked;});return el('div',{class:'row'},[el('label',{text:label}),i]);};
+  const sel=(label,key,opts)=>{const s=el('select',{},opts.map(([v,t])=>el('option',{value:v,text:t,selected:String(O[key])===String(v)})));s.addEventListener('change',()=>{O[key]=isNaN(+s.value)||s.value===''?s.value:+s.value;});return el('div',{class:'row'},[el('label',{text:label}),s]);};
+  p.appendChild(inp('Model nomi','name','text',{maxlength:20,spellcheck:'false'}));
+  {const ps=el('select',{},[['game','O‘yin uchun (yengil, GTA SA da ishlaydi)'],['hq','Sifatli — hech narsa kesilmaydi (faqat Blender/ZModeler)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.preset===v})));
+   ps.addEventListener('change',()=>{O.preset=ps.value;if(O.preset==='hq'){O.maxTris=0;O.hideHidden=false;O.maxTex=2048;}else{O.maxTris=36000;O.hideHidden=true;O.maxTex=512;}refresh(false);});
+   p.appendChild(el('div',{class:'row'},[el('label',{text:'Maqsad'}),ps]));
+   if(O.preset==='hq')p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'⚠ Bu nusxada barcha poligonlar va teksturalar to‘liq saqlanadi (fayl nomiga _hq qo‘shiladi). U juda og‘ir — GTA SA ga QO‘YMANG, o‘yin qotadi. Faqat Blender/ZModeler da ko‘rish uchun.'}));}
+  const lods=['high','med','low','vlow'].filter(l=>m.parts.some(x=>x.lod===l));
+  const lodSel=sel('Asosiy LOD','lod',lods.map(l=>[l,({high:'Yuqori (HD)',med:'O‘rta',low:'Past',vlow:'Juda past'})[l]]));
+  lodSel.querySelector('select').addEventListener('change',()=>refresh(false));p.appendChild(lodSel);
+  p.appendChild(chk('Qismlarni alohida saqlash (attach qilmaslik)','keepParts'));
+  p.appendChild(chk('chassis_vlo (past LOD)','vlo'));
+  p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));
+  p.appendChild(sel('Yaltirash (kuzov va oynaning aksi)','shine',[['high','Kuchli (tavsiya)'],['normal','Standart (original SA darajasi)'],['off','O‘chiq (mat)']]));
+  p.appendChild(sel('Oyna rangi (zichlik)','glass',[['normal','O‘rtacha (tavsiya)'],['dark','Quyuq (qoramtir)'],['light','Juda shaffof']]));
+  p.appendChild(chk('"headlights" dummy qo‘yilmasin','noHeadlights'));
+  {const pm=el('select',{},[['game','Standart: o‘yin rangi (yashil belgi, o‘yinda o‘zgaradi; tekstura detallari saqlanadi)'],['orig','Asl ko‘rinish (oq/tekstura qat‘iy, o‘yinda rang o‘zgarmaydi)'],['fixed','Qat‘iy rang (quyidan)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.paintMode===v})));
+   pm.addEventListener('change',()=>{O.paintMode=pm.value;});p.appendChild(el('div',{class:'row'},[el('label',{text:'Kuzov rangi'}),pm]));
+   const hex=c=>'#'+c.slice(0,3).map(v=>('0'+(v|0).toString(16)).slice(-2)).join('');
+   const ci=el('input',{type:'color',value:hex(O.paintColor||[255,255,255])});
+   ci.addEventListener('input',()=>{const v=ci.value;O.paintColor=[parseInt(v.slice(1,3),16),parseInt(v.slice(3,5),16),parseInt(v.slice(5,7),16),255];});
+   p.appendChild(el('div',{class:'row'},[el('label',{text:'Qat‘iy rang tanlovi'}),ci]));}
+  p.appendChild(chk('Ko‘rinmaydigan ichki poligonlarni olib tashlash','hideHidden'));
+  p.appendChild(sel('Maks. poligon (SA uchun)','maxTris',[[0,'Cheklovsiz (xavfli!)'],[20000,'20 000 (eng yengil)'],[30000,'30 000'],[36000,'36 000 (tavsiya)'],[52000,'52 000 (yuqori sifat)'],[100000,'100 000 (faqat limit adjuster bilan)']]));
+  p.appendChild(sel('Maks. tekstura','maxTex',[[256,'256'],[512,'512 (SA uchun tavsiya)'],[1024,'1024 (chiroyli, og‘ir)'],[2048,'2048']]));
+  p.appendChild(sel('Siqish','compress',[['auto','Avto (DXT1/DXT3)'],['dxt1','Faqat DXT1'],['dxt3','Faqat DXT3'],['none','Siqilmagan 32-bit']]));
+  p.appendChild(chk('Mipmap yaratish','mips'));
+  p.appendChild(sel('Tekstura topilmasa','missTex',[['auto','Avto (noma’lum shader → asosiy rang)'],['paint','Hammasi → asosiy rang'],['plain','Kulrang']]));
+  p.appendChild(sel('Handling (mavjud mototsikldan)','bikeHandling',[['PCJ600','PCJ600 (sport)'],['FCR900','FCR900'],['NRG500','NRG500'],['BF400','BF400 (enduro)'],['FREEWAY','FREEWAY (chopper)'],['SANCHEZ','SANCHEZ (krossovy)'],['WAYFARER','WAYFARER'],['FAGGIO','FAGGIO (skuter)']]));
+  p.appendChild(sel('Haydovchi animatsiyasi (IDE)','bikeAnim',[['bikes','bikes — sport'],['bikeh','bikeh — chopper / cruiser'],['bikev','bikev — skuter'],['biked','biked — enduro']]));
+  preCheck(p,m);
+  p.appendChild(el('div',{class:'row'},[el('button',{class:'btn pri',type:'button',id:'btnConvBike',onclick:()=>runConvert('bike')},['🏍 MOTOSIKLNI SA GA KONVERTLASH'])]));
+  if(S.result&&S.result.kind==='bike')renderResult(p);
+  paneExport(p,it);
+}
+async function runConvert(mode){
+  const it=curItem();if(!it||busy)return;const m=it.model,bike=mode==='bike';
   setBusy(true,'Konvertlanmoqda… (katta model va teksturalar 10–30 soniya olishi mumkin)');await tick();await tick();
   try{
-    const res=G.convertToSA(m,n=>G.poolGet(n),Object.assign({},S.opts,{roles:it.roles||{}}));
+    const res=G.convertToSA(m,n=>G.poolGet(n),Object.assign({},bike?Object.assign({},S.bopts,{vehType:'bike'}):S.opts,{roles:it.roles||{}}));
     res.model=G.modelFromDff(res.dff,res.name+'.dff');S.result=res;
     log('Konvertatsiya tayyor: '+res.name+'.dff ('+G.fmtSize(res.dff.length)+'), '+res.name+'.txd ('+G.fmtSize(res.txd.length)+')','o');
     (res.report.warnings||[]).forEach(w=>log(w,'w'));
@@ -3308,6 +3564,7 @@ function renderResult(p){
     el('button',{class:'btn',type:'button',title:'Ixtiyoriy. Kerak emas: to‘qnashuv (collision) DFF ning ichida allaqachon bor',onclick:()=>save(r.name+'.col',r.col)},['⬇ COL (ixtiyoriy)'])]));
   c.appendChild(el('div',{class:'note',html:'<b>Alohida .col fayl kerak emas:</b> to‘qnashuv (collision) modeli <code>'+r.name+'.dff</code> ichiga joylangan (haqiqiy SA mashinalari ham shunday). <code>'+r.name+'.dff</code> va <code>'+r.name+'.txd</code> ni gta3.img ga qo‘shish yetarli.'}));
   c.appendChild(el('div',{class:'note',text:(r.model&&r.model.info?'':'')+'IDE (vehicles.ide) qatori — ID ni o‘zingiz yozing:'}));
+  if(r.kind==='bike')c.appendChild(el('div',{class:'note',style:'border-left:3px solid #fbbf24;padding-left:10px;margin-bottom:6px',html:'<b>Mototsikl IDE qatori:</b> tuzilishi (type <code>bike</code>, animatsiya guruhi, g‘ildirak diametrlari — old/orqa) xotiradan yozilgan, tekshirilmagan. Eng xavfsiz yo‘l: haqiqiy <code>pcj600</code> qatorini nusxalab, faqat model/txd nomi va g‘ildirak o‘lchamlarini shu qatordagidek almashtiring. <b>handling.cfg</b> ga yangi qator yozish shart emas — tanlangan mavjud mototsikl handlingi ishlatilgan.'}));
   const ta=el('textarea',{class:'ide',readonly:true,rows:2});ta.value=r.ide;c.appendChild(ta);
   c.appendChild(el('div',{class:'note',style:'border-left:3px solid #fbbf24;padding-left:10px;margin-bottom:6px',html:'<b>Blender (DragonFF):</b> Import oynasida <code>'+esc(r.name)+'.dff</code> va <code>'+esc(r.name)+'.txd</code> ni <b>birga</b> tanlang (Ctrl bosib). Faqat .dff ochilsa teksturalar yuklanmaydi. <b>ZModeler:</b> ZModeler faqat <b>.bmp</b> qidiradi — ZIP dagi <code>.bmp</code> fayllarni DFF bilan bitta papkaga chiqaring (yoki «⬇ ZModeler (DFF + BMP)» ZIP sini ishlating), DFF ni shu papkadan oching va papkani Options → Textures (qidiruv ro‘yxati / search list) ga qo‘shing. TXD ochilmasa: ZIP ichidagi <code>.png</code> fayllarni DFF bilan <b>bitta papkaga</b> chiqaring — DragonFF ularni o‘zi topadi (Import oynasida «Load Images» yoqilgan, Extension = PNG). Tekstura yuklangan bo‘lsa ham oddiy Solid ko‘rinishda detallar oq/kulrang chiqadi — 3D oynada <b>Z → Material Preview</b> ni tanlang (yoki Solid rejimida Viewport Shading → Color: <b>Texture</b>).'}));
   c.appendChild(el('div',{class:'note',html:'Keyingi qadamlar: ZModeler/Blender (DragonFF) da oching → <code>vehicles.ide</code>, <code>handling.cfg</code>, <code>carcols.dat</code> ga yozing → IMG ga joylang. Rang materiallari: <span class="tag">60,255,0</span> asosiy, <span class="tag">255,0,175</span> ikkinchi.'}));
