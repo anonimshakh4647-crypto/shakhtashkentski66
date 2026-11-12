@@ -1821,6 +1821,26 @@ function steerSub(me,tl){
     if(vb)vb[k]=me.vbone[v];}
   return Object.assign({},me,{pos,nrm,uv,col,idx,vbone:vb});
 }
+/* mesh ni o'zaro bog'langan bo'laklarga (komponentlarga) ajratadi. Har biri: {tris:[uchburchak raqamlari], cen:[x,y,z] (uchburchak
+ * markazlarining o'rtachasi), mn, mx}. UV chokidagi nusxa vertexlar joyi bo'yicha (1 mm) birlashtiriladi. Mototsikl: vilka/rul/g'ildirak
+ * qismlariga GTA V da ba'zan begona narsa (masalan egzoz quvurlari) ham qo'shib yuboriladi -- ularni ajratib olish uchun ishlatiladi. */
+function meshComps(xm){
+  const nV=xm.pos.length/3,key=new Map(),rep=new Int32Array(nV);
+  for(let i=0;i<nV;i++){const k=Math.round(xm.pos[i*3]*1000)+','+Math.round(xm.pos[i*3+1]*1000)+','+Math.round(xm.pos[i*3+2]*1000);if(!key.has(k))key.set(k,i);rep[i]=key.get(k);}
+  const par=new Int32Array(nV);for(let i=0;i<nV;i++)par[i]=i;
+  const find=x=>{while(par[x]!==x){par[x]=par[par[x]];x=par[x];}return x;};
+  const nT=Math.floor(xm.idx.length/3);
+  for(let t=0;t<nT;t++){const a=find(rep[xm.idx[t*3]]),b=find(rep[xm.idx[t*3+1]]),c=find(rep[xm.idx[t*3+2]]);if(a!==b)par[a]=b;const d=find(a);if(c!==d)par[c]=d;}
+  const map=new Map(),comps=[];
+  for(let t=0;t<nT;t++){
+    const r=find(rep[xm.idx[t*3]]);let c=map.get(r);
+    if(!c){c={tris:[],cen:[0,0,0],mn:[1e9,1e9,1e9],mx:[-1e9,-1e9,-1e9],_n:0};map.set(r,c);comps.push(c);}
+    c.tris.push(t);
+    for(let j=0;j<3;j++){const v=xm.idx[t*3+j];for(let a=0;a<3;a++){const q=xm.pos[v*3+a];c.cen[a]+=q;if(q<c.mn[a])c.mn[a]=q;if(q>c.mx[a])c.mx[a]=q;}c._n++;}
+  }
+  for(const c of comps){for(let a=0;a<3;a++)c.cen[a]/=c._n||1;delete c._n;}
+  return comps;
+}
 /* ---------- Rul (steering wheel) tahlili ----------
  * SA'ning o'zi rulni aylantirmaydi; aylanishni VehFuncs plagini "f_steer" nomli frame uchun bajaradi: frame o'zining lokal
  * Y o'qi atrofida buriladi (frame boshi = aylanish markazi). Shuning uchun rul geometriyasi frame ichida LOKAL bo'lishi,
@@ -1957,6 +1977,95 @@ function fixGlassSides(geoms,atomics,frames,center,both){
   res.fixed=res.added>0;
   return res;
 }
+/* manba fayl nomidan sifat qo'shimchasini ("_hq", "_hi") olib tashlaydi: cheetah_hq -> cheetah. Foydalanuvchi yozgan nomga tegilmaydi. */
+const stripQ=n=>String(n||'').replace(/(_hq|_hi)+$/i,'');
+/* ---------- Eshik oynasi eshik bilan birga ochilishi uchun ----------
+ * GTA V da eshik oynasi (va ko'zgu oynasi) ba'zan alohida qism ("window_*", "glsy_*" ...) bo'lib, kuzov ichida STATIK qolib ketadi. Natijada eshik
+ * ochilganda eshik oynasiz ochiladi, oyna esa eshik joyida osilib qoladi (o'yinda "oyna xato"). SA da eshik oynasi eshik frame ining (door_xx_ok)
+ * ichida bo'ladi. Bu yerda: eshik bo'lmagan frame lardagi oyna uchburchaklari bog'langan bo'laklarga ajratiladi; markazi eshik hajmi (eshik
+ * geometriyasi bbox i; tepaga oyna balandligicha uzaytirilgan) ichida va eshik bilan BIR tomonda turgan bo'lak shu eshik frame iga ko'chiriladi
+ * (vertexlari eshik frame ining lokal fazosiga o'tkaziladi). Bo'lak eshikdan uzunroq bo'lsa (eshik+orqa oyna bitta bo'lak), faqat markazi eshik
+ * hajmidagi uchburchaklar ko'chiriladi. Old oyna, tom oynasi, chiroq qopqoqlari eshik hajmiga tushmaydi (markazi o'rtada / eshikdan uzoqda).
+ * Eshik oynasi allaqachon eshikda bo'lsa (haqiqiy SA mashinalari kabi) -- hech narsa o'zgarmaydi. */
+function attachDoorGlass(geoms,atomics,frames){
+  const res={moved:0,list:[]};
+  const isGlass=m=>!!m.glass;
+  const ID9=[1,0,0,0,1,0,0,0,1];
+  const chainOf=fi=>{const ch=[];let c=fi,n=0;while(c!=null&&c>=0&&n++<32){ch.push(frames[c]);c=frames[c].parent;}return ch;};
+  const rotated=ch=>ch.some(f=>f.rot&&f.rot.some((v,i)=>Math.abs(v-ID9[i])>1e-6));
+  const origin=ch=>{let x=0,y=0,z=0;for(const f of ch){const p=f.pos||[0,0,0];x+=p[0];y+=p[1];z+=p[2];}return[x,y,z];};
+  const refc=new Map();for(const a of atomics)refc.set(a.geom,(refc.get(a.geom)||0)+1);
+  // eshiklar: dunyo bbox (hozirgi, yopiq holatda)
+  const doors=[];
+  frames.forEach((f,fi)=>{
+    if(!/^door_(lf|rf|lr|rr)_ok$/.test(f.name))return;
+    const ch=chainOf(fi);if(rotated(ch))return;
+    const o=origin(ch),mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];let n=0;
+    for(const a of atomics){if(a.frame!==fi)continue;const g=geoms[a.geom];
+      for(let t=0;t<g.tris.length/4;t++)for(let k=0;k<3;k++){const v=g.tris[t*4+k];for(let d=0;d<3;d++){const q=g.pos[v*3+d]+o[d];if(q<mn[d])mn[d]=q;if(q>mx[d])mx[d]=q;}n++;}}
+    if(n)doors.push({name:f.name,fi,o,mn,mx,cx:(mn[0]+mx[0])/2,cy:(mn[1]+mx[1])/2,moves:[]});
+  });
+  if(!doors.length)return res;
+  const doorOf=(cen,ext)=>{ // markazi eshik hajmida va shu tomonda bo'lgan eshik (eng yaqini)
+    let best=null,bd=1e9;
+    for(const d of doors){
+      if(Math.sign(cen[0])!==Math.sign(d.cx)||Math.abs(cen[0])<0.25)continue;
+      if(cen[0]<d.mn[0]-0.12||cen[0]>d.mx[0]+0.12)continue;
+      if(cen[1]<d.mn[1]-0.08||cen[1]>d.mx[1]+0.08)continue;
+      if(cen[2]<d.mn[2]-0.05||cen[2]>d.mx[2]+0.55)continue;
+      if(ext&&ext[0]>0.5)continue; // keng bo'lak (old oyna, tom oynasi) eshikniki emas
+      const dd=Math.hypot(cen[0]-d.cx,cen[1]-d.cy);if(dd<bd){bd=dd;best=d;}
+    }
+    return best;};
+  const compact=sp=>{const used=new Map(),mats=[];
+    for(let t=0;t<sp.tris.length/4;t++){const mi=sp.tris[t*4+3];if(!used.has(mi)){used.set(mi,mats.length);mats.push(sp.materials[mi]);}sp.tris[t*4+3]=used.get(mi);}
+    sp.materials=mats;return sp;};
+  const SKIP=new Set(['wheel','steer','vlo']);
+  for(const a of atomics.slice()){
+    const fr=frames[a.frame];if(!fr||/^door_/.test(fr.name))continue;
+    const g=geoms[a.geom];if(!g||SKIP.has(g._k)||refc.get(a.geom)!==1)continue;
+    const gl=g.materials.map(isGlass);if(!gl.some(Boolean))continue;
+    const ch=chainOf(a.frame);if(rotated(ch))continue;
+    const o=origin(ch),nT=g.tris.length/4,gt=[];
+    for(let t=0;t<nT;t++)if(gl[g.tris[t*4+3]])gt.push(t);
+    if(!gt.length)continue;
+    const pos=new Float32Array(g.pos.length);for(let i=0;i<pos.length;i+=3){pos[i]=g.pos[i]+o[0];pos[i+1]=g.pos[i+1]+o[1];pos[i+2]=g.pos[i+2]+o[2];}
+    const idx=[];for(const t of gt)idx.push(g.tris[t*4],g.tris[t*4+1],g.tris[t*4+2]);
+    const cs=meshComps({pos,idx});
+    const assign=new Map(); // tri raqami -> eshik
+    for(const c of cs){
+      const ext=[c.mx[0]-c.mn[0],c.mx[1]-c.mn[1],c.mx[2]-c.mn[2]];
+      const d=doorOf(c.cen,ext);
+      if(d&&ext[1]<=1.25*(d.mx[1]-d.mn[1])){for(const i of c.tris)assign.set(gt[i],d);continue;}
+      if(ext[0]>0.5)continue; // keng bo'lak: tegilmaydi
+      // eshikdan uzun bo'lak (eshik + orqa yon oyna bitta mesh): faqat eshik hajmidagi uchburchaklar
+      for(const i of c.tris){const t=gt[i];let cx=0,cy=0,cz=0;
+        for(let k=0;k<3;k++){const v=g.tris[t*4+k];cx+=pos[v*3];cy+=pos[v*3+1];cz+=pos[v*3+2];}
+        const dd=doorOf([cx/3,cy/3,cz/3],null);if(dd)assign.set(t,dd);}
+    }
+    if(!assign.size)continue;
+    const byDoor=new Map();for(const [t,d] of assign){let m=byDoor.get(d);if(!m)byDoor.set(d,m=new Uint8Array(nT));m[t]=1;}
+    let moved=new Uint8Array(nT);
+    for(const [d,mask] of byDoor){
+      let sub=compact(G.subsetSpec(g,mask));delete sub._k;
+      const sh=[o[0]-d.o[0],o[1]-d.o[1],o[2]-d.o[2]];
+      for(let i=0;i<sub.pos.length;i+=3){sub.pos[i]+=sh[0];sub.pos[i+1]+=sh[1];sub.pos[i+2]+=sh[2];}
+      geoms.push(sub);atomics.push({frame:d.fi,geom:geoms.length-1});
+      const n=sub.tris.length/4;res.moved+=n;d.moves.push({from:fr.name,n});
+      for(let t=0;t<nT;t++)if(mask[t])moved[t]=1;
+    }
+    const keep=new Uint8Array(nT);for(let t=0;t<nT;t++)keep[t]=moved[t]?0:1;
+    const rest=compact(G.subsetSpec(g,keep));if(g._k!==undefined)rest._k=g._k;
+    if(rest.tris.length)geoms[a.geom]=rest;else a._drop=true;
+  }
+  if(!res.moved)return res;
+  // bo'shab qolgan atomlarni va ishlatilmagan geometriyalarni olib tashlash
+  for(let i=atomics.length-1;i>=0;i--)if(atomics[i]._drop)atomics.splice(i,1);
+  const used=new Set(atomics.map(a=>a.geom));
+  if(used.size!==geoms.length){const map=new Map(),ng=[];geoms.forEach((g,i)=>{if(used.has(i)){map.set(i,ng.length);ng.push(g);}});atomics.forEach(a=>{a.geom=map.get(a.geom);});geoms.length=0;ng.forEach(g=>geoms.push(g));}
+  for(const d of doors)if(d.moves.length){const by={};d.moves.forEach(m=>{by[m.from]=(by[m.from]||0)+m.n;});res.list.push({door:d.name,from:by,tris:d.moves.reduce((s,m)=>s+m.n,0)});}
+  return res;
+}
 /* MAIN */
 function convertToSA(model,texLookup,opts){
   opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,noHeadlights:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],vehType:'car',bikeHandling:'PCJ600',bikeAnim:'bikes'},opts||{});
@@ -1970,8 +2079,9 @@ function convertToSA(model,texLookup,opts){
   const report={warnings:[],info:[],parts:[],missingTex:[],usedTex:[]};
   if(opts._lodFallback)report.warnings.push('"'+opts.lod+'" LOD topilmadi, "'+opts._lodFallback+'" ishlatildi.');
   const bikeMode=opts.vehType==='bike'&&model.kind==='yft';
-  let name=(opts.name||model.name||(bikeMode?'bike':'car')).toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20)||(bikeMode?'bike':'car');
-  if(opts.preset==='hq')name=name.slice(0,17)+'_hq';
+  // Model nomi: foydalanuvchi nima yozgan bo'lsa AYNAN shu (faqat SA uchun yaroqsiz belgilar olib tashlanadi, ≤20 belgi). Hech qanday "_hq" qo'shilmaydi.
+  // Foydalanuvchi nom yozmagan bo'lsa, manba fayl nomidan olinadi va undagi "_hq"/"_hi" oxiri tashlanadi.
+  let name=(opts.name||stripQ(model.name)||(bikeMode?'bike':'car')).toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20)||(bikeMode?'bike':'car');
   // part classes
   const objectMode=model.kind!=='yft';
   const clsFn=bikeMode?classifyBike:classify;
@@ -2420,7 +2530,45 @@ function convertToSA(model,texLookup,opts){
     const bodyBB=bodyXms.length?bboxOf(bodyXms):null;
     const est=[];
     // --- g'ildiraklar: old = Y kattaroq (SA/GTA V da +Y = oldinga) ---
-    const wl=wheels.map(({p})=>{const xms=p.meshes.map(m=>xformMesh(m,p.matrix,true)),b=bboxOf(xms);return{p,xms,b,c:bbC(b)};}).filter(o=>o.b.mx[0]>o.b.mn[0]);
+    const wl=wheels.map(({p})=>{const xms=p.meshes.map(m=>xformMesh(m,p.matrix,true)),b=bboxOf(xms);return{p,meshes:p.meshes.slice(),xms,b,c:bbC(b),stray:[]};}).filter(o=>o.b.mx[0]>o.b.mn[0]);
+    // begona bo'laklar ("stray"): vilka/rul/g'ildirak qismiga qo'shilib qolgan, lekin ularga tegishli bo'lmagan geometriya (masalan egzoz
+    // quvurlari). Ular harakatlanuvchi frame ga tushsa, o'yinda rul burilganda yoki g'ildirak aylanganda "uchib ketadi" -- shuning uchun
+    // bog'langan bo'laklarga ajratilib, joyi bo'yicha tekshiriladi va begonalari statik (kuzov bilan) qilinadi.
+    const strays=[];
+    const pushAll=(a,b)=>{for(const x of b)a.push(x);};
+    const subOf=(q,tl)=>{const sm=steerSub(q.m,tl);return{p:q.p,m:sm,xm:xformMesh(sm,q.p.matrix,true)};};
+    const cleanGrp=(items,isStray,label)=>{
+      const keep=[];
+      for(const q of items){
+        const cs=meshComps(q.xm);
+        if(!cs.length){keep.push(q);continue;}
+        const fl=cs.map(isStray);
+        if(!fl.some(Boolean)){keep.push(q);continue;}
+        if(fl.every(Boolean)){strays.push(Object.assign({from:label},q));continue;}
+        const kt=[],st=[];cs.forEach((c,i)=>pushAll(fl[i]?st:kt,c.tris));
+        keep.push(subOf(q,kt));strays.push(Object.assign({from:label},subOf(q,st)));
+      }
+      return keep;};
+    const roundOK=b=>{const ey=b.mx[1]-b.mn[1],ez=b.mx[2]-b.mn[2];return Math.max(ey,ez)<=1.25*Math.max(Math.min(ey,ez),1e-6);};
+    for(const o of wl){
+      if(roundOK(o.b))continue; // oddiy holat: g'ildirak qismi dumaloq -- tegilmaydi
+      // dumaloq emas: eng katta dumaloq bo'lak = shina; shinaning markazi/diametridan uzoq bo'laklar begona
+      const cs=[];o.xms.forEach((xm,mi)=>meshComps(xm).forEach(c=>{c.mi=mi;cs.push(c);}));
+      let tyre=null,te=0;
+      for(const c of cs){const ey=c.mx[1]-c.mn[1],ez=c.mx[2]-c.mn[2],mx=Math.max(ey,ez),mn=Math.min(ey,ez);if(mx>=0.3&&mx<=1.3&&mx<=1.15*Math.max(mn,1e-6)&&mx>te){te=mx;tyre=c;}}
+      if(!tyre){report.warnings.push('Mototsikl: "'+o.p.name+'" g‘ildirak qismi dumaloq emas, lekin ichidan shina topilmadi — begona bo‘laklar ajratilmadi (g‘ildirak noto‘g‘ri aylanishi mumkin).');continue;}
+      const hy=(tyre.mn[1]+tyre.mx[1])/2,hz=(tyre.mn[2]+tyre.mx[2])/2,lim=0.75*te;
+      const isFar=c=>{let d=0;for(const y of [c.mn[1],c.mx[1]])for(const z of [c.mn[2],c.mx[2]])d=Math.max(d,Math.hypot(y-hy,z-hz));return d>lim;};
+      const keepM=[],keepX=[],far=[];
+      o.xms.forEach((xm,mi)=>{
+        const mc=cs.filter(c=>c.mi===mi),fl=mc.map(isFar),q={p:o.p,m:o.meshes[mi],xm};
+        if(!fl.some(Boolean)){keepM.push(o.meshes[mi]);keepX.push(xm);return;}
+        if(fl.every(Boolean)){far.push(q);return;}
+        const kt=[],st=[];mc.forEach((c,i)=>pushAll(fl[i]?st:kt,c.tris));
+        const a=subOf(q,kt),s=subOf(q,st);keepM.push(a.m);keepX.push(a.xm);far.push(s);});
+      if(!keepX.length||!far.length)continue;
+      o.meshes=keepM;o.xms=keepX;o.b=bboxOf(keepX);o.c=bbC(o.b);o.stray=far;
+    }
     let midY;
     if(wl.length>=2){const ys=wl.map(o=>o.c[1]);midY=(Math.min(...ys)+Math.max(...ys))/2;}
     else midY=bodyBB?(bodyBB.mn[1]+bodyBB.mx[1])/2:0;
@@ -2430,10 +2578,10 @@ function convertToSA(model,texLookup,opts){
       const all=[];list.forEach(o=>o.xms.forEach(x=>all.push(x)));
       const b=bboxOf(all),c=bbC(b);c[0]=snapX(c[0]);
       const acc=new GeoAcc();
-      for(const o of list)o.p.meshes.forEach((m,i)=>acc.add(shiftXm(o.xms[i],c),m,o.p.name));
+      for(const o of list)o.meshes.forEach((m,i)=>acc.add(shiftXm(o.xms[i],c),m,o.p.name));
       const specs=acc.build(matResolver);specs.forEach(x=>{x._k='wheel';});
       all.forEach(x=>bikeXms.push(x));
-      return{c,diam:Math.max(b.mx[1]-b.mn[1],b.mx[2]-b.mn[2]),w:b.mx[0]-b.mn[0],specs,names:list.map(o=>o.p.name)};
+      return{c,diam:Math.max(b.mx[1]-b.mn[1],b.mx[2]-b.mn[2]),w:b.mx[0]-b.mn[0],ext:[b.mx[1]-b.mn[1],b.mx[2]-b.mn[2]],specs,names:list.map(o=>o.p.name)};
     };
     const wf=wheelData(wF),wr=wheelData(wR);
     const wbGuess=wf&&wr?wf.c[1]-wr.c[1]:(bodyBB?(bodyBB.mx[1]-bodyBB.mn[1])*0.75:1.4);
@@ -2446,9 +2594,20 @@ function convertToSA(model,texLookup,opts){
     bikeInfo.fd=wf?wf.diam:(wr?wr.diam:0.65);bikeInfo.rd=wr?wr.diam:bikeInfo.fd;bikeInfo.fY=wfC[1];bikeInfo.rY=wrC[1];bikeInfo.axZ=axZ;
     wheelDiam=bikeInfo.fd;
     // --- vilka / rul / mayatnik / old qanot ---
-    const grp=kind=>{const xms=[];for(const o of bikeSp)if(o.c.t===kind)for(const m of o.p.meshes)xms.push({p:o.p,m,xm:xformMesh(m,o.p.matrix,true)});
-      return{xms,names:[...new Set(xms.map(q=>q.p.name))],b:xms.length?bboxOf(xms.map(q=>q.xm)):null};};
-    const gF=grp('forkF'),gB=grp('bars'),gS=grp('swing'),gM=grp('mud');
+    const collect=kind=>{const xms=[];for(const o of bikeSp)if(o.c.t===kind)for(const m of o.p.meshes)xms.push({p:o.p,m,xm:xformMesh(m,o.p.matrix,true)});return xms;};
+    const mkGrp=xms=>({xms,names:[...new Set(xms.map(q=>q.p.name))],b:xms.length?bboxOf(xms.map(q=>q.xm)):null});
+    // Rul bilan buriladigan qismlar (vilka, rul, old qanot) zonasi: vilka tubi old g'ildirak yonida, rul/ko'zgu esa balandda bo'ladi.
+    // Old g'ildirakdan 0.4 g'ildirak-bazasidan ko'p ORTDA VA g'ildirak o'qidan 0.6 diametrdan ortiq PASTDA turgan bo'lak (egzoz quvurlari,
+    // dvigatel tomoni) vilkaga tegishli emas: u statik qilinadi.
+    const wbk=wf&&wr?wf.c[1]-wr.c[1]:0,canZone=wbk>0.5;
+    const strayFront=c=>canZone&&c.cen[1]<wf.c[1]-0.4*wbk&&c.cen[2]<wf.c[2]+0.6*wf.diam;
+    let fx=collect('forkF'),bx=collect('bars'),sx=collect('swing'),mx=collect('mud');
+    if(canZone){fx=cleanGrp(fx,strayFront,'forks_front');bx=cleanGrp(bx,strayFront,'handlebars1');}
+    // g'ildirak qismlaridan ajralgan begona bo'laklar: old g'ildirakniki -- vilka yonida bo'lsa vilkaga, aks holda statik; orqa g'ildirakniki -- statik
+    {const wfS=[];wF.forEach(o=>pushAll(wfS,o.stray));const wrS=[];wR.forEach(o=>pushAll(wrS,o.stray));
+     if(wfS.length)fx=fx.concat(cleanGrp(wfS,canZone?strayFront:()=>true,'wheel_front'));
+     wrS.forEach(q=>strays.push(Object.assign({from:'wheel_rear'},q)));}
+    const gF=mkGrp(fx),gB=mkGrp(bx),gS=mkGrp(sx),gM=mkGrp(mx);
     const mudF=gM.xms.filter(q=>bbC(bboxOf([q.xm]))[1]>=midY),mudR=gM.xms.filter(q=>!mudF.includes(q));
     const topPivot=g=>{const b=g.b,h=b.mx[2]-b.mn[2],zc=b.mx[2]-0.12*h;let sy=0,n=0;
       for(const q of g.xms){const P=q.xm.pos;for(let i=0;i<P.length;i+=3)if(P[i+2]>=zc){sy+=P[i+1];n++;}}
@@ -2472,6 +2631,19 @@ function convertToSA(model,texLookup,opts){
     const frM=addFrame('mudguard',frF,sub(wfC,pivF));if(mudF.length)addGeoms(frM,localSpecs(mudF,wfC));
     const frWF=addFrame('wheel_front',frF,sub(wfC,pivF));if(wf)addGeoms(frWF,wf.specs);
     if(mudR.length){const fr=addFrame('p_mudguard_r',chassisFrame,[0,0,0]);addGeoms(fr,localSpecs(mudR,[0,0,0]));}
+    // begona bo'laklar -> statik (kuzovning bolasi) frame lar, har bir manba qism uchun bittadan
+    if(strays.length){
+      const byPart=new Map();for(const s of strays){const k=String(s.p.name||'part');let a=byPart.get(k);if(!a)byPart.set(k,a={items:[],from:new Set(),tris:0});a.items.push(s);a.from.add(s.from);a.tris+=s.xm.idx.length/3;}
+      const usedN=new Set(frames.map(f=>f.name.toLowerCase()));const msg=[];
+      for(const [pn,a] of byPart){
+        let base='p_'+pn.toLowerCase().replace(/[^a-z0-9_]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'').replace(/^p_/,'');base=base.slice(0,20);
+        let nm=base,k=2;while(usedN.has(nm.toLowerCase())){const suf='_'+k++;nm=base.slice(0,23-suf.length)+suf;}
+        usedN.add(nm.toLowerCase());
+        const fr=addFrame(nm,chassisFrame,[0,0,0]);addGeoms(fr,localSpecs(a.items,[0,0,0]));
+        msg.push('"'+pn+'" ('+[...a.from].join('/')+' dan, '+a.tris.toLocaleString()+' △ → frame "'+nm+'")');
+      }
+      report.warnings.push('Mototsikl: harakatlanuvchi frame ga tushib qolgan BEGONA bo‘laklar topildi (masalan egzoz quvurlari): '+msg.join('; ')+'. Ular vilka/rul yoki g‘ildirak bilan birga aylanib "uchib ketmasligi" uchun statik (kuzov bilan) qilindi.');
+    }
     // --- dummylar (ildiz frame ning bolalari, dunyo koordinatalarida) ---
     const dumPos=names=>{
       for(const n of names){
@@ -2515,6 +2687,9 @@ function convertToSA(model,texLookup,opts){
     report.info.push('MOTOSIKL rejimi (haqiqiy SA mototsikl DFF si tuzilishida). G‘ildiraklar: old "wheel_front" '+(wf?'('+wf.names.join('+')+') markazi ('+f2(wf.c)+'), diametri ≈ '+wf.diam.toFixed(2)+' m':'YO‘Q')+'; orqa "wheel_rear" '+(wr?'('+wr.names.join('+')+') markazi ('+f2(wr.c)+'), diametri ≈ '+wr.diam.toFixed(2)+' m':'YO‘Q')+'. Old g‘ildirak, qanot (mudguard) va rul (handlebars1) "forks_front" ning, orqa g‘ildirak "forks_rear" ning bolasi.');
     report.info.push('Vilka "forks_front": '+(gF.b?gF.names.join('+'):'qism topilmadi (bo‘sh frame)')+'; rul "handlebars1": '+(gB.b?gB.names.join('+'):'qism topilmadi (bo‘sh frame)')+'; mayatnik "forks_rear": '+(gS.b?gS.names.join('+'):'qism topilmadi (bo‘sh frame)')+'; old qanot "mudguard": '+(mudF.length?gM.names.join('+'):'yo‘q (kuzov bilan)')+'. Vilka/rul aylanish markazi: ('+f2(pivF)+'), mayatnik o‘qi: ('+f2(pivS)+').');
     report.info.push('Dummylar: '+[...have2].filter(n=>/^(headlights|taillights|ped_frontseat|ped_backseat|exhaust|petrolcap)$/.test(n)).join(', ')+(noHead?' (headlights QO‘YILMADI — sizning tanlovingiz)':'')+'. Ildiz frame nomi: "'+name+'", uning bolasi "chassis_dummy" (real SA mototsiklidagidek).');
+    {const bs=b=>b?'['+f2(b.mn)+' … '+f2(b.mx)+']':'—',ws=w=>w?'markaz ('+f2(w.c)+'), eni '+w.w.toFixed(2)+', Y×Z '+w.ext.map(v=>v.toFixed(2)).join('×'):'—';
+     report.info.push('Harakatlanuvchi frame lar tarkibi (tekshirish uchun, dunyo koordinatalarida): forks_front '+bs(gF.b)+'; handlebars1 '+bs(gB.b)+'; forks_rear '+bs(gS.b)+'; mudguard '+(mudF.length?bs(bboxOf(mudF.map(q=>q.xm))):'—')+'; wheel_front '+ws(wf)+'; wheel_rear '+ws(wr)+'.');
+     for(const [nm,w] of [['wheel_front',wf],['wheel_rear',wr]])if(w&&Math.max(w.ext[0],w.ext[1])>1.25*Math.max(Math.min(w.ext[0],w.ext[1]),1e-6))report.warnings.push('Mototsikl: "'+nm+'" g‘ildirak geometriyasi dumaloq emas (Y×Z = '+w.ext.map(v=>v.toFixed(2)).join('×')+' m) — ichida g‘ildirakka tegishli bo‘lmagan geometriya bo‘lishi mumkin; u g‘ildirak bilan birga AYLANIB ketadi. Qismlarni "Qismlar" bo‘limida tekshiring.');}
     if(est.length)report.warnings.push('Mototsikl: quyidagilar uchun aniq joylashuv topilmadi, TAXMINIY qo‘yildi (o‘yinda tekshiring): '+est.join(', ')+'.');
   }
   // 5. very-low LOD (chassis_vlo)
@@ -2649,6 +2824,11 @@ function convertToSA(model,texLookup,opts){
   if(report.missingTex.length)report.warnings.push('Topilmagan teksturalar ('+report.missingTex.length+'): '+report.missingTex.slice(0,12).join(', ')+(report.missingTex.length>12?'…':'')+(report.missingTex.every(n=>/^(script_rt_|black$|white$)/i.test(n))?'. Bu tizim teksturalari (script_rt_* — spidometr/ekran uchun dinamik tekstura, black — oddiy qora) mashina .ytd ichida bo‘lmaydi, shuning uchun bu ogohlantirish normal: faqat shu detallar oddiy rangda chiqadi, qolgan teksturalar to‘liq o‘tdi.':'. Mashinaning .ytd faylini ham qo‘shing (masalan '+name.replace(/_hi$/,'')+'.ytd) yoki PNG/DDS nomi shu tekstura nomi bilan bir xil bo‘lsin.'));
   // oynalar o'yinda ko'rinishi uchun (orqa yuzlar chizilmaydi): ichkariga qaragan oynaga teskari nusxa qo'shiladi
   if(!objectMode&&bodyXms.length){
+    // eshik oynasi kuzovda statik qolgan bo'lsa -- eshik frame iga ko'chiriladi (eshik bilan birga ochilsin)
+    if(opts.doorGlass!==false&&!bikeMode){
+      let dg=null;try{dg=attachDoorGlass(geoms,atomics,frames);}catch(e){console.warn('attachDoorGlass',e);report.warnings.push('Eshik oynasini eshikka biriktirishda xato: '+e.message+' (oyna kuzovda qoldi).');}
+      if(dg&&dg.moved)report.info.push('Eshik oynasi: kuzovda STATIK qolib ketgan '+dg.moved.toLocaleString()+' ta oyna uchburchagi eshik frame lariga ko‘chirildi — '+dg.list.map(l=>l.door+' ← '+Object.entries(l.from).map(([k,v])=>k+' '+v).join(', ')).join('; ')+'. Endi oyna eshik bilan birga ochiladi (avval eshik oynasiz ochilib, oyna eshik joyida osilib qolardi).');
+    }
     const bbg=bboxOf(bodyXms),gres=fixGlassSides(geoms,atomics,frames,[(bbg.mn[0]+bbg.mx[0])/2,(bbg.mn[1]+bbg.mx[1])/2,(bbg.mn[2]+bbg.mx[2])/2],opts.glassBoth!==false);
     if(gres.glassTris){
       report.info.push('Oyna: '+gres.glassTris.toLocaleString()+' ta uchburchak, ularning '+Math.round(gres.outPct*100)+'% tashqariga qaragan.'+(gres.both?' Oyna bir qatlamli va bir tomonlama edi (o‘yinda orqa yuzlar chizilmaydi) — eshik ochilganda eshik oynasi ichki tomondan qaralsa yo‘qolib qolardi, salon ichidan ham ko‘rinmasdi. Shuning uchun '+gres.added.toLocaleString()+' ta teskari nusxa qo‘shildi (tashqaridan ko‘rinish o‘zgarmaydi).':(gres.fixed?' Oyna asosan ICHKARIGA qarab o‘ralgan edi (oldindan ko‘rishda ko‘rinadi, o‘yinda esa orqa yuzlar chizilmagani uchun yo‘qolardi) — shuning uchun '+gres.added.toLocaleString()+' ta teskari nusxa qo‘shildi.':' Tomonlari to‘g‘ri — o‘zgartirilmadi.')));
@@ -2752,7 +2932,7 @@ function convertToSA(model,texLookup,opts){
   if(renamed.length)report.info.push('Tekstura nomlari SA uchun moslandi (bo‘sh joy/maxsus belgisiz, ≤23 belgi): '+renamed.slice(0,6).join(', ')+(renamed.length>6?'…':''));
   return{dff,txd,col,ide,report,name,kind:bikeMode?'bike':'car',texNames:txdTexs.map(t=>t.name),texMap};
 }
-Object.assign(G,{isUnknownShader,convertToSA,classify,classifyBike,looksLikeBike,autoRole,ROLES,SA_COL,defaultRoles,analyzeSteer,eig3,fixGlassSides});
+Object.assign(G,{isUnknownShader,convertToSA,classify,classifyBike,looksLikeBike,autoRole,ROLES,SA_COL,defaultRoles,analyzeSteer,eig3,fixGlassSides,attachDoorGlass,meshComps,stripQ});
 })(GV);
 
 /* ===== minimal WebGL1 model viewer (Z-up) ===== */
@@ -3168,7 +3348,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false},
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,doorGlass:true,noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false},
   bopts:{name:'',lod:'high',vehType:'bike',preset:'game',keepParts:true,vlo:true,rot180:false,shine:'high',glass:'normal',glassBoth:true,noHeadlights:true,paintMode:'game',paintColor:[255,255,255,255],hideHidden:true,maxTris:36000,maxTex:512,compress:'auto',mips:true,missTex:'auto',bikeHandling:'PCJ600',bikeAnim:'bikes'}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
@@ -3451,7 +3631,7 @@ function preCheck(p,m){
 function paneConv(p){
   const it=curItem();if(!it||!it.model||it.model.kind==='dff'){p.appendChild(el('div',{class:'note',text:it&&it.model&&it.model.kind==='dff'?'DFF allaqachon SA formatida — ko‘rish va OBJ eksport mumkin.':'Konvertlash uchun avval YFT (mashina) yoki YDR/YDD faylini qo‘shing.'}));if(it&&it.model)paneExport(p,it);return;}
   const m=it.model,car=m.kind==='yft',O=S.opts;
-  if(!O.name)O.name=(m.name||'car').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20);
+  if(!O.name)O.name=(G.stripQ(m.name)||'car').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20);
   p.appendChild(el('h3',{text:car?'Mashina → GTA San Andreas':'Obyekt → GTA San Andreas'}));
   if(car&&G.looksLikeBike(m))p.appendChild(el('div',{class:'card',style:'border-left:3px solid #fbbf24'},[el('div',{class:'note',style:'color:#fbbf24',html:'<b>Bu model mototsiklga o‘xshaydi.</b> Bu bo‘lim faqat mashinalar uchun (4 g‘ildirak, eshik, rul). Mototsikl uchun alohida bo‘lim bor: g‘ildirak, vilka, rul va mayatnik SA mototsikl nomlari bilan chiqadi.'}),el('div',{class:'row'},[el('button',{class:'btn pri',type:'button',onclick:()=>{S.tab='bike';renderTabs();renderPane();}},['🏍 Mototsikl bo‘limiga o‘tish'])])]));
   const inp=(label,key,type,extra)=>{const i=el('input',Object.assign({type},extra||{}));i.value=O[key];i.addEventListener('input',()=>{O[key]=type==='number'?parseFloat(i.value)||1:i.value;});return el('div',{class:'row'},[el('label',{text:label}),i]);};
@@ -3461,7 +3641,7 @@ function paneConv(p){
   {const ps=el('select',{},[['game','O‘yin uchun (yengil, GTA SA da ishlaydi)'],['hq','Sifatli — hech narsa kesilmaydi (faqat Blender/ZModeler)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.preset===v})));
    ps.addEventListener('change',()=>{O.preset=ps.value;if(O.preset==='hq'){O.maxTris=0;O.hideHidden=false;O.maxTex=2048;}else{O.maxTris=52000;O.hideHidden=true;O.maxTex=512;}refresh(false);});
    p.appendChild(el('div',{class:'row'},[el('label',{text:'Maqsad'}),ps]));
-   if(O.preset==='hq')p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'⚠ Bu nusxada barcha poligonlar va teksturalar to‘liq saqlanadi (fayl nomiga _hq qo‘shiladi). U juda og‘ir — GTA SA ga QO‘YMANG, o‘yin qotadi. Faqat Blender/ZModeler da ko‘rish va tahrirlash uchun.'}));}
+   if(O.preset==='hq')p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'⚠ Bu nusxada barcha poligonlar va teksturalar to‘liq saqlanadi. U juda og‘ir — GTA SA ga QO‘YMANG, o‘yin qotadi. Faqat Blender/ZModeler da ko‘rish va tahrirlash uchun.'}));}
   const lods=['high','med','low','vlow'].filter(l=>m.parts.some(x=>x.lod===l));
   p.appendChild(sel('Asosiy LOD','lod',lods.map(l=>[l,({high:'Yuqori (HD)',med:'O‘rta',low:'Past',vlow:'Juda past'})[l]])));
   p.appendChild(chk('Qismlarni alohida saqlash (attach qilmaslik)','keepParts'));
@@ -3469,6 +3649,7 @@ function paneConv(p){
     p.appendChild(sel('Yaltirash (kuzov va oynaning aksi)','shine',[['high','Kuchli (tavsiya)'],['normal','Standart (original SA darajasi)'],['off','O‘chiq (mat)']]));
     p.appendChild(sel('Oyna rangi (zichlik)','glass',[['normal','O‘rtacha (tavsiya) — ko‘rinadigan, och tus'],['dark','Quyuq (qoramtir tonirovka)'],['light','Juda shaffof (eski, deyarli ko‘rinmaydi)']]));
     p.appendChild(chk('Oyna ikki tomonlama (eshik ochilganda va salon ichidan ham ko‘rinadi)','glassBoth'));
+    p.appendChild(chk('Eshik oynasi eshik bilan birga ochilsin (kuzovda qolib ketgan eshik/ko‘zgu oynasini eshikka biriktiradi)','doorGlass'));
     p.appendChild(chk('"headlights" dummy qo‘yilmasin','noHeadlights'));
     p.appendChild(chk('Rul burilsin (VehFuncs plagini, f_steer)','steerSpin'));
     p.appendChild(sel('Rul burilish burchagi (VehFuncs)','steerAngle',[['100','100° — CJ qo‘llari bilan bir xil (standart animatsiya)'],['180','180° (tavsiya)'],['270','270°'],['360','360° (to‘liq aylanish)'],['540','540° (haqiqiy mashinadek)']]));}
@@ -3497,12 +3678,12 @@ function paneBike(p){
   const it=curItem();
   if(!it||!it.model||it.model.kind!=='yft'){p.appendChild(el('div',{class:'note',text:it&&it.model&&it.model.kind==='dff'?'DFF allaqachon SA formatida.':'Mototsikl konvertlash uchun avval mototsikl YFT faylini (va .ytd teksturalarini) qo‘shing.'}));if(it&&it.model)paneExport(p,it);return;}
   const m=it.model,O=S.bopts;
-  if(!O.name)O.name=(m.name||'bike').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20);
+  if(!O.name)O.name=(G.stripQ(m.name)||'bike').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20);
   p.appendChild(el('h3',{text:'Mototsikl → GTA San Andreas'}));
   const looks=G.looksLikeBike(m);
   p.appendChild(el('div',{class:'card'},[
     el('div',{class:'note',style:'color:'+(looks?'#34d399':'#fbbf24'),html:looks?'<b>Mototsikl aniqlandi.</b>':'<b>Bu model mototsiklga o‘xshamayapti</b> (mashina bo‘lishi mumkin) — mashina uchun «SA konvertor» bo‘limidan foydalaning.'}),
-    el('div',{class:'note',html:'Faqat <b>mototsikl</b> uchun. Frame tuzilishi haqiqiy SA mototsikl DFF si (<code>pcj600.dff</code>) bo‘yicha quriladi: <code>chassis_dummy</code> ichida <code>forks_rear</code> → <code>wheel_rear</code> (mayatnik va orqa g‘ildirak), <code>forks_front</code> → <code>handlebars1</code>, <code>mudguard</code>, <code>wheel_front</code> (vilka, rul, old qanot va old g‘ildirak), <code>chassis</code>; yonida <code>taillights</code>, <code>ped_frontseat</code>, <code>ped_backseat</code>, <code>exhaust</code>, <code>petrolcap</code> dummylari. Aylanish markazlari (vilka tepasi, mayatnik old uchi) joylariga qo‘yiladi; shaffof oyna poligonlari haqiqiy faylidagidek alohida <code>_alpha</code> frame ga ajratiladi. Eshik, mashina g‘ildirak dummylari va rul (f_steer) <b>yo‘q</b>. Aylantirishni o‘yinning o‘zi bajaradi (plagin kerak emas). <span style="color:#fbbf24">Tuzilish haqiqiy faylga solishtirib qurilgan, lekin GTA V mototsikl modeli bilan o‘yinda hali sinalmagan — natijani yozing.</span>'})]));
+    el('div',{class:'note',html:'Faqat <b>mototsikl</b> uchun. Frame tuzilishi haqiqiy SA mototsikl DFF si (<code>pcj600.dff</code>) bo‘yicha quriladi: <code>chassis_dummy</code> ichida <code>forks_rear</code> → <code>wheel_rear</code> (mayatnik va orqa g‘ildirak), <code>forks_front</code> → <code>handlebars1</code>, <code>mudguard</code>, <code>wheel_front</code> (vilka, rul, old qanot va old g‘ildirak), <code>chassis</code>; yonida <code>taillights</code>, <code>ped_frontseat</code>, <code>ped_backseat</code>, <code>exhaust</code>, <code>petrolcap</code> dummylari. Aylanish markazlari (vilka tepasi, mayatnik old uchi) joylariga qo‘yiladi; shaffof oyna poligonlari haqiqiy faylidagidek alohida <code>_alpha</code> frame ga ajratiladi. Eshik, mashina g‘ildirak dummylari va rul (f_steer) <b>yo‘q</b>. Aylantirishni o‘yinning o‘zi bajaradi (plagin kerak emas). Vilka, rul yoki g‘ildirak qismiga qo‘shilib qolgan begona bo‘laklar (masalan egzoz quvurlari) avtomatik ajratilib, statik (kuzov bilan) qilinadi — rul burilganda yoki g‘ildirak aylanganda uchib ketmasligi uchun; bu hisobotda ogohlantirish sifatida chiqadi. <span style="color:#fbbf24">Tuzilish haqiqiy faylga solishtirib qurilgan va GTA V mototsikl modeli bilan o‘yinda sinalgan (haydash ishlaydi); begona bo‘laklarni ajratish esa hali o‘yinda tasdiqlanmagan — natijani yozing.</span>'})]));
   // qismlar -> SA frame
   const parts=m.parts.filter(x=>x.lod===O.lod),cl=parts.map(x=>({x,c:G.classifyBike(x.name)}));
   const cnt=t=>cl.filter(o=>o.c.t===t).length;
@@ -3518,7 +3699,7 @@ function paneBike(p){
   {const ps=el('select',{},[['game','O‘yin uchun (yengil, GTA SA da ishlaydi)'],['hq','Sifatli — hech narsa kesilmaydi (faqat Blender/ZModeler)']].map(([v,t])=>el('option',{value:v,text:t,selected:O.preset===v})));
    ps.addEventListener('change',()=>{O.preset=ps.value;if(O.preset==='hq'){O.maxTris=0;O.hideHidden=false;O.maxTex=2048;}else{O.maxTris=36000;O.hideHidden=true;O.maxTex=512;}refresh(false);});
    p.appendChild(el('div',{class:'row'},[el('label',{text:'Maqsad'}),ps]));
-   if(O.preset==='hq')p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'⚠ Bu nusxada barcha poligonlar va teksturalar to‘liq saqlanadi (fayl nomiga _hq qo‘shiladi). U juda og‘ir — GTA SA ga QO‘YMANG, o‘yin qotadi. Faqat Blender/ZModeler da ko‘rish uchun.'}));}
+   if(O.preset==='hq')p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'⚠ Bu nusxada barcha poligonlar va teksturalar to‘liq saqlanadi. U juda og‘ir — GTA SA ga QO‘YMANG, o‘yin qotadi. Faqat Blender/ZModeler da ko‘rish uchun.'}));}
   const lods=['high','med','low','vlow'].filter(l=>m.parts.some(x=>x.lod===l));
   const lodSel=sel('Asosiy LOD','lod',lods.map(l=>[l,({high:'Yuqori (HD)',med:'O‘rta',low:'Past',vlow:'Juda past'})[l]]));
   lodSel.querySelector('select').addEventListener('change',()=>refresh(false));p.appendChild(lodSel);
@@ -3576,7 +3757,7 @@ function renderResult(p){
     el('button',{class:'btn pri',type:'button',onclick:async()=>{
       const files=[{name:r.name+'.dff',data:r.dff},{name:r.name+'.txd',data:r.txd},{name:'vehicles_ide_qator.txt',data:G.enc.encode(r.ide.replace('ID',' ID')+'\r\n')}];
       if(S.opts.pngCopies!==false){for(const n of (r.texNames||[])){const t=G.poolGet((r.texMap&&r.texMap[n])||n);if(t&&t.rgba){files.push({name:n+'.png',data:await rgbaToPNG(t.rgba,t.w,t.h)});files.push({name:n+'.bmp',data:rgbaToBMP(t.rgba,t.w,t.h)});}}}
-      save(r.name+'_SA.zip',G.zipStore(files),'application/zip');}},['⬇ ZIP (hammasi + PNG + BMP)']),
+      save(r.name+'.zip',G.zipStore(files),'application/zip');}},['⬇ ZIP (hammasi + PNG + BMP)']),
     el('button',{class:'btn',type:'button',title:'Ixtiyoriy. Kerak emas: to‘qnashuv (collision) DFF ning ichida allaqachon bor',onclick:()=>save(r.name+'.col',r.col)},['⬇ COL (ixtiyoriy)'])]));
   c.appendChild(el('div',{class:'note',html:'<b>Alohida .col fayl kerak emas:</b> to‘qnashuv (collision) modeli <code>'+r.name+'.dff</code> ichiga joylangan (haqiqiy SA mashinalari ham shunday). <code>'+r.name+'.dff</code> va <code>'+r.name+'.txd</code> ni gta3.img ga qo‘shish yetarli.'}));
   c.appendChild(el('div',{class:'note',text:(r.model&&r.model.info?'':'')+'IDE (vehicles.ide) qatori — ID ni o‘zingiz yozing:'}));
@@ -3597,9 +3778,9 @@ async function exportObj(it){
   setBusy(true,'OBJ tayyorlanmoqda…');await tick();
   try{
     const names=new Set();for(const p of m.parts)if(p.lod===lod)for(const me of p.meshes)if(me.mat.tex&&G.poolGet(me.mat.tex))names.add(me.mat.tex);
-    const o=G.exportOBJ(m,lod,names),files=[{name:m.name+'.obj',data:G.enc.encode(o.obj)},{name:m.name+'.mtl',data:G.enc.encode(o.mtl)}];
+    const on=G.stripQ(m.name)||'model',o=G.exportOBJ(m,lod,names),files=[{name:on+'.obj',data:G.enc.encode(o.obj)},{name:on+'.mtl',data:G.enc.encode(o.mtl)}];
     for(const n of names){const r=G.poolGet(n);files.push({name:n+'.png',data:await rgbaToPNG(r.rgba,r.w,r.h)});}
-    save(m.name+'_obj.zip',G.zipStore(files),'application/zip');toast('OBJ eksport tayyor');
+    save(on+'_obj.zip',G.zipStore(files),'application/zip');toast('OBJ eksport tayyor');
   }catch(e){log('OBJ xatosi: '+e.message,'e');toast('Xato: '+e.message);}
   setBusy(false);
 }
