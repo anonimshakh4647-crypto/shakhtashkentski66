@@ -1097,12 +1097,34 @@ function frontEdgeAxis(wv,bb){
   }
   return{H:m,u:a};
 }
+/* Gullwing o'qi: eshikning TEPA CHETI bo'ylab (old-yuqoridan orqa-yuqoriga) -- menteshe eshikning o'zida, shunda eshik tom ustida havoda qolmaydi
+ * (eski usulda menteshe tom o'rtasida (x=0) edi: eshik chetda bo'lgani uchun katta yoy bo'ylab kuzovdan uzoqlashardi). Tepa chet qiyshaygan bo'lsa o'q ham shunday
+ * qiyshayadi, lekin Y o'qidan 20° dan oshmaydi. wv -- eshik cho'qqilari (tekis massiv). Qaytaradi {H,u} yoki null (eski usul ishlatiladi). */
+function topEdgeAxis(wv,bb){
+  const dl=bb.mx[1]-bb.mn[1],dh=bb.mx[2]-bb.mn[2];if(!(dl>0.2&&dh>0.2))return null;
+  // tepa chet silueti: old-orqa bo'yicha 10 ta qatlam, har birida eng baland nuqta (z) va unga yaqin (3 sm) nuqtalarning o'rtacha x i
+  const NB=10,zM=new Array(NB).fill(-1e9);
+  for(let i=0;i<wv.length;i+=3){const b=Math.min(NB-1,Math.max(0,Math.floor((wv[i+1]-bb.mn[1])/dl*NB)));if(wv[i+2]>zM[b])zM[b]=wv[i+2];}
+  const sx=new Array(NB).fill(0),sn=new Array(NB).fill(0);
+  for(let i=0;i<wv.length;i+=3){const b=Math.min(NB-1,Math.max(0,Math.floor((wv[i+1]-bb.mn[1])/dl*NB)));if(wv[i+2]>=zM[b]-0.03){sx[b]+=wv[i];sn[b]++;}}
+  const Q=[];for(let b=0;b<NB;b++)if(sn[b])Q.push([sx[b]/sn[b],bb.mn[1]+(b+0.5)/NB*dl,zM[b]]);
+  if(Q.length<4)return null;
+  const m=[0,1,2].map(k=>Q.reduce((s,q)=>s+q[k],0)/Q.length),C=[[0,0,0],[0,0,0],[0,0,0]];
+  for(const q of Q)for(let i=0;i<3;i++)for(let j=0;j<3;j++)C[i][j]+=(q[i]-m[i])*(q[j]-m[j]);
+  let a=[0.1,1,0.1];for(let it=0;it<60;it++){const t=[0,1,2].map(i=>C[i][0]*a[0]+C[i][1]*a[1]+C[i][2]*a[2]);a=v3n(t);}
+  if(a[1]<0)a=[-a[0],-a[1],-a[2]];
+  if(!(a[1]>0.8))return null; // tepa chet old-orqa yo'nalishda emas -- ishonchsiz
+  const lat=Math.hypot(a[0],a[2]),SM=Math.sin(20*Math.PI/180);
+  if(lat>SM){const k=SM/lat;a=[a[0]*k,Math.cos(20*Math.PI/180),a[2]*k];}
+  return{H:m,u:a};
+}
 function doorStyleParams(kind,bb,P,flip,ax){
   const sx=(bb.mn[0]+bb.mx[0])<0?-1:1,inw=-sx,dh=bb.mx[2]-bb.mn[2],cx=(bb.mn[0]+bb.mx[0])/2;
   let H,u;
   if(kind==='scissor'){u=[1,0,0];H=[cx,P[1],bb.mn[2]+0.55*dh];}
   else if(kind==='butterfly'&&ax){u=ax.u.slice();H=ax.H.slice();}
   else if(kind==='butterfly'){u=v3n([inw*0.62,-0.30,0.72]);H=[cx,P[1],bb.mn[2]+0.65*dh];}
+  else if(kind==='gullwing'&&ax){u=ax.u.slice();H=ax.H.slice();}
   else if(kind==='gullwing'){u=[0,1,0];H=[0,(bb.mn[1]+bb.mx[1])/2,bb.mx[2]];}
   else return null;
   // o'yin chap eshikni -alfa, o'ng eshikni +alfa buradi (CAutomobile: DOOR_LEFT_FRONT.Init(-pi/2..), DOOR_RIGHT_FRONT.Init(+pi/2..), o'q Z): eshik markazi yuqoriga siljiydigan ishora tanlanadi
@@ -1225,7 +1247,7 @@ function editDoors(bytes,opt){
       if(!d.styled){rep.status='allaqachon oddiy (o\'zgarmadi)';continue;}
       const Pq=TF.pt(P,Wqi);Lpre=TF.id();LD={r:ID3.slice(),p:Pq};
     }else{
-      st=doorStyleParams(kind,bb,P,flip,kind==='butterfly'?frontEdgeAxis(d.wv,bb):null);
+      st=doorStyleParams(kind,bb,P,flip,kind==='butterfly'?frontEdgeAxis(d.wv,bb):kind==='gullwing'?topEdgeAxis(d.wv,bb):null);
       const Hq=TF.pt(st.H,Wqi),uq=vm3(st.u,Wqi.r),ay=Math.abs(uq[1])>0.95?[1,0,0]:[0,1,0],dd=v3d(ay,uq),r0=v3n([ay[0]-dd*uq[0],ay[1]-dd*uq[1],ay[2]-dd*uq[2]]),r1=v3x(uq,r0);
       Lpre={r:[r0[0],r0[1],r0[2],r1[0],r1[1],r1[2],uq[0],uq[1],uq[2]],p:Hq};LD=TF.id();rep.H=st.H;rep.u=st.u;
     }
@@ -1278,7 +1300,7 @@ function editDoors(bytes,opt){
   return{dff:serialize(ctx.roots),changed:true,report};
 }
 
-root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,rwVersion,BW,sizeOf,child,childs};
+root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs};
 })(GV);
 /* ---- extension: DFF materials with textures list helper, RW 3.6 version constants ---- */
 (function(G){
@@ -2793,7 +2815,11 @@ function convertToSA(model,texLookup,opts){
       const ax=wv?DFF.frontEdgeAxis(wv,bb):null;
       if(ax){u=ax.u.slice();H=ax.H.slice();}else{u=v3n([inw*0.62,-0.30,0.72]);H=[cx,P[1],bb.mn[2]+0.65*dh];}
     }
-    else if(kind==='gullwing'){u=[0,1,0];H=[0,(bb.mn[1]+bb.mx[1])/2,bb.mx[2]];}
+    else if(kind==='gullwing'){
+      // menteshe o'qi eshikning TEPA CHETI bo'ylab (tom ustida havoda qolmasligi uchun); tepa chet topilmasa -- eski usul (tom o'rtasi)
+      const ax=wv?DFF.topEdgeAxis(wv,bb):null;
+      if(ax){u=ax.u.slice();H=ax.H.slice();}else{u=[0,1,0];H=[0,(bb.mn[1]+bb.mx[1])/2,bb.mx[2]];}
+    }
     else return null;
     // o'q ishorasi: o'yin chap eshikni -alfa, o'ng eshikni +alfa burchakka buradi (sx*alfa) -- eshik markazi yuqoriga (va tashqariga) siljiydigan ishora tanlanadi
     const al=60*Math.PI/180,c=[cx,(bb.mn[1]+bb.mx[1])/2,(bb.mn[2]+bb.mx[2])/2],rel=[c[0]-H[0],c[1]-H[1],c[2]-H[2]];
@@ -2827,7 +2853,7 @@ function convertToSA(model,texLookup,opts){
             P=[(bb0.mn[0]+bb0.mx[0])/2,yF,(bb0.mn[2]+bb0.mx[2])/2];
           }
           let st=null;try{
-            let wv0=null;if(doorStyleOpt==='butterfly'){let nv=0;for(const xm of xms0)nv+=xm.pos.length;wv0=new Float32Array(nv);let o=0;for(const xm of xms0){wv0.set(xm.pos,o);o+=xm.pos.length;}}
+            let wv0=null;if(doorStyleOpt==='butterfly'||doorStyleOpt==='gullwing'){let nv=0;for(const xm of xms0)nv+=xm.pos.length;wv0=new Float32Array(nv);let o=0;for(const xm of xms0){wv0.set(xm.pos,o);o+=xm.pos.length;}}
             st=pickDoorStyle(bb0,P,bm,wv0);
           }catch(e){console.warn('pickDoorStyle',e);}
           // uslubli eshik ham avval oddiy eshikdek (menteshe = P) quriladi; haqiqiy menteshe/o'q oxirida joylanadi (poligon kamaytirish, oyna biriktirish o'zgarmasin)
@@ -4265,7 +4291,7 @@ function paneConv(p){
     p.appendChild(sel('Oyna rangi (zichlik)','glass',[['normal','O‘rtacha (tavsiya) — ko‘rinadigan, och tus'],['dark','Quyuq (qoramtir tonirovka)'],['light','Juda shaffof (eski, deyarli ko‘rinmaydi)']]));
     p.appendChild(chk('Oyna ikki tomonlama (eshik ochilganda va salon ichidan ham ko‘rinadi)','glassBoth'));
     p.appendChild(chk('Eshik oynasi eshik bilan birga ochilsin (kuzovda qolib ketgan eshik/ko‘zgu oynasini eshikka biriktiradi)','doorGlass'));
-    p.appendChild(sel('Eshik ochilishi','doorStyle',[['auto','Avto (GTA V eshik suyagi yo‘nalishidan; oddiy eshiklar o‘zgarmaydi)'],['normal','Oddiy (yon tomonga)'],['scissor','Qaychi (Lamborghini) — yuqoriga'],['butterfly','Kapalak (Ferrari/McLaren) — eshik old cheti bo‘ylab menteshe, yuqoriga va tashqariga'],['gullwing','Gullwing (tom o‘rtasidan) — yuqoriga']]));
+    p.appendChild(sel('Eshik ochilishi','doorStyle',[['auto','Avto (GTA V eshik suyagi yo‘nalishidan; oddiy eshiklar o‘zgarmaydi)'],['normal','Oddiy (yon tomonga)'],['scissor','Qaychi (Lamborghini) — yuqoriga'],['butterfly','Kapalak (Ferrari/McLaren) — eshik old cheti bo‘ylab menteshe, yuqoriga va tashqariga'],['gullwing','Gullwing — eshik tepa cheti bo‘ylab menteshe, yuqoriga va tashqariga']]));
     p.appendChild(chk('Eshik ochilish yo‘nalishini teskari qilish (eshik pastga yoki ichkariga ketsa yoqing)','doorFlip'));
     p.appendChild(el('div',{class:'note',html:'<b>Eshik ochilishi.</b> «Avto» — GTA V eshik suyagining o‘qi og‘gan bo‘lsa (yuqoriga ochiladigan mashina) shu o‘qni oladi, oddiy mashinalarda hech narsa o‘zgarmaydi. Mashina GTA V da yuqoriga ochilsa-yu, SA da yon tomonga ochilsa — ro‘yxatdan <b>Kapalak</b> yoki <b>Qaychi</b> ni tanlang. SA eshikni dummy ning Z o‘qi atrofida buradi; yuqoriga ochilish uchun dummy ning ota freymi (<code>d_lf</code>, <code>d_rf</code>…) burib qo‘yiladi (ZModeler qo‘llanmalaridagi usul). O‘yinda hali tasdiqlanmagan: eshik pastga/ichkariga ketsa — «teskari» katagini yoqing.'}));
     p.appendChild(chk('"headlights" dummy qo‘yilmasin','noHeadlights'));
@@ -4392,7 +4418,7 @@ function renderResult(p){
   p.appendChild(c);
 }
 /* ---------- SA tahrir: tayyor DFF + TXD (eshikni yuqoriga ochiladigan qilish; DFF qayta qurilmaydi) ---------- */
-const EDIT_STYLES=[['scissor','Qaychi (scissor) — eshik oldinga-yuqoriga ko‘tariladi'],['butterfly','Kapalak (butterfly) — eshik old cheti bo‘ylab menteshe: yuqoriga va tashqariga, kuzovdan ajralmaydi'],['gullwing','Gullwing — tom markazi atrofida yuqoriga'],['normal','Oddiy (tashqariga, vertikal mentesha) — eski holatga qaytarish']];
+const EDIT_STYLES=[['scissor','Qaychi (scissor) — eshik oldinga-yuqoriga ko‘tariladi'],['butterfly','Kapalak (butterfly) — eshik old cheti bo‘ylab menteshe: yuqoriga va tashqariga, kuzovdan ajralmaydi'],['gullwing','Gullwing — eshik tepa cheti bo‘ylab menteshe, yuqoriga va tashqariga, kuzovdan ajralmaydi'],['normal','Oddiy (tashqariga, vertikal mentesha) — eski holatga qaytarish']];
 const EDIT_LBL={scissor:'qaychi',butterfly:'kapalak',gullwing:'gullwing',normal:'oddiy'};
 const dffBase=n=>String(n||'').replace(/\.[^.]+$/,'').toLowerCase();
 function editTxdItems(){return S.items.filter(x=>x.ext==='txd'&&x.raw);}
