@@ -2275,7 +2275,7 @@ function convertToSA(model,texLookup,opts){
     return{key:'plain',color:SA_COL.plain};
   };
   const frames=[{name:(objectMode||bikeMode)?name:'chassis_dummy',pos:[0,0,0],parent:-1}];
-  const geoms=[],atomics=[];
+  const geoms=[],atomics=[],styledDoors=[]; // styledDoors: qaychi/kapalak/gullwing eshiklar (oxirida joylanadi)
   const addFrame=(n,parent,pos)=>{frames.push({name:n,pos,parent});return frames.length-1;};
   const addGeoms=(frame,specs)=>{for(const s of specs){geoms.push(s);atomics.push({frame,geom:geoms.length-1});}};
   const rot0=W=>{const w=W.slice();w[12]=w[13]=w[14]=0;return w;};
@@ -2434,6 +2434,34 @@ function convertToSA(model,texLookup,opts){
   // kuzov bilan BIR XIL, to'g'ri joyida qoladi (uchib/ajralib ketmaydi). Haqiqiy
   // joylashuv ma'lumoti (matritsa) BOR bo'lgan fayllar uchun hech narsa o'zgarmadi --
   // ular hamon alohida, ochiladigan eshik/bamper sifatida eksport qilinadi.
+  // ===== eshik ochilish uslubi: qaychi (scissor) / kapalak (butterfly) / gullwing =====
+  // SA eshikni "door_xx_dummy" freymining LOKAL Z o'qi atrofida buradi (menteshe = dummy joyi; chap eshik soat mili bo'yicha, o'ng eshik teskari --
+  // oddiy eshik tashqariga ochiladi). Dummy ning OTA freymini (d_xx) burib qo'yilsa, o'yin shu burilgan Z o'q atrofida aylantiradi -- eshik yuqoriga ochiladi
+  // (ZModeler "scissor doors" qo'llanmalaridagi usul). Ota freym burilishi eshik geometriyasiga teskari qo'llanadi, shu sababli yopiq holat o'zgarmaydi.
+  const doorStyleOpt=String(opts.doorStyle||'auto');
+  const v3n=v=>{const l=Math.hypot(v[0],v[1],v[2])||1;return[v[0]/l,v[1]/l,v[2]/l];};
+  const v3x=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+  const v3d=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const rodr=(v,u,ang)=>{const c=Math.cos(ang),sn=Math.sin(ang),k=v3x(u,v),d=v3d(u,v)*(1-c);return[v[0]*c+k[0]*sn+u[0]*d,v[1]*c+k[1]*sn+u[1]*d,v[2]*c+k[2]*sn+u[2]*d];};
+  const pickDoorStyle=(bb,P,bm)=>{
+    const sx=(bb.mn[0]+bb.mx[0])<0?-1:1,inw=-sx,dh=bb.mx[2]-bb.mn[2],cx=(bb.mn[0]+bb.mx[0])/2;
+    let kind=doorStyleOpt,H=null,u=null;
+    if(kind==='auto'){
+      // GTA V eshik suyagining lokal Z o'qi = menteshe o'qi (oddiy eshiklarda suyak yo'nalishi bo'sh -> Z vertikal). Og'ib qolgan bo'lsa -- shu o'q olinadi.
+      if(bm){const z=v3n([bm[8],bm[9],bm[10]]);if(Math.abs(z[2])<Math.cos(12*Math.PI/180)){u=z;H=P.slice();kind='bone';}}
+      if(!u)return null;
+    }else if(kind==='scissor'){u=[1,0,0];H=[cx,P[1],bb.mn[2]+0.55*dh];}
+    else if(kind==='butterfly'){u=v3n([inw*0.62,-0.30,0.72]);H=[cx,P[1],bb.mn[2]+0.65*dh];}
+    else if(kind==='gullwing'){u=[0,1,0];H=[0,(bb.mn[1]+bb.mx[1])/2,bb.mx[2]];}
+    else return null;
+    // o'q ishorasi: o'yin chap eshikni -alfa, o'ng eshikni +alfa burchakka buradi (sx*alfa) -- eshik markazi yuqoriga (va tashqariga) siljiydigan ishora tanlanadi
+    const al=60*Math.PI/180,c=[cx,(bb.mn[1]+bb.mx[1])/2,(bb.mn[2]+bb.mx[2])/2],rel=[c[0]-H[0],c[1]-H[1],c[2]-H[2]];
+    const sc=uu=>{const r=rodr(rel,uu,sx*al);return(r[2]-rel[2])+0.5*sx*(r[0]-rel[0]);};
+    if(sc([-u[0],-u[1],-u[2]])>sc(u))u=[-u[0],-u[1],-u[2]];
+    if(opts.doorFlip)u=[-u[0],-u[1],-u[2]];
+    const ay=Math.abs(u[1])>0.95?[1,0,0]:[0,1,0],dd=v3d(ay,u),r0=v3n([ay[0]-dd*u[0],ay[1]-dd*u[1],ay[2]-dd*u[2]]),r1=v3x(u,r0);
+    return{kind,H,u,sx,rows:[r0[0],r0[1],r0[2],r1[0],r1[1],r1[2],u[0],u[1],u[2]]};
+  };
   let movMergedNoData=[];const doorsPivoted=[];
   for(const {p,c} of movs){
     const mx=p.matrix,noData=!mx||isZeroPos(mx[12],mx[13],mx[14]);
@@ -2457,13 +2485,18 @@ function convertToSA(model,texLookup,opts){
             if(yF<-1e8)yF=bb0.mx[1];
             P=[(bb0.mn[0]+bb0.mx[0])/2,yF,(bb0.mn[2]+bb0.mx[2])/2];
           }
+          let st=null;try{st=pickDoorStyle(bb0,P,bm);}catch(e){console.warn('pickDoorStyle',e);}
+          // uslubli eshik ham avval oddiy eshikdek (menteshe = P) quriladi; haqiqiy menteshe/o'q oxirida joylanadi (poligon kamaytirish, oyna biriktirish o'zgarmasin)
           const acc=new GeoAcc();for(const m of p.meshes)acc.add(xformMesh(m,[1,0,0,0,0,1,0,0,0,0,1,0,-P[0],-P[1],-P[2],1],true),m,p.name);
           const specs=acc.build(matResolver);
           if(specs.length){
-            const d=addFrame(c.sa+'_dummy',0,P);
+            const pre=st?addFrame('d_'+c.sa.slice(5),0,[0,0,0]):0; // uslubli eshik: dummy ning burilgan ota freymi (oxirida joylanadi)
+            const d=addFrame(c.sa+'_dummy',pre,P);
             const ok=addFrame(c.sa+'_ok',d,[0,0,0]);addGeoms(ok,specs);
-            if(opts.damCopy){const dam=addFrame(c.sa+'_dam',d,[0,0,0]);for(let i=0;i<specs.length;i++)atomics.push({frame:dam,geom:geoms.length-specs.length+i});}
-            doorsPivoted.push(c.sa+' ('+P.map(v=>v.toFixed(2)).join(', ')+')');
+            let dam=null;
+            if(opts.damCopy){dam=addFrame(c.sa+'_dam',d,[0,0,0]);for(let i=0;i<specs.length;i++)atomics.push({frame:dam,geom:geoms.length-specs.length+i});}
+            if(st)styledDoors.push({name:c.sa,st,pre,d,ok,dam,P:P.slice()});
+            doorsPivoted.push(c.sa+' ('+(st?st.H:P).map(v=>v.toFixed(2)).join(', ')+')'+(st?' ['+st.kind+']':''));
           }
           continue;
         }
@@ -2966,6 +2999,28 @@ function convertToSA(model,texLookup,opts){
         if(per.size)report.info.push('Oyna qaysi frame larda: '+[...per].map(([k,v])=>k+' '+v).join(', ')+' (uchburchak; ikki tomonlama bo‘lsa teskari nusxalari bilan). Eshik oynasi eshik frame ida (door_xx_ok) bo‘lishi kerak — shunda eshik bilan birga ochiladi.');
       }
     }
+  }
+  // eshik uslubi (qaychi / kapalak / gullwing): ota freym (d_xx) buriladi, eshik geometriyasi unga teskari buriladi (yopiq holat o'zgarmaydi).
+  // Eshik oynasi biriktirilib bo'lgach bajariladi (oyna biriktirish burilgan freymlarni o'tkazib yuboradi).
+  if(styledDoors.length){
+    const done=[];
+    for(const sd of styledDoors){
+      const R=sd.st.rows,fset=new Set([sd.ok]);if(sd.dam!=null)fset.add(sd.dam);
+      const sh=[sd.P[0]-sd.st.H[0],sd.P[1]-sd.st.H[1],sd.P[2]-sd.st.H[2]]; // geometriya P ga nisbatan edi -> menteshe H ga nisbatan
+      const rotG=g=>{const n=g.pos.length;
+        for(let i=0;i<n;i+=3){const x=g.pos[i]+sh[0],y=g.pos[i+1]+sh[1],z=g.pos[i+2]+sh[2];g.pos[i]=x*R[0]+y*R[1]+z*R[2];g.pos[i+1]=x*R[3]+y*R[4]+z*R[5];g.pos[i+2]=x*R[6]+y*R[7]+z*R[8];}
+        if(g.nrm)for(let i=0;i<g.nrm.length;i+=3){const x=g.nrm[i],y=g.nrm[i+1],z=g.nrm[i+2];g.nrm[i]=x*R[0]+y*R[1]+z*R[2];g.nrm[i+1]=x*R[3]+y*R[4]+z*R[5];g.nrm[i+2]=x*R[6]+y*R[7]+z*R[8];}};
+      const gs=new Set();for(const a of atomics)if(fset.has(a.frame))gs.add(a.geom);
+      for(const gi of gs){
+        if(atomics.some(a=>a.geom===gi&&!fset.has(a.frame))){ // geometriyani eshik bo'lmagan freym ham ishlatsa -- nusxa
+          const g0=geoms[gi],cp=Object.assign({},g0,{pos:new Float32Array(g0.pos),nrm:g0.nrm?new Float32Array(g0.nrm):g0.nrm});
+          geoms.push(cp);for(const a of atomics)if(a.geom===gi&&fset.has(a.frame))a.geom=geoms.length-1;rotG(cp);
+        }else rotG(geoms[gi]);
+      }
+      frames[sd.pre].pos=sd.st.H.slice();frames[sd.pre].rot=R.slice();frames[sd.d].pos=[0,0,0];
+      done.push(sd.name+' ['+sd.st.kind+'] menteshe ('+sd.st.H.map(v=>v.toFixed(2)).join(', ')+'), o‘q ('+sd.st.u.map(v=>v.toFixed(2)).join(', ')+')');
+    }
+    report.info.push('Eshik ochilishi: '+done.join('; ')+'. O‘yin eshikni dummy ning Z o‘qi atrofida buradi; dummy ning ota freymi (d_xx) burilgani uchun eshik yuqoriga ochiladi. Bu usul ZModeler qo‘llanmalaridan olingan, lekin o‘yinda HALI TASDIQLANMAGAN: eshik pastga/ichkariga ketsa — «Eshik ochilish yo‘nalishini teskari qilish» katagini yoqing; boshqa uslubni «Eshik ochilishi» ro‘yxatidan tanlang.');
   }
   // mototsikl: shaffof (alfa<255) materiallar HAQIQIY SA mototsikl DFF idagidek alohida "<frame>_alpha" frame/atomiga ajratiladi
   // (haqiqiy faylda: chassis_alpha, lights_glass, forks_rear_alpha... — shaffof va zich uchburchaklar bitta atomda aralashmaydi)
@@ -3475,7 +3530,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,doorGlass:true,noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false},
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',glassBoth:true,doorGlass:true,doorStyle:'auto',doorFlip:false,noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false},
   bopts:{name:'',lod:'high',vehType:'bike',preset:'game',keepParts:true,vlo:true,rot180:false,shine:'high',glass:'normal',glassBoth:true,noHeadlights:true,steerAdopt:true,paintMode:'game',paintColor:[255,255,255,255],hideHidden:true,maxTris:36000,maxTex:512,compress:'auto',mips:true,missTex:'auto',bikeHandling:'PCJ600',bikeAnim:'bikes'}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
@@ -3777,6 +3832,9 @@ function paneConv(p){
     p.appendChild(sel('Oyna rangi (zichlik)','glass',[['normal','O‘rtacha (tavsiya) — ko‘rinadigan, och tus'],['dark','Quyuq (qoramtir tonirovka)'],['light','Juda shaffof (eski, deyarli ko‘rinmaydi)']]));
     p.appendChild(chk('Oyna ikki tomonlama (eshik ochilganda va salon ichidan ham ko‘rinadi)','glassBoth'));
     p.appendChild(chk('Eshik oynasi eshik bilan birga ochilsin (kuzovda qolib ketgan eshik/ko‘zgu oynasini eshikka biriktiradi)','doorGlass'));
+    p.appendChild(sel('Eshik ochilishi','doorStyle',[['auto','Avto (GTA V eshik suyagi yo‘nalishidan; oddiy eshiklar o‘zgarmaydi)'],['normal','Oddiy (yon tomonga)'],['scissor','Qaychi (Lamborghini) — yuqoriga'],['butterfly','Kapalak (Ferrari/McLaren) — yuqoriga va tashqariga'],['gullwing','Gullwing (tom o‘rtasidan) — yuqoriga']]));
+    p.appendChild(chk('Eshik ochilish yo‘nalishini teskari qilish (eshik pastga yoki ichkariga ketsa yoqing)','doorFlip'));
+    p.appendChild(el('div',{class:'note',html:'<b>Eshik ochilishi.</b> «Avto» — GTA V eshik suyagining o‘qi og‘gan bo‘lsa (yuqoriga ochiladigan mashina) shu o‘qni oladi, oddiy mashinalarda hech narsa o‘zgarmaydi. Mashina GTA V da yuqoriga ochilsa-yu, SA da yon tomonga ochilsa — ro‘yxatdan <b>Kapalak</b> yoki <b>Qaychi</b> ni tanlang. SA eshikni dummy ning Z o‘qi atrofida buradi; yuqoriga ochilish uchun dummy ning ota freymi (<code>d_lf</code>, <code>d_rf</code>…) burib qo‘yiladi (ZModeler qo‘llanmalaridagi usul). O‘yinda hali tasdiqlanmagan: eshik pastga/ichkariga ketsa — «teskari» katagini yoqing.'}));
     p.appendChild(chk('"headlights" dummy qo‘yilmasin','noHeadlights'));
     p.appendChild(chk('Rul burilsin (VehFuncs plagini, f_steer)','steerSpin'));
     p.appendChild(sel('Rul burilish burchagi (VehFuncs)','steerAngle',[['100','100° — CJ qo‘llari bilan bir xil (standart animatsiya)'],['180','180° (tavsiya)'],['270','270°'],['360','360° (to‘liq aylanish)'],['540','540° (haqiqiy mashinadek)']]));}
