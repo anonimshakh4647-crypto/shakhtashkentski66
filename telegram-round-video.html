@@ -51,7 +51,7 @@ button.secondary{background:#132333;color:#dcecff;border:1px solid #28435d}
           <button class="secondary" id="download" disabled>YUKLAB OLISH (MP4)</button>
         </div>
         <div class="progress"><div class="bar" id="bar"></div></div>
-        <div class="status" id="status">Konvertor yuklanmoqda…</div>
+        <div class="status" id="status">Video tanlang.</div>
       </section>
       <section class="controls">
         <h2>Sozlamalar</h2>
@@ -91,18 +91,21 @@ button.secondary{background:#132333;color:#dcecff;border:1px solid #28435d}
           </div>
         </div>
         <div class="small" style="margin:-4px 0 12px">MP4 da shaffoflik (alfa) bo'lmaydi, shuning uchun dumaloqdan tashqari qism bir xil rang bilan to'ldiriladi. Telegram tungi mavzusi uchun qora, kunduzgi uchun oq tanlang.</div>
+        <div class="field"><label>Kodlash usuli</label>
+          <select id="engine"><option value="auto" selected>Avto — tez (brauzer), kerak bo'lsa ffmpeg</option><option value="native">Faqat tez usul (brauzer, 4K ham qotmaydi)</option><option value="ff">ffmpeg (sekin; kichik videolar uchun)</option></select>
+        </div>
         <div class="row">
-          <div class="field"><label>Kodlash tezligi</label>
+          <div class="field"><label>Kodlash tezligi (faqat ffmpeg)</label>
             <select id="preset"><option value="ultrafast">ultrafast — Eng tezkor</option><option value="veryfast" selected>veryfast — Tezkor (tavsiya)</option><option value="faster">faster</option><option value="fast">fast</option><option value="medium">medium — Sekinroq, sifatliroq</option></select>
           </div>
           <div class="field"><label>Maksimal hajm (MB)</label>
             <input id="maxmb" type="number" min="1" max="200" step="1" value="10">
           </div>
         </div>
-        <div class="small" style="margin:-4px 0 12px">Hajm chegarasi: video uzun bo'lsa, fayl shu MB dan oshmasligi uchun bitreyt avtomatik cheklanadi (qisqa videoda sifat o'zgarmaydi). Telegram'ning aniq chegarasi hujjatlashtirilmagan — Telegram "juda katta" desa, bu sonni kamaytiring.</div>
+        <div class="small" style="margin:-4px 0 12px">Hajm chegarasi (video bitreyti shunga moslanadi): video uzun bo'lsa, fayl shu MB dan oshmasligi uchun bitreyt avtomatik cheklanadi (qisqa videoda sifat o'zgarmaydi). Telegram'ning aniq chegarasi hujjatlashtirilmagan — Telegram "juda katta" desa, bu sonni kamaytiring.</div>
         <div class="small" id="meta">Video tanlanmagan.</div>
         <div class="note" id="perfNote">
-          <b>Diqqat (tezlik):</b> katta o'lchamli manba (masalan 4K) yoki uzunroq davomiylikni qayta kodlash biroz vaqt olishi mumkin. Tezroq natija uchun: qisqaroq kesib oling, "Chiqish o'lchami"ni pastroq tanlang. Ishlov ketayotganda sahifa "javob bermayapti" (Page Unresponsive) ko'rinishi mumkin — bu normal, shunchaki "Wait" bosib kuting, sahifani yopmang.
+          <b>Qanday ishlaydi:</b> “Tez usul”da videoni brauzerning o'zi (video-kartaning dekoderi) ochadi, siz tanlagan kadrni dumaloq qilib chizadi va MP4 ga yozadi — shuning uchun 4K video ham sahifani qotirmaydi (“Page Unresponsive” chiqmaydi). U <b>real vaqtda</b> ishlaydi: 10 soniyalik kesim ≈ 10 soniya oladi. Yozish davomida shu varaqni ochiq qoldiring (boshqa varaqqa o'tsangiz yozish to'xtab turadi va qaytib kelsangiz davom etadi). Brauzer videoni ocholmasa yoki MP4 yozolmasa, avtomatik ffmpeg usuliga o'tiladi — u sekin, katta (4K) videoda sahifani qotirishi mumkin.
         </div>
         <div class="note">
           <b>Muhim — halol tushuntirish:</b> “Natijani dumaloq qilish” yoqilganda video haqiqatan dumaloq shaklga kesiladi: dumaloqdan tashqari burchaklar siz tanlagan rang bilan to'ldiriladi (MP4 shaffoflikni saqlamaydi). Shuning uchun Telegram'da oddiy video qilib yuborsangiz ham dumaloq ko'rinadi — faqat atrofida shu rangdagi kvadrat fon bo'ladi (qora fon tungi mavzuda deyarli sezilmaydi). Telegram'ning o'zining dumaloq “video xabar” pufakchasi (fonsiz, chatda suzib turadigan) esa faqat ilovaning o'zi yoki Bot API'ning sendVideoNote usuli orqali hosil bo'ladi — fayl har doim kvadrat MP4 (1:1, H.264 + AAC, 60 soniyagacha, 640×640 gacha). Bu faylni sendVideoNote bilan yuborsangiz, Telegram uni o'zi dumaloq qirqadi — burchaklardagi rang kesib tashlanadi. “Video xabar” sifatida tayyor fayl yuborish imkoni ilova versiyasiga bog'liq — men uni tasdiqlay olmadim.
@@ -117,7 +120,7 @@ const $=id=>document.getElementById(id);
 const FF_JS=['https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js','https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js'];
 const FF_CORE=['https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js','https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'];
 const fileEl=$('file'),drop=$('drop'),preview=$('preview'),vidBox=$('vidBox'),convert=$('convert'),download=$('download'),statusEl=$('status'),bar=$('bar'),metaEl=$('meta');
-let ffmpeg=null,source=null,outputUrl=null,previewUrl=null,ffmpegReady=false,running=false,initBusy=null,iw=0,ih=0,dur=0,effDurNow=10,logTail=[];
+let ffmpeg=null,source=null,outputUrl=null,outputExt='mp4',previewUrl=null,ffmpegReady=false,running=false,initBusy=null,iw=0,ih=0,dur=0,effDurNow=10,logTail=[];
 
 function status(t,p){statusEl.textContent=t;if(p!=null)bar.style.width=p+'%'}
 
@@ -197,7 +200,7 @@ function choose(f){
   if(running){status('Kodlash ketayapti — tugagach yangi video tanlang.');return}
   if(!/^video\//.test(f.type)&&!/\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(f.name)){status('Iltimos video fayl tanlang.');return}
   source=f;
-  convert.disabled=!ffmpegReady||running;
+  convert.disabled=running;
   download.disabled=true;
   if(outputUrl){URL.revokeObjectURL(outputUrl);outputUrl=null;}
   bar.style.width='0%';
@@ -207,7 +210,7 @@ function choose(f){
   preview.onerror=()=>{
     iw=0;ih=0;dur=0;updatePreviewPos();
     metaEl.textContent='Fayl: '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB) • brauzer bu videoni ko‘rsata olmadi (kodek qo‘llab-quvvatlanmaydi).';
-    status(ffmpegReady?'Ko‘rinish chiqmadi, lekin konvertor bu videoni baribir qayta ishlay oladi — markaz bo‘yicha kesiladi (joylashuv/zoom sozlamalari ishlaydi). Tugmani bosing.':'Konvertor yuklanmoqda…');
+    status('Brauzer bu videoni ko‘rsata olmadi — ffmpeg usuli bilan qayta ishlanadi (sekinroq; katta fayllarda sahifa qotishi mumkin). Markaz bo‘yicha kesiladi. Tugmani bosing.');
   };
   preview.src=previewUrl;
   preview.onloadedmetadata=()=>{
@@ -218,7 +221,7 @@ function choose(f){
     metaEl.textContent='Fayl: '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB) • '+iw+'×'+ih+' • '+dur.toFixed(1)+' son.'+(f.size>800*1048576?' • ⚠ Fayl juda katta: brauzer xotirasi yetmasligi mumkin — avval qisqartirib oling.':'');
     updatePreviewPos();
     preview.play().catch(()=>{});
-    status(ffmpegReady?'Tayyor — sozlamalarni tanlang va "DUMALOQ VIDEO QILISH" tugmasini bosing.':'Konvertor yuklanmoqda…');
+    status('Tayyor — sozlamalarni tanlang va "DUMALOQ VIDEO QILISH" tugmasini bosing.');
   };
 }
 fileEl.onchange=e=>choose(e.target.files[0]);
@@ -304,63 +307,203 @@ function explain(e){
   return m;
 }
 
-convert.onclick=async()=>{
-  if(!source||!ffmpegReady||running)return;
-  running=true;convert.disabled=true;download.disabled=true;
-  const a='input_src',b='output.mp4',mk='mask.png';
+const softErr=m=>{const x=new Error(m);x.soft=true;return x};
+function readParams(){
+  const zoom=Math.max(1,+$('zoom').value||1),panX=+$('panX').value,panY=+$('panY').value;
+  const outSize=+$('size').value,crf=$('crf').value,preset=$('preset').value;
+  const start=Math.max(0,+$('start').value||0);
+  if(dur>0&&start>dur-0.2)throw softErr('Boshlanish vaqti video davomiyligidan ('+dur.toFixed(1)+' son.) oshib ketgan — kichikroq qiymat kiriting.');
+  let trimDur=Math.min(60,Math.max(0.5,+$('dur').value||10));
+  if(dur>0)trimDur=Math.max(0.5,Math.min(trimDur,dur-start)); // manba tugaganidan keyingi qismni so'ramaymiz
+  const maxMB=+$('maxmb').value||10;
+  return {zoom,panX,panY,outSize,crf,preset,start,trimDur,maxMB,vK:planBitrate(trimDur,maxMB,outSize),mask:$('maskOn').value==='1',bg:$('maskBg').value};
+}
+
+/* ===== 1) TEZ USUL: brauzerning o'zi — video dekoderi + canvas (dumaloq kesim) + MediaRecorder (MP4/H.264) =====
+   ffmpeg.wasm bosh oqimni band qilib qo'yardi (4K da "Page Unresponsive"); bu usulda dekodlash/kodlash brauzer ichida (video-karta),
+   sahifa qotmaydi. Real vaqtda ishlaydi. Kesim formulasi ko'rinish (preview) bilan bir xil: cropGeom. */
+const MP4_TYPES=['video/mp4;codecs=avc1.64001F,mp4a.40.2','video/mp4;codecs=avc1.4D401F,mp4a.40.2','video/mp4;codecs=avc1.42E01F,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/mp4'];
+let mimeProbe=null;
+function hasAvc1(buf){const u=new Uint8Array(buf);for(let i=0;i+4<=u.length;i++)if(u[i]===0x61&&u[i+1]===0x76&&u[i+2]===0x63&&u[i+3]===0x31)return true;return false;}
+/* Qisqa sinov yozuv: brauzer haqiqatan H.264 MP4 yozishini tekshiradi (boshqa kodek bo'lsa Telegram qabul qilmasligi mumkin). */
+function probeMime(){
+  if(mimeProbe)return mimeProbe;
+  mimeProbe=(async()=>{
+    if(typeof MediaRecorder==='undefined'||!HTMLCanvasElement.prototype.captureStream)return null;
+    for(const t of MP4_TYPES){
+      let ok=false;try{ok=MediaRecorder.isTypeSupported(t)}catch(_){}
+      if(!ok)continue;
+      try{
+        const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d');x.fillStyle='#456';x.fillRect(0,0,64,64);
+        const st=c.captureStream(30),mr=new MediaRecorder(st,{mimeType:t}),ch=[];
+        mr.ondataavailable=e=>{if(e.data&&e.data.size)ch.push(e.data)};
+        const done=new Promise(r=>{mr.onstop=r;mr.onerror=r;});
+        mr.start();
+        for(let k=0;k<8;k++){x.fillStyle='hsl('+(k*40)+',60%,50%)';x.fillRect(0,0,64,64);await new Promise(r=>setTimeout(r,50));}
+        mr.stop();await done;st.getTracks().forEach(q=>q.stop());
+        const buf=await new Blob(ch).arrayBuffer();
+        if(buf.byteLength&&hasAvc1(buf))return t;
+      }catch(e){console.warn('MP4 sinov:',t,e);}
+    }
+    return null;
+  })();
+  return mimeProbe;
+}
+function onceEv(el,ev,ms,msg){return new Promise((res,rej)=>{let t=null;const h=()=>{clearTimeout(t);el.removeEventListener(ev,h);res()};el.addEventListener(ev,h);if(ms)t=setTimeout(()=>{el.removeEventListener(ev,h);rej(new Error(msg||('Kutish vaqti tugadi: '+ev)))},ms);});}
+async function convertNative(P,mime){
+  const W=P.outSize,wasPlaying=!preview.paused;preview.pause();
+  const v=document.createElement('video');
+  v.muted=false;v.volume=1;v.playsInline=true;v.preload='auto';v.setAttribute('aria-hidden','true');
+  v.style.cssText='position:fixed;left:0;top:0;width:4px;height:4px;opacity:.01;pointer-events:none;z-index:-1';
+  document.body.appendChild(v);
+  let ac=null,vs=null,mr=null,onVis=null;
+  const cleanup=()=>{
+    try{if(onVis)document.removeEventListener('visibilitychange',onVis)}catch(_){}
+    try{if(mr&&mr.state!=='inactive')mr.stop()}catch(_){}
+    try{v.pause()}catch(_){}
+    if(vs)vs.getTracks().forEach(t=>{try{t.stop()}catch(_){}});
+    try{if(ac)ac.close()}catch(_){}
+    try{v.removeAttribute('src');v.load()}catch(_){}
+    v.remove();
+    if(wasPlaying)preview.play().catch(()=>{});
+  };
   try{
-    const zoom=Math.max(1,+$('zoom').value||1),panX=+$('panX').value,panY=+$('panY').value;
-    const outSize=+$('size').value,crf=$('crf').value,preset=$('preset').value;
-    let start=Math.max(0,+$('start').value||0);
-    if(dur>0&&start>dur-0.2){const x=new Error('Boshlanish vaqti video davomiyligidan ('+dur.toFixed(1)+' son.) oshib ketgan — kichikroq qiymat kiriting.');x.soft=true;throw x}
-    let trimDur=Math.min(60,Math.max(0.5,+$('dur').value||10));
-    if(dur>0)trimDur=Math.max(0.5,Math.min(trimDur,dur-start)); // manba tugaganidan keyingi qismni so'ramaymiz
-    effDurNow=trimDur;
-    const maxMB=+$('maxmb').value||10;
-    const vK=planBitrate(trimDur,maxMB,outSize);
-    try{ffmpeg.FS('unlink',a)}catch(_){}
-    try{ffmpeg.FS('unlink',b)}catch(_){}
-    try{ffmpeg.FS('unlink',mk)}catch(_){}
-    const mask=$('maskOn').value==='1';
-    status('Fayl o‘qilmoqda…',0);
-    ffmpeg.FS('writeFile',a,await window.FFmpeg.fetchFile(source));
-    if(mask)ffmpeg.FS('writeFile',mk,await maskPng(outSize,$('maskBg').value));
-    lastProgUi=0;lastProgPct=-1;
-    status('Kodlanmoqda…',0);
-    logTail=[];
-    await ffmpeg.run(...buildArgs({start,dur:trimDur,zoom,panX,panY,size:outSize,crf,preset,vK,mask}));
-    let data;
-    try{data=ffmpeg.FS('readFile',b)}catch(_){throw new Error('Kodlash muvaffaqiyatsiz tugadi'+(logTail.length?' ('+logTail.slice(-2).join(' / ')+')':'')+'.')}
-    const blob=new Blob([data],{type:'video/mp4'});
-    try{ffmpeg.FS('unlink',a)}catch(_){}
-    try{ffmpeg.FS('unlink',b)}catch(_){}
-    try{ffmpeg.FS('unlink',mk)}catch(_){}
-    if(!blob.size)throw new Error('Natija bo‘sh fayl chiqdi (kodlash muvaffaqiyatsiz).');
+    v.src=previewUrl;
+    if(v.readyState<1)await onceEv(v,'loadedmetadata',20000,'Brauzer videoni ocha olmadi.');
+    if(v.readyState<2)await onceEv(v,'loadeddata',20000,'Video kadrlari yuklanmadi.');
+    if(Math.abs(v.currentTime-P.start)>0.01){const sk=onceEv(v,'seeked',20000,'Boshlanish vaqtiga o‘tib bo‘lmadi.');v.currentTime=P.start;await sk;}
+    const cv=document.createElement('canvas');cv.width=cv.height=W;const cx=cv.getContext('2d',{alpha:false});
+    const draw=()=>{
+      const g=cropGeom(v.videoWidth,v.videoHeight,P.zoom,P.panX,P.panY);
+      cx.fillStyle=P.mask?P.bg:'#000';cx.fillRect(0,0,W,W);
+      if(P.mask){cx.save();cx.beginPath();cx.arc(W/2,W/2,W/2,0,Math.PI*2);cx.clip();}
+      cx.imageSmoothingEnabled=true;cx.imageSmoothingQuality='high';
+      cx.drawImage(v,g.x,g.y,g.cs,g.cs,0,0,W,W);
+      if(P.mask)cx.restore();
+    };
+    draw();
+    /* ovoz: video ovozi faqat yozuvga ketadi (karnayga chiqmaydi) */
+    let dest=null;
+    try{const AC=window.AudioContext||window.webkitAudioContext;ac=new AC();const src=ac.createMediaElementSource(v);dest=ac.createMediaStreamDestination();src.connect(dest);if(ac.state==='suspended')await ac.resume();}catch(e){console.warn('Ovoz ulanmadi:',e);dest=null;v.muted=true;}
+    vs=cv.captureStream(30);
+    const tracks=vs.getVideoTracks().slice();if(dest)dest.stream.getAudioTracks().forEach(t=>tracks.push(t));
+    mr=new MediaRecorder(new MediaStream(tracks),{mimeType:mime,videoBitsPerSecond:Math.round(P.vK*1000),audioBitsPerSecond:128000});
+    const chunks=[];mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
+    const stopped=new Promise((res,rej)=>{mr.onstop=res;mr.onerror=e=>rej((e&&e.error)||new Error('MediaRecorder xatosi'));});
+    onVis=()=>{
+      if(!mr)return;
+      if(document.hidden){if(mr.state==='recording'){mr.pause();v.pause();status('Varaq yashirin — yozish to‘xtatildi. Shu varaqqa qayting, davom etadi.');}}
+      else if(mr.state==='paused'){mr.resume();v.play().catch(()=>{});}
+    };
+    document.addEventListener('visibilitychange',onVis);
+    const endT=P.start+P.trimDur;
+    mr.start(250);
+    await v.play();
+    await new Promise((res,rej)=>{
+      let lastT=-1,lastCh=performance.now(),fin=false;
+      const done=f=>{if(fin)return;fin=true;clearTimeout(guard);f();};
+      const guard=setTimeout(()=>done(()=>rej(new Error('Yozish juda uzoq cho‘zildi.'))),P.trimDur*3000+30000);
+      v.onended=()=>done(res);
+      const step=()=>{
+        if(fin)return;
+        if(!mr||mr.state==='inactive'){done(()=>rej(new Error('Yozib olish to‘xtab qoldi.')));return}
+        draw();
+        const t=v.currentTime,pct=Math.max(0,Math.min(99,Math.round((t-P.start)/P.trimDur*100)));
+        if(!document.hidden)status('Yozilmoqda… '+pct+'% (real vaqtda; varaqni yopmang)',pct);
+        const now=performance.now();
+        if(t!==lastT){lastT=t;lastCh=now;}else if(!v.paused&&now-lastCh>8000){done(()=>rej(new Error('Video kadrlari to‘xtab qoldi.')));return}
+        if(t>=endT-0.02||v.ended){done(res);return}
+        sched();
+      };
+      const sched=()=>{if(v.requestVideoFrameCallback)v.requestVideoFrameCallback(step);else requestAnimationFrame(step);};
+      sched();
+    });
+    draw();v.pause();
+    if(mr.state==='paused')mr.resume();
+    mr.stop();await stopped;
+    const blob=new Blob(chunks,{type:'video/mp4'});
+    if(!blob.size)throw new Error('Natija bo‘sh fayl chiqdi.');
+    return {blob,ext:'mp4',engine:'brauzer'};
+  }finally{cleanup();}
+}
+
+/* ===== 2) ffmpeg USULI (zaxira): brauzer videoni ocholmasa yoki MP4 yozolmasa — sekin, katta videoda sahifa qotishi mumkin ===== */
+async function convertFF(P){
+  const a='input_src',b='output.mp4',mk='mask.png';
+  if(!ffmpegReady){
+    status('FFmpeg mexanizmi yuklanmoqda…',0);
+    await init(true);
+    if(!ffmpegReady)throw new Error('FFmpeg yuklanmadi. Sahifani qayta yuklang va internetni tekshiring (VPN kerak bo‘lishi mumkin).');
+  }
+  if(iw*ih>1920*1088*1.3)status('⚠ Katta (4K) video ffmpeg bilan juda sekin ishlaydi va sahifa qotishi mumkin — “Wait” bosib kuting. Tezroq: “Avto” yoki “Faqat tez usul” (Chrome) ni tanlang.',0);
+  effDurNow=P.trimDur;
+  try{ffmpeg.FS('unlink',a)}catch(_){}
+  try{ffmpeg.FS('unlink',b)}catch(_){}
+  try{ffmpeg.FS('unlink',mk)}catch(_){}
+  status('Fayl o‘qilmoqda…',0);
+  ffmpeg.FS('writeFile',a,await window.FFmpeg.fetchFile(source));
+  if(P.mask)ffmpeg.FS('writeFile',mk,await maskPng(P.outSize,P.bg));
+  lastProgUi=0;lastProgPct=-1;
+  status('Kodlanmoqda…',0);
+  logTail=[];
+  await ffmpeg.run(...buildArgs({start:P.start,dur:P.trimDur,zoom:P.zoom,panX:P.panX,panY:P.panY,size:P.outSize,crf:P.crf,preset:P.preset,vK:P.vK,mask:P.mask}));
+  let data;
+  try{data=ffmpeg.FS('readFile',b)}catch(_){throw new Error('Kodlash muvaffaqiyatsiz tugadi'+(logTail.length?' ('+logTail.slice(-2).join(' / ')+')':'')+'.')}
+  const blob=new Blob([data],{type:'video/mp4'});
+  try{ffmpeg.FS('unlink',a)}catch(_){}
+  try{ffmpeg.FS('unlink',b)}catch(_){}
+  try{ffmpeg.FS('unlink',mk)}catch(_){}
+  if(!blob.size)throw new Error('Natija bo‘sh fayl chiqdi (kodlash muvaffaqiyatsiz).');
+  return {blob,ext:'mp4',engine:'ffmpeg'};
+}
+
+convert.onclick=async()=>{
+  if(!source||running)return;
+  running=true;convert.disabled=true;download.disabled=true;
+  let used='';
+  try{
+    const P=readParams(),eng=$('engine').value;
+    let res=null,mime=null;
+    if(eng!=='ff'&&iw>0){status('Brauzer imkoniyatlari tekshirilmoqda…',0);mime=await probeMime();}
+    if(eng==='native'&&!mime)throw softErr(iw>0?'Bu brauzer H.264 MP4 yozishni qo‘llamaydi (Chrome 126+ kerak). “Avto” yoki “ffmpeg” usulini tanlang.':'Brauzer bu videoni ocholmadi — “Avto” yoki “ffmpeg” usulini tanlang.');
+    if(mime){
+      used='native';
+      try{res=await convertNative(P,mime);}
+      catch(e){
+        if(e&&e.soft)throw e;
+        console.error(e);
+        if(eng==='native')throw e;
+        status('Tez usul ishlamadi ('+explain(e)+') — ffmpeg usuliga o‘tilmoqda…',0);
+        res=null;
+      }
+    }
+    if(!res){used='ff';res=await convertFF(P);}
     if(outputUrl)URL.revokeObjectURL(outputUrl);
-    outputUrl=URL.createObjectURL(blob);
+    outputUrl=URL.createObjectURL(res.blob);outputExt=res.ext;
     download.disabled=false;
-    const mb=blob.size/1048576;
-    status('Tayyor — '+(mask?'DUMALOQ ':'')+'MP4 yaratildi: '+outSize+'×'+outSize+', '+trimDur.toFixed(1)+' son., '+mb.toFixed(1)+' MB.'+(mb>maxMB*1.05?' ⚠ Hajm '+maxMB+' MB dan oshdi — “Video sifati”ni kamaytiring yoki davomiylikni qisqartiring.':''),100);
+    const mb=res.blob.size/1048576;
+    status('Tayyor — '+(P.mask?'DUMALOQ ':'')+'MP4 yaratildi ('+res.engine+'): '+P.outSize+'×'+P.outSize+', '+P.trimDur.toFixed(1)+' son., '+mb.toFixed(1)+' MB.'+(mb>P.maxMB*1.05?' ⚠ Hajm '+P.maxMB+' MB dan oshdi — davomiylikni qisqartiring yoki “Maksimal hajm”ni kamaytiring.':''),100);
   }catch(e){
     console.error(e);
     const msg=explain(e);
-    if(e&&e.soft){status(msg);return}   // oddiy kiritish xatosi: konvertorni qayta yuklash shart emas
-    status('Xatolik yuz berdi: '+msg+' — konvertor qayta tiklanmoqda…');
-    await recover();
-    status('Xatolik yuz berdi: '+msg+(ffmpegReady?' Konvertor qayta tiklandi — qayta urinib ko‘ring.':''));
+    if(e&&e.soft){status(msg);return}   // oddiy kiritish xatosi
+    if(used==='ff'){
+      status('Xatolik yuz berdi: '+msg+' — konvertor qayta tiklanmoqda…');
+      await recover();
+      status('Xatolik yuz berdi: '+msg+(ffmpegReady?' Konvertor qayta tiklandi — qayta urinib ko‘ring.':''));
+    }else status('Xatolik yuz berdi: '+msg);
   }finally{
     running=false;
-    convert.disabled=!(source&&ffmpegReady);
+    convert.disabled=!source;
   }
 };
 download.onclick=()=>{
   if(!outputUrl)return;
   const a=document.createElement('a');
   a.href=outputUrl;
-  a.download=(source.name.replace(/\.[^.]+$/,'')||'video')+'_DUMALOQ.mp4';
+  a.download=(source.name.replace(/\.[^.]+$/,'')||'video')+'_DUMALOQ.'+outputExt;
   a.click();
 };
-init();
 </script>
 <!-- IT-SHAKH-SITELOCK -->
 <style>
