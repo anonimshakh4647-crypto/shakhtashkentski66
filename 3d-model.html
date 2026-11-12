@@ -795,6 +795,7 @@
 
             <div class="cv-grid">
                 <label class="cv-f"><span>Mashina nomi (≤ 20 belgi, lotin)</span><input type="text" id="saName" maxlength="20" placeholder="masalan: damas"></label>
+                <label class="cv-f"><span>Mashina uzunligi (m) — bo‘sh = avto</span><input type="number" id="saLen" min="0.5" max="30" step="any" placeholder="avto (masalan 3.6)"></label>
                 <label class="cv-f"><span>Mashina old tomoni</span><select id="saFwd"><option value="auto">Avto</option><option value="+y">+Y</option><option value="-y">−Y</option><option value="+x">+X</option><option value="-x">−X</option></select></label>
                 <label class="cv-f"><span>Maks. poligon (SA uchun)</span><select id="saTris"><option value="0">Cheklovsiz (xavfli!)</option><option value="30000">30 000 (eng yengil)</option><option value="36000">36 000</option><option value="52000" selected>52 000 (tavsiya)</option><option value="100000">100 000 (faqat limit adjuster bilan)</option></select></label>
                 <label class="cv-f"><span>Tekstura o‘lchami</span><select id="saTex"><option value="256">256</option><option value="512" selected>512</option><option value="1024">1024</option></select></label>
@@ -9977,10 +9978,28 @@ function detectForward(cv){
   return{fwd,confident:Math.abs(votes)>=1.5,why:why.join(', ')||'aniq belgi yo‘q — standart '+(La===1?'+Y':'+X')};
 }
 /* ---- 2. aylantirilgan nusxa ---- */
-function prep(cv,fwd){
+const STRAY=S(['ground','floor','road','asphalt','background','backdrop','studio','grid','pavement','terrain','plane','shadow']);
+const isStray=(name,e)=>any(toks(name),STRAY)&&e[2]<0.05*Math.max(e[0],e[1]); // yer/pol/fon tekisligi
+/* masshtab: o'lchamlar (3DS/OBJ da cm, mm, dyuym bo'lishi mumkin) avtomatik SA mashinasi o'lchamiga keltiriladi; yoki qo'lda berilgan uzunlik (m) */
+function pickScale(cv,plan,opts){
+  const mn=[1e30,1e30],mx=[-1e30,-1e30];
+  cv.meshes.forEach((m,i)=>{
+    if(SKIP_RX.test(m.name||''))return;const pr=plan&&plan.objRole&&plan.objRole[i];if(pr==='skip')return;
+    const b=bbOf(m.pos),e=ext(b);if(isStray(m.name,e))return;
+    for(let k=0;k<2;k++){if(b.mn[k]<mn[k])mn[k]=b.mn[k];if(b.mx[k]>mx[k])mx[k]=b.mx[k];}});
+  const L0=Math.max(mx[0]-mn[0],mx[1]-mn[1]);
+  if(!(L0>0)||!isFinite(L0))return{k:1,L0:0,L:0,mode:'—'};
+  const want=+(opts&&opts.length);
+  if(want>0)return{k:want/L0,L0,L:want,mode:'qo‘lda'};
+  if(L0>=2.5&&L0<=7.5)return{k:1,L0,L:L0,mode:'o‘zgarmadi'};
+  for(const k of [0.1,0.01,0.001,0.0254,10,100,1000]){const L=L0*k;if(L>=2.5&&L<=7.5)return{k,L0,L,mode:'avto'};}
+  return{k:4.5/L0,L0,L:4.5,mode:'avto (4.5 m)'};
+}
+function prep(cv,fwd,k){
+  k=k||1;
   return cv.meshes.map(m=>{
     const n=m.pos.length/3,pos=new Float32Array(n*3),nrm=m.nrm?new Float32Array(n*3):null;
-    for(let i=0;i<n;i++){const r=rotXY(fwd,m.pos[i*3],m.pos[i*3+1]);pos[i*3]=r[0];pos[i*3+1]=r[1];pos[i*3+2]=m.pos[i*3+2];
+    for(let i=0;i<n;i++){const r=rotXY(fwd,m.pos[i*3]*k,m.pos[i*3+1]*k);pos[i*3]=r[0];pos[i*3+1]=r[1];pos[i*3+2]=m.pos[i*3+2]*k;
       if(nrm){const q=rotXY(fwd,m.nrm[i*3],m.nrm[i*3+1]);nrm[i*3]=q[0];nrm[i*3+1]=q[1];nrm[i*3+2]=m.nrm[i*3+2];}}
     const bb=bbOf(pos);return{pos,nrm,bb,c:ctr(bb),e:ext(bb)};
   });
@@ -9996,7 +10015,7 @@ function doorSlot(T){
 function detect(cv,P,opts){
   opts=opts||{};
   const nM=cv.meshes.length,roles=new Array(nM).fill('body'),why=new Array(nM).fill('');
-  const live=[];for(let i=0;i<nM;i++){if(SKIP_RX.test(cv.meshes[i].name||'')){roles[i]='skip';why[i]='LOD/zarar nusxasi';}else live.push(i);}
+  const live=[];for(let i=0;i<nM;i++){if(SKIP_RX.test(cv.meshes[i].name||'')){roles[i]='skip';why[i]='LOD/zarar nusxasi';}else if(isStray(cv.meshes[i].name,P[i].e)){roles[i]='skip';why[i]='yer/fon tekisligi';}else live.push(i);}
   const bbAll=bbOf(Float32Array.from(live.flatMap(i=>[...P[i].bb.mn,...P[i].bb.mx])));
   const E=ext(bbAll),xc=(bbAll.mn[0]+bbAll.mx[0])/2,yc=(bbAll.mn[1]+bbAll.mx[1])/2,zmin=bbAll.mn[2],H=E[2],W=E[0];
   const warnings=[];
@@ -10113,14 +10132,14 @@ function finalize(cv,P,det){
 function analyze(cv,plan,opts){
   plan=plan||{};
   const fd=(plan.fwd&&plan.fwd!=='auto')?{fwd:plan.fwd,confident:true,why:'qo‘lda tanlangan'}:detectForward(cv);
-  const P=prep(cv,fd.fwd),det=detect(cv,P,opts);
+  const sc=pickScale(cv,plan,opts),P=prep(cv,fd.fwd,sc.k),det=detect(cv,P,opts);
   if(plan.objRole)for(const k of Object.keys(plan.objRole)){const i=+k;if(i>=0&&i<cv.meshes.length&&plan.objRole[k]&&plan.objRole[k]!=='auto'){det.roles[i]=plan.objRole[k];det.why[i]='qo‘lda';}}
   finalize(cv,P,det);
   const mats=detectMats(cv,P,det,opts);
   if(plan.matRole)for(const k of Object.keys(plan.matRole)){const i=+k;if(mats[i]&&plan.matRole[k]&&plan.matRole[k]!=='auto'){mats[i].role=plan.matRole[k];mats[i].why='qo‘lda';}}
   const e=det.dims;if(e[2]>Math.max(e[0],e[1])*0.95)det.warnings.push('Model balandligi uzunligidan katta ko‘rinadi — «Yuqori o‘q» (6-bo‘lim) noto‘g‘ri bo‘lishi mumkin.');
-  const L=Math.max(e[0],e[1]);if(L>7||L<2)det.warnings.push('Mashina uzunligi '+L.toFixed(2)+' m — odatda 3.5–6 m. «Eng uzun o‘lcham (m)» ni tekshiring (6-bo‘lim).');
-  return{fwd:fd.fwd,fwdConfident:fd.confident,fwdWhy:fd.why,P,det,mats,tris:cv.meshes.map((m,i)=>m.idx.length/3)};
+  const L=Math.max(e[0],e[1]);if(L>7||L<2)det.warnings.push('Mashina uzunligi '+L.toFixed(2)+' m — odatda 3.5–6 m. «Mashina uzunligi (m)» maydoniga kerakli qiymatni yozing.');
+  return{fwd:fd.fwd,fwdConfident:fd.confident,fwdWhy:fd.why,scale:sc,P,det,mats,tris:cv.meshes.map((m,i)=>m.idx.length/3)};
 }
 function build(cv,plan,opts,an){
   opts=Object.assign({name:'',maxTris:36000,maxTex:512,shine:'high',glass:'normal',doorStyle:'auto',doorFlip:false,hideHidden:true,vlo:true,noHeadlights:true,paintGame:false,wheelScale:1},opts||{});
@@ -10190,7 +10209,7 @@ function build(cv,plan,opts,an){
   const cop={name,lod:'high',maxTris:opts.maxTris,maxTex:opts.maxTex,shine:opts.shine,glass:opts.glass,doorStyle:opts.doorStyle,doorFlip:!!opts.doorFlip,hideHidden:!!opts.hideHidden,vlo:opts.vlo!==false,
     noHeadlights:opts.noHeadlights!==false,paintMode:'game',roles:roleMap,keepParts:false,mergeOther:true,wheelScale:opts.wheelScale||1,glassBoth:true,doorGlass:true,missTex:'plain',preset:'game',compress:opts.compress||'auto',mips:true,damCopy:false};
   const res=G.convertToSA(model,lookupFactory(cv),cop);
-  res.analysis={fwd:an.fwd,fwdWhy:an.fwdWhy,origin:{ground:gz,height:oh,shift:sh},wheelCenters:centers,found:det.found};
+  res.analysis={scale:an.scale,fwd:an.fwd,fwdWhy:an.fwdWhy,origin:{ground:gz,height:oh,shift:sh},wheelCenters:centers,found:det.found};
   return res;
 }
 root.SACAR={analyze,build,detectForward,ROLE_LABEL,MAT_ROLE_LABEL,PART_OF,FWD_LABEL};
@@ -10455,7 +10474,7 @@ const safeName=s=>String(s||'').toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,
 
 function opts(){
   return{name:safeName($('saName').value)||safeName(model()&&model().name)||'car',maxTris:+$('saTris').value,maxTex:+$('saTex').value,doorStyle:$('saDoor').value,doorFlip:$('saFlip').checked,
-    glass:$('saGlass').value,hideHidden:$('saHidden').checked,vlo:$('saVlo').checked,noHeadlights:$('saNoHead').checked,paintGame:$('saPaint').checked,shine:'high'};
+    length:parseFloat($('saLen').value)||0,glass:$('saGlass').value,hideHidden:$('saHidden').checked,vlo:$('saVlo').checked,noHeadlights:$('saNoHead').checked,paintGame:$('saPaint').checked,shine:'high'};
 }
 function warn(el,list){const w=$(el);if(!list||!list.length){w.style.display='none';w.innerHTML='';return;}w.style.display='';w.innerHTML=list.map(x=>'• '+esc(x)).join('<br>');}
 
@@ -10467,7 +10486,7 @@ function analyze(rebuildTables){
   try{st.an=SACAR.analyze(m,st.plan,opts());}catch(e){console.error(e);$('saInfo').textContent='Tahlil xatosi: '+e.message;return;}
   const an=st.an,e=an.det.dims,L=Math.max(e[0],e[1]);
   const fwdTxt=({'+y':'+Y','-y':'−Y','+x':'+X','-x':'−X'})[an.fwd];
-  $('saInfo').innerHTML='<b>'+esc(m.name)+'</b>: '+fmtN(m.meshes.length)+' obyekt · '+fmtN(m.nV)+' vertex · '+fmtN(m.nT)+' poligon · '+m.mats.length+' material · uzunlik <b>'+L.toFixed(2)+' m</b> (kenglik '+Math.min(e[0],e[1]).toFixed(2)+', balandlik '+e[2].toFixed(2)+')<br>Old tomon: <b>'+fwdTxt+'</b> — '+esc(an.fwdWhy)+(an.fwdConfident?'':' ⚠ aniq emas, sxemada tekshiring');
+  $('saInfo').innerHTML='<b>'+esc(m.name)+'</b>: '+fmtN(m.meshes.length)+' obyekt · '+fmtN(m.nV)+' vertex · '+fmtN(m.nT)+' poligon · '+m.mats.length+' material · uzunlik <b>'+L.toFixed(2)+' m</b>'+(an.scale&&an.scale.mode!=='o‘zgarmadi'&&an.scale.mode!=='—'?' (asl o‘lcham '+fmtN(+an.scale.L0.toFixed(2))+' edi → ×'+(+an.scale.k.toPrecision(4))+', '+an.scale.mode+')':'')+' (kenglik '+Math.min(e[0],e[1]).toFixed(2)+', balandlik '+e[2].toFixed(2)+')<br>Old tomon: <b>'+fwdTxt+'</b> — '+esc(an.fwdWhy)+(an.fwdConfident?'':' ⚠ aniq emas, sxemada tekshiring');
   const w=an.det.warnings.slice();
   if(CVS&&$('cvBack')&&$('cvBack').checked)w.push('6-bo‘limda «Ikki tomonli yuzlar» yoqilgan — poligon 2 baravar bo‘ladi. O‘chirib qo‘yish tavsiya etiladi.');
   if(!an.fwdConfident)w.push('Mashina old tomoni nomlardan aniqlanmadi. Pastdagi sxemada «OLD» yozuvi mashina burniga to‘g‘ri kelishini tekshiring; kelmasa «Mashina old tomoni» ni qo‘lda tanlang.');
@@ -10671,6 +10690,7 @@ function init(){
   $('saAnalyze').addEventListener('click',()=>{if(!model()){$('saInfo').textContent='Avval 6-bo‘limda model faylni tanlang.';return;}analyze(true);$('saBox').scrollIntoView({behavior:'smooth',block:'nearest'});});
   $('saBuild').addEventListener('click',()=>{if(!model()){$('saInfo').textContent='Avval 6-bo‘limda model faylni tanlang.';return;}build();});
   $('saFwd').addEventListener('change',()=>{st.plan.fwd=$('saFwd').value;schedule();});
+  $('saLen').addEventListener('input',schedule);
   ['saPaint','saDoor','saFlip'].forEach(id=>$(id).addEventListener('change',()=>{if(id==='saPaint')schedule();}));
   $('saOnlyRoles').addEventListener('change',()=>{st.onlyRoles=$('saOnlyRoles').checked;renderTables();});
   $('saBulkGo').addEventListener('click',bulkApply);
