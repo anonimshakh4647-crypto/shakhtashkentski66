@@ -1858,6 +1858,61 @@ function analyzeSteer(xws){
   return{ok:true,wheel,rest,pivot,basis:[r0,r1,r2],rot9:[...r0,...r1,...r2],diam:Math.max(u1-u0,w1-w0),tiltDeg:Math.asin(Math.min(1,Math.abs(a[2])))*180/Math.PI,ratio,axisFallback,
     wheelTris:wheel.reduce((s,t)=>s+t.length,0),restTris:rest.reduce((s,t)=>s+t.length,0)};
 }
+/* ---------- Oyna (glass) tomonlari ----------
+ * Oldindan ko'rish oynasi (WebGL) orqa yuzlarni ham chizadi (CULL_FACE o'chirilgan), GTA SA esa orqa yuzlarni CHIZMAYDI.
+ * Shuning uchun oyna uchburchaklari ichkariga qarab o'ralgan bo'lsa (bitta qatlamli oyna), model oynada oyna ko'rinadi,
+ * o'yinda esa umuman yo'q. Bu yerda: har bir oyna uchburchagi mashina markazidan tashqariga qaraydimi, tekshiriladi
+ * (tashqariga qarash tomoni — kuzovning o'zidagi ko'pchilik uchburchaklardan aniqlanadi, shuning uchun RW o'rash qoidasini
+ * oldindan bilish shart emas). Oyna asosan (>75%) ichkariga qaragan bo'lsa, ichkariga qaragan uchburchaklarning teskari
+ * (tashqariga qaragan) nusxasi qo'shiladi. Ikki qatlamli oynalar (ichki+tashqi) yoki to'g'ri o'ralgan oynalar O'ZGARMAYDI. */
+function fixGlassSides(geoms,atomics,frames,center){
+  const isGlass=m=>!m.tex&&m.color&&m.color[0]===160&&m.color[1]===185&&m.color[2]===205&&m.color[3]===80;
+  const chainOf=fi=>{const ch=[];let c=fi,n=0;while(c!=null&&c>=0&&n++<32){ch.push(frames[c]);c=frames[c].parent;}return ch;};
+  const world=(ch,x,y,z)=>{for(const f of ch){const r=f.rot,p=f.pos||[0,0,0];
+      if(r){const nx=x*r[0]+y*r[3]+z*r[6]+p[0],ny=x*r[1]+y*r[4]+z*r[7]+p[1],nz=x*r[2]+y*r[5]+z*r[8]+p[2];x=nx;y=ny;z=nz;}else{x+=p[0];y+=p[1];z+=p[2];}}
+    return[x,y,z];};
+  const chains=new Map();for(const a of atomics){if(!chains.has(a.frame))chains.set(a.frame,chainOf(a.frame));}
+  const triDir=(g,ch,t)=>{const i0=g.tris[t*4],i1=g.tris[t*4+1],i2=g.tris[t*4+2];
+    const A=world(ch,g.pos[i0*3],g.pos[i0*3+1],g.pos[i0*3+2]),B=world(ch,g.pos[i1*3],g.pos[i1*3+1],g.pos[i1*3+2]),C=world(ch,g.pos[i2*3],g.pos[i2*3+1],g.pos[i2*3+2]);
+    const ux=B[0]-A[0],uy=B[1]-A[1],uz=B[2]-A[2],vx=C[0]-A[0],vy=C[1]-A[1],vz=C[2]-A[2];
+    const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+    const cx=(A[0]+B[0]+C[0])/3-center[0],cy=(A[1]+B[1]+C[1])/3-center[1],cz=(A[2]+B[2]+C[2])/3-center[2];
+    const len=Math.hypot(nx,ny,nz);
+    return{d:nx*cx+ny*cy+nz*cz,area:len};};
+  // 1) o'rash tomoni: oyna bo'lmagan uchburchaklar bo'yicha (kuzov, eshiklar...) ko'pchilik "tashqari" deb olinadi
+  let ref=0;
+  for(const a of atomics){const g=geoms[a.geom];if(g._k==='wheel'||g._k==='steer'||g._k==='vlo')continue;const ch=chains.get(a.frame);
+    const gl=g.materials.map(isGlass);
+    for(let t=0;t<g.tris.length/4;t++){if(gl[g.tris[t*4+3]])continue;ref+=triDir(g,ch,t).d;}}
+  const sRef=ref>=0?1:-1;
+  // 2) oyna uchburchaklari
+  let outA=0,inA=0,nGlass=0;const todo=[];
+  for(const a of atomics){const g=geoms[a.geom],ch=chains.get(a.frame),gl=g.materials.map(isGlass);if(!gl.some(Boolean))continue;
+    const list=[];
+    for(let t=0;t<g.tris.length/4;t++){if(!gl[g.tris[t*4+3]])continue;nGlass++;const r=triDir(g,ch,t);
+      if(r.d*sRef>=0)outA+=r.area;else{inA+=r.area;list.push(t);}}
+    if(list.length)todo.push({a,g,list});}
+  const tot=outA+inA,outPct=tot>0?outA/tot:1;
+  const res={glassTris:nGlass,outPct,added:0,skipped:0,fixed:false};
+  if(!nGlass||outPct>=0.25)return res;
+  // 3) asosan ichkariga qaragan: teskari nusxa (vertex nusxalari teskari normal bilan)
+  for(const {a,g,list} of todo){
+    const nV=g.pos.length/3;
+    if(nV+list.length*3>65000){res.skipped+=list.length;continue;}
+    const P=Array.from(g.pos),N=Array.from(g.nrm),UV=g.uv?Array.from(g.uv):null,T=g.tris.slice?Array.from(g.tris):g.tris;
+    let nv=nV;
+    for(const t of list){
+      const idx=[g.tris[t*4],g.tris[t*4+1],g.tris[t*4+2]],mi=g.tris[t*4+3],ni=[];
+      for(const v of idx){P.push(g.pos[v*3],g.pos[v*3+1],g.pos[v*3+2]);N.push(-g.nrm[v*3],-g.nrm[v*3+1],-g.nrm[v*3+2]);if(UV)UV.push(g.uv[v*2],g.uv[v*2+1]);ni.push(nv++);}
+      T.push(ni[0],ni[2],ni[1],mi); // o'rash teskari
+      res.added++;
+    }
+    const keep=g._k;geoms[a.geom]=Object.assign({},g,{pos:new Float32Array(P),nrm:new Float32Array(N),uv:UV?new Float32Array(UV):null,tris:T});
+    if(keep!==undefined)geoms[a.geom]._k=keep;
+  }
+  res.fixed=res.added>0;
+  return res;
+}
 /* MAIN */
 function convertToSA(model,texLookup,opts){
   opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',noHeadlights:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255]},opts||{});
@@ -2415,6 +2470,14 @@ function convertToSA(model,texLookup,opts){
   if(unk)report.warnings.push(unk+' ta shader nomi tanilmadi (hash). Materiallar bo‘limida rolni qo‘lda tanlang (Asosiy rang / Oyna / Chiroq / Tekstura).');
   if(fallbackPaint.size)report.warnings.push('Tekstura yo‘q va shader noma’lum bo‘lgan qismlar avtomatik "asosiy rang" (60,255,0) qilindi — o‘yinda kerakli rangda chiqadi.');
   if(report.missingTex.length)report.warnings.push('Topilmagan teksturalar ('+report.missingTex.length+'): '+report.missingTex.slice(0,12).join(', ')+(report.missingTex.length>12?'…':'')+(report.missingTex.every(n=>/^(script_rt_|black$|white$)/i.test(n))?'. Bu tizim teksturalari (script_rt_* — spidometr/ekran uchun dinamik tekstura, black — oddiy qora) mashina .ytd ichida bo‘lmaydi, shuning uchun bu ogohlantirish normal: faqat shu detallar oddiy rangda chiqadi, qolgan teksturalar to‘liq o‘tdi.':'. Mashinaning .ytd faylini ham qo‘shing (masalan '+name.replace(/_hi$/,'')+'.ytd) yoki PNG/DDS nomi shu tekstura nomi bilan bir xil bo‘lsin.'));
+  // oynalar o'yinda ko'rinishi uchun (orqa yuzlar chizilmaydi): ichkariga qaragan oynaga teskari nusxa qo'shiladi
+  if(!objectMode&&bodyXms.length){
+    const bbg=bboxOf(bodyXms),gres=fixGlassSides(geoms,atomics,frames,[(bbg.mn[0]+bbg.mx[0])/2,(bbg.mn[1]+bbg.mx[1])/2,(bbg.mn[2]+bbg.mx[2])/2]);
+    if(gres.glassTris){
+      report.info.push('Oyna: '+gres.glassTris.toLocaleString()+' ta uchburchak, ularning '+Math.round(gres.outPct*100)+'% tashqariga qaragan.'+(gres.fixed?' Oyna asosan ICHKARIGA qarab o‘ralgan edi (oldindan ko‘rishda ko‘rinadi, o‘yinda esa orqa yuzlar chizilmagani uchun yo‘qolardi) — shuning uchun '+gres.added.toLocaleString()+' ta teskari nusxa qo‘shildi.':' Tomonlari to‘g‘ri — o‘zgartirilmadi.'));
+      if(gres.skipped)report.warnings.push('Oyna: '+gres.skipped+' ta uchburchakka teskari nusxa qo‘shib bo‘lmadi (geometriya 65 000 vertexga yaqin).');
+    }
+  }
   // compact geoms (unused materials fine)
   const tris=geoms.reduce((s,g)=>s+g.tris.length/4,0),verts=geoms.reduce((s,g)=>s+g.pos.length/3,0);
   report.stats={frames:frames.length,geoms:geoms.length,tris,verts,textures:txdTexs.length};
@@ -2473,7 +2536,7 @@ function convertToSA(model,texLookup,opts){
   if(renamed.length)report.info.push('Tekstura nomlari SA uchun moslandi (bo‘sh joy/maxsus belgisiz, ≤23 belgi): '+renamed.slice(0,6).join(', ')+(renamed.length>6?'…':''));
   return{dff,txd,col,ide,report,name,texNames:txdTexs.map(t=>t.name),texMap};
 }
-Object.assign(G,{isUnknownShader,convertToSA,classify,autoRole,ROLES,SA_COL,defaultRoles,analyzeSteer,eig3});
+Object.assign(G,{isUnknownShader,convertToSA,classify,autoRole,ROLES,SA_COL,defaultRoles,analyzeSteer,eig3,fixGlassSides});
 })(GV);
 
 /* ===== minimal WebGL1 model viewer (Z-up) ===== */
