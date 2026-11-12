@@ -1659,6 +1659,9 @@ G.decimateSpec=decimateSpec;
 const {M,DFF}=G;
 const SA_COL={paint1:[60,255,0,255],paint2:[255,0,175,255],paint3:[0,255,255,255],paint4:[255,0,255,255],
   light_fl:[255,175,0,255],light_fr:[0,255,200,255],light_rl:[185,255,0,255],light_rr:[255,60,0,255],glass:[160,185,205,80],black:[20,20,20,255],plain:[200,200,200,255]};
+/* Oyna rangi/zichligi (alfa = 0..255, katta = quyuqroq). Eski qiymat (160,185,205,80) atigi ~31% qoplaydi — o'yinda deyarli ko'rinmaydi;
+   ishlaydigan SA mashinasida (infernus.dff) oyna alfasi 160 (~63%) edi. */
+const SA_GLASS={light:[160,185,205,80],normal:[150,175,195,150],dark:[40,45,55,190]};
 /* SA chiroq oynasi: o'yin "vehiclelights128" (global vehicle.txd) teksturasini chiroq yonganda "vehiclelightson128" ga almashtiradi.
    Almashtirish FAQAT material shu global teksturani ishlatsa va rangi 4 ta kalit rangdan biri bo'lsa ishlaydi (teksturasiz material
    hech qachon almashmaydi -> chiroq "yonmaydi"). Shuning uchun lens materiali teksturali bo'ladi, TXD ga esa bu tekstura QO'SHILMAYDI.
@@ -1763,7 +1766,7 @@ class GeoAcc{
         const a=idx[t],b=idx[t+1],c=idx[t+2];
         const mk=resolveMat(it,a,b,c,it.xm); // {key,color,tex,uv?}
         if(!mk)continue;
-        let mi=cur.matIdx.get(mk.key);if(mi===undefined){mi=cur.mats.length;cur.mats.push(mk.uv?{color:mk.color,tex:mk.tex||'',mask:'',flat:true}:Object.assign({color:mk.color,tex:mk.tex||'',mask:''},mk.fx?{fx:mk.fx}:{}));cur.matIdx.set(mk.key,mi);}
+        let mi=cur.matIdx.get(mk.key);if(mi===undefined){mi=cur.mats.length;cur.mats.push(mk.uv?{color:mk.color,tex:mk.tex||'',mask:'',flat:true}:Object.assign({color:mk.color,tex:mk.tex||'',mask:''},mk.fx?{fx:mk.fx}:{},mk.glass?{glass:true}:{}));cur.matIdx.set(mk.key,mi);}
         if(mk.uv)cur.tris.push(lensV(a,mk),lensV(b,mk),lensV(c,mk),mi);
         else cur.tris.push(a+base,b+base,c+base,mi);
       }
@@ -1866,7 +1869,7 @@ function analyzeSteer(xws){
  * oldindan bilish shart emas). Oyna asosan (>75%) ichkariga qaragan bo'lsa, ichkariga qaragan uchburchaklarning teskari
  * (tashqariga qaragan) nusxasi qo'shiladi. Ikki qatlamli oynalar (ichki+tashqi) yoki to'g'ri o'ralgan oynalar O'ZGARMAYDI. */
 function fixGlassSides(geoms,atomics,frames,center){
-  const isGlass=m=>!m.tex&&m.color&&m.color[0]===160&&m.color[1]===185&&m.color[2]===205&&m.color[3]===80;
+  const isGlass=m=>!!m.glass;
   const chainOf=fi=>{const ch=[];let c=fi,n=0;while(c!=null&&c>=0&&n++<32){ch.push(frames[c]);c=frames[c].parent;}return ch;};
   const world=(ch,x,y,z)=>{for(const f of ch){const r=f.rot,p=f.pos||[0,0,0];
       if(r){const nx=x*r[0]+y*r[3]+z*r[6]+p[0],ny=x*r[1]+y*r[4]+z*r[7]+p[1],nz=x*r[2]+y*r[5]+z*r[8]+p[2];x=nx;y=ny;z=nz;}else{x+=p[0];y+=p[1];z+=p[2];}}
@@ -1915,7 +1918,7 @@ function fixGlassSides(geoms,atomics,frames,center){
 }
 /* MAIN */
 function convertToSA(model,texLookup,opts){
-  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',noHeadlights:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255]},opts||{});
+  opts=Object.assign({missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,maxTex:1024,compress:'auto',mips:true,roles:{},damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',noHeadlights:true,vlo:true,wheelScale:1,rot180:false,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255]},opts||{});
   if(opts.rot180){ // spin whole vehicle 180° about Z (front <-> back)
     const rz=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
     model=Object.assign({},model,{parts:model.parts.map(p=>Object.assign({},p,{matrix:M.mul(p.matrix,rz)})),boneMats:model.boneMats?model.boneMats.map(m=>M.mul(m,rz)):model.boneMats});
@@ -1965,7 +1968,7 @@ function convertToSA(model,texLookup,opts){
       if(opts.paintMode==='game'&&pt&&neutralTex(pt))return{key:role+':'+pt,color:paintCol(role),tex:pt,fx:SH&&SH.paint};
       return{key:role,color:paintCol(role),fx:SH&&SH.paint};
     }
-    if(role==='glass')return{key:'glass',color:SA_COL.glass,fx:SH&&SH.glass};
+    if(role==='glass')return{key:'glass',color:(SA_GLASS[opts.glass]||SA_GLASS.normal).slice(),glass:true,fx:SH&&SH.glass};
     if(role==='black')return{key:'black',color:SA_COL.black};
     if(role==='light'){
       let k;const pn=it.partName.toLowerCase();
@@ -2952,7 +2955,7 @@ function el(tag,props,kids){const e=document.createElement(tag);if(props)for(con
   (kids||[]).forEach(c=>{if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});return e;}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const S={items:[],cur:-1,tab:'files',view:'orig',lod:'high',hidden:new Set(),hl:null,result:null,logs:[],
-  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false}};
+  opts:{missTex:'auto',name:'',lod:'high',mergeOther:true,keepParts:true,vlo:true,damCopy:false,steerSpin:true,steerAngle:180,shine:'high',glass:'normal',noHeadlights:true,preset:'game',maxTex:512,maxTris:52000,hideHidden:true,paintMode:'game',paintColor:[255,255,255,255],compress:'auto',mips:true,wheelScale:1,rot180:false}};
 let viewer=null,busy=false;
 const curItem=()=>S.items[S.cur]||null;
 function log(msg,cls){S.logs.push({msg,cls,t:new Date()});if(S.logs.length>300)S.logs.shift();if(S.tab==='log')renderPane();}
@@ -3249,6 +3252,7 @@ function paneConv(p){
   p.appendChild(chk('Qismlarni alohida saqlash (attach qilmaslik)','keepParts'));
   if(car){p.appendChild(chk('Boshqa qismlar → chassis','mergeOther'));p.appendChild(chk('chassis_vlo (past LOD)','vlo'));p.appendChild(chk('_dam nusxalari (zarar)','damCopy'));p.appendChild(chk('Yo‘nalishni 180° burish','rot180'));p.appendChild(inp('G‘ildirak o‘lchami ×','wheelScale','number',{step:'0.05',min:'0.3',max:'3'}));
     p.appendChild(sel('Yaltirash (kuzov va oynaning aksi)','shine',[['high','Kuchli (tavsiya)'],['normal','Standart (original SA darajasi)'],['off','O‘chiq (mat)']]));
+    p.appendChild(sel('Oyna rangi (zichlik)','glass',[['normal','O‘rtacha (tavsiya) — ko‘rinadigan, och tus'],['dark','Quyuq (qoramtir tonirovka)'],['light','Juda shaffof (eski, deyarli ko‘rinmaydi)']]));
     p.appendChild(chk('"headlights" dummy qo‘yilmasin','noHeadlights'));
     p.appendChild(chk('Rul burilsin (VehFuncs plagini, f_steer)','steerSpin'));
     p.appendChild(sel('Rul burilish burchagi (VehFuncs)','steerAngle',[['100','100° — CJ qo‘llari bilan bir xil (standart animatsiya)'],['180','180° (tavsiya)'],['270','270°'],['360','360° (to‘liq aylanish)'],['540','540° (haqiqiy mashinadek)']]));}
