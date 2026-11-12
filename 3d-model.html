@@ -10065,6 +10065,7 @@ function expand(cv){
   if(!(Wl>0&&Ll>0&&Hz>0))return cv;
   const q=Math.max(1e-9,Math.hypot(Wl,Ll,Hz)*1e-5);
   const sideOf=c=>{const s=((c.mn[la]+c.mx[la])/2-cxL)/Wl;return s<-0.15?-1:(s>0.15?1:0);};
+  let archCut=0;
   const cand=[];
   M.forEach((m,i)=>{const name=m.name||'';if(SKIP_RX.test(name))return;const T=toks(name);
     const isDoor=any(T,W_DOOR)&&!any(T,W_DOORNOT),isMir=any(T,W_MIRROR),isHan=any(T,W_HANDLE);
@@ -10074,7 +10075,31 @@ function expand(cv){
     let nL=0,nR=0,tot=0;for(const c of cs){tot+=c.tris.length;if(c.side<0)nL+=c.tris.length;else if(c.side>0)nR+=c.tris.length;}
     if(!(nL>0&&nR>0&&(nL+nR)>=0.5*tot))return;               // ikki yonli emas -- tegilmaydi
     cand.push({i,kind:isDoor?(any(T,W_DGLASS)?'dglass':'door'):(isMir?'mirror':'handle'),cs});});
-  const cores=[];for(const o of cand)if(o.kind==='door')for(const c of o.cs)if(c.side!==0&&c.tris.length>=8)cores.push({o,c});
+  // g'ildirak o'ralgan joy (fender/arch): eshik deb nomlangan, lekin g'ildirak tepasida/yonida turgan qismlar eshik emas -- kuzovda qoladi
+  const wb=[];
+  M.forEach((m,i)=>{const T=toks(m.name||'');if(!any(T,W_WHEEL)||any(T,W_NOTWHEEL))return;
+    const b=bbOf(m.pos),c=[(b.mn[0]+b.mx[0])/2,(b.mn[1]+b.mx[1])/2,(b.mn[2]+b.mx[2])/2];
+    if(c[2]>mn[2]+0.5*Hz)return;
+    const sd=(c[la]-cxL)/Wl;if(Math.abs(sd)<0.15)return;
+    wb.push({side:sd<0?-1:1,lo0:b.mn[lo],lo1:b.mx[lo],ztop:b.mx[2]});});
+  const mLo=0.03*Ll,mZ=0.04*Hz;
+  const cores=[];
+  for(const o of cand){if(o.kind!=='door')continue;const m=M[o.i];
+    for(const c of o.cs){if(c.side===0||c.tris.length<8)continue;
+      if(wb.length){
+        const keep=[],arch=[];
+        for(const t of c.tris){let cl=0,cz=0;for(let k=0;k<3;k++){const v=m.idx[t*3+k];cl+=m.pos[v*3+lo];cz+=m.pos[v*3+2];}cl/=3;cz/=3;
+          let ia=false;for(const w of wb){if(w.side===c.side&&cl>=w.lo0-mLo&&cl<=w.lo1+mLo&&cz<=w.ztop+mZ){ia=true;break;}}
+          (ia?arch:keep).push(t);}
+        if(arch.length){
+          if(keep.length<8)continue; // butunlay g'ildirak o'rami: eshik emas
+          c.tris=keep;c.arch=arch;
+          const nm=[1e18,1e18,1e18],nx=[-1e18,-1e18,-1e18];
+          for(const t of keep)for(let k=0;k<3;k++){const v=m.idx[t*3+k];for(let a=0;a<3;a++){const x=m.pos[v*3+a];if(x<nm[a])nm[a]=x;if(x>nx[a])nx[a]=x;}}
+          c.mn=nm;c.mx=nx;c.cl=[(nm[0]+nx[0])/2,(nm[1]+nx[1])/2,(nm[2]+nx[2])/2];
+          archCut+=arch.length;}
+      }
+      cores.push({o,c});}}
   if(!cores.length)return cv;
   // eshik yadrolari: yon + old/orqa (uzunlik o'qi bo'yicha kesishish) bo'yicha guruhlanadi
   const clusters=[];
@@ -10099,14 +10124,14 @@ function expand(cv){
   const bilIdx=new Map(cand.map(o=>[o.i,o]));
   M.forEach((m,i)=>{const o=bilIdx.get(i);
     if(!o){out.push(m);return;}
-    const rest=[];for(const c of o.cs)if(!c.used)for(const t of c.tris)rest.push(t);
+    const rest=[];for(const c of o.cs){if(!c.used)for(const t of c.tris)rest.push(t);else if(c.arch)for(const t of c.arch)rest.push(t);}
     if(!rest.length)return;
     const nm=(o.kind==='door'||o.kind==='dglass')?String(m.name||'').replace(/door/ig,'panel'):m.name;
     out.push(mergeParts([{m,tris:rest}],nm));});
   clusters.forEach((k,n)=>{
     const parts=k.parts.map(x=>({m:M[x.o.i],tris:x.c.tris}));
     out.push(mergeParts(parts,'door_'+(n+1)));});
-  info.push('Chap/o‘ng birga turgan obyektlar ajratildi ('+cand.map(o=>M[o.i].name).join(', ')+') → '+clusters.length+' ta alohida eshik.');
+  info.push('Chap/o‘ng birga turgan obyektlar ajratildi ('+cand.map(o=>M[o.i].name).join(', ')+') → '+clusters.length+' ta alohida eshik.'+(archCut?' G‘ildirak o‘rami (fender) qismlari ('+archCut+' poligon) eshikka qo‘shilmadi — kuzovda qoldi.':''));
   const r=Object.assign({},cv,{meshes:out,__ex:true,exInfo:info});
   return r;
 }
