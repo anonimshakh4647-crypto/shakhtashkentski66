@@ -1217,9 +1217,6 @@ function modelFromDff(bytes,filename){
   const world=i=>{let m=M.id();let k=i;const chain=[];while(k>=0&&k<fr.length&&chain.length<64){chain.push(k);k=fr[k].parent;}
     for(const c of chain){const f=fr[c],r=f.rot,loc=[r[0],r[1],r[2],0,r[3],r[4],r[5],0,r[6],r[7],r[8],0,f.pos[0],f.pos[1],f.pos[2],1];m=M.mul(m,loc);}return m;};
   const mkey=new Map();
-  // chap g'ildirak dummysi ostidagi bola freymlar (masalan, disk halqasi): o'yin dummyni Z atrofida 180° buradi -- ular ham birga buriladi
-  const RZ180=[-1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1];
-  const underLeftWheel=i=>{let k=fr[i]&&fr[i].parent,n=0;while(k!=null&&k>=0&&k<fr.length&&n++<64){if(/^wheel_l[fbm]_dummy$/.test(fr[k].name||''))return true;k=fr[k].parent;}return false;};
   dff.atomics.forEach((at,ai)=>{
     const g=dff.geoms[at.geom];if(!g||g.native||!g.pos)return;
     const meshes=[],nV=g.pos.length/3;
@@ -1227,7 +1224,7 @@ function modelFromDff(bytes,filename){
     for(let i=0;i<g.nTri;i++){const m=g.tris[i*4+3];let a=byMat.get(m);if(!a){a=[];byMat.set(m,a);}a.push(g.tris[i*4],g.tris[i*4+1],g.tris[i*4+2]);}
     for(const [mi,idx] of byMat){const mt=g.materials[mi]||{color:[255,255,255,255],tex:''};
       meshes.push({pos:g.pos,nrm:g.nrm,uv:g.uvs&&g.uvs[0]||null,col:g.dayColors||null,idx:Uint32Array.from(idx),mat:{color:mt.color,tex:(mt.tex||'').toLowerCase(),shaderName:'',shaderIndex:mi}});}
-    parts.push({key:'dff:'+at.frame+':'+at.geom,name:fr[at.frame]&&fr[at.frame].name||('frame'+at.frame),lod:'high',matrix:underLeftWheel(at.frame)?M.mul(RZ180,world(at.frame)):world(at.frame),meshes,source:'dff',atomic:ai});
+    parts.push({key:'dff:'+at.frame+':'+at.geom,name:fr[at.frame]&&fr[at.frame].name||('frame'+at.frame),lod:'high',matrix:world(at.frame),meshes,source:'dff',atomic:ai});
   });
   // viewer: SA clones the "wheel" object onto every wheel_*_dummy
   const wIdx=parts.findIndex(p=>p.name==='wheel');
@@ -2553,29 +2550,14 @@ function convertToSA(model,texLookup,opts){
   let wheelFrameIdx=null;
   if(wheelSpecs&&wheelParentSa!=null){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',dummyIdx[wheelParentSa],[0,0,0]);addGeoms(wf,wheelSpecs);wheelFrameIdx=wf;}
   else if(wheelSpecs){wheelSpecs.forEach(x=>{x._k='wheel';});const wf=addFrame('wheel',0,[0,0,0]);addGeoms(wf,wheelSpecs);wheelFrameIdx=wf;report.warnings.push('G‘ildirak dummy pozitsiyasi topilmadi — g‘ildirak modeli mashina markazida qolishi mumkin.');}
-  // Disk atrofidagi yonuvchi halqa (ixtiyoriy). MUHIM: halqa "wheel" geometriyasi ICHIGA qo'shilmaydi. SA "wheel" obyektini har g'ildirak
-  // dummysiga RpAtomicClone bilan nusxalaydi -- nusxalar BIR XIL geometriyani (demak bir xil RpMaterial ni) baham ko'radi. SA ning chiroq kodi
-  // (CVehicleModelInfo::SetEditableMaterialsCB) esa har atomic uchun materialni alohida ko'radi va birinchi marta rangni oq qilib qo'yadi;
-  // o'chiq holatda keyingi ko'rishlarda shu oq rangni "asl" deb saqlab, qaytarishda kalit rangni OQ bilan almashtirib yuboradi (sa_light_sim.js).
-  // Natijada halqa kalit rangini birinchi kadrdayoq yo'qotadi va keyin hech qachon yonmaydi. Shu sabab har g'ildirak dummysi ostiga ALOHIDA
-  // freym + ALOHIDA geometriya (ya'ni alohida material) qo'yiladi: SA har materialni bir marta ko'radi, odatdagi chiroq materiali kabi ishlaydi.
+  // Disk atrofidagi yonuvchi halqa (ixtiyoriy): shu "wheel" geometriyasiga qo'shimcha spec sifatida qo'shiladi (frame tuzilishi O'ZGARMAYDI).
   if(opts.rimGlow&&wheelSpecs&&wheelFrameIdx!=null){
     const cfg=SA_RIM_GLOW[opts.rimGlowColor]||SA_RIM_GLOW.white;
     const rimKey=opts.rimGlowLight==='rear'?'light_rl':'light_fl';
     const rr=makeRimRing(wheelParts||ringPartsFromSpecs(wheelSpecs),cfg.uv,{key:rimKey});
     if(!rr.ok)report.warnings.push('Disk halqasi qo‘shilmadi: '+rr.why+'.');
-    else{
-      const cloneSpec=sp=>{const o=Object.assign({},sp);for(const k of ['pos','nrm','uv','day','night','fx2d','tris'])if(sp[k]&&sp[k].slice)o[k]=sp[k].slice();
-        o.materials=sp.materials.map(m=>Object.assign({},m,{color:m.color.slice()}));return o;};
-      const placed=[];
-      for(const sa of ['wheel_lf','wheel_rf','wheel_lb','wheel_rb','wheel_lm','wheel_rm']){
-        if(dummyIdx[sa]==null)continue;
-        const sp=cloneSpec(rr.spec);sp._k='wheel';
-        const fi=addFrame('rimglow_'+sa.slice(6),dummyIdx[sa],[0,0,0]);addGeoms(fi,[sp]);placed.push('rimglow_'+sa.slice(6));
-      }
-      report.rimGlow={color:opts.rimGlowColor,light:rimKey,R:rr.R,tube:rr.tube,xc:rr.xc,Rt:rr.Rt,Rf:rr.Rf,cy:rr.cy,cz:rr.cz,tris:rr.spec.tris.length/4,perWheel:true,frames:placed};
-      report.info.push('Disk halqasi ('+(rimKey==='light_rl'?'orqa chiroq bilan yonadi (stop-signal bilan ham)':'old chap fara bilan yonadi')+', '+cfg.n+'): radius '+rr.R.toFixed(3)+' m (disk gardishi '+rr.Rf.toFixed(3)+', shina '+rr.Rt.toFixed(3)+' m), har g‘ildirakka alohida: '+placed.length+' ta × '+(rr.spec.tris.length/4)+' poligon (jami '+(placed.length*rr.spec.tris.length/4)+', poligon limitidan to‘lanadi). Halqa har g‘ildirak dummysi ostida ALOHIDA freym/material sifatida turadi (SA "wheel" ni nusxalab bitta materialni baham ko‘rsatadi va shunda chiroq kalit rangini buzadi — manba kodi bo‘yicha). BU MANTIQ HALI O‘YINDA TASDIQLANMAGAN. Halqa faqat DVIGATEL YOQILGAN va KECHA (21:00–06:00) bo‘lganda yonadi; bo‘sh turgan (haydovchisiz) mashinada SA chiroqlarni umuman yoqmaydi.');
-    }
+    else{rr.spec._k='wheel';addGeoms(wheelFrameIdx,[rr.spec]);report.rimGlow={color:opts.rimGlowColor,light:rimKey,R:rr.R,tube:rr.tube,xc:rr.xc,Rt:rr.Rt,Rf:rr.Rf,cy:rr.cy,cz:rr.cz,tris:rr.spec.tris.length/4};
+      report.info.push('Disk halqasi ('+(rimKey==='light_rl'?'orqa chiroq bilan yonadi (stop-signal bilan ham)':'old chap fara bilan yonadi')+', '+cfg.n+'): radius '+rr.R.toFixed(3)+' m (disk gardishi '+rr.Rf.toFixed(3)+', shina '+rr.Rt.toFixed(3)+' m), '+(rr.spec.tris.length/4)+' poligon. Plaginsiz usul: halqa SA ning "'+(rimKey==='light_rl'?'orqa chap':'old chap')+' chiroq" materiali bilan chiqdi. Joyi va rangi o‘yinda ko‘rindi (halqa diskda turibdi), lekin YONISHI hali tasdiqlanmagan: SA chiroq materialini g‘ildirak obyektida ham yoqishi noma’lum; tegishli chiroq sinsa/o‘chiq bo‘lsa halqa ham yonmaydi.');}
   }
   if(!want.some(k=>wheelPos[k]))report.warnings.push('G‘ildirak (wheel_*) qismlari/suyaklari topilmadi — g‘ildirak dummylari yaratilmadi.');
   // GTA V manbasida ba'zi qismlar (eshik, bamper va h.k.) uchun haqiqiy joylashuv
@@ -4118,7 +4100,7 @@ function paneConv(p){
     p.appendChild(chk('Disk atrofida yonuvchi halqa (fara yonganda halqa ham yonadi)','rimGlow'));
     p.appendChild(sel('Halqa rangi (faqat SA ning o‘z fara ranglaridan)','rimGlowColor',[['white','Oq (issiq-oq, old fara kabi)'],['red','Qizil'],['blue','Ko‘k (binafsharang-ko‘k)'],['orange','To‘q sariq'],['yellow','Sariq']]));
     p.appendChild(sel('Halqa qaysi chiroq bilan yonsin','rimGlowLight',[['front','Old chap fara (fara yonganda)'],['rear','Orqa chiroq (fara yonganda va tormoz bosilganda)']]));
-    p.appendChild(el('div',{class:'note',html:'<b>Disk halqasi.</b> Plaginsiz usul: disk gardishi ichiga yupqa halqa qo‘shiladi va u SA ning <b>old chap</b> (yoki tanlangan <b>orqa</b>) chiroq materiali bilan chiqadi — chiroq yonganda o‘yinning o‘zi uni «yonib turgan» teksturaga almashtiradi. Halqa <b>har g‘ildirak dummysi ostida alohida</b> qo‘yiladi (g‘ildirak geometriyasi ichida emas): SA g‘ildirakni nusxalab bitta materialni baham ko‘rsatadi, bu esa SA chiroq kodida kalit rangini buzib, halqani abadiy o‘chiq qoldiradi (SA manba kodidan o‘qilgan, kichik simulyatsiyada tasdiqlangan; <b>o‘yinda hali tasdiqlanmagan</b>). Rang ixtiyoriy emas: faqat SA ning fara atlasidagi 5 ta rang; o‘chiq paytda halqa shu rangning xira tusida turadi. <b>O‘yinda tasdiqlangan:</b> halqa diskda to‘g‘ri joyda va o‘chiq holatda ko‘rinadi. <b>Yonishi uchun shart (SA qoidasi):</b> mashina dvigateli YOQILGAN (haydovchi o‘tirgan) va vaqt KECHA (21:00–06:00) bo‘lishi kerak — bo‘sh turgan mashinada SA hech qanday chiroqni yoqmaydi. Yonmasa «Orqa chiroq» ni sinab ko‘ring (tormoz bosganda ham yonadi).'}));
+    p.appendChild(el('div',{class:'note',html:'<b>Disk halqasi.</b> Plaginsiz usul: disk gardishi ichiga yupqa halqa qo‘shiladi va u SA ning <b>old chap</b> (yoki tanlangan <b>orqa</b>) chiroq materiali bilan chiqadi — chiroq yonganda o‘yinning o‘zi uni «yonib turgan» teksturaga almashtirishi kerak. Rang ixtiyoriy emas: faqat SA ning fara atlasidagi 5 ta rang; chiroq o‘chiq paytda halqa shu rangning xira tusida turadi. <b>O‘yinda tasdiqlangan:</b> halqa diskda to‘g‘ri joyda va o‘chiq holatda ko‘rinadi. <b>Hali tasdiqlanmagan:</b> kechasi chiroq yonganda yonishi. Yonmasa: old chiroq rostdan yoniqligini (yo‘lda yorug‘lik dog‘i bor-yo‘qligini) tekshiring va «Orqa chiroq» ni sinab ko‘ring.'}));
     p.appendChild(chk('"headlights" dummy qo‘yilmasin','noHeadlights'));
     p.appendChild(chk('Rul burilsin (VehFuncs plagini, f_steer)','steerSpin'));
     p.appendChild(sel('Rul burilish burchagi (VehFuncs)','steerAngle',[['100','100° — CJ qo‘llari bilan bir xil (standart animatsiya)'],['180','180° (tavsiya)'],['270','270°'],['360','360° (to‘liq aylanish)'],['540','540° (haqiqiy mashinadek)']]));}
