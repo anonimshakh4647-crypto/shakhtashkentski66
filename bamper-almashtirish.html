@@ -171,6 +171,18 @@ details.adv{border-top:1px dashed var(--line);margin-top:10px;padding-top:6px}
 .report .ok{color:#4ade80}
 .report .bad{color:var(--warn)}
 .card>.cb select{cursor:pointer}
+
+.jrow{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:6px 10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg0);margin-bottom:6px}
+.jrow.on{border-color:rgba(52,211,153,.55)}
+.jrow .jl{display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12.5px}
+.jrow .jl input{accent-color:var(--ok)}
+.jrow small{grid-column:1/-1;color:var(--mute);font-size:11.5px;line-height:1.4}
+.jrow .btn{justify-self:end;grid-column:3}
+details.manual{flex-shrink:0;border:1px dashed var(--line2);border-radius:14px;padding:4px 10px 10px;background:rgba(12,19,34,.5)}
+details.manual>summary{font-size:13px;color:var(--text);padding:8px 2px}
+details.manual[open]>summary{margin-bottom:8px}
+details.manual .card{margin-bottom:10px}
+details.manual .tabs{margin-bottom:10px}
 </style>
 </head>
 <body>
@@ -178,20 +190,20 @@ details.adv{border-top:1px dashed var(--line);margin-top:10px;padding-top:6px}
   <a class="back" id="backLink" href="index.html">← IT SHAKH</a>
   <h1>BAMPER <em>ALMASHTIRISH</em></h1>
   <span class="sp"></span>
-  <button class="btn sm" id="btnDff" type="button">Asosiy DFF ochish</button>
+  <button class="btn sm" id="btnDff" type="button">Mashina DFF ochish</button>
   <button class="btn pri sm" id="btnDl" type="button" disabled>⬇ DFF yuklab olish</button>
-  <input type="file" id="fBase" accept=".dff" hidden>
+  <input type="file" id="fBase" accept=".dff,.txd" multiple hidden>
   <input type="file" id="fBaseTxd" accept=".txd" hidden>
-  <input type="file" id="fDonor" accept=".dff" hidden>
+  <input type="file" id="fDonor" accept=".dff,.txd" multiple hidden>
   <input type="file" id="fDonorTxd" accept=".txd" hidden>
 </div>
 <div id="stage">
   <canvas id="gl" aria-label="3D ko'rinish"></canvas>
   <div id="hint"><span id="hintTxt"></span></div>
   <div id="empty"><div class="box">
-    <h2>Mashina DFF modelini tashlang</h2>
-    <p>Masalan, Lacetti. Keyin boshqa DFF dagi bamperni tanlasangiz, u eskisining o'rniga old yoki orqaga mos qilib qo'yiladi. Fayl brauzeringizdan chiqmaydi.</p>
-    <div class="row"><button class="btn pri" id="btnDff2" type="button">DFF tanlash</button></div>
+    <h2>1. Mashina DFF · 2. Yangi bamper DFF</h2>
+    <p>Avval mashinani (masalan, Lacetti), keyin yangi bamper faylini (yoki bamperi kerakli boshqa mashinani) oching yoki shu yerga tashlang — TXD bilan birga bo'lsa ham bo'ladi. Bamperni topish, burish, o'lcham va qolipga moslashni sahifa o'zi qiladi. Fayllar brauzeringizdan chiqmaydi.</p>
+    <div class="row"><button class="btn pri" id="btnDff2" type="button">Mashina DFF tanlash</button></div>
   </div></div>
   <div id="hud" class="hide">
     <div class="pill" id="scenes"><div class="seg" role="group" aria-label="Ko'rinish">
@@ -864,6 +876,115 @@ function rankOrientations(oldPts,newPts){
 }
 /* moslash: donor dunyo koordinatasidan asosiy model dunyo koordinatasiga afin o'zgarish.
    p: {rot, fine:[rx,ry,rz]°, scaleMode:'width'|'fill'|'none', mult:[x,y,z], anchor:['c'|'min'|'max' x3], off:[x,y,z]} */
+/* ===== AVTOMATIKA: nomsiz / yolg'iz bamperni tushunish ===== */
+/* Bamper geometriyasi: eng uzun o'q = kenglik; old-orqa o'qi — bamper chetlari orqaga "o'ralgan" (U shakl) o'q;
+   qolgani — balandlik. Natija: donor o'qlari -> mashina o'qlari (X kenglik, Y old, Z yuqori) */
+function bumperAxes(P){
+  const bb=bboxOf(P),d=dimsOf(bb),w=d.indexOf(Math.max(...d)),others=[0,1,2].filter(k=>k!==w),nb=24,c=(bb.min[w]+bb.max[w])/2,hw=Math.max(d[w]/2,1e-6);
+  const info={};
+  for(const a of others){
+    const mx=new Float64Array(nb).fill(-1e18),mn=new Float64Array(nb).fill(1e18),cnt=new Uint32Array(nb);
+    for(let i=0;i<P.length;i+=3){const t=(P[i+w]-c)/hw,b=Math.min(nb-1,Math.max(0,Math.floor((t+1)/2*nb)));const v=P[i+a];if(v>mx[b])mx[b]=v;if(v<mn[b])mn[b]=v;cnt[b]++;}
+    const avg=(arr,sel)=>{let s=0,n=0;for(let b=0;b<nb;b++)if(cnt[b]>=3&&sel(b)){s+=arr[b];n++;}return n?s/n:NaN;};
+    const ctr=b=>b>=nb*.35&&b<nb*.65,end=b=>b<nb*.15||b>=nb*.85;
+    const dMax=avg(mx,ctr)-avg(mx,end),dMin=avg(mn,ctr)-avg(mn,end);
+    info[a]={dMax,dMin,score:(isFinite(dMax)?dMax:0)+(isFinite(dMin)?dMin:0)};
+  }
+  const[a0,a1]=others,s0=Math.abs(info[a0].score),s1=Math.abs(info[a1].score);
+  const dep=s0>=s1?a0:a1,up=dep===a0?a1:a0,front=info[dep].score>=0?1:-1;
+  return{w,dep,up,front,conf:Math.max(s0,s1)/(Math.min(s0,s1)+.01),wrap:Math.max(s0,s1)/Math.max(d[w],1e-6),dims:d};
+}
+/* donor o'qlari (w,dep,up) va belgilaridan to'g'ri (aks ettirmaydigan) burilish indeksini topish */
+function rotFromAxes(w,sx,dep,sy,up,sz){
+  const R=[0,0,0,0,0,0,0,0,0];R[0*3+w]=sx;R[1*3+dep]=sy;R[2*3+up]=sz;
+  const det=R[0]*(R[4]*R[8]-R[5]*R[7])-R[1]*(R[3]*R[8]-R[5]*R[6])+R[2]*(R[3]*R[7]-R[4]*R[6]);
+  if(det<0)return-1;return ROTS.findIndex(Q=>Q.every((v,i)=>Math.abs(v-R[i])<1e-9));
+}
+/* ochiq qobiqning "vektor yuzasi": bamper tashqi yuzasi qaragan tomonga yo'naladi (normallar bo'yicha) */
+function vectorArea(parts){
+  const V=[0,0,0];let A=0;
+  for(const p of parts){const wm=p.wm,P=wm.wpos,N=wm.wnrm;
+    for(let t=0;t<wm.nT;t++){const a=wm.tris[t*3],b=wm.tris[t*3+1],c=wm.tris[t*3+2];
+      const ux=P[b*3]-P[a*3],uy=P[b*3+1]-P[a*3+1],uz=P[b*3+2]-P[a*3+2],wx=P[c*3]-P[a*3],wy=P[c*3+1]-P[a*3+1],wz=P[c*3+2]-P[a*3+2];
+      const cr=[uy*wz-uz*wy,uz*wx-ux*wz,ux*wy-uy*wx],ar=Math.hypot(cr[0],cr[1],cr[2])/2;if(ar<1e-12)continue;A+=ar;
+      const vn=[N[a*3]+N[b*3]+N[c*3],N[a*3+1]+N[b*3+1]+N[c*3+1],N[a*3+2]+N[b*3+2]+N[c*3+2]],l=Math.hypot(vn[0],vn[1],vn[2]);
+      if(l>1e-9){for(let k=0;k<3;k++)V[k]+=ar*vn[k]/l;}}}
+  return{V,A};
+}
+/* bamper yo'nalishini geometriyadan aniqlash: kenglik = eng uzun o'q; old tomon = vektor yuza (ochiq qobiq) yoki U-shakl;
+   yuqori = qolgan o'q (GTA modellari Z-yuqori — shu ustun), noaniq bo'lsa eski bamperga o'xshashlik bo'yicha */
+function autoOrient(parts,kind,oldPts){
+  const P=surfacePts(parts,30000),ax=bumperAxes(P),va=vectorArea(parts),w=ax.w,others=[0,1,2].filter(k=>k!==w);
+  let dep,front,how;
+  const open=va.A>0&&Math.hypot(...va.V)/va.A>.12;
+  if(open){const[a,b]=others;dep=Math.abs(va.V[a])>=Math.abs(va.V[b])?a:b;front=va.V[dep]>=0?1:-1;how='yuza';}
+  else{dep=ax.dep;front=ax.front;how='shakl';}
+  const up=others.find(k=>k!==dep),sy=kind==='front'?1:-1,cands=[];
+  for(const sx of[1,-1])for(const sz of[1,-1]){const k=rotFromAxes(w,sx,dep,sy*front,up,sz);if(k>=0)cands.push({k,sz});}
+  let pick=null;
+  if(up===2)pick=cands.find(c=>c.sz===1); // Z yuqori — GTA standarti
+  else if(open&&Math.abs(va.V[up])>.03*Math.abs(va.V[dep]))pick=cands.find(c=>c.sz===(va.V[up]>0?1:-1));
+  if(!pick&&oldPts&&oldPts.length){const oldBB=bboxOf(oldPts);
+    cands.forEach(c=>{const f=makeFit(P,oldBB,{rot:c.k,scaleMode:'width',anchor:['c',kind==='front'?'min':'max','max']});
+      const Q=new Float32Array(P.length);for(let i=0;i<P.length;i+=3){const r=applyA(f.A,[P[i],P[i+1],P[i+2]]);Q[i]=r[0];Q[i+1]=r[1];Q[i+2]=r[2];}c.err=contourErr(Q,oldPts,20);});
+    cands.sort((x,y)=>x.err-y.err);pick=cands[0];}
+  if(!pick)pick=cands[0];
+  return{k:pick?pick.k:0,alt:cands.filter(c=>c!==pick).map(c=>c.k),how,open,ax:{w,dep,up,front},sure:up===2||open};
+}
+/* model mashinami yoki yolg'iz detalmi (bamper obyekti) */
+const CAR_TOK=/^(chassis|wheel|door_|bonnet|boot|windscreen|wheel_)/i;
+function modelKind(m){
+  const car=m.parts.some(p=>CAR_TOK.test(p.fname||''));const d=dimsOf(m.bbox).slice().sort((a,b)=>b-a);
+  if(car&&d[0]>2.6)return'car';
+  if(d[0]>=.6&&d[0]<=3.4&&d[1]<=.62*d[0])return'bumper';
+  return d[0]>2.6?'car':'part';
+}
+/* nomsiz mashinadan bamperni joylashuvi bo'yicha topish (mashina old tomoni +Y) */
+function geoDetect(m,kind){
+  const bb=m.bbox,L=bb.max[1]-bb.min[1],W=bb.max[0]-bb.min[0],H=bb.max[2]-bb.min[2];
+  const body=m.parts.filter(p=>!p.dam&&!p.vlo&&!/wheel/i.test(p.fname||'')&&p.nV>=8);
+  if(!body.length)return[];
+  const ext=kind==='front'?Math.max(...body.map(p=>p.bbox.max[1])):Math.min(...body.map(p=>p.bbox.min[1]));
+  const c=body.filter(p=>{const b=p.bbox,w=b.max[0]-b.min[0],dep=b.max[1]-b.min[1];
+    const reach=kind==='front'?b.max[1]>=ext-.08:b.min[1]<=ext+.08;   // mashinaning eng oldi/orqasigacha yetadi
+    const low=b.min[2]<=bb.min[2]+.4*H&&b.max[2]<=bb.min[2]+.75*H;      // pastda turadi (kapot/bagaj emas)
+    const zone=kind==='front'?b.min[1]>bb.max[1]-.3*L:b.max[1]<bb.min[1]+.3*L; // faqat old/orqa uchida
+    if(!(reach&&low&&zone&&w>.6*W&&dep>.06&&p.nT>=60))return false;
+    const va=vectorArea([p]),sg=kind==='front'?1:-1;                    // tashqi yuzasi oldga/orqaga qaraydi (kapot kabi tepaga emas)
+    return!(va.A>0&&Math.hypot(...va.V)/va.A>.12)||va.V[1]*sg>Math.abs(va.V[2]);});
+  if(!c.length)return[];
+  const lo=Math.min(...c.map(p=>p.bbox.min[2]));                         // bamper — eng pastki bo'lak (ustidagi panel/kapot emas)
+  return c.filter(p=>p.bbox.min[2]<=lo+.2).map(p=>p.ai);
+}
+/* fayl nomidan old/orqa ishorasi */
+function kindFromName(n){n=String(n||'').toLowerCase();
+  if(/(front|pered|perednij|perednii|old[_\s-]|_f\b|bump_?f|fbump|f_bump|fr[_\s-])/.test(n))return'front';
+  if(/(rear|back|zad|zadnij|zadnii|orqa|_r\b|bump_?r|rbump|r_bump)/.test(n))return'rear';return null;}
+/* yolg'iz bamper qaysi tomonniki (mashina koordinatasida turgan bo'lsa): tashqi yuza +Y = old, -Y = orqa */
+function guessSide(parts){
+  const va=vectorArea(parts),P=surfacePts(parts,20000),ax=bumperAxes(P),o=[0,1,2].filter(k=>k!==ax.w);
+  if(!(va.A>0&&Math.hypot(...va.V)/va.A>.12))return null;
+  const dep=Math.abs(va.V[o[0]])>=Math.abs(va.V[o[1]])?o[0]:o[1];
+  return dep===1?(va.V[1]>=0?'front':'rear'):null;
+}
+/* donor uchun to'liq avtomatik reja: qaysi qismlar, qaysi tomon(lar), qaysi yo'nalish */
+function donorPlan(m,fileName){
+  const det=detect(m),mk=modelKind(m),plan={mk,jobs:{},note:''};
+  const usable=m.parts.filter(p=>!p.dam&&!p.vlo&&p.nV>0);
+  if(det.front.ok.length||det.rear.ok.length){
+    for(const k of['front','rear'])if(det[k].ok.length)plan.jobs[k]={ais:det[k].ok.slice(),how:'nom'};
+    plan.note='Bamper nomidan topildi';
+  }else if(mk==='car'){
+    for(const k of['front','rear']){const a=geoDetect(m,k);if(a.length)plan.jobs[k]={ais:a,how:'joy'};}
+    plan.note=Object.keys(plan.jobs).length?'Bamper nomi yo\'q — mashinaning old/orqa qismidagi keng detal olindi':'Bamper alohida detal emas (kuzov bilan bitta) — avtomatik ajratib bo\'lmadi';
+  }else{
+    let k=kindFromName(fileName)||kindFromName(usable.map(p=>p.fname).join(' ')),src=k?'nom':'';
+    if(!k){k=guessSide(usable);src=k?'yuza':'';}
+    plan.jobs[k||'front']={ais:usable.map(p=>p.ai),how:'yolgiz'};plan.guessKind=!k;plan.sideSrc=src;
+    plan.note='Yolg\'iz bamper fayli — barcha qismlari olindi';
+  }
+  return plan;
+}
 /* ===== QOLIPGA MOSLASH (conform): donor bamper konturini eski bamper konturiga slice-slice moslash =====
    Oldin qattiq (rigid) joylashtiriladi, keyin donor nuqtalari X va Z bo'yicha "kesim"larga bo'linadi va har kesimdagi
    chuqurlik / balandlik / yon chegaralar eski bamperning shu kesimdagi chegaralariga silliq cho'ziladi. Natijada
@@ -1182,7 +1303,7 @@ function verify(baseBytes,outBytes,jobs){
   return rep;
 }
 
-root.BS={countFolds,finalizeFit,vertPts,fitMesh,makeWarp,contourErr,ROTS,ROT_Z180,defaultRot,SHARED_TEX,classify,loadModel,detect,surfacePts,rotPts,bboxOf,dimsOf,rankOrientations,makeFit,transformGeometryChunk,parseTxd,buildTxd,mergeTxd,buildOutput,verify,
+root.BS={guessSide,vectorArea,bumperAxes,rotFromAxes,autoOrient,modelKind,geoDetect,kindFromName,donorPlan,countFolds,finalizeFit,vertPts,fitMesh,makeWarp,contourErr,ROTS,ROT_Z180,defaultRot,SHARED_TEX,classify,loadModel,detect,surfacePts,rotPts,bboxOf,dimsOf,rankOrientations,makeFit,transformGeometryChunk,parseTxd,buildTxd,mergeTxd,buildOutput,verify,
   m3mul,m3v,m3inv,affMul,affInv,W2A,applyA,A2M4,rotX,rotY,rotZ,I3};
 })(typeof window!=='undefined'?window:globalThis);
 
@@ -1337,11 +1458,12 @@ const ID4=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
 
 /* ---------- holat ---------- */
 function newFit(){return{scaleMode:'width',mult:[1,1,1],lock:true,fine:[0,0,0],off:[0,0,0],yAnchor:'mount',zAnchor:'top',conform:{on:true,strength:100,x:true,y:true,z:true}};}
-function newJob(kind){return{kind,enabled:false,oldSel:new Set(),donor:null,donorSel:new Set(),
+function newJob(kind){const j={kind,userOff:false,oldSel:new Set(),donor:null,donorSel:new Set(),how:'',
   fit:newFit(),
-  orient:{list:[0],pos:0,src:'-'},fitRes:null,cache:{}};}
+  orient:{list:[0],pos:0,src:'-'},fitRes:null,cache:{}};
+  Object.defineProperty(j,'enabled',{get(){return ready(this)&&!this.userOff;},set(v){}});return j;}
 const S={base:null,baseTxd:null,baseTxdName:'',det:null,jobs:{front:newJob('front'),rear:newJob('rear')},active:'front',scene:'base',
-  paint:[140,160,190],ghost:true,dam:'copy',hover:null,out:null,donorFor:'front'};
+  paint:[140,160,190],ghost:true,dam:'copy',hover:null,out:null,donorFor:null,manualOpen:false,baseHow:{},lastDonor:null,building:false};
 let view;
 try{view=new BSView($('#gl'));}catch(e){document.body.insertAdjacentHTML('beforeend','<div style="position:fixed;inset:0;display:grid;place-items:center;background:#070b16;color:#fb7185;padding:30px;text-align:center;z-index:99">'+e.message+'</div>');throw e;}
 view.paint=S.paint;
@@ -1365,37 +1487,60 @@ function loadBase(bytes,name){
     freeModel(S.base);Object.values(S.jobs).forEach(j=>freeModel(j.donor&&j.donor.model));
     m.uid='b'+(uidN++);S.base=m;S.baseTxd=null;S.baseTxdName='';S.det=BS.detect(m);S.out=null;
     S.jobs={front:newJob('front'),rear:newJob('rear')};
-    for(const k of['front','rear']){const d=S.det[k];S.jobs[k].oldSel=new Set(d.ok);}
+    S.baseHow={};
+    for(const k of['front','rear']){const d=S.det[k];let sel=d.ok;if(sel.length)S.baseHow[k]='nom';else{sel=BS.geoDetect(m,k);if(sel.length)S.baseHow[k]='joy';}S.jobs[k].oldSel=new Set(sel);}
     S.active=S.det.front.ok.length||!S.det.rear.ok.length?'front':'rear';S.scene='base';
     view.setBounds(m.bbox);view.view('iso');$('#empty').classList.add('hide');
     renderAll();
-    const f=S.det.front.ok.length,r=S.det.rear.ok.length;
-    toast('Yuklandi: '+name+' · '+m.parts.length+' qism. '+((f||r)?'Bamper nomidan topildi: '+(f&&r?'old va orqa':f?'old':'orqa')+'.':'Bamper nomidan topilmadi — 3D oynada bamperga bosib belgilang.'));
+    const f=S.jobs.front.oldSel.size,r=S.jobs.rear.oldSel.size,byGeo=S.baseHow.front==='joy'||S.baseHow.rear==='joy';
+    toast('Yuklandi: '+name+' · '+m.parts.length+' qism. '+((f||r)?'Eski bamper topildi: '+(f&&r?'old va orqa':f?'old':'orqa')+(byGeo?' (joylashuvi bo\'yicha)':'')+'. Endi yangi bamper DFF ni oching.':'Eski bamper avtomatik topilmadi — «Qo\'lda sozlash»da 3D oynada bamperga bosib belgilang.'));
+    if(!f&&!r)S.manualOpen=true;
     if(m.native)toast('Diqqat: '+m.native+' ta qism native (PS2/Xbox) formatda — ko\'rsatilmaydi.');
   }catch(e){console.error(e);toast('DFF o\'qilmadi: '+e.message);}
 }
-function loadBaseTxd(bytes,name){try{S.baseTxd=BS.parseTxd(bytes);S.baseTxdName=name;S.out=null;toast('Asosiy TXD yuklandi: '+S.baseTxd.natives.length+' tekstura.');renderAll();}catch(e){toast(e.message);}}
+function loadBaseTxd(bytes,name){try{S.baseTxd=BS.parseTxd(bytes);S.baseTxdName=name;toast('Mashina TXD yuklandi: '+S.baseTxd.natives.length+' tekstura.');renderAll();scheduleBuild(60);}catch(e){toast(e.message);}}
 function donorKindsOf(m,ais){return ais.map(a=>partOf(m,a).kind);}
-function loadDonor(kind,bytes,name){
+function usedElsewhere(j,model){return['front','rear'].some(k=>S.jobs[k]!==j&&S.jobs[k].donor&&S.jobs[k].donor.model===model);}
+function releaseDonor(j){if(j.donor&&!usedElsewhere(j,j.donor.model))freeModel(j.donor.model);}
+const SIDE={front:'old',rear:'orqa'},other=k=>k==='front'?'rear':'front';
+function loadDonor(hint,bytes,name){
   try{
     const m=BS.loadModel(bytes,name);if(!m.parts.length)throw new Error('Ko\'rsatiladigan geometriya topilmadi.');
-    const j=S.jobs[kind];if(j.donor)freeModel(j.donor.model);m.uid='d'+(uidN++);
-    j.donor={model:m,name,txd:null,txdName:'',det:BS.detect(m)};j.donorSel=new Set();S.out=null;
-    const dd=j.donor.det;let note='';
-    if(dd[kind].ok.length){j.donorSel=new Set(dd[kind].ok);note='Donordagi '+(kind==='front'?'old':'orqa')+' bamper avtomatik tanlandi.';}
-    else{const other=kind==='front'?'rear':'front';
-      if(dd[other].ok.length){j.donorSel=new Set(dd[other].ok);note='Donorda faqat '+(other==='front'?'old':'orqa')+' bamper topildi — 180° burib qo\'yildi.';}
-      else if(m.parts.length===1){j.donorSel=new Set([m.parts[0].ai]);note='Donor bitta qismdan iborat — tanlandi.';}
-      else if(m.parts.length<=6){j.donorSel=new Set(m.parts.map(p=>p.ai));note='Donor kichik ('+m.parts.length+' qism) — hammasi tanlandi, kerak bo\'lmaganini o\'chiring.';}
-      else note='Bamper nomidan topilmadi — 3D oynada donor bamperiga bosib belgilang.';}
-    setupOrient(j);j.enabled=j.donorSel.size>0&&j.oldSel.size>0;S.active=kind;
-    S.scene=j.donorSel.size?'fit':'donor';
-    renderAll();if(S.scene==='fit')focusJob(j);else{view.setBounds(m.bbox);view.view('iso',m.bbox);}
-    toast('Donor yuklandi: '+name+' · '+m.parts.length+' qism. '+note);
-  }catch(e){console.error(e);toast('Donor DFF o\'qilmadi: '+e.message);}
+    m.uid='d'+(uidN++);const plan=BS.donorPlan(m,name),donor={model:m,name,txd:null,txdName:'',det:BS.detect(m),plan};S.lastDonor=donor;
+    const kinds=Object.keys(plan.jobs),targets=[];
+    if(hint){const pj=plan.jobs[hint]||plan.jobs[other(hint)];if(pj)targets.push([hint,pj]);}
+    else{
+      kinds.forEach(k=>{if(S.jobs[k].oldSel.size)targets.push([k,plan.jobs[k]]);});
+      if(!targets.length&&kinds.length===1&&S.jobs[other(kinds[0])].oldSel.size)targets.push([other(kinds[0]),plan.jobs[kinds[0]]]);
+    }
+    S.out=null;
+    if(!targets.length){ // avtomatik bo'lmadi — qo'lda tanlash
+      const k=hint||S.active,j=S.jobs[k];releaseDonor(j);j.donor=donor;j.donorSel=new Set();j.how='';j.fit=newFit();j.cache={};j.fitRes=null;j.userOff=false;
+      S.active=k;S.scene='donor';S.manualOpen=true;renderAll();view.setBounds(m.bbox);view.view('iso',m.bbox);
+      toast(plan.note+'. «Qo\'lda sozlash» bo\'limida yangi bamper qismlarini 3D oynada bosib belgilang.');return;
+    }
+    for(const[k,pj]of targets){const j=S.jobs[k];if(j.donor&&j.donor!==donor)releaseDonor(j);
+      j.donor=donor;j.donorSel=new Set(pj.ais);j.how=pj.how;j.fit=newFit();j.cache={};j.fitRes=null;j.userOff=false;setupOrient(j);}
+    const done=targets.map(t=>t[0]);
+    let msg='Yangi bamper: '+name+' — '+plan.note+'. Almashtiriladi: '+done.map(k=>SIDE[k]).join(' va ')+' bamper.';
+    if(plan.guessKind)msg+=' Fayl nomida old/orqa ko\'rsatilmagan — old deb olindi.';
+    if(done.length===2)msg+=' Bittasi kerak bo\'lmasa, «Yangi bamper» bo\'limida belgisini olib tashlang.';
+    toast(msg);autoRun(done);
+  }catch(e){console.error(e);toast('Bamper DFF o\'qilmadi: '+e.message);}
 }
-function loadDonorTxd(kind,bytes,name){const j=S.jobs[kind];if(!j.donor){toast('Avval donor DFF ni oching.');return;}
-  try{j.donor.txd=BS.parseTxd(bytes);j.donor.txdName=name;S.out=null;toast('Donor TXD yuklandi: '+j.donor.txd.natives.length+' tekstura.');renderAll();}catch(e){toast(e.message);}}
+/* yuklashdan keyin hammasini o'zi qiladi: moslash, natijani ko'rsatish, tekshirish */
+function autoRun(kinds){
+  const act=(kinds||['front','rear']).filter(k=>S.jobs[k].enabled);
+  act.forEach(k=>refit(S.jobs[k]));
+  if(act.length){if(!act.includes(S.active))S.active=act[0];S.scene='fit';}
+  renderAll();if(act.length)focusJob(J());
+  scheduleBuild(60);
+}
+let buildT=0;
+function scheduleBuild(ms){clearTimeout(buildT);S.out=null;if(!buildable()){renderReport();return;}S.building=true;renderReport();
+  buildT=setTimeout(()=>{runBuild();S.building=false;renderReport();renderTop();},ms==null?700:ms);}
+function loadDonorTxd(kind,bytes,name){const d=kind?S.jobs[kind].donor:S.lastDonor;if(!d){toast('Avval yangi bamper DFF ni oching.');return;}
+  try{d.txd=BS.parseTxd(bytes);d.txdName=name;toast('Bamper TXD yuklandi: '+d.txd.natives.length+' tekstura.');renderAll();scheduleBuild(60);}catch(e){toast(e.message);}}
 
 /* ---------- moslash ---------- */
 const oldParts=j=>[...j.oldSel].map(a=>partOf(S.base,a)).filter(Boolean);
@@ -1404,12 +1549,11 @@ const selKey=s=>[...s].sort((a,b)=>a-b).join(',');
 function oldBBOf(j){const k=selKey(j.oldSel);if(j.cache.oldK!==k){const pts=BS.surfacePts(oldParts(j),60000);j.cache.oldK=k;j.cache.oldPts=pts;j.cache.oldBB=pts.length?BS.bboxOf(pts):null;}return j.cache.oldBB;}
 function donorPtsOf(j){const k=selKey(j.donorSel)+'@'+(j.donor?j.donor.model.uid:'');if(j.cache.dK!==k){j.cache.dK=k;j.cache.dPts=BS.surfacePts(donorParts(j),60000);j.cache.dV=BS.vertPts(donorParts(j));j.cache.rank=null;}return j.cache.dPts;}
 function setupOrient(j){
-  const pts=donorPtsOf(j);if(!pts||!pts.length){j.orient={list:[0],pos:0,src:'-'};return;}
-  const oldBB=oldBBOf(j);let rank=[];
-  if(oldBB&&j.oldSel.size){const op=BS.surfacePts(oldParts(j),30000);rank=BS.rankOrientations(op,BS.surfacePts(donorParts(j),30000));}
-  const def=BS.defaultRot(j.kind,donorKindsOf(j.donor.model,[...j.donorSel]));
-  const order=rank.map(r=>r.k);let list,src;
-  if(def>=0){list=[def,...order.filter(k=>k!==def)];src='nom';}else{list=order.length?order:[0];src='shakl';}
+  const parts=donorParts(j);if(!parts.length){j.orient={list:[0],pos:0,src:'-'};return;}
+  oldBBOf(j);const def=BS.defaultRot(j.kind,donorKindsOf(j.donor.model,[...j.donorSel]));let first,alt=[],src;
+  if(def>=0){first=def;src='nom';}
+  else{const ao=BS.autoOrient(parts,j.kind,j.cache.oldPts);first=ao.k;alt=ao.alt;src=ao.sure?'yuza':'shakl';}
+  const list=[first,...alt.filter(k=>k!==first)];BS.ROTS.forEach((R,k)=>{if(!list.includes(k))list.push(k);});
   j.orient={list,pos:0,src};
 }
 function paramsOf(j){
@@ -1475,10 +1619,10 @@ function toggleSel(which,ai){
   const j=J();
   if(which==='old'){
     if(j.oldSel.has(ai))j.oldSel.delete(ai);else{j.oldSel.add(ai);const o=S.jobs[j.kind==='front'?'rear':'front'];o.oldSel.delete(ai);}
-    S.out=null;j.fitRes=null;if(j.donor)setupOrient(j);j.enabled=ready(j);
+    j.fitRes=null;if(j.donor)setupOrient(j);scheduleBuild();
   }else{
     if(j.donorSel.has(ai))j.donorSel.delete(ai);else j.donorSel.add(ai);
-    S.out=null;j.fitRes=null;setupOrient(j);j.enabled=ready(j);
+    j.fitRes=null;setupOrient(j);scheduleBuild();
   }
   renderAll();
 }
@@ -1509,10 +1653,10 @@ function renderTop(){
 }
 function syncScene(){
   ['base','donor','fit'].forEach(k=>{const b=$('#sc_'+k);if(b)b.setAttribute('aria-pressed',String(S.scene===k));});
-  const hint=!S.base?'<b>1.</b> Asosiy DFF modelni oching (masalan, Lacetti).':
+  const hint=!S.base?'<b>1.</b> Mashina DFF ni oching (masalan, Lacetti).':
     S.scene==='base'?'<b>Asosiy model:</b> qizil = olib tashlanadigan eski bamper. Qism ustiga bosib qo\'shing/olib tashlang.':
     S.scene==='donor'?'<b>Yangi bamper:</b> yashil = donordan olinadigan qism. Bosib tanlang.':
-    '<b>Natija:</b> eski bamper soyasi qizil shaffof ko\'rinadi. O\'ngdagi sliderlar bilan moslang.';
+    '<b>Natija:</b> yangi bamper avtomatik moslandi. Qizil shaffof — eski bamper joyi (o\'chirish: «Eski bamper soyasi»).';
   $('#hintTxt').innerHTML=hint;
   $('#scenes').classList.toggle('hide',!S.base);$('#hud').classList.toggle('hide',!S.base);
 }
@@ -1522,49 +1666,67 @@ function updateStatus(){
   $('#stJobs').textContent='Old: '+d('front')+'   Orqa: '+d('rear');
 }
 
+const HOW={nom:'nomidan topildi',joy:'joylashuvi bo\'yicha topildi',yolgiz:'yolg\'iz bamper fayli'};
+const ORI={nom:'nomidan',yuza:'avtomatik (tashqi yuzasi bo\'yicha)',shakl:'taxminiy (shakli bo\'yicha)','qo\'l':'qo\'lda'};
 function renderDock(){
-  dock.replaceChildren();
-  // 1. asosiy model
-  const mb=h('div',null,h('div',{class:'row'},h('button',{class:'btn pri sm',type:'button',onclick:()=>$('#fBase').click()},S.base?'Boshqa DFF':'DFF ochish'),
-    h('button',{class:'btn sm',type:'button',disabled:!S.base,onclick:()=>$('#fBaseTxd').click()},S.baseTxd?'TXD ✓ '+S.baseTxd.natives.length+' tekstura':'TXD ochish (ixtiyoriy)')));
-  if(S.base)mb.append(h('div',{class:'meta'},h('b',null,S.base.name),' · '+S.base.parts.length+' qism · '+S.base.parts.reduce((a,p)=>a+p.nT,0).toLocaleString('en')+' uchburchak'),
-    h('p',{class:'hint'},S.baseTxd?'Teksturalar donor TXD dan avtomatik qo\'shiladi.':'TXD ni ham bersangiz, yangi bamper teksturalari unga qo\'shib beriladi.'));
-  else mb.append(h('p',{class:'hint'},'Fayl brauzeringizdan chiqmaydi. DFF ni shu yerga yoki oynaga tashlang.'));
-  dock.append(card('1','Asosiy model (bamperi almashtiriladigan)',mb));
+  const keepScroll=dock.scrollTop;dock.replaceChildren();
+  // 1. mashina
+  const mb=h('div',null,h('div',{class:'row'},h('button',{class:'btn pri sm',type:'button',onclick:()=>$('#fBase').click()},S.base?'Boshqa mashina DFF':'Mashina DFF ochish'),
+    h('button',{class:'btn sm',type:'button',disabled:!S.base,onclick:()=>$('#fBaseTxd').click()},S.baseTxd?'TXD ✓ '+S.baseTxd.natives.length+' tekstura':'TXD (ixtiyoriy)')));
+  if(S.base){
+    const fo=S.jobs.front.oldSel.size,ro=S.jobs.rear.oldSel.size;
+    mb.append(h('div',{class:'meta'},h('b',null,S.base.name),' · '+S.base.parts.length+' qism · '+S.base.parts.reduce((a,p)=>a+p.nT,0).toLocaleString('en')+' uchburchak'),
+      h('p',{class:'hint'},'Eski bamper: '+(fo?'old ✓':'old —')+'   '+(ro?'orqa ✓':'orqa —')+(S.baseHow.front==='joy'||S.baseHow.rear==='joy'?' (nomi yo\'q — joylashuvi bo\'yicha topildi)':'')));
+  }else mb.append(h('p',{class:'hint'},'Bamperi almashtiriladigan mashina (masalan, Lacetti). DFF va TXD ni birga tanlashingiz mumkin. Fayl brauzeringizdan chiqmaydi.'));
+  dock.append(card('1','Mashina',mb));
   if(!S.base)return;
-  // tablar
+  // 2. yangi bamper
+  const nb=h('div'),dn=S.lastDonor;
+  nb.append(h('div',{class:'row'},h('button',{class:'btn pri sm',type:'button',onclick:()=>{S.donorFor=null;$('#fDonor').click();}},dn?'Boshqa bamper DFF':'Yangi bamper DFF ochish'),
+    h('button',{class:'btn sm',type:'button',disabled:!dn,onclick:()=>{S.donorFor=null;$('#fDonorTxd').click();}},dn&&dn.txd?'TXD ✓ '+dn.txd.natives.length+' tekstura':'Bamper TXD (ixtiyoriy)')));
+  if(!dn)nb.append(h('p',{class:'hint'},'Yolg\'iz bamper fayli yoki bamperi kerakli boshqa mashina DFF si. Old/orqa, yo\'nalish, o\'lcham va qolipga moslash — hammasi avtomatik.'));
+  ['front','rear'].forEach(k=>{
+    const j=S.jobs[k],rd=ready(j),c=h('input',{type:'checkbox','aria-label':KIND[k]});c.checked=j.enabled;c.disabled=!rd;
+    c.addEventListener('change',()=>{j.userOff=!c.checked;compose();renderAll();scheduleBuild(60);});
+    const st=rd?(j.donor.name+' · '+j.donorSel.size+' qism'+(j.how?' · '+HOW[j.how]:'')+' · yo\'nalish: '+(ORI[j.orient.src]||'-')):
+      (!j.oldSel.size?'mashinada eski '+SIDE[k]+' bamper topilmadi':j.donor?'yangi bamper qismlari tanlanmagan':'yangi bamper yo\'q');
+    nb.append(h('div',{class:'jrow'+(j.enabled?' on':'')},h('label',{class:'jl'},c,h('b',null,KIND[k])),
+      h('button',{class:'btn sm',type:'button',title:'Faqat '+SIDE[k]+' bamper uchun boshqa fayl',onclick:()=>{S.donorFor=k;$('#fDonor').click();}},'Fayl'),
+      h('small',null,st)));
+    if(rd&&j.orient.src==='shakl'&&j.orient.pos===0)nb.append(h('p',{class:'note warn'},KIND[k]+': yo\'nalish taxminiy topildi — 3D da tekshiring; noto\'g\'ri bo\'lsa «Qo\'lda sozlash»dagi «Burish» tugmalari bilan to\'g\'rilang.'));
+  });
+  dock.append(card('2','Yangi bamper',nb));
+  // 3. natija
+  dock.append(card('3','Natija va yuklab olish',exportUi(),'exp'));
+  // qo'lda sozlash (ixtiyoriy)
+  const man=h('details',{class:'manual'});man.open=!!S.manualOpen;man.addEventListener('toggle',()=>{S.manualOpen=man.open;});
+  man.append(h('summary',null,'⚙ Qo\'lda sozlash (ixtiyoriy)'));
   const tabs=h('div',{class:'tabs'});
-  ['front','rear'].forEach(k=>{const j=S.jobs[k];const st=ready(j)&&j.enabled?'✓':(j.oldSel.size?'•':'');
-    tabs.append(h('button',{type:'button','aria-pressed':String(S.active===k),onclick:()=>{S.active=k;if(S.scene==='fit'&&ready(J()))refit();renderAll();if(S.scene==='fit')focusJob(J());}},(k==='front'?'⬆ Old bamper ':'⬇ Orqa bamper ')+st));});
-  dock.append(tabs);
+  ['front','rear'].forEach(k=>{const j=S.jobs[k];const st=j.enabled?'✓':(j.oldSel.size?'•':'');
+    tabs.append(h('button',{type:'button','aria-pressed':String(S.active===k),onclick:()=>{S.active=k;if(S.scene==='fit'&&ready(J())&&!J().fitRes)refit();renderAll();if(S.scene==='fit')focusJob(J());}},(k==='front'?'⬆ Old bamper ':'⬇ Orqa bamper ')+st));});
+  man.append(tabs);
   const j=J(),k=j.kind;
-  // 2. eski bamper
   const ob=h('div');
-  ob.append(h('p',{class:'step'},'Qizil = olib tashlanadigan eski '+(k==='front'?'old':'orqa')+' bamper qismlari. Bamper bilan bog\'liq boshqa qismlarni ham belgilang (masalan, panjara).'));
+  ob.append(h('p',{class:'step'},'Qizil = olib tashlanadigan eski '+SIDE[k]+' bamper qismlari. «① Asosiy model» ko\'rinishida 3D oynada bosib ham tanlash mumkin.'));
   const lst=h('div',{class:'plist'});
   S.base.parts.slice().sort((a,b)=>(j.oldSel.has(b.ai)-j.oldSel.has(a.ai))||(+(b.kind===k)-(a.kind===k))||a.ai-b.ai).forEach(p=>{
     lst.append(partRow(S.base,p,j.oldSel.has(p.ai),v=>{toggleSel('old',p.ai);},p.dam?'dam':(p.kind===k?'bamper':'')));});
   ob.append(lst);
   const dam=S.det[k].dam;
   ob.append(h('p',{class:'hint'},'Tanlangan: '+j.oldSel.size+' qism'+(dam.length?' · zarar varianti (_dam): '+dam.length+' qism':'')));
-  dock.append(card('2','Eski '+(k==='front'?'old':'orqa')+' bamper',ob));
-  // 3. yangi bamper
-  const nb=h('div'),other=S.jobs[k==='front'?'rear':'front'];
-  nb.append(h('div',{class:'row'},h('button',{class:'btn pri sm',type:'button',onclick:()=>{S.donorFor=k;$('#fDonor').click();}},j.donor?'Boshqa donor DFF':'Donor DFF ochish'),
-    h('button',{class:'btn sm',type:'button',disabled:!j.donor,onclick:()=>{S.donorFor=k;$('#fDonorTxd').click();}},j.donor&&j.donor.txd?'Donor TXD ✓ '+j.donor.txd.natives.length:'Donor TXD (ixtiyoriy)'),
-    other.donor&&other.donor!==j.donor?h('button',{class:'btn sm',type:'button',onclick:()=>useOtherDonor(k)},'Ikkinchi donordan foydalanish'):null));
+  man.append(card('','Eski '+SIDE[k]+' bamper',ob));
+  const db=h('div');
   if(j.donor){
-    nb.append(h('div',{class:'meta'},h('b',null,j.donor.name),' · '+j.donor.model.parts.length+' qism'));
+    db.append(h('div',{class:'meta'},h('b',null,j.donor.name),' · '+j.donor.model.parts.length+' qism'),h('p',{class:'step'},'Yashil = olinadigan qismlar («② Yangi bamper» ko\'rinishida 3D da bosib tanlash mumkin).'));
     const dl=h('div',{class:'plist'});
     j.donor.model.parts.slice().sort((a,b)=>(j.donorSel.has(b.ai)-j.donorSel.has(a.ai))||(+(b.bump)-(+a.bump))||a.ai-b.ai).forEach(p=>dl.append(partRow(j.donor.model,p,j.donorSel.has(p.ai),()=>toggleSel('donor',p.ai),p.dam?'dam':(p.kind?(p.kind==='front'?'old':'orqa'):''))));
-    nb.append(dl,h('p',{class:'hint'},'Tanlangan: '+j.donorSel.size+' qism · '+donorParts(j).reduce((a,p)=>a+p.nT,0).toLocaleString('en')+' uchburchak'));
-    if(ready(j)&&S.scene!=='fit')nb.append(h('button',{class:'btn pri sm',type:'button',onclick:()=>setScene('fit')},'③ Natijani ko\'rish →'));
-  }else nb.append(h('p',{class:'hint'},'Yangi bamperi bor DFF ni oching: boshqa mashina yoki yolg\'iz bamper obyekti. Uning bamperi shu mashinaga moslanadi.'));
-  dock.append(card('3','Yangi bamper (donor)',nb));
-  // 4. moslash
-  if(ready(j))dock.append(card('4','Moslashtirish',fitUi(j)));
-  // 5. yuklab olish
-  dock.append(card(ready(j)?'5':'4','Yuklab olish',exportUi(),'exp'));
+    db.append(dl,h('p',{class:'hint'},'Tanlangan: '+j.donorSel.size+' qism · '+donorParts(j).reduce((a,p)=>a+p.nT,0).toLocaleString('en')+' uchburchak'));
+    if(ready(j)&&S.scene!=='fit')db.append(h('button',{class:'btn pri sm',type:'button',onclick:()=>setScene('fit')},'③ Natijani ko\'rish →'));
+  }else db.append(h('p',{class:'hint'},'Bu tomon uchun yangi bamper yuklanmagan («Yangi bamper» bo\'limidagi «Fayl» tugmasi).'));
+  man.append(card('','Yangi '+SIDE[k]+' bamper qismlari',db));
+  if(ready(j))man.append(card('','Moslashtirish',fitUi(j)));
+  dock.append(man);
+  dock.scrollTop=keepScroll;
 }
 function useOtherDonor(k){const o=S.jobs[k==='front'?'rear':'front'],j=S.jobs[k];if(!o.donor)return;
   j.donor={...o.donor};j.donorSel=new Set();const dd=j.donor.det;
@@ -1574,10 +1736,10 @@ function useOtherDonor(k){const o=S.jobs[k==='front'?'rear':'front'],j=S.jobs[k]
 const roundR=R=>R.map(v=>Math.round(v));
 function spin(j,Q){const ori=j.orient,cur=BS.ROTS[ori.list[ori.pos]],prod=BS.m3mul(Q,cur);
   const nk=BS.ROTS.findIndex(R=>R.every((v,i)=>Math.abs(v-prod[i])<1e-6));if(nk<0)return;
-  ori.list=[nk,...ori.list.filter(x=>x!==nk)];ori.pos=0;ori.src='qo\'l';j.fitRes=null;S.out=null;refit(j);renderAll();}
+  ori.list=[nk,...ori.list.filter(x=>x!==nk)];ori.pos=0;ori.src='qo\'l';j.fitRes=null;refit(j);renderAll();scheduleBuild();}
 function fitUi(j){
   const k=j.kind,f=j.fit,box=h('div'),metrics=h('div',{class:'metrics'});
-  const conformMsg=h('p',{class:'hint'}),upd=()=>{refit(j);S.out=null;compose();paintMetrics();};
+  const conformMsg=h('p',{class:'hint'}),upd=()=>{refit(j);compose();paintMetrics();scheduleBuild();};
   const sliders=[];
   function paintMetrics(){
     const fr=j.fitRes;metrics.replaceChildren();if(!fr)return;
@@ -1624,7 +1786,7 @@ function fitUi(j){
     off('Old-orqa (Y)',1,30),off('Yuqori-past (Z)',2,30),off('Chap-o\'ng (X)',0,30),
     h('details',{class:'adv'},h('summary',null,'Qiyalik va burish (aniq sozlash)'),fine('Qiyalik (X o\'q)',0),fine('Yonga burish (Y o\'q)',1),fine('Burilish (Z o\'q)',2)),
     h('div',{class:'lbl'},'O\'lchamlar'),metrics,
-    h('div',{class:'row'},h('button',{class:'btn sm',type:'button',onclick:()=>{j.fit=newFit();setupOrient(j);upd();renderDock();}},'↺ Avto-moslashga qaytarish'),
+    h('div',{class:'row'},h('button',{class:'btn sm',type:'button',onclick:()=>{j.fit=newFit();j.cache={};setupOrient(j);upd();renderDock();}},'↺ Avto-moslashga qaytarish'),
       h('button',{class:'btn sm',type:'button',onclick:()=>{S.scene='fit';renderAll();focusJob(j);}},'🎯 Bamperga fokus')));
   if(!j.fitRes)refit(j);paintMetrics();
   return box;
@@ -1644,7 +1806,7 @@ function texNeeds(){
 function compute(){
   const needs=texNeeds();
   const rep=BS.mergeTxd(S.baseTxd,needs.map(n=>({txd:n.txd,names:n.names})));
-  const jobs=needs.map((n,i)=>{const j=n.job;const fr=refit(j);return{kind:j.kind,oldAis:[...j.oldSel],damAis:S.det[j.kind].dam.slice(),targetFrame:pickTarget(j),
+  const jobs=needs.map((n,i)=>{const j=n.job;const fr=j.fitRes||refit(j);return{kind:j.kind,oldAis:[...j.oldSel],damAis:S.det[j.kind].dam.slice(),targetFrame:pickTarget(j),
     donor:{model:j.donor.model,ais:[...j.donorSel]},fit:fr,texRename:rep.renames[i]||{}};});
   const out=BS.buildOutput(S.base,jobs,{dam:S.dam}),ver=BS.verify(S.base.bytes,out.bytes,jobs);
   return{out,ver,rep,jobs,needs};
@@ -1653,8 +1815,10 @@ function runBuild(){
   try{const r=compute();S.out=r;renderReport();return r;}catch(e){console.error(e);toast(e.message);return null;}
 }
 function renderReport(){
-  const el=$('#report');if(!el)return;el.replaceChildren();const r=S.out;if(!r)return;
+  const el=$('#report');if(!el)return;el.replaceChildren();const r=S.out;
+  if(!r){if(S.building)el.append(h('div',null,'⏳ Avtomatik moslanmoqda va tekshirilmoqda…'));else if(S.base&&!buildable())el.append(h('div',null,'Yangi bamper DFF ni oching — natija shu yerda avtomatik chiqadi.'));return;}
   const L=[];
+  r.jobs.forEach(jb=>{const jj=S.jobs[jb.kind];L.push(h('div',{class:'ok'},'✓ '+KIND[jb.kind]+': '+jj.donor.name+' ('+jb.donor.ais.length+' qism) → eski bamper o\'rniga · yo\'nalish '+(ORI[jj.orient.src]||'-')));});
   r.ver.lines.forEach(x=>L.push(h('div',{class:'ok'},x)));r.ver.errors.forEach(x=>L.push(h('div',{class:'bad'},'✗ '+x)));
   r.jobs.forEach(jb=>{const fi=jb.fit.info;if(jb.fit.warp&&fi)L.push(h('div',{class:'ok'},'✓ '+(jb.kind==='front'?'Old':'Orqa')+' bamper qolipga moslandi: kontur farqi '+(fi.before*100).toFixed(1)+' → '+(fi.final*100).toFixed(1)+' sm.'));});
   L.push(h('div',null,'Atomic: '+r.ver.atomics[0]+' → '+r.ver.atomics[1]+' · olib tashlandi: '+r.out.removed+', qo\'shildi: '+r.out.added));
@@ -1670,11 +1834,13 @@ function renderReport(){
 }
 function exportUi(){
   const box=h('div');
-  box.append(h('div',{class:'fld'},h('label',null,'Zarar varianti (_dam)'),(()=>{const s=h('select',null,[['copy','Yangi bamperni nusxalab qo\'yish (tavsiya)'],['keep','Eskisini qoldirish'],['remove','O\'chirish']].map(([v,t])=>h('option',{value:v},t)));s.value=S.dam;s.addEventListener('change',()=>{S.dam=s.value;S.out=null;compose();renderReport();});return s;})()),
-    h('div',{class:'meta'},'Eski bamperning zarar ko\'rgan (_dam) varianti bor modellarda ishlaydi.'));
-  box.append(h('div',{class:'row'},h('button',{class:'btn sm',type:'button',disabled:!buildable(),onclick:()=>{runBuild();}},'🔍 Tekshirish'),
+  box.append(h('div',{id:'report',class:'report'}));
+  const damSel=h('div',{class:'fld'},h('label',null,'Zarar varianti (_dam)'),(()=>{const s=h('select',null,[['copy','Yangi bamperni nusxalab qo\'yish (tavsiya)'],['keep','Eskisini qoldirish'],['remove','O\'chirish']].map(([v,t])=>h('option',{value:v},t)));s.value=S.dam;s.addEventListener('change',()=>{S.dam=s.value;compose();scheduleBuild(60);});return s;})());
+  const hasDam=S.det&&(S.det.front.dam.length||S.det.rear.dam.length);
+  box.append(h('div',{class:'row'},h('button',{class:'btn sm',type:'button',disabled:!buildable(),onclick:()=>{runBuild();renderTop();}},'🔍 Tekshirish'),
     h('button',{class:'btn sm',type:'button',disabled:!buildable(),onclick:()=>{S.scene='fit';renderAll();focusJob(J());}},'👁 Natijani ko\'rish')));
-  box.append(h('div',{id:'report',class:'report'}),h('button',{class:'btn pri big',type:'button',disabled:!buildable(),onclick:dlDff},'⬇ DFF ni yuklab olish'),
+  if(hasDam)box.append(damSel);else box.append(h('details',null,h('summary',null,'Zarar varianti (_dam)'),damSel));
+  box.append(h('button',{class:'btn pri big',type:'button',disabled:!buildable(),onclick:dlDff},'⬇ DFF ni yuklab olish'),
     h('div',{class:'g2'},h('button',{class:'btn',type:'button',disabled:!buildable(),onclick:dlTxd},'⬇ TXD'),h('button',{class:'btn',type:'button',disabled:!buildable(),onclick:dlZip},'ZIP + yo\'riqnoma')),
     h('details',null,h('summary',null,'Yo\'riqnoma'),h('div',{id:'readme'},'')));
   setTimeout(renderReport,0);return box;
@@ -1682,8 +1848,8 @@ function exportUi(){
 function save(blob,name){const u=URL.createObjectURL(blob),a=h('a',{href:u,download:name});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000);}
 const bn=()=>baseName(S.base.name);
 const txdOutName=()=>S.baseTxd?(S.baseTxdName||bn()+'.txd'):bn()+'_bamper_teksturalar.txd';
-function dlDff(){const r=runBuild();if(!r)return;if(!r.ver.ok){toast('Tekshiruvda xato bor — hisobotni ko\'ring.');return;}save(new Blob([r.out.bytes],{type:'application/octet-stream'}),bn()+'_bamper.dff');toast('Saqlandi: '+bn()+'_bamper.dff. O\'yinga qo\'yishda nomini '+S.base.name+' ga o\'zgartiring.');}
-function dlTxd(){const r=runBuild();if(!r)return;if(!r.rep.added.length&&!S.baseTxd){toast('Qo\'shiladigan tekstura yo\'q.');return;}save(new Blob([r.rep.bytes],{type:'application/octet-stream'}),(S.baseTxd?baseName(txdOutName())+'_bamper.txd':txdOutName()));toast('TXD saqlandi.');}
+function dlDff(){const r=S.out||runBuild();if(!r)return;if(!r.ver.ok){toast('Tekshiruvda xato bor — hisobotni ko\'ring.');return;}save(new Blob([r.out.bytes],{type:'application/octet-stream'}),bn()+'_bamper.dff');toast('Saqlandi: '+bn()+'_bamper.dff. O\'yinga qo\'yishda nomini '+S.base.name+' ga o\'zgartiring.');}
+function dlTxd(){const r=S.out||runBuild();if(!r)return;if(!r.rep.added.length&&!S.baseTxd){toast('Qo\'shiladigan tekstura yo\'q.');return;}save(new Blob([r.rep.bytes],{type:'application/octet-stream'}),(S.baseTxd?baseName(txdOutName())+'_bamper.txd':txdOutName()));toast('TXD saqlandi.');}
 function readme(r){
   const L=[];const jobs=r.jobs;
   L.push('BAMPER ALMASHTIRISH — QISQA YO\'RIQNOMA','===============================','');
@@ -1712,19 +1878,45 @@ function makeZip(entries){
   end.setUint32(0,0x06054b50,true);end.setUint16(8,entries.length,true);end.setUint16(10,entries.length,true);end.setUint32(12,cs,true);end.setUint32(16,off,true);
   return new Blob([...chunks,...central,new Uint8Array(end.buffer)],{type:'application/zip'});
 }
-function dlZip(){const r=runBuild();if(!r)return;if(!r.ver.ok){toast('Tekshiruvda xato bor — hisobotni ko\'ring.');return;}
+function dlZip(){const r=S.out||runBuild();if(!r)return;if(!r.ver.ok){toast('Tekshiruvda xato bor — hisobotni ko\'ring.');return;}
   const dir='bamper-almashtirish/',ent=[{name:dir+S.base.name,data:r.out.bytes}];
   if(S.baseTxd||r.rep.added.length)ent.push({name:dir+txdOutName(),data:r.rep.bytes});
   ent.push({name:dir+'YORIQNOMA.txt',data:readme(r)});save(makeZip(ent),'bamper_'+bn()+'.zip');toast('ZIP tayyor (fayllar asl nomlari bilan).');}
-window.__BS.compute=compute;window.__BS.readme=()=>S.out?readme(S.out):'';
+window.__BS.compute=compute;window.__BS.route=(f,r,h)=>routeFiles(f,r,h);window.__BS.faceDir=k=>{const j=S.jobs[k];if(!j.fitRes)return null;const ps=donorParts(j).map(p=>{const fm=BS.fitMesh(p.wm,j.fitRes);return{wm:{...p.wm,wpos:fm.wpos,wnrm:fm.wnrm}};});const va=BS.vectorArea(ps);return va.V.map(v=>v/va.A);};window.__BS.readme=()=>S.out?readme(S.out):'';
 
 /* ---------- ulash ---------- */
 $('#btnDff').onclick=$('#btnDff2').onclick=()=>$('#fBase').click();
 $('#btnDl').onclick=dlDff;
-$('#fBase').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(f)loadBase(await readFile(f),f.name);});
-$('#fBaseTxd').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(f)loadBaseTxd(await readFile(f),f.name);});
-$('#fDonor').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(f)loadDonor(S.donorFor,await readFile(f),f.name);});
-$('#fDonorTxd').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(f)loadDonorTxd(S.donorFor,await readFile(f),f.name);});
+/* fayllarni o'z joyiga yo'naltirish: DFF va TXD ni birga tanlash/tashlash mumkin */
+const stem=n=>baseName(n).toLowerCase().replace(/^[0-9a-f]{8}-/,'');
+async function routeFiles(files,role,hint){
+  const dffs=files.filter(f=>/\.dff$/i.test(f.name)),txds=files.filter(f=>/\.txd$/i.test(f.name));
+  if(!dffs.length&&!txds.length){toast('.dff yoki .txd fayl tanlang.');return;}
+  const pickTxd=(d,pool)=>{if(!d)return null;const i=pool.findIndex(t=>stem(t.name)===stem(d.name));return i>=0?pool.splice(i,1)[0]:null;};
+  if(role==='auto'&&!S.base){
+    if(!dffs.length){toast('Avval mashina DFF ni tanlang.');return;}
+    dffs.sort((a,b)=>b.size-a.size); // eng katta fayl — mashina, keyingisi — yangi bamper
+    role='base';
+    if(dffs.length>1){const pool=txds.slice(),bd=dffs[0],dd=dffs[1],bt=pickTxd(bd,pool),dt=pickTxd(dd,pool);
+      loadBase(await readFile(bd),bd.name);if(bt)loadBaseTxd(await readFile(bt),bt.name);
+      loadDonor(null,await readFile(dd),dd.name);if(dt)loadDonorTxd(null,await readFile(dt),dt.name);
+      toast('Mashina: '+bd.name+' · Yangi bamper: '+dd.name+' (kattaroq fayl mashina deb olindi).');return;}
+  }
+  if(role==='auto')role=dffs.length?'donor':(!S.baseTxd&&txds.length&&(!S.lastDonor||stem(txds[0].name)===stem(S.base.name))?'base':'donor');
+  if(role==='base'){
+    if(dffs[0])loadBase(await readFile(dffs[0]),dffs[0].name);
+    if(txds[0]){if(!S.base){toast('Avval mashina DFF ni oching.');return;}loadBaseTxd(await readFile(txds[0]),txds[0].name);}
+  }else{
+    if(!S.base){toast('Avval mashina DFF ni oching.');return;}
+    if(dffs[0])loadDonor(hint||null,await readFile(dffs[0]),dffs[0].name);
+    if(txds[0])loadDonorTxd(hint||null,await readFile(txds[0]),txds[0].name);
+  }
+}
+const takeFiles=e=>{const fs=[...e.target.files];e.target.value='';return fs;};
+$('#fBase').addEventListener('change',e=>routeFiles(takeFiles(e),'base'));
+$('#fBaseTxd').addEventListener('change',e=>routeFiles(takeFiles(e),'base'));
+$('#fDonor').addEventListener('change',e=>routeFiles(takeFiles(e),'donor',S.donorFor));
+$('#fDonorTxd').addEventListener('change',e=>routeFiles(takeFiles(e),'donor',S.donorFor));
 $('#sc_base').onclick=()=>S.base&&setScene('base');
 $('#sc_donor').onclick=()=>{if(!S.base)return;if(!J().donor){toast('Avval donor DFF ni oching (o\'ngdagi 3-qadam).');return;}setScene('donor');};
 $('#sc_fit').onclick=()=>{if(!S.base)return;if(!ready(J())){toast('Avval eski va yangi bamper qismlarini belgilang.');return;}setScene('fit');};
@@ -1734,8 +1926,7 @@ $('#ghost').addEventListener('change',e=>{S.ghost=e.target.checked;compose();});
 const stage=$('#stage');
 ['dragenter','dragover'].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();$('#empty').classList.add('over');}));
 ['dragleave','drop'].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();$('#empty').classList.remove('over');}));
-stage.addEventListener('drop',async e=>{const fs=[...e.dataTransfer.files];const d=fs.find(x=>/\.dff$/i.test(x.name)),t=fs.find(x=>/\.txd$/i.test(x.name));
-  if(d){const b=await readFile(d);if(!S.base)loadBase(b,d.name);else loadDonor(S.active,b,d.name);}else if(t){const b=await readFile(t);if(S.base&&!S.baseTxd)loadBaseTxd(b,t.name);else if(S.base)loadDonorTxd(S.active,b,t.name);}else toast('.dff yoki .txd fayl tashlang.');});
+stage.addEventListener('drop',e=>{routeFiles([...e.dataTransfer.files],'auto');});
 $('#backLink').addEventListener('click',()=>{try{sessionStorage.setItem('it_shakh_return_from_tool','1');}catch(e){}});
 renderAll();
 })();
