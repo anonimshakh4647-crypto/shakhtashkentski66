@@ -155,8 +155,8 @@ input[type=range]:hover::-webkit-slider-thumb{box-shadow:0 0 0 5px rgba(0,229,25
 .aecats .chip{font-size:10.5px;padding:4px 9px}
 .bglw .lab .bglc{color:var(--cy);font-weight:900}
 .bglw .filebox{flex-wrap:wrap}
-.bglg{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:4px}
-.bgli{position:relative;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--panel2);aspect-ratio:16/10;cursor:default;transition:border-color .15s,box-shadow .15s}
+.bglg{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:4px;max-height:236px;overflow-y:auto;padding:2px 3px 2px 2px;scrollbar-width:thin;grid-auto-rows:46px;align-content:start}
+.bgli{position:relative;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--panel2);cursor:default;transition:border-color .15s,box-shadow .15s}
 .bgli .bglt{position:absolute;inset:0;background:center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--mut2)}
 .bgli .bgln{position:absolute;left:3px;top:3px;min-width:15px;height:15px;padding:0 3px;border-radius:5px;background:rgba(0,0,0,.72);color:#fff;font:800 9px/15px ui-monospace,monospace;text-align:center}
 .bgli .bglk{position:absolute;left:21px;top:3px;height:15px;font:800 8px/15px sans-serif;color:var(--cy);text-shadow:0 0 3px #000}
@@ -2725,51 +2725,89 @@ const bgVid=$('bgVideo');let bgImg=null,bgIsVideo=false,bgURL='',bgReady=false,b
 const BG_FX=[['none','Original'],['gray','Qora-oq'],['sepia','Sepia'],['invert','Invert'],['duo','Duotone (ko‘k)'],['neon','Neon rang'],['hue','Rang aylanishi'],['posterize','Poster'],['noir','Noir'],['dream','Dream (yumshoq)'],['cinema','Cinema'],['mirror-h','Ko‘zgu — gorizontal'],['mirror-v','Ko‘zgu — vertikal'],['quad','4 ta ko‘zgu'],['tile','3×3 plitka'],['pixel','Piksel'],['vhs','VHS'],['glitch','Glitch'],['bloom','Bloom'],['zoomblur','Zoom blur'],['letterbox','Letterbox']];
 const BLENDS=[['source-over','Normal'],['screen','Screen'],['lighter','Add'],['overlay','Overlay'],['soft-light','Soft light'],['hard-light','Hard light'],['multiply','Multiply'],['color-dodge','Color dodge'],['difference','Difference'],['luminosity','Luminosity']];
 /* =====================================================================
-   FON PLEYLISTI — 10 tagacha rasm/video, navbat bilan almashadi va aylanadi (loop)
+   FON PLEYLISTI — cheksiz rasm/video, navbat bilan almashadi va aylanadi (loop)
    Vaqt rejimida almashish qo'shiq vaqtiga bog'langan → eksportda ham aynan shunday chiqadi.
+   Xotira: ko'p fayl bo'lsa, faqat hozirgi + oldingi + keyingi 2 tasi yuklanib turadi,
+   qolganlari bo'shatiladi (navbati kelishidan oldin qayta yuklanadi).
    ===================================================================== */
-const BG_MAX=10;
-const BGL={items:[],lastI:-1,beatI:0,beatPrev:-1,beatN:0,switchT:0,uid:0,lastDrawn:null};
-const BGL_VRE=/\.(mp4|webm|mov|m4v|mkv|ogv)$/i;
+const BGL={items:[],lastI:-1,beatI:0,beatPrev:-1,beatN:0,switchT:0,uid:0,lastDrawn:null,q:Promise.resolve()};
+const BGL_VRE=/\.(mp4|webm|mov|m4v|mkv|ogv)$/i,BGL_KEEP_V=6,BGL_KEEP_I=40;   // shundan kam bo'lsa hammasi doim yuklangan turadi
 function bglIsMedia(f){return f.type.startsWith('image/')||f.type.startsWith('video/')||/\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name)||BGL_VRE.test(f.name);}
 function bglMake(f){
-  const url=URL.createObjectURL(f),isVideo=f.type.startsWith('video/')||BGL_VRE.test(f.name);
-  const it={id:++BGL.uid,url,name:f.name,isVideo,el:null,ready:false,thumb:null,parked:true};
-  if(isVideo){
-    const v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.loop=!!P.bgLoop;v.setAttribute('playsinline','');v.setAttribute('muted','');
-    v.onloadeddata=()=>{if(it.ready)return;it.ready=true;bglThumb(it);bglUI();bglSync(true);};
-    v.onerror=()=>{setHint('Fon videoni o‘qib bo‘lmadi (format): '+f.name);bglRemove(it.id);};
-    v.src=url;v.load();it.el=v;
-  }else{
-    const im=new Image();im.onload=()=>{it.ready=true;bglThumb(it);bglUI();};im.onerror=()=>{setHint('Rasmni o‘qib bo‘lmadi: '+f.name);bglRemove(it.id);};im.src=url;it.el=im;
-  }
+  const it={id:++BGL.uid,url:URL.createObjectURL(f),name:f.name,isVideo:f.type.startsWith('video/')||BGL_VRE.test(f.name),el:null,ready:false,dead:false,thumb:null,parked:true,dur:0,_res:null};
+  BGL.q=BGL.q.then(()=>bglProbe(it));   // eskiz + davomiylik — bittadan, navbat bilan
   return it;
+}
+function bglCreateEl(it){
+  if(it.el||it.dead)return it.el;
+  if(it.isVideo){
+    const v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.loop=!!P.bgLoop;v.setAttribute('playsinline','');v.setAttribute('muted','');
+    v.addEventListener('loadeddata',()=>{if(it.el!==v)return;bglGotReady(it);bglSync(true);});
+    v.addEventListener('error',()=>{if(it.el===v)bglFailed(it);});
+    it.el=v;it.parked=true;v.src=it.url;v.load();
+  }else{
+    const im=new Image();im.decoding='async';im.onload=()=>{if(it.el===im)bglGotReady(it);};im.onerror=()=>{if(it.el===im)bglFailed(it);};it.el=im;im.src=it.url;
+  }
+  return it.el;
+}
+function bglUnloadEl(it){
+  const e=it.el;if(!e)return;it.el=null;it.parked=true;
+  if(it.isVideo){try{e.pause();e.removeAttribute('src');e.load();}catch(_){}}else{e.onload=e.onerror=null;try{e.removeAttribute('src');}catch(_){}}
+}
+function bglGotReady(it){
+  if(it.isVideo&&it.el&&isFinite(it.el.duration))it.dur=it.el.duration;
+  if(it.ready)return;it.ready=true;bglThumb(it);bglCardUpd(it);
+  if(it._res){const r=it._res;it._res=null;r();}
+}
+function bglFailed(it){
+  if(it.ready)return;setHint((it.isVideo?'Fon videoni':'Rasmni')+' o‘qib bo‘lmadi (format): '+it.name);
+  if(it._res){const r=it._res;it._res=null;r();}bglRemove(it.id);
+}
+function bglProbe(it){
+  return new Promise(res=>{
+    if(it.dead||it.ready){res();return;}
+    it._res=res;const e=bglCreateEl(it);
+    if(e&&(it.isVideo?e.readyState>=2:(e.complete&&e.naturalWidth>0)))bglGotReady(it);
+    setTimeout(()=>{if(it._res===res){it._res=null;res();}},20000);   // juda katta fayl navbatni to'xtatib qo'ymasin
+  }).then(()=>{bglWindow();});
+}
+/* qaysi fayllar yuklanib tursin: hozirgi, oldingi (o'tish paytida) va keyingi 2 tasi */
+function bglWindow(){
+  const n=BGL.items.length;if(!n)return;const pos=bglPos();if(!pos)return;
+  let nv=0;BGL.items.forEach(x=>{if(x.isVideo)nv++;});const ni=n-nv;
+  const keep=new Set([pos.i,(pos.i+1)%n,(pos.i+2)%n]);if(pos.prev>=0&&pos.p<1)keep.add(pos.prev);
+  const ld=BGL.lastDrawn?BGL.items.indexOf(BGL.lastDrawn):-1;if(ld>=0)keep.add(ld);   // zaxira kadr ham bo'shatilmasin
+  BGL.items.forEach((it,k)=>{
+    if(it.dead)return;
+    const need=keep.has(k)||(it.isVideo?nv<=BGL_KEEP_V:ni<=BGL_KEEP_I);
+    if(need){if(!it.el)bglCreateEl(it);}
+    else if(it.el&&it.ready&&!it._res)bglUnloadEl(it);
+  });
 }
 function bglThumb(it){try{const c=document.createElement('canvas');c.width=128;c.height=72;const x=c.getContext('2d'),w=it.isVideo?it.el.videoWidth:it.el.naturalWidth,h=it.isVideo?it.el.videoHeight:it.el.naturalHeight;if(!w||!h)return;
   const s=Math.max(128/w,72/h);x.drawImage(it.el,(128-w*s)/2,(72-h*s)/2,w*s,h*s);it.thumb=c.toDataURL('image/jpeg',.7);}catch(e){}}
-function bglFree(it){try{if(it.isVideo){it.el.onerror=null;it.el.pause();it.el.removeAttribute('src');it.el.load();}}catch(e){}try{URL.revokeObjectURL(it.url);}catch(e){}if(BGL.lastDrawn===it)BGL.lastDrawn=null;}
+function bglFree(it){it.dead=true;if(it._res){const r=it._res;it._res=null;r();}bglUnloadEl(it);try{URL.revokeObjectURL(it.url);}catch(e){}if(BGL.lastDrawn===it)BGL.lastDrawn=null;}
 function bglReset(){BGL.lastI=-1;BGL.beatI=0;BGL.beatPrev=-1;BGL.beatN=0;BGL.switchT=T;}
 function bglSet(files){const fs=[...files].filter(bglIsMedia);if(!fs.length)return;bglClear(true);bglAdd(fs);}
 function bglAdd(files){
   const fs=[...files].filter(bglIsMedia);if(!fs.length)return;
-  const room=BG_MAX-BGL.items.length;if(room<=0){setHint('Fonda ko‘pi bilan '+BG_MAX+' ta rasm/video bo‘ladi. Avval birortasini olib tashlang yoki tozalang.');return;}
-  const take=fs.slice(0,room);take.forEach(f=>BGL.items.push(bglMake(f)));setP('bgOn',1);bglReset();
-  setHint('Fonga '+take.length+' ta fayl qo‘shildi (jami '+BGL.items.length+' / '+BG_MAX+')'+(fs.length>room?' — '+(fs.length-room)+' tasi sig‘madi':'')+(BGL.items.length>1?'. Ular navbat bilan almashib, aylanib turadi.':'.'));
-  bglUI();
+  fs.forEach(f=>BGL.items.push(bglMake(f)));setP('bgOn',1);bglReset();
+  setHint('Fonga '+fs.length+' ta fayl qo‘shildi (jami '+BGL.items.length+' ta)'+(BGL.items.length>1?'. Ular navbat bilan almashib, aylanib turadi.':'.'));
+  bglUI();bglWindow();
 }
-function bglRemove(id){const k=BGL.items.findIndex(x=>x.id===id);if(k<0)return;bglFree(BGL.items[k]);BGL.items.splice(k,1);bglReset();bglUI();}
-function bglMove(id,d){const k=BGL.items.findIndex(x=>x.id===id),j=k+d;if(k<0||j<0||j>=BGL.items.length)return;const t=BGL.items[k];BGL.items[k]=BGL.items[j];BGL.items[j]=t;bglReset();bglUI();}
+function bglRemove(id){const k=BGL.items.findIndex(x=>x.id===id);if(k<0)return;bglFree(BGL.items[k]);BGL.items.splice(k,1);bglReset();bglUI();bglWindow();}
+function bglMove(id,d){const k=BGL.items.findIndex(x=>x.id===id),j=k+d;if(k<0||j<0||j>=BGL.items.length)return;const t=BGL.items[k];BGL.items[k]=BGL.items[j];BGL.items[j]=t;bglReset();bglUI();bglWindow();}
 function bglClear(silent){BGL.items.forEach(bglFree);BGL.items=[];bglReset();BGL.lastDrawn=null;if(!silent){bglUI();setHint('Fon ro‘yxati tozalandi.');}}
 /* eski nomlar — sahifaning boshqa joylari shularni chaqiradi */
 function loadBgFile(f){if(f)bglSet([f]);}
 function clearBg(){bglClear();}
 function bgSyncPlay(force){bglSync(!!force);}
-HOOKS.bgLoop=v=>{BGL.items.forEach(it=>{if(it.isVideo)it.el.loop=!!v;});};
+HOOKS.bgLoop=v=>{BGL.items.forEach(it=>{if(it.isVideo&&it.el)it.el.loop=!!v;});};
 HOOKS.bgSwitch=()=>{bglReset();};
 
 function bglAudioClock(){return hasFile&&!micOn;}
 function bglTime(){return bglAudioClock()?A.currentTime:T;}
-function bglDur(it){const d=it.isVideo&&it.el.duration;return(P.bgVidFull&&it.isVideo&&d&&isFinite(d))?Math.max(.5,d):Math.max(.5,+P.bgDur||6);}
+function bglDur(it){const d=it.isVideo&&it.dur;return(P.bgVidFull&&it.isVideo&&d&&isFinite(d))?Math.max(.5,d):Math.max(.5,+P.bgDur||6);}
 /* hozirgi element: {i, local, prev, prevLocal, p (o'tish 0..1)} ; local=null → video vaqtini tuzatmaslik */
 function bglPos(){
   const n=BGL.items.length;if(!n)return null;const tt=Math.max(.001,+P.bgTransT||0),none=P.bgTrans==='none'||!(+P.bgTransT>0);
@@ -2789,8 +2827,8 @@ function bglBeatTick(){
   if(++BGL.beatN>=Math.max(1,P.bgBeats|0)){BGL.beatN=0;BGL.beatPrev=BGL.beatI;BGL.beatI=(BGL.beatI+1)%n;BGL.switchT=T;}
 }
 function bglSync(force){
-  const pos=bglPos();if(!pos)return;const playing=!hasFile||micOn||(!A.paused&&!A.ended);
-  BGL.items.forEach((it,k)=>{if(!it.isVideo||!it.ready)return;const v=it.el;
+  const pos=bglPos();if(!pos)return;bglWindow();const playing=!hasFile||micOn||(!A.paused&&!A.ended);
+  BGL.items.forEach((it,k)=>{if(!it.isVideo||!it.el)return;const v=it.el;
     const active=k===pos.i||(k===pos.prev&&pos.p<1);
     if(!active){if(!v.paused)v.pause();if(!it.parked){try{v.currentTime=0;}catch(e){}it.parked=true;}if(v.playbackRate!==1)try{v.playbackRate=1;}catch(e){}return;}
     it.parked=false;const d=v.duration,tg=k===pos.i?pos.local:pos.prevLocal;
@@ -2802,14 +2840,17 @@ function bglSync(force){
 }
 async function bglExportPrep(){
   bglReset();BGL.lastDrawn=null;
-  const ws=[];BGL.items.forEach(it=>{if(it.isVideo&&it.ready){it.el.pause();try{it.el.playbackRate=1;}catch(e){}if(it.el.currentTime>0.001){ws.push(waitEv(it.el,'seeked',2000));try{it.el.currentTime=0;}catch(e){}}it.parked=true;}});
-  await Promise.all(ws);
+  const ws=[];BGL.items.forEach(it=>{if(it.isVideo&&it.el&&it.el.readyState>=1){const v=it.el;v.pause();try{v.playbackRate=1;}catch(e){}if(v.currentTime>0.001){ws.push(waitEv(v,'seeked',2000));try{v.currentTime=0;}catch(e){}}it.parked=true;}});
+  await Promise.all(ws);bglWindow();
+  /* birinchi fayllar eksport boshlanishidan oldin tayyor bo'lsin */
+  const first=BGL.items.slice(0,3).filter(it=>it.el&&!(it.isVideo?it.el.readyState>=2:(it.el.complete&&it.el.naturalWidth>0)));
+  await Promise.all(first.map(it=>new Promise(r=>{const e=it.el;const done=()=>r();e.addEventListener(it.isVideo?'loadeddata':'load',done,{once:true});e.addEventListener('error',done,{once:true});setTimeout(done,3000);})));
 }
 /* chizish uchun qatlamlar: [{it,a,tx,ts,clip}] (pastdagisi birinchi), L.flash = oq chaqnash */
-function bglOk(it){return!!it&&it.ready&&(it.isVideo?it.el.readyState>=2:true);}
+function bglOk(it){const e=it&&it.el;return!!e&&it.ready&&(it.isVideo?e.readyState>=2:(e.complete&&e.naturalWidth>0));}
 function bglLayers(){
   const pos=bglPos();if(!pos)return[];const cur=BGL.items[pos.i];
-  if(pos.i!==BGL.lastI){BGL.lastI=pos.i;bglSync(true);bglMarkUI();}
+  if(pos.i!==BGL.lastI){BGL.lastI=pos.i;bglSync(true);bglMarkUI(true);}
   const L=[];const prev=pos.prev>=0?BGL.items[pos.prev]:null,p=pos.p,e=p*p*(3-2*p);
   if(p<1&&bglOk(prev)&&prev!==cur){
     const tr=P.bgTrans,norm=P.bgBlend==='source-over',okc=bglOk(cur);
@@ -2820,49 +2861,54 @@ function bglLayers(){
     else{L.push({it:prev,a:norm?1:1-e,tx:0,ts:1});if(okc)L.push({it:cur,a:e,tx:0,ts:1});}
   }else if(bglOk(cur))L.push({it:cur,a:1,tx:0,ts:1});
   else if(bglOk(prev))L.push({it:prev,a:1,tx:0,ts:1});
-  else if(bglOk(BGL.lastDrawn))L.push({it:BGL.lastDrawn,a:1,tx:0,ts:1});   // video hali tayyor bo'lmasa — qora chaqnamasin
+  else if(bglOk(BGL.lastDrawn))L.push({it:BGL.lastDrawn,a:1,tx:0,ts:1});   // keyingisi hali yuklanmagan bo'lsa — qora chaqnamasin
   if(L.length)BGL.lastDrawn=L[L.length-1].it;
   return L;
 }
 /* ---------------- UI ---------------- */
 let bglUIel=null,bglStat=null;
-function bglMarkUI(){
-  if(!bglUIel)return;const pos=bglPos(),cur=pos&&BGL.items[pos.i];
-  bglUIel.querySelectorAll('.bgli[data-id]').forEach(d=>d.classList.toggle('on',!!cur&&+d.dataset.id===cur.id));
+function bglMarkUI(scroll){
+  if(!bglUIel)return;const pos=bglPos(),cur=pos&&BGL.items[pos.i],box=bglUIel;let on=null;
+  box.querySelectorAll('.bgli[data-id]').forEach(d=>{const f=!!cur&&+d.dataset.id===cur.id;d.classList.toggle('on',f);if(f)on=d;});
+  if(scroll&&on&&box.scrollHeight>box.clientHeight+4&&!box.matches(':hover')){const t=on.offsetTop,h=on.offsetHeight;if(t<box.scrollTop||t+h>box.scrollTop+box.clientHeight)box.scrollTop=Math.max(0,t-(box.clientHeight-h)/2);}
   if(bglStat){const n=BGL.items.length;
-    if(!n)bglStat.textContent='Ro‘yxat bo‘sh — 10 tagacha rasm/video tanlang yoki sahnaga tashlang.';
+    if(!n)bglStat.textContent='Ro‘yxat bo‘sh — istalgancha rasm/video tanlang yoki sahnaga tashlang.';
     else if(n===1)bglStat.textContent='1 ta fayl — almashish uchun yana qo‘shing.';
     else if(P.bgSwitch==='beat')bglStat.textContent='Hozir: '+(pos.i+1)+' / '+n+' · har '+Math.max(1,P.bgBeats|0)+' zarbada almashadi ('+BGL.beatN+' / '+Math.max(1,P.bgBeats|0)+')';
     else{let t=bglTime(),tot=0,acc=0;BGL.items.forEach(x=>tot+=bglDur(x));t=((t%tot)+tot)%tot;for(let i=0;i<=pos.i;i++)acc+=bglDur(BGL.items[i]);const left=acc-t;
       bglStat.textContent='Hozir: '+(pos.i+1)+' / '+n+' · keyingisigacha '+Math.max(0,left).toFixed(1)+' s · oxiridan keyin 1-ga qaytadi';}
   }
 }
+function bglCardUpd(it){
+  if(!bglUIel)return;const c=bglUIel.querySelector('.bgli[data-id="'+it.id+'"]');if(!c)return;
+  c.classList.toggle('wait',!it.ready);const th=c.querySelector('.bglt');if(it.thumb){th.style.backgroundImage='url('+it.thumb+')';th.textContent='';}
+}
 function bglUI(){
-  if(!bglUIel)return;const box=bglUIel;box.innerHTML='';
+  if(!bglUIel)return;const box=bglUIel,st=box.scrollTop;box.innerHTML='';const n=BGL.items.length;
   BGL.items.forEach((it,k)=>{
     const card=el('div',{class:'bgli'+(it.ready?'':' wait'),'data-id':String(it.id),title:(k+1)+'. '+it.name},[
       el('div',{class:'bglt',text:it.thumb?'':(it.isVideo?'🎞':'🖼')}),
       el('span',{class:'bgln',text:String(k+1)}),
       el('span',{class:'bglk',text:it.isVideo?'▶':''}),
       el('button',{class:'bglx',title:'Olib tashlash',text:'✕',onclick:e=>{e.stopPropagation();bglRemove(it.id);}}),
-      el('div',{class:'bgla'},[el('button',{title:'Oldinga surish',text:'◀',disabled:k===0,onclick:e=>{e.stopPropagation();bglMove(it.id,-1);}}),el('button',{title:'Orqaga surish',text:'▶',disabled:k===BGL.items.length-1,onclick:e=>{e.stopPropagation();bglMove(it.id,1);}})])]);
+      el('div',{class:'bgla'},[el('button',{title:'Oldinga surish',text:'◀',disabled:k===0,onclick:e=>{e.stopPropagation();bglMove(it.id,-1);}}),el('button',{title:'Orqaga surish',text:'▶',disabled:k===n-1,onclick:e=>{e.stopPropagation();bglMove(it.id,1);}})])]);
     if(it.thumb)card.firstChild.style.backgroundImage='url('+it.thumb+')';
     box.appendChild(card);});
-  for(let k=BGL.items.length;k<BG_MAX;k++)box.appendChild(el('div',{class:'bgli empty',title:'Qo‘shish',onclick:()=>box._add&&box._add.click()},[el('div',{class:'bglt',text:'+'}),el('span',{class:'bgln',text:String(k+1)})]));
-  if(box._cnt)box._cnt.textContent=BGL.items.length+' / '+BG_MAX;
-  bglMarkUI();
+  box.appendChild(el('div',{class:'bgli empty',title:'Qo‘shish',onclick:()=>box._add&&box._add.click()},[el('div',{class:'bglt',text:'+'})]));
+  if(box._cnt)box._cnt.textContent=n+' ta';
+  box.scrollTop=st;bglMarkUI();
 }
 function bglPanel(){
   const acc='image/*,video/*,.mp4,.webm,.mov,.m4v,.mkv';
   const inSet=el('input',{type:'file',accept:acc,multiple:true,hidden:true}),inAdd=el('input',{type:'file',accept:acc,multiple:true,hidden:true});
   inSet.addEventListener('change',()=>{if(inSet.files.length)bglSet(inSet.files);inSet.value='';});
   inAdd.addEventListener('change',()=>{if(inAdd.files.length)bglAdd(inAdd.files);inAdd.value='';});
-  const cnt=el('b',{class:'bglc',text:'0 / '+BG_MAX});
+  const cnt=el('b',{class:'bglc',text:'0 ta'});
   const grid=el('div',{class:'bglg'});grid._add=inAdd;grid._cnt=cnt;bglUIel=grid;
   bglStat=el('div',{class:'bgls'});
   const wrap=el('div',{class:'row w bglw'},[
-    el('div',{class:'lab'},[el('span',{text:'Fayllar (rasm + video, 10 tagacha)'}),cnt]),
-    el('div',{class:'filebox'},[el('button',{class:'btn sm',text:'📂 TANLASH (10 tagacha)',title:'Bir nechta faylni birdan tanlang (Ctrl / Shift bilan). Eski ro‘yxat almashtiriladi.',onclick:()=>inSet.click()}),
+    el('div',{class:'lab'},[el('span',{text:'Fayllar (rasm + video, cheksiz)'}),cnt]),
+    el('div',{class:'filebox'},[el('button',{class:'btn sm',text:'📂 TANLASH (bir nechta)',title:'Istalgancha faylni birdan tanlang (Ctrl+A, Ctrl yoki Shift bilan). Eski ro‘yxat almashtiriladi.',onclick:()=>inSet.click()}),
       el('button',{class:'btn sm',text:'+ QO‘SHISH',title:'Ro‘yxat oxiriga qo‘shish',onclick:()=>inAdd.click()}),
       el('button',{class:'btn sm ghost',text:'✕ TOZALASH',title:'Hammasini olib tashlash',onclick:()=>clearBg()})]),
     grid,bglStat,inSet,inAdd]);
@@ -3791,7 +3837,7 @@ addTab('bg','FON',pane=>{
     {k:'bgX',l:'Gorizontal',min:0,max:100,f:NF.pct},{k:'bgY',l:'Vertikal',min:0,max:100,f:NF.pct},
     {k:'bgKen',l:'Ken Burns (sekin siljish)',min:0,max:100,f:NF.pct},{k:'bgPulse',l:'Bass → yorqinlik',min:0,max:100,f:NF.pct},
     {k:'bgAZoom',l:'Bass → zoom',min:0,max:50,f:NF.pct}]));
-  pane.appendChild(el('p',{class:'note',html:'Fonga <b>10 tagacha</b> rasm va video qo‘yish mumkin — ular navbat bilan almashib, oxiridan keyin yana 1-dan boshlab aylanib turadi. Bir nechta faylni birdan tanlang (Ctrl / Shift) yoki sahnaga <b>tashlang</b>. ◀ ▶ bilan tartibini o‘zgartiring. <b>Vaqt bo‘yicha</b> rejimda almashish qo‘shiq vaqtiga bog‘langan — eksportda ham xuddi shunday chiqadi. <b>Video oxirigacha o‘ynasin</b> yoqilsa, video o‘z uzunligicha turadi.'}));
+  pane.appendChild(el('p',{class:'note',html:'Fonga <b>istalgancha</b> rasm va video qo‘yish mumkin (cheklov yo‘q) — ular navbat bilan almashib, oxiridan keyin yana 1-dan boshlab aylanib turadi. Ko‘p faylni birdan tanlang (Ctrl+A, Ctrl / Shift) yoki sahnaga <b>tashlang</b>. Xotirani tejash uchun bir vaqtda faqat hozirgi va keyingi 2 tasi yuklanib turadi. ◀ ▶ bilan tartibini o‘zgartiring. <b>Vaqt bo‘yicha</b> rejimda almashish qo‘shiq vaqtiga bog‘langan — eksportda ham xuddi shunday chiqadi. <b>Video oxirigacha o‘ynasin</b> yoqilsa, video o‘z uzunligicha turadi.'}));
 });
 addTab('particles','ZARRACHA',pane=>{
   pane.appendChild(group('ZARRACHALAR',[
@@ -4560,7 +4606,7 @@ function handleFiles(files){
     else if(/\.(ttf|otf|woff2?)$/.test(n))loadCustomFont(f);
     else if(/\.json$/.test(n)){const r=new FileReader();r.onload=()=>{try{applyProject(JSON.parse(String(r.result)));}catch(e){}};r.readAsText(f);}
   });
-  if(media.length)bglAdd(media);   // sahnaga tashlangan rasm/videolar fon ro'yxatiga qo'shiladi (10 tagacha)
+  if(media.length)bglAdd(media);   // sahnaga tashlangan rasm/videolar fon ro'yxatiga qo'shiladi (cheksiz)
 }
 let dragN=0;
 ['dragenter','dragover'].forEach(ev=>addEventListener(ev,e=>{if(e.dataTransfer&&[...e.dataTransfer.types].includes('Files')){e.preventDefault();stage.classList.add('drag');}}));
