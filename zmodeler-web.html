@@ -2143,7 +2143,7 @@ function init(){
   VIEWS.forEach(v=>{v.resize();});
   log('ZModeler Web tayyor. Asboblar: o‘ngdagi Commands Bar, yuqoridagi toolbarlar. Primitiv yaratish: Primitives panelidan tanlab, viewportda sudrang.');
   log('Tezkor tugmalar: 1-4 — daraja, Del — o‘chirish, W — weld, Alt+M — Move, Z — maximize, F1 — About.');
-  if(!window.__ZMW_NODEMO){demoScene();}
+  if(!window.__ZMW_NODEMO&&!/bamper/.test(location.hash)){demoScene();}
   VIEWS.forEach(v=>{if(v.persp){v.dist=11;}else v.zoom=62;});
   redraw();refreshUI();
 }
@@ -3407,10 +3407,50 @@ function import3DS(bytes,name){
   return out;
 }
 
-window.ZMW={S,V,newObject,addObject,createPrimitive,undo,redo,opDelete,opExtrude,opWeld,opFlip,opDetach,opAttach,opMirror,opCleanup,opInsert,opBreak,opConnect,opSelectAll,opSelectNone,opNormalsCalc,setLevel,setTool,buildDffBytes,importDFF,toOBJ,parseOBJ,toSTL,sceneJSON,loadScene,fitAll,edgesOf,selectionCount,VIEWS,POOL,pickObject,regionSelect,clickSelect,exactTransform,opAlign,opPaint,opCopy,objectVolume,opHide,opShowAll,selTargets,undoPush,GLR,glInit,renderViewport,opRevolve,opLoft,opFFD,opKnife,opBind,opBonesWeight,applyMapping,uvOf,uvMap,openUVMapper,splinePoly,newSpline,to3DS,import3DS,parse3DS,materialsEditor,texturesBrowser,propertiesDialog,settingsDialog,viewportMenu,contextMenu,XT,MT,cornerNormals,CMD,OPTDEF,EXT_CREATE,opPrelit,opSmoothOpts,opNormalsProj,convertTriangles,convertQuad,opSaturation,opLightness,opPaintColor,setActiveMode,findTexture,refreshDock,opCopyOpts,selectByExt,opResetToParent,linkSelectedToActive,opCleanup,uvDisplay,uvPick,sceneJSON,loadScene,buildDffBytes,importDFF,parseOBJ,toOBJ,fileExport,fileImport,menuDef,HOT};
+window.ZMW={S,redraw,refreshUI,afterLoad,log,V,newObject,addObject,createPrimitive,undo,redo,opDelete,opExtrude,opWeld,opFlip,opDetach,opAttach,opMirror,opCleanup,opInsert,opBreak,opConnect,opSelectAll,opSelectNone,opNormalsCalc,setLevel,setTool,buildDffBytes,importDFF,toOBJ,parseOBJ,toSTL,sceneJSON,loadScene,fitAll,edgesOf,selectionCount,VIEWS,POOL,pickObject,regionSelect,clickSelect,exactTransform,opAlign,opPaint,opCopy,objectVolume,opHide,opShowAll,selTargets,undoPush,GLR,glInit,renderViewport,opRevolve,opLoft,opFFD,opKnife,opBind,opBonesWeight,applyMapping,uvOf,uvMap,openUVMapper,splinePoly,newSpline,to3DS,import3DS,parse3DS,materialsEditor,texturesBrowser,propertiesDialog,settingsDialog,viewportMenu,contextMenu,XT,MT,cornerNormals,CMD,OPTDEF,EXT_CREATE,opPrelit,opSmoothOpts,opNormalsProj,convertTriangles,convertQuad,opSaturation,opLightness,opPaintColor,setActiveMode,findTexture,refreshDock,opCopyOpts,selectByExt,opResetToParent,linkSelectedToActive,opCleanup,uvDisplay,uvPick,sceneJSON,loadScene,buildDffBytes,importDFF,parseOBJ,toOBJ,fileExport,fileImport,menuDef,HOT};
 document.addEventListener('DOMContentLoaded',init);
 
 
+})();
+</script>
+<script>
+/* ===== Bamper almashtirish sahifasi bilan bog'lanish: sahifa ichida ochilganda (#bamper) bamperni qabul qilib, tahrirdan keyin qaytaradi ===== */
+(function(){
+'use strict';
+if(!/bamper/.test(location.hash))return;
+let src=null,editable=[],ready=false;
+document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>{ready=true;},60));
+const css=document.createElement('style');
+css.textContent='#bmpbar{position:fixed;left:50%;top:6px;transform:translateX(-50%);z-index:9000;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:96vw;background:#0d1626;border:1px solid #1fd6f5;border-radius:10px;padding:6px 10px;font:600 12.5px Inter,system-ui,sans-serif;color:#e6eefc;box-shadow:0 8px 30px rgba(0,0,0,.55)}#bmpbar span{opacity:.9}#bmpbar button{font:inherit;border-radius:7px;padding:6px 11px;cursor:pointer;border:1px solid #2a3a55;background:#14223a;color:#e6eefc}#bmpbar button.ok{background:linear-gradient(90deg,#1fd6f5,#8b6cff);color:#06101e;border:0}';
+document.head.appendChild(css);
+function send(){
+  const Z=window.ZMW,objs=Z.S.objects.filter(o=>editable.includes(o.name)&&o.type==='mesh');
+  if(!objs.length){alert('Bamper obyekti topilmadi — nomi o\'zgargan yoki o\'chirilgan bo\'lishi mumkin. Kerakli nom: '+editable.join(', '));return;}
+  const empty=objs.filter(o=>!o.p.length);if(empty.length){alert(empty.map(o=>o.name).join(', ')+' — bo\'sh (poligon yo\'q).');return;}
+  src.postMessage({type:'itshakh-zmw-result',objects:objs.map(o=>({name:o.name,v:o.v,p:o.p,smooth:!!o.smooth})),mats:Z.S.mats},'*');
+  Z.log('Bamper sahifasiga qaytarildi: '+objs.map(o=>o.name+' ('+o.p.length+' poligon)').join(', '));
+}
+function bar(){
+  let b=document.getElementById('bmpbar');if(!b){b=document.createElement('div');b.id='bmpbar';document.body.appendChild(b);}
+  b.replaceChildren();const t=document.createElement('span');t.textContent='Bamper sahifasidan: '+editable.join(', ')+' — tahrirlang (qolgan qismlar muzlatilgan).';
+  const ok=document.createElement('button');ok.className='ok';ok.type='button';ok.textContent='✔ Bamper sahifasiga qaytarish';ok.onclick=send;
+  const no=document.createElement('button');no.type='button';no.textContent='✕ Bekor qilish';no.onclick=()=>src&&src.postMessage({type:'itshakh-zmw-cancel'},'*');
+  b.append(t,ok,no);
+}
+window.addEventListener('message',e=>{
+  const d=e.data;if(!d||typeof d!=='object')return;
+  if(d.type==='itshakh-zmw-ping'){if(ready&&window.ZMW)e.source.postMessage({type:'itshakh-zmw-boot'},'*');return;}
+  if(d.type!=='itshakh-zmw-load'||!window.ZMW)return;
+  const Z=window.ZMW;src=e.source;editable=d.editable||[];
+  try{
+    Z.loadScene(d.scene,false);Z.S.fileName=d.fileName||'bamper';
+    Z.afterLoad('Bamper sahifasidan yuklandi: '+editable.join(', ')+' tahrirlanadi. Qolgan qismlar muzlatilgan (Freeze) — faqat ko\'rish uchun.');
+    Z.S.objects.forEach(o=>{o.sel=editable.includes(o.name);});const a=Z.S.objects.find(o=>editable.includes(o.name));if(a)Z.S.active=a.id;
+    Z.fitAll();Z.refreshUI();Z.redraw();bar();
+    Z.log('Tayyor bo\'lgach yuqoridagi «✔ Bamper sahifasiga qaytarish» tugmasini bosing (File→Export emas — u mashina tuzilishini saqlamaydi).');
+    e.source.postMessage({type:'itshakh-zmw-loaded',objects:Z.S.objects.length},'*');
+  }catch(err){alert('Yuklab bo\'lmadi: '+err.message);e.source.postMessage({type:'itshakh-zmw-error',message:err.message},'*');}
+});
 })();
 </script>
 <!-- IT-SHAKH-SITELOCK -->
