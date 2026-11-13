@@ -41,6 +41,20 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--face);color:var(
 .vp canvas{position:absolute;left:0;top:0;display:block}
 .vp-title{position:absolute;left:5px;top:3px;color:#e8e8e8;font:bold 11px Tahoma,sans-serif;cursor:pointer;padding:1px 4px;background:rgba(0,0,0,.25);border-radius:2px}
 .vp-title:hover{background:rgba(80,120,200,.6)}
+.v3bar{position:absolute;top:3px;right:4px;left:auto;max-width:calc(100% - 150px);display:flex;flex-wrap:wrap;justify-content:flex-end;gap:3px;align-items:center;z-index:3;font:11px Tahoma,sans-serif}
+.v3bar button{font:bold 11px Tahoma,sans-serif;color:#eef;background:rgba(20,28,40,.72);border:1px solid rgba(255,255,255,.22);border-radius:3px;padding:2px 7px;cursor:pointer;line-height:15px}
+.v3bar button:hover{background:rgba(70,110,180,.85)}
+.v3bar button.on{background:#3d6fb8;border-color:#9cc3ff;color:#fff}
+.v3bar input[type=color]{width:24px;height:20px;padding:0 1px;border:1px solid rgba(255,255,255,.3);background:rgba(20,28,40,.7);cursor:pointer;border-radius:3px}
+.v3bar .v3sep{width:1px;height:16px;background:rgba(255,255,255,.25);margin:0 2px}
+.v3bar .v3tx{color:#cfe;background:rgba(10,40,25,.65);border-radius:3px;padding:2px 6px;font-weight:bold}
+.v3bar .v3tx.bad{color:#ffd9a0;background:rgba(70,30,0,.7)}
+.v3hint{position:absolute;right:6px;bottom:4px;color:rgba(255,255,255,.55);font:10px Tahoma,sans-serif;pointer-events:none;text-align:right;max-width:70%}
+.thumbs div.miss{background:#fff3f3;display:flex;flex-direction:column;justify-content:center;min-height:70px}
+.thumbs div.miss i{color:#b00;font-style:normal;font-weight:bold;font-size:12px}
+#zmwdrop{position:fixed;inset:0;z-index:9500;background:rgba(10,30,60,.55);display:none;align-items:center;justify-content:center;pointer-events:none}
+#zmwdrop div{background:#f0f0f0;border:2px dashed #3d6fb8;padding:22px 28px;font:bold 14px Tahoma,sans-serif;color:#123;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+#zmwdrop small{display:block;font-weight:normal;font-size:12px;margin-top:6px;color:#345}
 .vpmenu{position:fixed;z-index:200;background:var(--face);border:1px solid #444;box-shadow:2px 2px 4px rgba(0,0,0,.45);padding:2px 0}
 /* commands bar */
 #cmdbar{background:var(--face);border-left:1px solid var(--dark);display:flex;flex-direction:column;min-height:0}
@@ -758,11 +772,12 @@ function drawLatticeObj(c,vp,B,o,col){
 }
 function renderViewport(vp){
   vp.resize();
-  {const tt=(VTYPES[vp.type]||vp.type)+(vp.type==='uv'?'':'  ·  '+(MODE_NAMES[vp.mode||'wire']||''));if(vp._tt!==tt){vp.title.textContent=tt;vp._tt=tt;}}
+  {const tt=(vp.v3d?'3D rejim':(VTYPES[vp.type]||vp.type))+(vp.type==='uv'?'':'  ·  '+(MODE_NAMES[vp.mode||'wire']||''));if(vp._tt!==tt){vp.title.textContent=tt;vp._tt=tt;}}
   const c=vp.ctx,W=vp.W,H=vp.H;
   c.setTransform(vp.dpr,0,0,vp.dpr,0,0);
   const bgc=vp.opts.bg||S.cfg.bg;
-  c.fillStyle=bgc;c.fillRect(0,0,W,H);
+  if(vp.v3d&&!vp.opts.bg){const g=c.createLinearGradient(0,0,0,H);g.addColorStop(0,'#64748a');g.addColorStop(.6,'#2c323c');g.addColorStop(1,'#16191e');c.fillStyle=g;}else c.fillStyle=bgc;
+  c.fillRect(0,0,W,H);
   if(vp.type==='uv'){renderUV(vp);if(vp===activeView){c.strokeStyle='#e0d060';c.lineWidth=2;c.strokeRect(1,1,W-2,H-2);}return;}
   const B=vp.basis();
   drawBgImage(vp,B);
@@ -801,6 +816,7 @@ function renderViewport(vp){
         c.strokeStyle='#5ad';c.beginPath();
         o.p.forEach(pl=>{const ce=polyCenter(o,pl),n=polyNormal(o,pl),a=vp.project(ce,B),b=vp.project(V.add(ce,V.mul(n,S.cfg.normLen)),B);if(a&&b){c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);}});c.stroke();}
     }else{
+      if(vp.v3d&&!vp.opts.v3help&&!o.sel)return; // 3D rejimda dummy/yordamchi belgilar yashiriladi
       const col=o.disabled?WIRE.dis:o.sel?(o.id===S.active?'#ff7070':WIRE.sel):(OBJ_COL[o.type]||WIRE.def);
       if(o.type==='spline')drawSplineObj(c,vp,B,o,col,sub&&o.sel);
       else if(o.type==='lattice')drawLatticeObj(c,vp,B,o,col);
@@ -1387,6 +1403,8 @@ function bindVP(vp){
     D={vp,btn:e.button,x0:mx,y0:my,x:mx,y:my,moved:false,shift:e.shiftKey,ctrl:e.ctrlKey,alt:e.altKey,mode:null};
     if(vp.type==='uv'&&uvDown(vp,e,mx,my)){e.preventDefault();return;}
     const t=S.tool;
+    if(vp.v3d&&(e.button===0&&!e.altKey&&(t==='select'||t==='quadr'||t==='circle'||t==='polyline'||t==='separated')||e.button===2)){
+      v3Spin(vp,false);D.mode=e.button===2?'pan':'orbit3d';D.t0=vp.target.slice();D.yaw0=vp.yaw;D.pitch0=vp.pitch;e.preventDefault();return;}
     if(e.button===1||(e.button===0&&t==='pan')){D.mode='pan';D.t0=vp.target.slice();}
     else if(e.button===2){D.mode=vp.persp?'orbit':'pan';D.t0=vp.target.slice();D.yaw0=vp.yaw;D.pitch0=vp.pitch;}
     else if(e.button===0&&e.altKey&&vp.persp){D.mode='orbit';D.t0=vp.target.slice();D.yaw0=vp.yaw;D.pitch0=vp.pitch;}
@@ -1401,7 +1419,9 @@ function bindVP(vp){
   vp.el.addEventListener('wheel',e=>{
     e.preventDefault();const [mx,my]=localPos(vp,e);const f=e.deltaY<0?1.15:1/1.15;zoomAt(vp,mx,my,f);activateView(vp);
   },{passive:false});
-  vp.el.addEventListener('dblclick',e=>{if(S.tool==='polyline'||S.tool.startsWith('poly:'))return;});
+  vp.el.addEventListener('dblclick',e=>{if(S.tool==='polyline'||S.tool.startsWith('poly:'))return;
+    if(vp.v3d){const [mx,my]=localPos(vp,e),o=pickObject(vp,mx,my);v3Frame(vp,o&&o.v.length?[[o,null]]:null);}});
+  v3Touch(vp);
 }
 window.addEventListener('mousemove',e=>{if(D)dragMove(e);});
 window.addEventListener('mouseup',e=>{if(D)dragEnd(e);});
@@ -1457,7 +1477,7 @@ function dragMove(e){
   if(D.mode==='pan'){
     const B=vp.basis(),k=vp.unitsPerPx(vp.target,B);
     vp.target=V.add(D.t0,V.add(V.mul(B.r,-dx*k),V.mul(B.u,dy*k)));redraw();
-  }else if(D.mode==='orbit'){
+  }else if(D.mode==='orbit'||(D.mode==='orbit3d'&&D.moved)){
     vp.yaw=D.yaw0-dx*.01;vp.pitch=clamp(D.pitch0+dy*.01,-1.5,1.5);redraw();
   }else if(D.mode==='select'&&D.moved){
     vp.rubber=D.shape==='circle'?{kind:'circle',x0:D.x0,y0:D.y0,x1:mx,y1:my}:{kind:'rect',x0:D.x0,y0:D.y0,x1:mx,y1:my};redraw();
@@ -1504,6 +1524,7 @@ function dragEnd(e){
   if(d.btn!==0){redraw();
     if(d.btn===2&&!d.moved){if(S.tool==='polyline'&&vp.rubber)finishPolySelect(vp);else if(vp.rubber&&vp.rubber.kind==='polycreate')finishPolyCreate(vp);else contextMenu(vp,e.clientX,e.clientY);}
     return;}
+  if(d.mode==='orbit3d'){if(!d.moved){clickSelect(vp,mx,my,d.shift,d.ctrl);refreshUI();}redraw();return;}
   if(d.mode==='xform'){
     if(!d.moved){UNDO.pop();}  // nothing changed
     else{modified=true;}
@@ -1768,7 +1789,7 @@ function buildToolbars(){
     tbtn('snapV','Toggle snap to vertices',()=>{S.snap.vert=!S.snap.vert;refreshUI();},{key:'sn:vert'}),tbtn('snapG','Toggle snap to grid',()=>{S.snap.grid=!S.snap.grid;refreshUI();},{key:'sn:grid'})]);
   grp('shade','Viewport shading (faol viewport)',[
     tbtn('wire','Wireframe',()=>setActiveMode('wire'),{key:'mode:wire'}),tbtn('solid','Solid',()=>setActiveMode('solid'),{key:'mode:solid'}),tbtn('solidwire','Solid + Wire',()=>setActiveMode('solidwire'),{key:'mode:solidwire'}),
-    tbtn('tex','Textured',()=>setActiveMode('tex'),{key:'mode:tex'}),tbtn('texwire','Textured + Wire',()=>setActiveMode('texwire'),{key:'mode:texwire'}),'|',tbtn('uv','UV Mapper (Edit UV)',()=>openUVMapper())]);
+    tbtn('tex','Textured',()=>setActiveMode('tex'),{key:'mode:tex'}),tbtn('texwire','Textured + Wire',()=>setActiveMode('texwire'),{key:'mode:texwire'}),'|',tbtn('','3D rejim (F3) — faol oynani to‘liq 3D ko‘rinishga o‘tkazish',()=>toggle3D(activeView),{text:'3D',key:'v3d'}),tbtn('','Import TXD (Shift+T) — teksturalarni yuklash',()=>fileImportTXD(),{text:'TXD'}),'|',tbtn('uv','UV Mapper (Edit UV)',()=>openUVMapper())]);
   grp('skel','Skeleton',[tbtn('prev','Previous bone',()=>boneStep(-1)),tbtn('next','Next bone',()=>boneStep(1)),tbtn('bone','Bone (Create › Skeleton › Bone)',()=>{curCmdName='Bone';setTool('create:bone');renderCmdOpts();},{key:'tool:create:bone'}),'|',
     tbtn('bind','Bind soft-skin mesh',()=>opBind()),tbtn('unbind','Unbind soft-skin',()=>opUnbind()),tbtn('weights','Show bone weights',()=>{S.weightView=S.weightView?null:(objById(S.active)&&objById(S.active).type==='bone'?XT(objById(S.active)).bid:(bonesAll()[0]?XT(bonesAll()[0]).bid:null));redraw();refreshUI();},{key:'wv'})]);
 }
@@ -1782,6 +1803,7 @@ function refreshUI(){
     else if(k.startsWith('sn:'))on=S.snap[k.slice(3)];
     else if(k.startsWith('mode:'))on=!!activeView&&activeView.mode===k.slice(5);
     else if(k==='wv')on=!!S.weightView;
+    else if(k==='v3d')on=!!activeView&&!!activeView.v3d;
     b.classList.toggle('on',!!on);
   });
   syncCmdBar();
@@ -1797,7 +1819,7 @@ const hkLabel={};
 function menuDef(){return[
  {t:'&File',items:[
   {t:'&New',k:'Ctrl+N',fn:()=>fileNew()},{t:'&Open...',k:'Ctrl+O',fn:()=>fileOpen()},{t:'&Save',k:'Ctrl+S',fn:()=>fileSave()},{t:'Save &As...',fn:()=>fileSave(true)},{t:'&Merge...',fn:()=>fileMerge()},'-',
-  {t:'&Import...',k:'Ctrl+I',fn:()=>fileImport()},{t:'&Export...',k:'Ctrl+E',fn:()=>fileExport()},'-',
+  {t:'&Import...',k:'Ctrl+I',fn:()=>fileImport()},{t:'Import &TXD (teksturalar)...',k:'Shift+T',fn:()=>fileImportTXD()},{t:'&Export...',k:'Ctrl+E',fn:()=>fileExport()},'-',
   {t:'Restore Autosave',fn:()=>restoreAutosave()},{t:'&Recent File',dis:true},'-',{t:'E&xit',k:'Alt+X',fn:()=>exitApp()}]},
  {t:'&Options',items:[{t:'&Settings...',k:'F11',fn:()=>settingsDialog()}]},
  {t:'&Edit',items:[
@@ -1810,6 +1832,7 @@ function menuDef(){return[
    {t:'Split top-level',sub:[{t:'Four panes cross',fn:()=>setLayout('four')},{t:'Two stacked panes',fn:()=>setLayout('twostack')},{t:'Two running panes',fn:()=>setLayout('tworun')},{t:'Three staked panes',fn:()=>setLayout('threestack')},{t:'Three running panes',fn:()=>setLayout('threerun')}]},
    {t:'Split active view',sub:[{t:'Four panes cross',fn:()=>setLayout('four')},{t:'Two stacked panes',fn:()=>setLayout('twostack')},{t:'Two running panes',fn:()=>setLayout('tworun')},{t:'Three staked panes',fn:()=>setLayout('threestack')},{t:'Three running panes',fn:()=>setLayout('threerun')}]},
    {t:'Reduce current split to active view',fn:()=>{maximized=activeView;applyLayout();}}]},
+  {t:'3D rejim (faol oyna)',k:'F3',chk:()=>!!activeView&&!!activeView.v3d,fn:()=>toggle3D(activeView)},'-',
   {t:'Materials Editor',k:'E',fn:()=>materialsEditor()},{t:'Redraw All',k:'R',fn:()=>{redraw();log('Redraw All');}},{t:'Textures Browser',fn:()=>texturesBrowser()},'-',
   {t:'&ToolBars',sub:['main','levels','prims','axes','snap','shade','skel'].map(id=>({t:{main:'Main ToolBar',levels:'Editing Levels',prims:'Primitives',axes:'Axes Mode',snap:'Snapping',shade:'Viewport shading',skel:'Skeleton'}[id],
      chk:()=>!$('tb_'+id).classList.contains('hidden'),fn:()=>{$('tb_'+id).classList.toggle('hidden');redraw();}}))},
@@ -1862,7 +1885,7 @@ const HOT=[
  ['Alt+S','Create\\Polygon\\Strip',()=>setTool('poly:strip')],
  ['Space','Switch SELECTED MODE On/Off',()=>{S.selectedMode=!S.selectedMode;log('Selected mode: '+(S.selectedMode?'ON':'OFF'));redraw();}],
  ['Shift+Space','Switch Auto selected mode',()=>{S.autoSel=!S.autoSel;log('Auto-select mode: '+(S.autoSel?'ON':'OFF'));}],
- ['Z','Viewport: Maximize/Restore',()=>toggleMax()],['Num+','Viewport: Zoom-In at cursor',()=>zoomCursor(1.25)],['Num-','Viewport: Zoom-Out at cursor',()=>zoomCursor(1/1.25)],
+ ['Z','Viewport: Maximize/Restore',()=>toggleMax()],['F3','Viewport: 3D rejim (yoqish / o‘chirish)',()=>toggle3D(activeView)],['Shift+T','File\\Import TXD (teksturalar)',()=>fileImportTXD()],['Num+','Viewport: Zoom-In at cursor',()=>zoomCursor(1.25)],['Num-','Viewport: Zoom-Out at cursor',()=>zoomCursor(1/1.25)],
  ['=','Viewport: Zoom-In at cursor',()=>zoomCursor(1.25)],['-','Viewport: Zoom-Out at cursor',()=>zoomCursor(1/1.25)],
  ['X','Viewport: Pick Pan tool',()=>setTool('pan')],['Num*','Viewport: Fit the view',()=>fitAll(activeView)],['F','Viewport: Fit the view',()=>fitAll(activeView)],
  ['Esc','Cancel / Select tool',()=>{const v=activeView;if(v)v.rubber=null;setTool('select');}],
@@ -2036,23 +2059,28 @@ function frameWorlds(frames){const W=new Array(frames.length);
   frames.forEach((_,i)=>get(i));return W;}
 
 /* ---------- import / export dialogs ---------- */
-function fileImport(){
-  pickFile('.obj,.dff,.3ds,.zmw,.json',f=>{
+function fileImport(){pickFile('.dff,.txd,.obj,.3ds,.zmw,.json,.png,.jpg,.jpeg,.bmp,.gif,.webp',fs=>importFiles(fs),true);}
+function fileImportTXD(){pickFile('.txd',fs=>importFiles(fs),true);}
+function importModel(f){
+  return new Promise(done=>{
     const ext=(f.name.match(/\.([^.]+)$/)||[])[1]?.toLowerCase();
-    const addObjs=(arr,msg)=>{undoPush();S.objects.forEach(o=>o.sel=false);arr.forEach(o=>{o.sel=true;S.objects.push(o);S.active=o.id;});fitAll();refreshUI();redraw();log(msg);};
+    const addObjs=(arr,msg)=>{const demo=S.objects.length&&!UNDO.length&&S.objects.every(o=>o._demo);undoPush();
+      if(demo){S.objects=[];S.active=null;} // tegilmagan namuna sahna (quti+g'ildirak) almashtiriladi
+      S.objects.forEach(o=>o.sel=false);arr.forEach(o=>{o.sel=true;S.objects.push(o);S.active=o.id;});fitAll();refreshUI();redraw();log(msg);};
     if(ext==='obj'){
       simpleDialog('Import: Wavefront OBJ',[{k:'yup',label:'Y-up → Z-up (boshqa dasturlardan)',type:'chk',v:false}],v=>{
         const r=new FileReader();r.onload=()=>{try{const parsed=parseOBJ(r.result,v.yup);
           const arr=parsed.map(p=>{const o=newObject(uniqueName(p.name),'mesh');o.v=p.v;o.p=p.p;const b=bounds([[o,null]]);o.pivot=b?b.c:[0,0,0];return o;});
           if(!arr.length)throw new Error('OBJ ichida poligon topilmadi.');addObjs(arr,'OBJ import: '+arr.length+' ta obyekt, '+arr.reduce((a,o)=>a+o.p.length,0)+' poligon.');}catch(e){log('Xato: '+e.message);alert(e.message);}};r.readAsText(f);});
+      done();
     }else if(ext==='dff'){
       const r=new FileReader();r.onload=()=>{try{const arr=importDFF(new Uint8Array(r.result),f.name.replace(/\.dff$/i,''));if(!arr.length)throw new Error('DFF ichida mesh topilmadi.');
-        addObjs(arr,'DFF import: '+arr.length+' ta obyekt/dummy ('+arr.reduce((a,o)=>a+o.p.length,0)+' uchburchak).');}catch(e){log('DFF xato: '+e.message);alert('DFF o‘qib bo‘lmadi: '+e.message);}};r.readAsArrayBuffer(f);
+        addObjs(arr,'DFF import: '+arr.length+' ta obyekt/dummy ('+arr.reduce((a,o)=>a+o.p.length,0)+' uchburchak).');}catch(e){log('DFF xato: '+e.message);alert('DFF o‘qib bo‘lmadi: '+e.message);}done();};r.onerror=()=>done();r.readAsArrayBuffer(f);
     }else if(ext==='3ds'){
-      const r=new FileReader();r.onload=()=>{try{const arr=import3DS(new Uint8Array(r.result),f.name.replace(/\.3ds$/i,''));if(!arr.length)throw new Error('3DS ichida mesh topilmadi.');addObjs(arr,'3DS import: '+arr.length+' ta obyekt, '+arr.reduce((a,o)=>a+o.p.length,0)+' poligon.');}catch(e){log('3DS xato: '+e.message);alert('3DS o‘qib bo‘lmadi: '+e.message);}};r.readAsArrayBuffer(f);
+      const r=new FileReader();r.onload=()=>{try{const arr=import3DS(new Uint8Array(r.result),f.name.replace(/\.3ds$/i,''));if(!arr.length)throw new Error('3DS ichida mesh topilmadi.');addObjs(arr,'3DS import: '+arr.length+' ta obyekt, '+arr.reduce((a,o)=>a+o.p.length,0)+' poligon.');}catch(e){log('3DS xato: '+e.message);alert('3DS o‘qib bo‘lmadi: '+e.message);}done();};r.onerror=()=>done();r.readAsArrayBuffer(f);
     }else if(ext==='zmw'||ext==='json'){
-      const r=new FileReader();r.onload=()=>{try{undoPush();loadScene(JSON.parse(r.result),true);redraw();refreshUI();log('Merge: '+f.name);}catch(e){log('Xato: '+e.message);}};r.readAsText(f);
-    }else alert('Qo‘llab-quvvatlanadigan formatlar: .dff, .obj, .zmw');
+      const r=new FileReader();r.onload=()=>{try{undoPush();loadScene(JSON.parse(r.result),true);redraw();refreshUI();log('Merge: '+f.name);}catch(e){log('Xato: '+e.message);}done();};r.onerror=()=>done();r.readAsText(f);
+    }else{alert('Qo‘llab-quvvatlanadigan formatlar: .dff, .txd, .obj, .3ds, .zmw, rasm (.png/.jpg)');done();}
   });
 }
 function fileExport(){
@@ -2116,7 +2144,7 @@ function aboutDialog(){
 
 /* ---------- autosave ---------- */
 let autoTimer=0;
-function setupAutosave(){clearInterval(autoTimer);if(S.cfg.autosave>0)autoTimer=setInterval(()=>{if(!S.objects.length)return;try{localStorage.setItem('zmw_autosave',sceneJSON());}catch(e){}},S.cfg.autosave*60000);}
+function setupAutosave(){clearInterval(autoTimer);if(S.cfg.autosave>0)autoTimer=setInterval(()=>{if(!S.objects.length)return;try{localStorage.setItem('zmw_autosave',sceneJSON());}catch(e){try{const j=JSON.parse(sceneJSON());j.textures={};localStorage.setItem('zmw_autosave',JSON.stringify(j));}catch(e2){}}},S.cfg.autosave*60000);}
 function restoreAutosave(){try{const s=localStorage.getItem('zmw_autosave');if(!s){log('Avtosave topilmadi.');return;}if(!confirmDiscard())return;loadScene(JSON.parse(s),false);afterLoad('Avtosave tiklandi.');}catch(e){log('Avtosave xatosi: '+e.message);}}
 window.addEventListener('beforeunload',e=>{if(modified&&S.objects.length){e.preventDefault();e.returnValue='';}});
 
@@ -2133,7 +2161,7 @@ function demoScene(){
   addObject(b,false);
   const wheel=createPrimitive('cylinder',[1.3,-1.05,.45],{r:.45,h:.3,seg:14});wheel.v=wheel.v.map(p=>{const q=V.sub(p,[1.3,-1.05,.45]);return[1.3+q[0],-1.05+q[2],.45+q[1]];});wheel.name='wheel_lf';wheel.pivot=[1.3,-1.05,.45];
   addObject(wheel,false);
-  S.active=b.id;b.sel=true;
+  S.active=b.id;b.sel=true;b._demo=wheel._demo=true;
 }
 function init(){
   buildShell();buildMenus();buildToolbars();buildCmdBar();buildDock();glInit();makeViews();applyLayout();
@@ -2289,8 +2317,9 @@ function weldKeepUV(m,eps){
 
 /* ================= EXT-B: WebGL renderer (solid / textured / wire overlay) ================= */
 const GLR={ok:null,cv:null,gl:null,P:null,L:null,ents:new Map(),tex:new Map(),err:''};
-const GL_VS='attribute vec3 aPos;attribute vec3 aNrm;attribute vec2 aUV;attribute vec4 aCol;uniform mat4 uVP;varying vec3 vW;varying vec3 vN;varying vec2 vUV;varying vec4 vC;'+
- 'void main(){vW=aPos;vN=aNrm;vUV=aUV;vC=aCol;gl_Position=uVP*vec4(aPos,1.0);}';
+const GL_VS='attribute vec3 aPos;attribute vec3 aNrm;attribute vec2 aUV;attribute vec4 aCol;uniform mat4 uVP;uniform mat4 uM;varying vec3 vW;varying vec3 vN;varying vec2 vUV;varying vec4 vC;'+
+ 'void main(){vec4 w=uM*vec4(aPos,1.0);vW=w.xyz;vN=(uM*vec4(aNrm,0.0)).xyz;vUV=aUV;vC=aCol;gl_Position=uVP*w;}';
+const M_ID=new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
 const GL_FS='#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n'+
  'varying vec3 vW;varying vec3 vN;varying vec2 vUV;varying vec4 vC;'+
  'uniform vec3 uEye;uniform vec3 uHeadDir;uniform float uHead;uniform float uAmbient;uniform vec4 uDiff;uniform vec3 uEmis;uniform vec3 uSpecC;uniform float uSpecS;'+
@@ -2457,7 +2486,7 @@ function glDraw(vp,B,mode){
   const VP=glMatrix(vp,B,sc),textured=mode==='tex'||mode==='texwire',wire=mode==='solidwire'||mode==='texwire';
   const eye=vp.persp?B.eye:V.sub(vp.target,V.mul(B.f,5000)),Lh=lightFor(B),lights=sceneLights(),useHead=(!lights.length||S.cfg.headlight)?1:0;
   const P=GLR.P,u=P.u;
-  gl.useProgram(P.p);gl.uniformMatrix4fv(u.uVP,false,VP);gl.uniform3fv(u.uEye,eye);gl.uniform3fv(u.uHeadDir,Lh);gl.uniform1f(u.uHead,useHead);gl.uniform1f(u.uAmbient,S.cfg.ambient);
+  gl.useProgram(P.p);gl.uniformMatrix4fv(u.uVP,false,VP);gl.uniformMatrix4fv(u.uM,false,M_ID);gl.uniform3fv(u.uEye,eye);gl.uniform3fv(u.uHeadDir,Lh);gl.uniform1f(u.uHead,useHead);gl.uniform1f(u.uAmbient,S.cfg.ambient);
   const lp=new Float32Array(16),lc=new Float32Array(16),ld=new Float32Array(16),ls=new Float32Array(16);
   lights.forEach((o,i)=>{const x=o.x||{},col=hex3(x.color||'#ffffff'),k=x.kind||'omni',inten=x.inten==null?1:x.inten;
     const dir=o.v[0]?V.norm(V.sub(o.v[0],o.pivot)):[0,0,-1];
@@ -2472,14 +2501,15 @@ function glDraw(vp,B,mode){
     const e=glEntry(o),x=XT(o);if(!e.pos)return;
     attr(e.pos,0);attr(e.nrm,1);attr(e.uv,2);attr(e.col,3);
     if(x.noCull||!(S.cfg.cull||x.flipInt))gl.disable(gl.CULL_FACE);else{gl.enable(gl.CULL_FACE);gl.cullFace(x.flipInt?gl.FRONT:gl.BACK);}
-    gl.uniform1f(u.uBackTint,x.noCull?0:1);gl.uniform1f(u.uDim,o.disabled?.55:0);
+    gl.uniform1f(u.uBackTint,x.noCull?0:1);gl.uniform1f(u.uDim,o.disabled?(vp.v3d?.12:.55):0);
     e.groups.forEach(g=>{
       const m=MT(S.mats[g.m]||S.mats[0]),isTrans=m.blend.on||m.alpha<255||x.semi;
       if(pass==='opaque'&&isTrans){transObjs.add(o);return;}
       if(pass==='trans'&&!isTrans)return;
       const tx=textured?glTexture(m.tex):null;
       gl.bindTexture(gl.TEXTURE_2D,tx?tx.tex:GLR.white);gl.uniform1f(u.uUseTex,tx?1:0);
-      gl.uniform4f(u.uDiff,m.color[0]/255,m.color[1]/255,m.color[2]/255,(x.semi&&m.alpha>=255)?.6:m.alpha/255);
+      const mc=vp.v3d?v3Paint(m.color):m.color;
+      gl.uniform4f(u.uDiff,mc[0]/255,mc[1]/255,mc[2]/255,(x.semi&&m.alpha>=255)?.6:m.alpha/255);
       gl.uniform3f(u.uEmis,m.emis[0]/255,m.emis[1]/255,m.emis[2]/255);
       gl.uniform3f(u.uSpecC,m.spec[0]/255,m.spec[1]/255,m.spec[2]/255);gl.uniform1f(u.uSpecS,m.hl.on?m.hl.str:(x.hiBlend?.35:0));
       gl.uniform1f(u.uPrelit,(o.vc&&o.vc.length&&!S.cfg.noPrelit)?1:0);gl.uniform1f(u.uWeights,(S.weightView&&o.bw)?1:0);
@@ -2492,6 +2522,7 @@ function glDraw(vp,B,mode){
     });
   };
   solidObjs.forEach(o=>drawGroups(o,'opaque'));
+  if(vp.v3d&&vp.opts.v3wheels!==false){const wc=v3Wheels();if(wc){wc.list.forEach(m=>{gl.uniformMatrix4fv(u.uM,false,m);drawGroups(wc.w,'opaque');});gl.uniformMatrix4fv(u.uM,false,M_ID);}}
   const tl=[...transObjs].map(o=>{const b=bounds([[o,null]]);return{o,d:b?V.dot(V.sub(b.c,vp.persp?B.eye:vp.target),B.f):0};}).sort((a,b)=>b.d-a.d);
   tl.forEach(t=>drawGroups(t.o,'trans'));
   gl.disable(gl.BLEND);gl.depthMask(true);for(let i=0;i<4;i++)gl.disableVertexAttribArray(i);
@@ -3050,6 +3081,8 @@ function popupMenu(items,x,y){
   return m;
 }
 function setVPType(vp,k){
+  if(k==='3d'){toggle3D(vp,true);return;}
+  if(vp.v3d){vp.v3d=false;v3Spin(vp,false);v3Bar(vp,false);vp.opts.grid=vp.v3prev?vp.v3prev.grid:vp.opts.grid;}
   if(k==='uv'){vp.prevType=vp.type==='uv'?vp.prevType:vp.type;vp.setType('uv');vp.uvc=vp.uvc||[.5,.5];vp.uvz=vp.uvz||Math.min(vp.W,vp.H)*.78||200;}
   else{vp.setType(k);if(k==='persp'||k==='user'){if(vp.mode==='wire'&&!vp.userMode)vp.mode=S.cfg.perspMode||'texwire';}else if(vp.mode!=='wire'&&!vp.userMode)vp.mode=S.cfg.orthoMode||'wire';}
   redraw();refreshUI();
@@ -3066,10 +3099,11 @@ function bgLayoutDialog(vp){
   dialog('Image background layout',f.el,[{t:'OK',fn:()=>{const v=f.values();b.x=v.x||0;b.y=v.y||0;b.w=Math.max(.1,v.w||b.w);b.alpha=clamp(v.a||.6,.05,1);redraw();}},{t:'Cancel'}]);
 }
 function viewportMenu(vp,x,y){
-  const types=[['Back','back'],['Front','front'],['Top','top'],['Bottom','bottom'],['Left','left'],['Right','right'],['Perspective','persp'],['User','user'],['UV Mapper','uv']];
+  const types=[['Back','back'],['Front','front'],['Top','top'],['Bottom','bottom'],['Left','left'],['Right','right'],['Perspective','persp'],['User','user'],['3D rejim','3d'],['UV Mapper','uv']];
   const tri=(k,t)=>({t,chk:()=>vp.opts.tripod===k,fn:()=>{vp.opts.tripod=k;redraw();}});
   popupMenu([
-    {t:'View type',sub:types.map(([t,k])=>({t,chk:()=>vp.type===k,fn:()=>setVPType(vp,k)}))},
+    {t:'3D rejim',k:'F3',chk:()=>!!vp.v3d,fn:()=>toggle3D(vp)},
+    {t:'View type',sub:types.map(([t,k])=>({t,chk:()=>k==='3d'?!!vp.v3d:(!vp.v3d&&vp.type===k),fn:()=>setVPType(vp,k)}))},
     {t:'Display',sub:Object.keys(MODE_NAMES).map(k=>({t:MODE_NAMES[k],chk:()=>vp.mode===k,fn:()=>{vp.mode=k;vp.userMode=true;redraw();refreshUI();}}))},
     '-',
     {t:'Tripod',sub:[{t:'Show',chk:()=>!!vp.opts.tripod,fn:()=>{vp.opts.tripod=vp.opts.tripod?null:'small';redraw();}},tri('small','Small'),tri('medium','Medium'),tri('big','Big')]},
@@ -3264,21 +3298,28 @@ function materialsEditor(){
 /* ---------- Textures Browser ---------- */
 function texUsage(){const used=new Set();S.mats.forEach(m=>{const t=findTexture(m.tex);if(t)used.add(t);});return used;}
 function texturesBrowser(){
-  let group='all',sel=null;const wrap=elx('div','texb'),gl=elx('div','lst');gl.style.height='300px';gl.style.width='130px';
+  let group='all',sel=null;const wrap=elx('div','texb'),gl=elx('div','lst');gl.style.height='300px';gl.style.width='150px';
   const grid=elx('div','thumbs');grid.style.flex='1';grid.style.maxHeight='300px';const info=elx('div',null,'');info.style.cssText='margin-top:6px;min-height:34px';
   const top=elx('div');top.style.cssText='display:flex;gap:8px';top.appendChild(gl);const rt=elx('div');rt.style.flex='1';rt.appendChild(grid);rt.appendChild(info);top.appendChild(rt);wrap.appendChild(top);
   const names=()=>{const used=texUsage();return Object.keys(S.textures).filter(n=>group==='all'||(group==='used'&&used.has(n))||(group==='unused'&&!used.has(n)));};
-  const drawG=()=>{gl.innerHTML='';[['all','All'],['used','Used by materials'],['unused','Not used']].forEach(([k,t])=>{const d=elx('div');d.textContent=t;if(k===group)d.classList.add('on');d.onclick=()=>{group=k;draw();};gl.appendChild(d);});};
-  const draw=()=>{drawG();grid.innerHTML='';const ns=names();
-    if(!ns.length)grid.innerHTML='<div style="grid-column:1/-1">Tekstura yo‘q. “Add…” bilan rasm (PNG/JPG/BMP/TGA brauzer qo‘llasa) qo‘shing. Nomi = fayl nomi (kengaytmasiz).</div>';
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const drawG=()=>{gl.innerHTML='';const miss=texMissing().length;[['all','All ('+Object.keys(S.textures).length+')'],['used','Used by materials'],['unused','Not used'],['missing','Topilmagan ('+miss+')']].forEach(([k,t])=>{const d=elx('div');d.textContent=t;if(k===group)d.classList.add('on');if(k==='missing'&&miss)d.style.color='#b00';d.onclick=()=>{group=k;draw();};gl.appendChild(d);});};
+  const showInfo=(n,im)=>{const t=TXI[n];info.innerHTML='<b>'+esc(n)+'</b> — '+(t?t.w+'×'+t.h+' · '+esc(t.fmt||'')+(t.alpha?' · alfa':'')+(t.src?' · '+esc(t.src):''):(im&&im.naturalWidth||'?')+'×'+(im&&im.naturalHeight||'?'));};
+  const draw=()=>{drawG();grid.innerHTML='';
+    if(group==='missing'){const ms=texMissing();if(!ms.length)grid.innerHTML='<div style="grid-column:1/-1">Hamma material teksturalari yuklangan.</div>';
+      ms.forEach(n=>{const d=elx('div','miss','<i>yo‘q</i><span></span>');d.querySelector('span').textContent=n;grid.appendChild(d);});
+      info.innerHTML=ms.length?'Bu nomlar materiallarda bor, lekin tekstura yuklanmagan. <b>Add…</b> bilan modelning .txd faylini (va kerak bo‘lsa o‘yinning vehicle.txd sini) qo‘shing.':'';return;}
+    const ns=names();
+    if(!ns.length)grid.innerHTML='<div style="grid-column:1/-1">Tekstura yo‘q. “Add…” bilan <b>.txd</b> fayl yoki rasm (PNG/JPG) qo‘shing. TXD ichidagi har bir tekstura o‘z nomi bilan qo‘shiladi va materialdagi shu nomga avtomatik ulanadi.</div>';
     ns.forEach(n=>{const d=elx('div',n===sel?'on':'','<img alt=""><span></span>');d.querySelector('img').src=S.textures[n];d.querySelector('span').textContent=n;
-      d.onclick=()=>{sel=n;draw();const im=d.querySelector('img');info.innerHTML='<b>'+n.replace(/</g,'&lt;')+'</b> — '+(im.naturalWidth||'?')+'×'+(im.naturalHeight||'?');};
+      d.title=TXI[n]?(TXI[n].w+'×'+TXI[n].h+' '+TXI[n].fmt):'';
+      d.onclick=()=>{sel=n;draw();showInfo(n,d.querySelector('img'));};
       d.ondblclick=()=>{const m=S.mats[S.curMat||0];m.tex=n;redraw();log('Material “'+m.name+'” teksturasi: '+n);};grid.appendChild(d);});};
   draw();
   dialog('Textures Browser',wrap,[
-   {t:'Add…',fn:()=>{pickFile('image/*',fs=>{(Array.isArray(fs)?fs:[fs]).forEach(f=>{const r=new FileReader();r.onload=()=>{const nm=f.name.replace(/\.[^.]+$/,'');if(S.textures[nm])glTexDrop(nm);S.textures[nm]=r.result;sel=nm;draw();redraw();modified=true;};r.readAsDataURL(f);});},true);return false;}},
-   {t:'Rename',fn:()=>{if(!sel)return false;const v=prompt('Yangi nom:',sel);if(v&&v.trim()&&v!==sel){const n=v.trim();S.textures[n]=S.textures[sel];glTexDrop(sel);delete S.textures[sel];S.mats.forEach(m=>{if(m.tex===sel)m.tex=n;});sel=n;draw();redraw();}return false;}},
-   {t:'Remove',fn:()=>{if(!sel)return false;glTexDrop(sel);delete S.textures[sel];sel=null;draw();redraw();return false;}},
+   {t:'Add… (TXD / rasm)',fn:()=>{pickFile('.txd,image/*',fs=>{importFiles(fs).then(()=>{draw();});},true);return false;}},
+   {t:'Rename',fn:()=>{if(!sel)return false;const v=prompt('Yangi nom:',sel);if(v&&v.trim()&&v!==sel){const n=v.trim();S.textures[n]=S.textures[sel];if(TXI[sel]){TXI[n]=TXI[sel];delete TXI[sel];}glTexDrop(sel);delete S.textures[sel];S.mats.forEach(m=>{if(m.tex===sel)m.tex=n;});sel=n;draw();redraw();}return false;}},
+   {t:'Remove',fn:()=>{if(!sel)return false;glTexDrop(sel);delete S.textures[sel];delete TXI[sel];sel=null;draw();redraw();return false;}},
    {t:'Assign to material',fn:()=>{if(!sel){log('Avval teksturani tanlang.');return false;}const m=S.mats[S.curMat||0];m.tex=sel;log('Material “'+m.name+'” teksturasi: '+sel);redraw();return false;}},
    {t:'Close'}]);
 }
@@ -3407,7 +3448,249 @@ function import3DS(bytes,name){
   return out;
 }
 
-window.ZMW={S,redraw,refreshUI,afterLoad,log,V,newObject,addObject,createPrimitive,undo,redo,opDelete,opExtrude,opWeld,opFlip,opDetach,opAttach,opMirror,opCleanup,opInsert,opBreak,opConnect,opSelectAll,opSelectNone,opNormalsCalc,setLevel,setTool,buildDffBytes,importDFF,toOBJ,parseOBJ,toSTL,sceneJSON,loadScene,fitAll,edgesOf,selectionCount,VIEWS,POOL,pickObject,regionSelect,clickSelect,exactTransform,opAlign,opPaint,opCopy,objectVolume,opHide,opShowAll,selTargets,undoPush,GLR,glInit,renderViewport,opRevolve,opLoft,opFFD,opKnife,opBind,opBonesWeight,applyMapping,uvOf,uvMap,openUVMapper,splinePoly,newSpline,to3DS,import3DS,parse3DS,materialsEditor,texturesBrowser,propertiesDialog,settingsDialog,viewportMenu,contextMenu,XT,MT,cornerNormals,CMD,OPTDEF,EXT_CREATE,opPrelit,opSmoothOpts,opNormalsProj,convertTriangles,convertQuad,opSaturation,opLightness,opPaintColor,setActiveMode,findTexture,refreshDock,opCopyOpts,selectByExt,opResetToParent,linkSelectedToActive,opCleanup,uvDisplay,uvPick,sceneJSON,loadScene,buildDffBytes,importDFF,parseOBJ,toOBJ,fileExport,fileImport,menuDef,HOT};
+/* ################ EXT-T: TXD import (RenderWare teksturalar lug'ati — GTA SA / VC PC: D3D9 va D3D8) ################ */
+const TXI={}; // tekstura nomi -> {w,h,fmt,alpha,src}
+function txd565(c,o,k){const r=(c>>11)&31,g=(c>>5)&63,b=c&31;o[k]=(r<<3)|(r>>2);o[k+1]=(g<<2)|(g>>4);o[k+2]=(b<<3)|(b>>2);}
+/* mode: 1 = DXT1 (3-rang rejimida 4-indeks shaffof), 2 = DXT2-5 rang bloki (doim 4-rang rejimi) */
+function txdBC1(d,p,out,x0,y0,w,h,mode){
+  const c0=d[p]|(d[p+1]<<8),c1=d[p+2]|(d[p+3]<<8),pal=[0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255];
+  txd565(c0,pal,0);txd565(c1,pal,4);
+  if(c0>c1||mode===2){for(let i=0;i<3;i++){pal[8+i]=((2*pal[i]+pal[4+i]+1)/3)|0;pal[12+i]=((pal[i]+2*pal[4+i]+1)/3)|0;}}
+  else{for(let i=0;i<3;i++)pal[8+i]=(pal[i]+pal[4+i])>>1;pal[15]=0;}
+  const bits=(d[p+4]|(d[p+5]<<8)|(d[p+6]<<16)|(d[p+7]<<24))>>>0;
+  for(let y=0;y<4;y++){const py=y0+y;if(py>=h)break;
+    for(let x=0;x<4;x++){const px=x0+x;if(px>=w)continue;const k=((bits>>>(2*(y*4+x)))&3)*4,o=(py*w+px)*4;out[o]=pal[k];out[o+1]=pal[k+1];out[o+2]=pal[k+2];out[o+3]=pal[k+3];}}
+}
+function txdDXT(n,w,h,d){
+  const out=new Uint8Array(w*h*4),bw=Math.max(1,(w+3)>>2),bh=Math.max(1,(h+3)>>2),bs=n===1?8:16,need=bw*bh*bs;
+  if(d.length<need)throw new Error('DXT'+n+' ma\'lumoti qisqa ('+d.length+' < '+need+' bayt)');
+  const al=new Uint8Array(8);
+  for(let by=0;by<bh;by++)for(let bx=0;bx<bw;bx++){
+    const p=(by*bw+bx)*bs;
+    if(n===1){txdBC1(d,p,out,bx*4,by*4,w,h,1);continue;}
+    txdBC1(d,p+8,out,bx*4,by*4,w,h,2);
+    if(n<=3){for(let i=0;i<16;i++){const px=bx*4+(i&3),py=by*4+(i>>2);if(px>=w||py>=h)continue;out[(py*w+px)*4+3]=((d[p+(i>>1)]>>((i&1)*4))&15)*17;}}
+    else{
+      const a0=d[p],a1=d[p+1];al[0]=a0;al[1]=a1;
+      if(a0>a1){for(let i=1;i<7;i++)al[i+1]=(((7-i)*a0+i*a1+3)/7)|0;}else{for(let i=1;i<5;i++)al[i+1]=(((5-i)*a0+i*a1+2)/5)|0;al[6]=0;al[7]=255;}
+      const lo=d[p+2]|(d[p+3]<<8)|(d[p+4]<<16),hi=d[p+5]|(d[p+6]<<8)|(d[p+7]<<16);
+      for(let i=0;i<16;i++){const px=bx*4+(i&3),py=by*4+(i>>2);if(px>=w||py>=h)continue;const b=i*3,v=b<24?(lo>>>b)&7:(hi>>>(b-24))&7;out[(py*w+px)*4+3]=al[v];}
+    }
+  }
+  if(n===2||n===4){for(let i=0;i<w*h;i++){const a=out[i*4+3];if(a&&a<255)for(let k=0;k<3;k++)out[i*4+k]=Math.min(255,(out[i*4+k]*255/a)|0);}}
+  return out;
+}
+const TXD_BPP={'8888':4,'888x':4,'888':3,'565':2,'555':2,'1555':2,'4444':2,'L8':1,'A8':1,'A8L8':2};
+function txdRaw(f,w,h,d){
+  const n=w*h,bpp=TXD_BPP[f];if(!bpp)throw new Error('format '+f+' qo\'llab-quvvatlanmaydi');
+  if(d.length<n*bpp)throw new Error(f+' ma\'lumoti qisqa');
+  const out=new Uint8Array(n*4);
+  for(let i=0;i<n;i++){const o=i*4,p=i*bpp;let r=0,g=0,b=0,a=255,v;
+    switch(f){
+      case'8888':b=d[p];g=d[p+1];r=d[p+2];a=d[p+3];break;
+      case'888x':case'888':b=d[p];g=d[p+1];r=d[p+2];break;
+      case'565':v=d[p]|(d[p+1]<<8);r=(v>>11)&31;g=(v>>5)&63;b=v&31;r=(r<<3)|(r>>2);g=(g<<2)|(g>>4);b=(b<<3)|(b>>2);break;
+      case'555':case'1555':v=d[p]|(d[p+1]<<8);r=(v>>10)&31;g=(v>>5)&31;b=v&31;r=(r<<3)|(r>>2);g=(g<<3)|(g>>2);b=(b<<3)|(b>>2);if(f==='1555')a=v&0x8000?255:0;break;
+      case'4444':v=d[p]|(d[p+1]<<8);a=((v>>12)&15)*17;r=((v>>8)&15)*17;g=((v>>4)&15)*17;b=(v&15)*17;break;
+      case'L8':r=g=b=d[p];break;
+      case'A8':r=g=b=255;a=d[p];break;
+      case'A8L8':r=g=b=d[p];a=d[p+1];break;
+    }
+    out[o]=r;out[o+1]=g;out[o+2]=b;out[o+3]=a;}
+  return out;
+}
+const TXD_RASTER={0x100:'1555',0x200:'565',0x300:'4444',0x400:'L8',0x500:'8888',0x600:'888x',0xA00:'555'};
+const TXD_D3D={21:'8888',22:'888x',20:'888',23:'565',24:'555',25:'1555',26:'4444',28:'A8',50:'L8',51:'A8L8'};
+function txdNative(u8,dv,s,e){
+  if(s+12>e||dv.getUint32(s,true)!==1)throw new Error('struct bo\'limi yo\'q');
+  const p=s+12,pe=Math.min(e,p+dv.getUint32(s+4,true)),plat=dv.getUint32(p,true);
+  if(plat===0x00325350||plat===6)throw new Error('PS2 TXD — faqat PC TXD o\'qiladi');
+  if(plat===5)throw new Error('Xbox TXD — faqat PC TXD o\'qiladi');
+  if(plat!==8&&plat!==9)throw new Error('noma\'lum platforma ('+plat+')');
+  const cs=(o,n)=>{let t='';for(let i=0;i<n&&u8[o+i];i++)t+=String.fromCharCode(u8[o+i]);return t;};
+  const name=cs(p+8,32),mask=cs(p+40,32),rf=dv.getUint32(p+72,true),x=dv.getUint32(p+76,true),w=dv.getUint16(p+80,true),h=dv.getUint16(p+82,true),fl=u8[p+87];
+  if(!w||!h||w>8192||h>8192)throw new Error('o\'lcham noto\'g\'ri ('+w+'×'+h+')');
+  let q=p+88,pal=null;const P8=rf&0x2000,P4=rf&0x4000;
+  if(P8){pal=u8.subarray(q,q+1024);q+=1024;}else if(P4){pal=u8.subarray(q,q+128);q+=128;}
+  if(q+4>pe)throw new Error('rasm ma\'lumoti yo\'q');
+  const d=u8.subarray(q+4,Math.min(pe,q+4+dv.getUint32(q,true))),hasA=plat===9?!!(fl&1):!!x,raw=TXD_RASTER[rf&0xF00];
+  let rgba,dxt=0,fmt='';
+  if(plat===9&&x>0xFF){const c=String.fromCharCode(x&255,(x>>8)&255,(x>>16)&255,(x>>24)&255);if(/^DXT[1-5]$/.test(c))dxt=+c[3];else throw new Error('format «'+c+'» qo\'llab-quvvatlanmaydi');}
+  if(plat===8&&fl>=1&&fl<=5)dxt=fl;
+  if(pal){const n=w*h;if(d.length<(P8?n:Math.ceil(n/2)))throw new Error('palitra ma\'lumoti qisqa');
+    rgba=new Uint8Array(n*4);for(let i=0;i<n;i++){const ix=P8?d[i]:((i&1)?(d[i>>1]>>4):(d[i>>1]&15)),k=ix*4;rgba[i*4]=pal[k];rgba[i*4+1]=pal[k+1];rgba[i*4+2]=pal[k+2];rgba[i*4+3]=pal[k+3];}
+    fmt=P8?'PAL8':'PAL4';}
+  else if(dxt){rgba=txdDXT(dxt,w,h,d);fmt='DXT'+dxt;}
+  else{let f=raw;if(plat===9&&x){f=TXD_D3D[x];if(!f)throw new Error('D3D format '+x+' qo\'llab-quvvatlanmaydi');}
+    if(!f)throw new Error('raster format 0x'+(rf&0xF00).toString(16)+' qo\'llab-quvvatlanmaydi');
+    rgba=txdRaw(f,w,h,d);fmt=f==='888x'?'888':f;}
+  if(!hasA)for(let i=3;i<rgba.length;i+=4)rgba[i]=255;
+  return{name,mask,w,h,fmt,alpha:hasA,rgba};
+}
+function parseTXD(bytes){
+  const u8=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes),dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
+  if(u8.length<24||dv.getUint32(0,true)!==0x16)throw new Error('Bu TXD fayl emas (RenderWare 0x16 sarlavhasi topilmadi).');
+  const end=Math.min(u8.length,12+dv.getUint32(4,true)),out=[];let o=12;
+  while(o+12<=end){const t=dv.getUint32(o,true),sz=dv.getUint32(o+4,true),e=Math.min(end,o+12+sz);
+    if(t===0x15){try{out.push(txdNative(u8,dv,o+12,e));}catch(err){let nm='';for(let i=0;i<32&&o+32+i<u8.length&&u8[o+32+i];i++)nm+=String.fromCharCode(u8[o+32+i]);out.push({name:nm||'?',error:err.message});}}
+    o+=12+sz;}
+  return out;
+}
+function rgbaURL(rgba,w,h){const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d'),id=x.createImageData(w,h);id.data.set(rgba);x.putImageData(id,0,0);return c.toDataURL('image/png');}
+function setTexture(nm,url,info){const ex=findTexture(nm);if(ex){glTexDrop(ex);delete S.textures[ex];delete TXI[ex];}S.textures[nm]=url;if(info)TXI[nm]=info;}
+async function importTXDBytes(bytes,src){
+  const list=parseTXD(bytes),bad=[],names=[];src=src||'TXD';
+  for(const t of list){
+    if(t.error||!t.rgba){bad.push((t.name||'?')+' — '+(t.error||'bo\'sh'));continue;}
+    const nm=t.name||('tex'+(names.length+1));
+    setTexture(nm,rgbaURL(t.rgba,t.w,t.h),{w:t.w,h:t.h,fmt:t.fmt,alpha:t.alpha,src});names.push(nm);
+    if(names.length%4===0)await new Promise(r=>setTimeout(r,0));
+  }
+  modified=true;redraw();refreshUI();
+  log('TXD import: '+src+' — '+names.length+' ta tekstura yuklandi'+(bad.length?', '+bad.length+' tasi o‘qilmadi':'')+'.');
+  bad.slice(0,8).forEach(b=>log('   ✗ '+b));
+  texReport();v3SyncAll();
+  return{names,bad};
+}
+function addImageTexture(f){
+  return new Promise(res=>{const r=new FileReader();r.onload=()=>{const nm=f.name.replace(/\.[^.]+$/,''),im=new Image();
+    im.onload=()=>{TXI[nm]={w:im.naturalWidth,h:im.naturalHeight,fmt:(f.name.match(/\.([^.]+)$/)||['',''])[1].toUpperCase(),src:f.name};redraw();res(nm);};im.onerror=()=>res(nm);
+    setTexture(nm,r.result,null);im.src=r.result;modified=true;redraw();};r.onerror=()=>res(null);r.readAsDataURL(f);});
+}
+function texMissing(){const need=new Set();S.mats.forEach(m=>{if(m.tex&&!findTexture(m.tex))need.add(m.tex);});return[...need];}
+function texNeeded(){const s=new Set();S.mats.forEach(m=>{if(m.tex)s.add(texKey(m.tex));});return s.size;}
+function texReport(){
+  if(!S.mats.some(m=>m.tex))return;const miss=texMissing();
+  if(!miss.length){log('✓ Modeldagi barcha teksturalar topildi.');return;}
+  const shared=miss.filter(n=>/^(x?vehicle|plate|carp)/i.test(n));
+  log('Topilmagan teksturalar ('+miss.length+'): '+miss.slice(0,14).join(', ')+(miss.length>14?' …':'')+
+    (shared.length?'. «vehicle…» teksturalari o‘yinning models/generic/vehicle.txd faylida — uni ham import qiling.':'.'));
+}
+/* bir nechta fayl: avval modellar, keyin TXD va rasmlar (materiallar teksturani nomidan topadi) */
+async function importFiles(files){
+  files=[...(files||[])];if(!files.length)return;
+  const isTxd=f=>/\.txd$/i.test(f.name),isImg=f=>/\.(png|jpe?g|bmp|gif|webp)$/i.test(f.name)||/^image\//.test(f.type||'');
+  const txds=files.filter(isTxd),imgs=files.filter(f=>!isTxd(f)&&isImg(f)),models=files.filter(f=>!isTxd(f)&&!isImg(f));
+  for(const f of models)await importModel(f);
+  for(const f of txds){try{await importTXDBytes(new Uint8Array(await f.arrayBuffer()),f.name);}catch(e){log('TXD xato ('+f.name+'): '+e.message);alert('TXD o‘qib bo‘lmadi ('+f.name+'): '+e.message);}}
+  for(const f of imgs)await addImageTexture(f);
+  if(imgs.length){log('Rasm tekstura(lar) qo‘shildi: '+imgs.map(f=>f.name).join(', '));texReport();}
+  if(models.length&&!txds.length&&texMissing().length)log('Teksturalarni ko‘rish uchun shu modelning .txd faylini ham import qiling (File → Import TXD, yoki faylni oynaga sudrab tashlang).');
+  v3SyncAll();
+}
+/* oynaga sudrab tashlash (drag & drop): .dff .txd .obj .3ds .zmw va rasmlar */
+let dropOv=null;
+function dropHint(on){
+  if(on&&!dropOv){dropOv=document.createElement('div');dropOv.id='zmwdrop';dropOv.innerHTML='<div>DFF / TXD / OBJ / 3DS / ZMW yoki rasm faylini shu yerga tashlang<small>Bir nechtasini birga tashlash mumkin: masalan <b>infernus.dff</b> + <b>infernus.txd</b></small></div>';document.body.appendChild(dropOv);}
+  if(dropOv)dropOv.style.display=on?'flex':'none';
+}
+window.addEventListener('dragover',e=>{const dt=e.dataTransfer;if(!dt||![...(dt.types||[])].includes('Files'))return;e.preventDefault();dt.dropEffect='copy';dropHint(true);});
+window.addEventListener('dragleave',e=>{if(!e.relatedTarget||e.clientX<=0||e.clientY<=0||e.clientX>=innerWidth||e.clientY>=innerHeight)dropHint(false);});
+window.addEventListener('drop',e=>{const dt=e.dataTransfer;dropHint(false);if(!dt||!dt.files||!dt.files.length)return;e.preventDefault();importFiles(dt.files);});
+
+/* ################ EXT-3D: 3D rejim — oynani to'liq 3D ko'rinishga o'tkazish ################ */
+const V3_VIEWS={front:{yaw:Math.PI,pitch:.1},rear:{yaw:0,pitch:.1},side:{yaw:-Math.PI/2,pitch:.08},top:{yaw:Math.PI,pitch:1.5},q:{yaw:-2.35,pitch:.32}};
+const GTA_PAINT={'60,255,0':'c1','255,0,175':'c2','255,175,0':'L','0,255,200':'L','185,255,0':'L','255,60,0':'L'};
+function v3Paint(col){
+  if(S.cfg.v3dPaint===false)return col;const r=GTA_PAINT[col[0]+','+col[1]+','+col[2]];if(!r)return col;
+  return r==='L'?[255,255,255]:hex2rgb(r==='c1'?(S.cfg.v3dC1||'#2457a6'):(S.cfg.v3dC2||'#c9ccd1'));
+}
+/* GTA SA'dagi kabi: DFF'da bitta «wheel» bo'ladi (o'ng-old), o'yin uni qolgan wheel_*_dummy larga ko'chiradi. 3D rejimda shuni ko'rsatamiz. */
+let v3wCache={k:'',v:null};
+function v3Wheels(){
+  const meshes=S.objects.filter(o=>o.type==='mesh'&&/^wheel/i.test(o.name));
+  if(meshes.length!==1||meshes[0].hidden||!meshes[0].p.length||!/^wheel$/i.test(meshes[0].name))return null;
+  const W=meshes[0],dm=n=>S.objects.find(o=>o.name.toLowerCase()===n&&o.type!=='mesh');
+  const key=W.id+'|'+W.ver+'|'+S.objects.length+'|'+['lf','lb','rb','lm','rm','rf'].map(k=>{const d=dm('wheel_'+k+'_dummy');return d?d.pivot.join(','):'-';}).join(';');
+  if(v3wCache.k===key)return v3wCache.v;
+  const rf=dm('wheel_rf_dummy'),base=rf?rf.pivot:W.pivot,list=[];
+  [['lf',1],['lb',1],['rb',0],['lm',1],['rm',0]].forEach(([k,flip])=>{const d=dm('wheel_'+k+'_dummy');if(!d)return;const P=d.pivot;
+    list.push(flip?new Float32Array([-1,0,0,0,0,-1,0,0,0,0,1,0,P[0]+base[0],P[1]+base[1],P[2]-base[2],1]):new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,P[0]-base[0],P[1]-base[1],P[2]-base[2],1]));});
+  v3wCache={k:key,v:list.length?{w:W,list}:null};return v3wCache.v;
+}
+function v3List(){const l=S.objects.filter(o=>!o.hidden&&o.type==='mesh'&&o.p.length).map(o=>[o,null]);return l.length?l:null;}
+function v3Frame(vp,list){
+  const b=bounds(list||v3List()||allBoundsList());if(!b){vp.target=[0,0,0];vp.dist=12;redraw();return;}
+  const size=Math.max(.3,V.len(V.sub(b.mx,b.mn)));vp.target=b.c;vp.dist=size*.5/Math.tan(vp.fov/2)+size*.05;redraw();
+}
+function v3View(vp,k){const s=V3_VIEWS[k]||V3_VIEWS.q;v3Spin(vp,false);vp.yaw=s.yaw;vp.pitch=s.pitch;redraw();}
+function v3Spin(vp,on){
+  vp.v3spin=!!on;
+  if(on&&!vp._spin){let t0=performance.now();const step=t=>{if(!vp.v3spin||!vp.v3d){vp._spin=0;return;}vp.yaw-=Math.min(50,t-t0)*.00045;t0=t;redraw();vp._spin=requestAnimationFrame(step);};vp._spin=requestAnimationFrame(step);}
+  v3Sync(vp);
+}
+function v3Sync(vp){
+  const b=vp&&vp.v3bar;if(!b)return;
+  const on=(k,v)=>{const e=b.querySelector('[data-k="'+k+'"]');if(e)e.classList.toggle('on',!!v);};
+  on('spin',vp.v3spin);on('wire',vp.mode==='texwire'||vp.mode==='solidwire');on('tex',vp.mode==='tex'||vp.mode==='texwire');on('grid',vp.opts.grid!==false);on('paint',S.cfg.v3dPaint!==false);on('help',!!vp.opts.v3help);on('wheels',vp.opts.v3wheels!==false);
+  const need=texNeeded(),miss=texMissing(),t=b.querySelector('.v3tx');
+  if(t){const s=need?('Tekstura: '+(need-miss.length)+'/'+need):'Tekstura: —';if(t.textContent!==s)t.textContent=s;t.classList.toggle('bad',miss.length>0);
+    t.title=need?(miss.length?'Topilmagan: '+miss.join(', ')+'\nTXD… tugmasi bilan yuklang.':'Barcha teksturalar yuklangan.'):'Modelda teksturali material yo‘q.';}
+  const c1=b.querySelector('[data-k="c1"]'),c2=b.querySelector('[data-k="c2"]');if(c1)c1.value=S.cfg.v3dC1||'#2457a6';if(c2)c2.value=S.cfg.v3dC2||'#c9ccd1';
+}
+function v3SyncAll(){POOL.forEach(v=>{if(v.v3d)v3Sync(v);});}
+function v3Bar(vp,show){
+  if(!vp.v3bar&&show){
+    const b=document.createElement('div');b.className='v3bar';
+    const btn=(t,title,fn,k)=>{const e=document.createElement('button');e.type='button';e.textContent=t;e.title=title;if(k)e.dataset.k=k;e.onclick=ev=>{ev.stopPropagation();fn();};return e;};
+    const sep=()=>{const s=document.createElement('span');s.className='v3sep';return s;};
+    const col=(k,title)=>{const e=document.createElement('input');e.type='color';e.dataset.k=k;e.title=title;e.oninput=()=>{S.cfg[k==='c1'?'v3dC1':'v3dC2']=e.value;if(S.cfg.v3dPaint===false)S.cfg.v3dPaint=true;v3Sync(vp);redraw();};return e;};
+    const tx=document.createElement('span');tx.className='v3tx';
+    b.append(btn('Old','Old tomondan (GTA: +Y)',()=>v3View(vp,'front')),btn('Orqa','Orqa tomondan',()=>v3View(vp,'rear')),btn('Yon','Yon tomondan',()=>v3View(vp,'side')),btn('Tepa','Tepadan',()=>v3View(vp,'top')),btn('3/4','Old-yon burchakdan',()=>v3View(vp,'q')),btn('⌖','Hammasini oynaga sig‘dirish (F)',()=>v3Frame(vp)),sep(),
+      btn('⟳','Avtomatik aylantirish',()=>v3Spin(vp,!vp.v3spin),'spin'),
+      btn('Tekstura','Teksturalarni ko‘rsatish / yashirish',()=>{const w=vp.mode==='texwire'||vp.mode==='solidwire',t=vp.mode==='tex'||vp.mode==='texwire';vp.mode=t?(w?'solidwire':'solid'):(w?'texwire':'tex');redraw();refreshUI();v3Sync(vp);},'tex'),
+      btn('Sim','Simli to‘rni (wireframe) ustidan ko‘rsatish',()=>{const w=vp.mode==='texwire'||vp.mode==='solidwire',t=vp.mode==='tex'||vp.mode==='texwire';vp.mode=w?(t?'tex':'solid'):(t?'texwire':'solidwire');redraw();refreshUI();v3Sync(vp);},'wire'),
+      btn('Tor','Pol to‘rini (grid) ko‘rsatish',()=>{vp.opts.grid=vp.opts.grid===false;redraw();v3Sync(vp);},'grid'),
+      btn('Dummy','Dummy va yordamchi belgilarni ko‘rsatish',()=>{vp.opts.v3help=!vp.opts.v3help;redraw();v3Sync(vp);},'help'),
+      btn('4 g‘ildirak','O‘yindagidek: DFF’dagi bitta «wheel» qolgan wheel_*_dummy joylariga ham ko‘rsatiladi (faqat ko‘rinish, modelga yozilmaydi)',()=>{vp.opts.v3wheels=vp.opts.v3wheels===false;redraw();v3Sync(vp);},'wheels'),sep(),
+      btn('Rang','GTA bo‘yoq ranglarini (yashil 60,255,0 / pushti 255,0,175) mashina rangiga almashtirib ko‘rsatish — faqat ko‘rinish, modelga yozilmaydi',()=>{S.cfg.v3dPaint=S.cfg.v3dPaint===false;v3Sync(vp);redraw();},'paint'),
+      col('c1','1-rang (asosiy)'),col('c2','2-rang (ikkinchi)'),sep(),tx,
+      btn('TXD…','Teksturalar faylini (.txd) yoki rasmni yuklash',()=>pickFile('.txd,image/*',fs=>importFiles(fs),true)),sep(),
+      btn('⧉','4 ta oyna ↔ bitta katta oyna',()=>{maximized=maximized===vp?null:vp;applyLayout();}),btn('✕ 3D','3D rejimdan chiqish (F3)',()=>toggle3D(vp,false)));
+    ['mousedown','mouseup','click','dblclick','contextmenu'].forEach(ev=>b.addEventListener(ev,e=>e.stopPropagation()));
+    ['wheel','touchstart','touchmove'].forEach(ev=>b.addEventListener(ev,e=>e.stopPropagation(),{passive:true}));
+    const hint=document.createElement('div');hint.className='v3hint';hint.textContent='Chap tugma — aylantirish · O‘ng/o‘rta — surish · G‘ildirak — yaqinlashtirish · 2× bosish — fokus · Telefonda: 1 barmoq — aylantirish, 2 barmoq — zoom';
+    vp.v3bar=b;vp.v3hint=hint;vp.el.append(b,hint);
+  }
+  if(vp.v3bar){vp.v3bar.style.display=show?'flex':'none';vp.v3hint.style.display=show?'block':'none';}
+  if(show)v3Sync(vp);
+}
+function toggle3D(vp,on){
+  vp=vp||activeView||POOL[3];if(!vp)return;if(on===undefined)on=!vp.v3d;
+  if(on&&vp.v3d){if(maximized!==vp){maximized=vp;applyLayout();}return;}
+  if(!on&&!vp.v3d)return;
+  if(on){
+    vp.v3prev={type:vp.type,mode:vp.mode,userMode:vp.userMode,yaw:vp.yaw,pitch:vp.pitch,dist:vp.dist,target:vp.target.slice(),max:maximized,grid:vp.opts.grid};
+    vp.setType('persp');vp.v3d=true;vp.mode='tex';vp.userMode=true;vp.opts.grid=false;
+    activeView=vp;maximized=vp;applyLayout();v3Bar(vp,true);
+    const s=V3_VIEWS.q;vp.yaw=s.yaw;vp.pitch=s.pitch;v3Frame(vp);
+    log('3D rejim yoqildi. Chap tugma — aylantirish, o‘ng/o‘rta — surish, g‘ildirak — yaqinlashtirish, 2× bosish — obyektga fokus. Chiqish: F3 yoki «✕ 3D».');
+    if(texMissing().length)texReport();
+  }else{
+    const p=vp.v3prev||{};vp.v3d=false;v3Spin(vp,false);v3Bar(vp,false);
+    vp.setType(p.type||'persp');vp.mode=p.mode||vp.mode;vp.userMode=!!p.userMode;vp.opts.grid=p.grid;
+    if(p.target){vp.yaw=p.yaw;vp.pitch=p.pitch;vp.dist=p.dist;vp.target=p.target;}
+    maximized=p.max&&p.max!==vp?p.max:(p.max===vp?vp:null);applyLayout();log('3D rejimdan chiqildi.');
+  }
+  refreshUI();redraw();
+}
+function v3Touch(vp){
+  let T=null;
+  const pts=e=>[...e.touches].map(t=>{const r=vp.cv.getBoundingClientRect();return[t.clientX-r.left,t.clientY-r.top];});
+  const base=e=>{const p=pts(e);T={p,yaw:vp.yaw,pitch:vp.pitch,dist:vp.dist,target:vp.target.slice(),moved:false};};
+  vp.el.addEventListener('touchstart',e=>{if(!vp.v3d)return;e.preventDefault();activateView(vp);v3Spin(vp,false);base(e);},{passive:false});
+  vp.el.addEventListener('touchmove',e=>{if(!vp.v3d||!T)return;e.preventDefault();const p=pts(e);
+    if(p.length===1&&T.p.length===1){const dx=p[0][0]-T.p[0][0],dy=p[0][1]-T.p[0][1];if(Math.hypot(dx,dy)>4)T.moved=true;vp.yaw=T.yaw-dx*.01;vp.pitch=clamp(T.pitch+dy*.01,-1.5,1.5);}
+    else if(p.length>=2&&T.p.length>=2){T.moved=true;const l0=Math.hypot(T.p[1][0]-T.p[0][0],T.p[1][1]-T.p[0][1])||1,l1=Math.hypot(p[1][0]-p[0][0],p[1][1]-p[0][1])||1;
+      vp.dist=clamp(T.dist*l0/l1,.2,5000);
+      const m0=[(T.p[0][0]+T.p[1][0])/2,(T.p[0][1]+T.p[1][1])/2],m1=[(p[0][0]+p[1][0])/2,(p[0][1]+p[1][1])/2],B=vp.basis(),k=vp.unitsPerPx(vp.target,B);
+      vp.target=V.add(T.target,V.add(V.mul(B.r,-(m1[0]-m0[0])*k),V.mul(B.u,(m1[1]-m0[1])*k)));}
+    redraw();},{passive:false});
+  vp.el.addEventListener('touchend',e=>{if(!vp.v3d)return;if(e.touches.length)base(e);else{
+    if(T&&!T.moved&&T.p.length===1){const o=pickObject(vp,T.p[0][0],T.p[0][1]);S.objects.forEach(x=>{x.sel=false;});if(o){o.sel=true;S.active=o.id;}refreshUI();redraw();}T=null;}},{passive:false});
+}
+
+window.ZMW={S,redraw,refreshUI,afterLoad,log,V,newObject,addObject,createPrimitive,undo,redo,opDelete,opExtrude,opWeld,opFlip,opDetach,opAttach,opMirror,opCleanup,opInsert,opBreak,opConnect,opSelectAll,opSelectNone,opNormalsCalc,setLevel,setTool,buildDffBytes,importDFF,toOBJ,parseOBJ,toSTL,sceneJSON,loadScene,fitAll,edgesOf,selectionCount,VIEWS,POOL,pickObject,regionSelect,clickSelect,exactTransform,opAlign,opPaint,opCopy,objectVolume,opHide,opShowAll,selTargets,undoPush,GLR,glInit,renderViewport,opRevolve,opLoft,opFFD,opKnife,opBind,opBonesWeight,applyMapping,uvOf,uvMap,openUVMapper,splinePoly,newSpline,to3DS,import3DS,parse3DS,materialsEditor,texturesBrowser,propertiesDialog,settingsDialog,viewportMenu,contextMenu,XT,MT,cornerNormals,CMD,OPTDEF,EXT_CREATE,opPrelit,opSmoothOpts,opNormalsProj,convertTriangles,convertQuad,opSaturation,opLightness,opPaintColor,setActiveMode,findTexture,refreshDock,opCopyOpts,selectByExt,opResetToParent,linkSelectedToActive,opCleanup,uvDisplay,uvPick,sceneJSON,loadScene,buildDffBytes,importDFF,parseOBJ,toOBJ,fileExport,fileImport,menuDef,HOT,parseTXD,importTXDBytes,importFiles,texMissing,toggle3D,v3View,v3Frame,v3Spin,v3Paint,TXI,fileImportTXD,activeView:()=>activeView,maximized:()=>maximized};
 document.addEventListener('DOMContentLoaded',init);
 
 
@@ -3421,7 +3704,7 @@ if(!/bamper/.test(location.hash))return;
 let src=null,editable=[],ready=false;
 document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>{ready=true;},60));
 const css=document.createElement('style');
-css.textContent='#bmpbar{position:fixed;left:50%;top:6px;transform:translateX(-50%);z-index:9000;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:96vw;background:#0d1626;border:1px solid #1fd6f5;border-radius:10px;padding:6px 10px;font:600 12.5px Inter,system-ui,sans-serif;color:#e6eefc;box-shadow:0 8px 30px rgba(0,0,0,.55)}#bmpbar span{opacity:.9}#bmpbar button{font:inherit;border-radius:7px;padding:6px 11px;cursor:pointer;border:1px solid #2a3a55;background:#14223a;color:#e6eefc}#bmpbar button.ok{background:linear-gradient(90deg,#1fd6f5,#8b6cff);color:#06101e;border:0}';
+css.textContent='#bmpbar{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);z-index:9000;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:96vw;background:#0d1626;border:1px solid #1fd6f5;border-radius:10px;padding:6px 10px;font:600 12.5px Inter,system-ui,sans-serif;color:#e6eefc;box-shadow:0 8px 30px rgba(0,0,0,.55)}#bmpbar span{opacity:.9}#bmpbar button{font:inherit;border-radius:7px;padding:6px 11px;cursor:pointer;border:1px solid #2a3a55;background:#14223a;color:#e6eefc}#bmpbar button.ok{background:linear-gradient(90deg,#1fd6f5,#8b6cff);color:#06101e;border:0}';
 document.head.appendChild(css);
 function send(){
   const Z=window.ZMW,objs=Z.S.objects.filter(o=>editable.includes(o.name)&&o.type==='mesh');
@@ -3447,7 +3730,8 @@ window.addEventListener('message',e=>{
     Z.afterLoad('Bamper sahifasidan yuklandi: '+editable.join(', ')+' tahrirlanadi. Qolgan qismlar muzlatilgan (Freeze) — faqat ko\'rish uchun.');
     Z.S.objects.forEach(o=>{o.sel=editable.includes(o.name);});const a=Z.S.objects.find(o=>editable.includes(o.name));if(a)Z.S.active=a.id;
     Z.fitAll();Z.refreshUI();Z.redraw();bar();
-    Z.log('Tayyor bo\'lgach yuqoridagi «✔ Bamper sahifasiga qaytarish» tugmasini bosing (File→Export emas — u mashina tuzilishini saqlamaydi).');
+    (d.txd||[]).forEach((t,i)=>{try{Z.importTXDBytes(t,'bamper sahifasi TXD'+(d.txd.length>1?' '+(i+1):'')).catch(err=>Z.log('TXD: '+err.message));}catch(err){Z.log('TXD: '+err.message);}});
+    Z.log('Tayyor bo\'lgach pastdagi «✔ Bamper sahifasiga qaytarish» tugmasini bosing (File→Export emas — u mashina tuzilishini saqlamaydi).');
     e.source.postMessage({type:'itshakh-zmw-loaded',objects:Z.S.objects.length},'*');
   }catch(err){alert('Yuklab bo\'lmadi: '+err.message);e.source.postMessage({type:'itshakh-zmw-error',message:err.message},'*');}
 });
