@@ -246,7 +246,7 @@ const palById=id=>PAL.find(p=>p.id===id)||PAL[0];
 
 /* ---------------- default settings ---------------- */
 const DEF={
- mode:'bars',bars:96,sens:1.5,smooth:.72,decay:.88,fft:3,minf:30,maxf:16000,scale:100,rotation:0,spin:0,thick:70,round:1,peaks:1,reflect:0,glow:16,tilt:1,agc:0,beatzoom:1,
+ beatSens:50,beatLock:1,mode:'bars',bars:96,sens:1.5,smooth:.72,decay:.88,fft:3,minf:30,maxf:16000,scale:100,rotation:0,spin:0,thick:70,round:1,peaks:1,reflect:0,glow:16,tilt:1,agc:0,beatzoom:1,
  pal:'cyber',c1:'#00e5ff',c2:'#7c4dff',c3:'#ff3df2',cmode:'grad',hueSpeed:0,bgMode:'radial',bg1:'#0c1c31',bg2:'#02050a',
  bgOn:1,bgFit:'cover',bgFx:'none',bgFxAmt:100,bgBlend:'source-over',bgOpacity:100,bgBright:100,bgContrast:100,bgSat:100,bgBlur:0,bgZoom:100,bgX:50,bgY:50,bgRot:0,bgKen:0,bgPulse:25,bgAZoom:10,bgDim:25,bgLoop:1,
  pOn:1,pFam:'dust',pShape:'circle',pAmt:300,pSize:2.2,pSpeed:1,pOpa:75,pGrav:0,pTurb:30,pAud:70,pBeat:50,pTwk:40,pColSrc:'pal',pc1:'#00e5ff',pc2:'#7c4dff',pBlend:'lighter',pFront:0,
@@ -384,6 +384,7 @@ let hasFile=false,micOn=false,muted=false,fileName='';
 const B=new Float32Array(256),PK=new Float32Array(256),TG=new Float32Array(256);
 let N=96,bandLo=new Float32Array(257),bandHi=new Float32Array(257),bandKey='';
 let wave=wd,bass=0,mid=0,treb=0,lvl=0,peakDb=-120,beat=0,beatAvg=0,lastBeat=-9,beatTimes=[],bpmVal=0,agcMax=.4,beatCount=0,beatFlag=false;
+let bLP=null,bAn=null,bwd=null;const BD={peak:1e-4,slow:0,prev:0,per:0,syn:false,real:0,synN:0};
 const demoWave=new Float32Array(2048);
 let T=0,frameDt=1/60;                       // animation clock (s)
 
@@ -393,6 +394,8 @@ function ensureAudio(){
   ac=new AC();an=ac.createAnalyser();an.minDecibels=-92;an.maxDecibels=-12;an.smoothingTimeConstant=P.smooth;an.fftSize=FFTS[P.fft];
   outG=ac.createGain();outG.gain.value=muted?0:1;
   src=ac.createMediaElementSource(A);src.connect(an);an.connect(outG);outG.connect(ac.destination);
+  try{bLP=ac.createBiquadFilter();bLP.type='lowpass';bLP.frequency.value=150;bLP.Q.value=.707;bAn=ac.createAnalyser();bAn.fftSize=1024;bAn.smoothingTimeConstant=0;bwd=new Float32Array(1024);
+    const bSink=ac.createGain();bSink.gain.value=0;src.connect(bLP);bLP.connect(bAn);bAn.connect(bSink);bSink.connect(ac.destination);}catch(e){bAn=null;}
   fd=new Uint8Array(an.frequencyBinCount);wd=new Float32Array(an.fftSize);wave=wd;
   return true;
 }
@@ -463,14 +466,24 @@ function analyze(dt){
   beatFlag=false;
   const inst=bRaw;
   beatAvg+=(inst-beatAvg)*(1-Math.pow(.4,dt*3));
-  if(real?(inst>beatAvg*1.22+.025&&inst>.26&&T-lastBeat>.23):((T*124/60)%1<dt*124/60&&T-lastBeat>.3)){
-    if(lastBeat>0&&T-lastBeat<2){beatTimes.push(T-lastBeat);if(beatTimes.length>14)beatTimes.shift();}
-    lastBeat=T;beat=1;beatFlag=true;beatCount++;
-    if(beatTimes.length>=5){const s=[...beatTimes].sort((a,b)=>a-b),med=s[s.length>>1];let b=60/med;while(b<80)b*=2;while(b>180)b/=2;bpmVal=bpmVal?bpmVal*.7+b*.3:b;}
-  }
+  if(real){
+    /* Bass zarbasi: 40–150 Hz alohida filtr, chiziqli (dB emas) energiya — baland/uzun bassda ham to'yinmaydi */
+    let eB=inst*.5;if(bAn){bAn.getFloatTimeDomainData(bwd);let s=0;for(let i=0;i<bwd.length;i++)s+=bwd[i]*bwd[i];eB=Math.sqrt(s/bwd.length);}
+    BD.peak=Math.max(eB,BD.peak*Math.pow(.5,dt/3));
+    const sn=clamp(P.beatSens,0,100)/100,kk=2-sn*.85,ab=.3-sn*.15,gapMin=BD.syn?.09:.22;
+    if(eB>BD.slow*kk+.04*BD.peak&&eB>ab*BD.peak&&eB>=BD.prev&&eB>.002&&T-lastBeat>gapMin){
+      if(lastBeat>0&&T-lastBeat<2&&!BD.syn){beatTimes.push(T-lastBeat);if(beatTimes.length>14)beatTimes.shift();}
+      lastBeat=T;beat=1;beatFlag=true;beatCount++;BD.syn=false;BD.real++;BD.synN=0;
+      if(beatTimes.length>=5){const s=[...beatTimes].sort((a,b)=>a-b),med=s[s.length>>1];let b=60/med;while(b<80)b*=2;while(b>180)b/=2;bpmVal=bpmVal?bpmVal*.7+b*.3:b;BD.per=60/bpmVal;}
+    }else if(P.beatLock&&BD.per&&T-lastBeat>BD.per+.03&&lvl>.006&&(!A.paused||micOn)){
+      /* ritmni ushlab turish: zarba aniqlanmasa ham BPM bo'yicha urib turadi (to'xtab qolmaydi) */
+      lastBeat=T-lastBeat>BD.per*2.5?T:lastBeat+BD.per;beat=1;beatFlag=true;beatCount++;BD.syn=true;BD.synN++;
+    }
+    BD.slow+=(eB-BD.slow)*(1-Math.exp(-dt/.2));BD.prev=eB;
+  }else if((T*124/60)%1<dt*124/60&&T-lastBeat>.3){lastBeat=T;beat=1;beatFlag=true;beatCount++;}
   beat=Math.max(0,beat-dt*3.4);
 }
-function resetAnalysis(){B.fill(0);PK.fill(0);TG.fill(0);beat=0;bass=mid=treb=0;beatTimes=[];bpmVal=0;lastBeat=-9;agcMax=.4;}
+function resetAnalysis(){B.fill(0);PK.fill(0);TG.fill(0);beat=0;bass=mid=treb=0;beatTimes=[];bpmVal=0;lastBeat=-9;agcMax=.4;BD.peak=1e-4;BD.slow=0;BD.prev=0;BD.per=0;BD.syn=false;BD.real=0;BD.synN=0;}
 
 /* =====================================================================
    FILE LOADING + TRANSPORT
@@ -524,7 +537,7 @@ async function toggleMic(on){
       if(!ensureAudio())return;
       micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
       await ac.resume();A.pause();
-      micSrc=ac.createMediaStreamSource(micStream);micSrc.connect(an);setOutMute(true);micOn=true;resetAnalysis();
+      micSrc=ac.createMediaStreamSource(micStream);micSrc.connect(an);if(bLP)micSrc.connect(bLP);setOutMute(true);micOn=true;resetAnalysis();
       $('micBtn').classList.add('on');$('trackName').textContent='🎙 MIKROFON (jonli)';$('trackBox').className='track live';$('stage').classList.add('hasaudio');
       setHint('Mikrofon yoqildi. Eslatma: eksport faqat audio fayl bilan ishlaydi.');
     }catch(e){setHint('Mikrofonga ruxsat berilmadi: '+e.message);}
@@ -3581,6 +3594,9 @@ addTab('visual','VIZUAL',pane=>{
     {k:'fft',l:'FFT aniqligi',min:0,max:5,step:1,f:NF.fft},{k:'minf',l:'Min chastota',min:20,max:500,f:NF.hz},
     {k:'maxf',l:'Max chastota',min:2000,max:20000,step:100,f:NF.hz},{k:'tilt',l:'Yuqori chastota kuchaytirish',t:'c'},
     {k:'agc',l:'Avto-gain (AGC)',t:'c'}]));
+  pane.appendChild(group('BEAT (ZARBA)',[
+    {k:'beatSens',l:'Beat sezgirligi',min:0,max:100,f:NF.pct},{k:'beatLock',l:'Ritmni ushlab turish — to‘xtamasin',t:'c'}]));
+  pane.appendChild(el('p',{class:'note',html:'Zarba bass (40–150 Hz) bo‘yicha alohida aniqlanadi — baland, uzun bassda ham to‘xtamaydi. <b>Ritmni ushlab turish</b> yoqilgan bo‘lsa, biror zarba sezilmay qolsa ham sahifa topilgan BPM bo‘yicha urishni davom ettiradi (musiqa to‘xtasa — to‘xtaydi).'}));
   pane.appendChild(group('SHAKL',[
     {k:'scale',l:'Masshtab',min:30,max:180,f:NF.pct},{k:'rotation',l:'Burilish',min:-180,max:180,f:NF.deg},
     {k:'spin',l:'Aylanish tezligi',min:-10,max:10,step:.1,f:NF.n2},{k:'thick',l:'Qalinlik',min:10,max:100,f:NF.pct},
