@@ -130,6 +130,27 @@ input[type=range]:hover::-webkit-slider-thumb{box-shadow:0 0 0 5px rgba(0,229,25
 .progress i{display:block;height:100%;width:0;background:var(--grad)}
 .exstat{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--mut);font-size:12px;min-height:40px}
 .sep{height:1px;background:var(--line);margin:14px 0}
+.aep{border:1px solid var(--line);border-radius:11px;background:var(--panel2);margin-bottom:8px;overflow:hidden;transition:border-color .15s}
+.aep.act{border-color:var(--cy);box-shadow:0 0 0 1px rgba(0,229,255,.12),0 6px 18px rgba(0,229,255,.06)}
+.aeh{display:flex;align-items:center;gap:10px;padding:9px 10px 9px 12px;cursor:pointer;user-select:none}
+.aeh:hover{background:var(--panel3)}
+.aet{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.aet b{font-size:12.5px;letter-spacing:.3px}
+.aep.act .aet b{color:var(--cy)}
+.aet small{color:var(--mut2);font-size:10px;font-weight:700;letter-spacing:.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aet b::before{content:"▸ ";color:var(--mut2)}
+.aep.open .aet b::before{content:"▾ "}
+.aeh .row.sw.aetg{padding:0;border:0;background:transparent;flex:none}
+.aeh .row.sw.aetg>label{display:none}
+.aeb{display:none;padding:2px 12px 12px;border-top:1px solid var(--line)}
+.aep.open .aeb{display:block}
+.aeb .note{margin:8px 0 10px}
+.aeb .grp{margin:0}
+.aest{margin:0 0 14px}
+.aest.on{color:var(--grn);border-color:rgba(53,239,155,.35)}
+.aest.bad{color:var(--red);border-color:rgba(255,82,112,.4)}
+.aenote{margin:0 0 10px}
+.aepre .chip{font-size:11px}
 .fontprev{margin-top:6px;padding:8px 10px;border:1px dashed var(--line2);border-radius:8px;text-align:center;font-size:20px;color:var(--cy);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 
 @media(max-width:1100px){
@@ -2839,6 +2860,7 @@ function postFX(){
     [['#ff0000',-chrom,0],['#00ff00',0,0],['#0000ff',chrom,0]].forEach(([c,dx,dy])=>{CHX.globalCompositeOperation='source-over';CHX.drawImage(TMP,0,0);CHX.globalCompositeOperation='multiply';CHX.fillStyle=c;CHX.fillRect(0,0,W,H);g.drawImage(CH,dx,dy);});
     g.globalCompositeOperation='source-over';
   }
+  aeFrame();
   if(P.vig>0){g.fillStyle=rgrad(g,W/2,H/2,Math.min(W,H)*.35,Math.hypot(W,H)*.6,[[0,'rgba(0,0,0,0)'],[1,'rgba(0,0,0,'+(P.vig/100*.9)+')']]);g.fillRect(0,0,W,H);}
   if(P.scan>0){g.save();g.globalAlpha=P.scan/100;g.fillStyle=g.createPattern(SC,'repeat');g.save();g.scale(U,U);g.fillRect(0,0,W/U,H/U);g.restore();g.restore();}
   if(P.grain>0){g.save();g.globalAlpha=P.grain/100*.3;g.globalCompositeOperation='overlay';g.fillStyle=g.createPattern(GR,'repeat');g.translate(Math.floor(Math.random()*256),Math.floor(Math.random()*256));g.fillRect(-256,-256,W+512,H+512);g.restore();}
@@ -2864,7 +2886,7 @@ function renderFrame(){
   try{md.fn(VX);}catch(e){if(!renderFrame.err){renderFrame.err=1;console.error('mode error',md.id,e);}}
   VX.restore();VX.globalCompositeOperation='source-over';VX.globalAlpha=1;VX.shadowBlur=0;
   const sk=P.shake/100*beat*14*U,ox=sk?rnd(-1,1)*sk:0,oy=sk?rnd(-1,1)*sk:0;
-  g.drawImage(VIS,ox,oy);
+  aeVisDraw(g,ox,oy);
   if(P.bloom>0||fastGlow>0){
     SMX.globalCompositeOperation='copy';SMX.drawImage(VIS,0,0,SM.width,SM.height);
     g.save();g.globalCompositeOperation='lighter';g.imageSmoothingEnabled=true;
@@ -3339,6 +3361,318 @@ addTab('fx','EFFEKT',pane=>{
   pane.appendChild(el('p',{class:'note',html:'<b>Avto-tezlik nazorati</b> yoqilganda kompyuter kadr tezligiga yetmasa, ichki chizish o‘lchami va og‘ir effektlar (glow, zarracha soni) avtomatik kamayadi — rasm qotmaydi. Eksport videosi baribir tanlangan o‘lchamda (720p/1080p) saqlanadi.'}));
   pane.appendChild(el('p',{class:'note',html:'Sekin kompyuterda <b>Yengil</b> rejimni tanlang. Eksport har doim o‘zining aniqligida (720p/1080p) chiziladi.'}));
 });
+
+/* =====================================================================
+   AE PLAGINLAR — After Effects'dagi mashhur plaginlarning shu sahifadagi versiyasi (WebGL, GPU).
+   Asl .aex plaginlar faqat Adobe After Effects ichida ishlaydi — bu yerda ularning ko'rinishi
+   brauzer videokartasida qayta yozilgan: musiqaga (bass / beat …) bog'lanadi va eksport videosiga tushadi.
+   ===================================================================== */
+const AE_SRC=[['off','Yo‘q (doimiy)'],['bass','Bass'],['mid','O‘rta chastota'],['treb','Yuqori chastota'],['beat','Beat (zarba)'],['lvl','Umumiy ovoz']];
+const AE_DEF={
+ aeGlowOn:0,aeGlowAmt:110,aeGlowRad:60,aeGlowThr:45,aeGlowTint:'#ffffff',aeGlowTintAmt:0,aeGlowSrc:'bass',aeGlowReact:60,
+ aeSabOn:0,aeSabMode:'fill',aeSabCol:'#00a8ff',aeSabCore:80,aeSabAmt:100,aeSabRad:50,aeSabNoise:35,aeSabKeep:1,aeSabSrc:'beat',aeSabReact:60,
+ aeFlOn:0,aeFlX:72,aeFlY:28,aeFlMove:25,aeFlAmt:90,aeFlCol:'#ffb35c',aeFlStreak:60,aeFlGhost:60,aeFlSrc:'bass',aeFlReact:80,
+ aeRayOn:0,aeRayX:50,aeRayY:50,aeRayLen:55,aeRayAmt:80,aeRayThr:45,aeRaySrc:'bass',aeRayReact:70,
+ aeTwOn:0,aeTwAmt:60,aeTwFreq:45,aeTwSlide:1,aeTwRgb:1,aeTwScale:1,aeTwLight:1,aeTwBlur:1,
+ aeShOn:0,aeShAmt:35,aeShRot:30,aeShZoom:20,aeShBlur:50,aeShSpd:50,aeShSrc:'bass',aeShReact:100,
+ aeTdOn:0,aeTdAmt:30,aeTdSize:45,aeTdSpd:35,aeTdSrc:'bass',aeTdReact:60,
+ aeWwOn:0,aeWwAmp:20,aeWwLen:45,aeWwSpd:40,aeWwDir:'h',aeWwSrc:'mid',aeWwReact:50,
+ aeLensOn:0,aeLensAmt:35,aeLensSrc:'beat',aeLensReact:60,
+ aeKalOn:0,aeKalSeg:6,aeKalRot:0,aeKalSpin:15,aeKalZoom:100,aeKalSrc:'off',aeKalReact:0,
+ aeRbOn:0,aeRbAmt:30,aeRbX:50,aeRbY:50,aeRbSrc:'beat',aeRbReact:100,
+ aeRgbOn:0,aeRgbAmt:30,aeRgbMode:'radial',aeRgbSrc:'beat',aeRgbReact:100,
+ aeGlOn:0,aeGlAmt:40,aeGlBlock:50,aeGlSpd:50,aeGlSrc:'beat',aeGlReact:100,
+ aeEcOn:0,aeEcAmt:70,aeEcZoom:103,aeEcRot:0,aeEcSrc:'off',aeEcReact:0,
+ aeCcOn:0,aeCcLook:'teal',aeCcExp:0,aeCcCon:10,aeCcSat:10,aeCcVib:20,aeCcTemp:0
+};
+Object.assign(DEF,AE_DEF);Object.keys(AE_DEF).forEach(k=>{if(!(k in P))P[k]=AE_DEF[k];});
+const AE_ONS=Object.keys(AE_DEF).filter(k=>/On$/.test(k));
+const AE_FRAME_ONS=AE_ONS.filter(k=>k!=='aeSabOn');
+const AE_LOOKS={
+ none:{sh:[1,1,1],hi:[1,1,1],sat:1,con:0,fade:0,mono:0},
+ teal:{sh:[.74,1.04,1.22],hi:[1.22,1.02,.8],sat:1.08,con:.1,fade:0,mono:0},
+ cine:{sh:[.86,1,1.12],hi:[1.08,1.02,.92],sat:.85,con:.16,fade:.25,mono:0},
+ cyber:{sh:[1.16,.74,1.26],hi:[.85,1.1,1.25],sat:1.25,con:.12,fade:0,mono:0},
+ vintage:{sh:[1.1,1,.84],hi:[1.12,1.05,.84],sat:.7,con:-.05,fade:.6,mono:0},
+ bleach:{sh:[1,1,1],hi:[1,1,1],sat:.45,con:.35,fade:0,mono:0},
+ bw:{sh:[1,1,1],hi:[1,1,1],sat:1,con:.22,fade:0,mono:1},
+ warm:{sh:[1.08,1,.9],hi:[1.12,1.03,.85],sat:1.05,con:.05,fade:0,mono:0},
+ cold:{sh:[.88,1,1.15],hi:[.92,1,1.12],sat:1,con:.05,fade:0,mono:0},
+ matrix:{sh:[.7,1.15,.75],hi:[.85,1.2,.85],sat:1.1,con:.1,fade:0,mono:0}
+};
+function aeSig(s){switch(s){case'bass':return clamp(bass,0,1.2);case'mid':return clamp(mid,0,1.2);case'treb':return clamp(treb,0,1.2);case'beat':return clamp(beat,0,1);case'lvl':return clamp(lvl*3,0,1.2);default:return .5;}}
+/* Sound Keys g'oyasi: parametr musiqaga qarab o'zgaradi. Reaksiya 0% — doimiy, 100% — to'liq musiqaga ergashadi. */
+function aeMod(b){const s=P[b+'Src'],r=(P[b+'React']||0)/100;if(!s||s==='off'||!r)return 1;return Math.max(0,lerp(1,aeSig(s)*2,r));}
+const aeRGB=h=>hexRgb(h).map(v=>v/255);
+
+/* ---------------- WebGL ---------------- */
+const AE={ok:null,err:'',cv:null,gl:null,PR:{},buf:null,w:0,h:0,F:{},src:null,vis:null,echoValid:false,echoI:0,
+ tw:{e:0,dur:.2,k:{},dir:1,slide:0,slideV:0,rgb:0,scale:0,light:0,blur:0},sh:{t:0,x:0,y:0,r:0,z:1,vx:0,vy:0},wwPh:0,tdT:0,glT:0,kalA:0,flT:0,ms:0};
+const AE_VS='attribute vec2 p;varying vec2 v;void main(){v=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
+const AE_H='#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\nvarying vec2 v;\n'+
+ 'float h21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}\n'+
+ 'float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h21(i),h21(i+vec2(1.,0.)),f.x),mix(h21(i+vec2(0.,1.)),h21(i+vec2(1.,1.)),f.x),f.y);}\n'+
+ 'float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<4;i++){s+=a*vn(p);p=p*2.03+17.1;a*=.5;}return s;}\n'+
+ 'vec2 mir(vec2 u){return 1.-abs(1.-mod(u,2.));}\n';
+const AE_FS={
+ /* Turbulent Displace + Wave Warp + CC Lens + CC Kaleida + S_Shake/Twitch transform + Glitch + RGB Split — bitta o'tishda */
+ warp:'uniform sampler2D uT;uniform float uAsp,uRot,uZoom,uLens,uKo;uniform vec2 uOff;uniform vec3 uTd,uRgb;uniform vec4 uWw,uKal,uGl;\n'+
+  'void main(){vec2 q=(v-.5)*vec2(uAsp,1.);float c=cos(uRot),s=sin(uRot);q=mat2(c,-s,s,c)*q/uZoom-uOff;\n'+
+  ' if(uKal.w>.5){float a=atan(q.y,q.x)+uKal.y,r=length(q)/uKal.z,sg=6.2831853/uKal.x;a=mod(a,sg);a=abs(a-sg*.5)+uKo;q=r*vec2(cos(a),sin(a));}\n'+
+  ' if(uLens!=0.){q*=1.+uLens*dot(q,q);}\n'+
+  ' if(uWw.x>0.){if(uWw.w<.5)q.y+=uWw.x*sin(q.x*uWw.y+uWw.z);else q.x+=uWw.x*sin(q.y*uWw.y+uWw.z);}\n'+
+  ' if(uTd.x>0.){vec2 n=vec2(fbm(q*uTd.y+vec2(0.,uTd.z)),fbm(q*uTd.y+vec2(5.2,1.3-uTd.z)))-.5;q+=n*uTd.x;}\n'+
+  ' vec2 u=q/vec2(uAsp,1.)+.5;float gs=0.;\n'+
+  ' if(uGl.w>.5){vec2 b=floor(v*vec2(uGl.y,uGl.y*.5625));float h=h21(b+uGl.z);if(h<uGl.x*.5){float o=(h21(b*1.7+uGl.z+3.1)-.5)*uGl.x*.25;u.x+=o;gs=o*.6;}\n'+
+  '  float row=floor(v.y*90.);if(h21(vec2(row,uGl.z))<uGl.x*.15)u.x+=(h21(vec2(row+2.,uGl.z))-.5)*.05*uGl.x;}\n'+
+  ' vec2 d=uRgb.z<.5?(v-.5)*uRgb.x:vec2(uRgb.x,0.)*uRgb.y;\n'+
+  ' float r=texture2D(uT,mir(u+d+vec2(gs,0.))).r,g=texture2D(uT,mir(u)).g,bb=texture2D(uT,mir(u-d-vec2(gs,0.))).b;\n'+
+  ' gl_FragColor=vec4(r,g,bb,1.);}',
+ /* CC Radial Fast Blur + harakat xiraligi (motion blur) */
+ blur:'uniform sampler2D uT;uniform vec2 uC,uD;uniform float uZ,uN;\n'+
+  'void main(){vec3 a=vec3(0.);float w=0.;for(int i=0;i<32;i++){if(float(i)>=uN)break;float t=float(i)/(uN-1.)-.5;vec2 u=uC+(v-uC)*(1.-uZ*t)+uD*t;a+=texture2D(uT,mir(u)).rgb;w+=1.;}gl_FragColor=vec4(a/w,1.);}',
+ /* Echo (lighten) — oldingi kadr kattalashib/burilib qoladi */
+ echo:'uniform sampler2D uT,uP;uniform float uAsp,uZ,uR,uK;\n'+
+  'void main(){vec3 c=texture2D(uT,v).rgb;vec2 q=(v-.5)*vec2(uAsp,1.);float cs=cos(uR),sn=sin(uR);q=mat2(cs,-sn,sn,cs)*q/uZ;vec2 u=q/vec2(uAsp,1.)+.5;vec3 p=vec3(0.);\n'+
+  ' if(u.x>=0.&&u.x<=1.&&u.y>=0.&&u.y<=1.)p=texture2D(uP,u).rgb*uK;gl_FragColor=vec4(max(c,p),1.);}',
+ bright:'uniform sampler2D uT;uniform float uThr;\n'+
+  'void main(){vec3 c=texture2D(uT,v).rgb;if(uThr<=0.){gl_FragColor=vec4(c,1.);return;}float l=max(c.r,max(c.g,c.b));gl_FragColor=vec4(c*smoothstep(uThr,uThr+.22,l),1.);}',
+ down:'uniform sampler2D uT;uniform vec2 uPx;\n'+
+  'void main(){vec2 h=uPx*.5;vec4 s=texture2D(uT,v)*4.+texture2D(uT,v-h)+texture2D(uT,v+h)+texture2D(uT,v+vec2(h.x,-h.y))+texture2D(uT,v-vec2(h.x,-h.y));gl_FragColor=vec4(s.rgb/8.,1.);}',
+ up:'uniform sampler2D uT,uA;uniform vec2 uPx;uniform float uS;\n'+
+  'void main(){vec2 h=uPx*.5*uS;vec3 s=texture2D(uT,v+vec2(-h.x*2.,0.)).rgb+texture2D(uT,v+vec2(-h.x,h.y)).rgb*2.+texture2D(uT,v+vec2(0.,h.y*2.)).rgb+texture2D(uT,v+vec2(h.x,h.y)).rgb*2.\n'+
+  ' +texture2D(uT,v+vec2(h.x*2.,0.)).rgb+texture2D(uT,v+vec2(h.x,-h.y)).rgb*2.+texture2D(uT,v+vec2(0.,-h.y*2.)).rgb+texture2D(uT,v+vec2(-h.x,-h.y)).rgb*2.;\n'+
+  ' gl_FragColor=vec4(s/12.+texture2D(uA,v).rgb,1.);}',
+ /* Shine / CC Light Rays — hajmli nurlar */
+ rays:'uniform sampler2D uT;uniform vec2 uC;uniform float uDen,uK,uW,uN;\n'+
+  'void main(){vec2 tc=v,dl=(v-uC)*uDen/uN;float il=1.;vec3 a=vec3(0.);for(int i=0;i<64;i++){if(float(i)>=uN)break;tc-=dl;a+=texture2D(uT,tc).rgb*il;il*=uK;}gl_FragColor=vec4(a*uW,1.);}',
+ /* Saber — spektr qatlamining shakli (alfa) bo'yicha energiya niqobi */
+ smask:'uniform sampler2D uT;uniform vec3 uNz;uniform vec2 uPx;uniform float uMode,uTh;\n'+
+  'void main(){vec2 n=(vec2(fbm(v*uNz.y+vec2(uNz.z,0.)),fbm(v*uNz.y+vec2(3.7,uNz.z)))-.5)*uNz.x;vec2 u=v+n;float a=texture2D(uT,u).a;\n'+
+  ' if(uMode>.5){vec2 e=uPx*uTh;float a1=texture2D(uT,u+vec2(e.x,0.)).a,a2=texture2D(uT,u-vec2(e.x,0.)).a,a3=texture2D(uT,u+vec2(0.,e.y)).a,a4=texture2D(uT,u-vec2(0.,e.y)).a;\n'+
+  '  a=clamp((max(max(a1,a2),max(a3,a4))-min(min(a1,a2),min(a3,a4)))*1.6,0.,1.);}\n'+
+  ' gl_FragColor=vec4(vec3(a),1.);}',
+ saber:'uniform sampler2D uM,uG;uniform vec3 uCol;uniform float uCore,uA,uF;\n'+
+  'void main(){float m=texture2D(uM,v).r;float g=texture2D(uG,v).r;float core=smoothstep(.25,.85,m)*uCore;\n'+
+  ' vec3 c=uCol*g*uA*uF*2.2+mix(uCol,vec3(1.),.8)*core*uF;gl_FragColor=vec4(c,1.);}',
+ /* Yakuniy: Deep Glow + nurlar + Optical Flares + Twitch yorug'ligi + Lumetri rang */
+ fin:'uniform sampler2D uT,uGt,uRt;uniform float uAsp,uGlA,uRyA,uExpo,uFlash,uCcOn,uTemp,uFade,uMono,uLSat,uLCon;uniform vec3 uGlTint,uFlCol,uShT,uHiT;uniform vec4 uFl,uCc;uniform vec2 uFlS;\n'+
+  'vec3 flare(vec2 uv){vec2 p=(uv-uFl.xy)*vec2(uAsp,1.);float d=length(p);vec3 c=uFlCol*(exp(-d*7.)*.45+exp(-d*38.)*1.2);\n'+
+  ' c+=mix(uFlCol,vec3(.6,.8,1.),.5)*exp(-abs(p.y)*90.)*exp(-abs(p.x)*1.6)*uFlS.x*1.2;\n'+
+  ' c+=uFlCol*pow(abs(cos(atan(p.y,p.x)*3.)),60.)*exp(-d*5.)*.5;\n'+
+  ' c+=vec3(.5,.7,1.)*exp(-pow((d-.32)*22.,2.))*.12*uFlS.y;\n'+
+  ' vec2 ax=vec2(.5)-uFl.xy;for(int i=0;i<6;i++){float fi=float(i),k=-.25+fi*.38+fract(fi*.37)*.2;vec2 gp=uFl.xy+ax*2.*k;float gd=length((uv-gp)*vec2(uAsp,1.)),r=.025+fract(fi*.53)*.07;\n'+
+  '  c+=mix(uFlCol,vec3(.4,.7,1.),fract(fi*.71))*smoothstep(r,r*.6,gd)*.11*uFlS.y;}\n'+
+  ' return c*uFl.z;}\n'+
+  'void main(){vec3 c=texture2D(uT,v).rgb;\n'+
+  ' if(uGlA>0.)c+=texture2D(uGt,v).rgb*uGlA*uGlTint;\n'+
+  ' if(uRyA>0.)c+=texture2D(uRt,v).rgb*uRyA;\n'+
+  ' if(uFl.w>.5)c+=flare(v);\n'+
+  ' c=c*uExpo+uFlash;\n'+
+  ' if(uCcOn>.5){vec3 lw=vec3(.2126,.7152,.0722);c*=exp2(uCc.x);float l=clamp(dot(c,lw),0.,1.);\n'+
+  '  c*=mix(uShT,uHiT,smoothstep(.05,.85,l));l=dot(c,lw);c=mix(vec3(l),c,uLSat);\n'+
+  '  c=(c-.5)*(1.+uCc.y+uLCon)+.5;l=dot(c,lw);float mx=max(c.r,max(c.g,c.b)),mn=min(c.r,min(c.g,c.b));\n'+
+  '  c=mix(vec3(l),c,(1.+uCc.z)*(1.+uCc.w*(1.-clamp(mx-mn,0.,1.))));\n'+
+  '  c*=vec3(1.+uTemp*.12,1.+uTemp*.02,1.-uTemp*.12);c=uFade*.13+c*(1.-uFade*.13);c=mix(c,vec3(dot(c,lw)),uMono);}\n'+
+  ' gl_FragColor=vec4(clamp(c,0.,1.),1.);}'
+};
+function aeFail(e){AE.ok=false;AE.err=String(e&&e.message||e);console.error('AE plaginlar:',e);setHint('AE plaginlar to‘xtatildi: '+AE.err);aeStatus();}
+function aeInit(){
+  if(AE.ok!==null)return AE.ok;
+  try{
+    if(!AE.cv){AE.cv=document.createElement('canvas');AE.cv.width=AE.cv.height=16;
+      AE.cv.addEventListener('webglcontextlost',e=>{e.preventDefault();AE.ok=null;AE.lost=true;AE.w=0;AE.F={};aeStatus();});
+      AE.cv.addEventListener('webglcontextrestored',()=>{AE.lost=false;AE.ok=null;aeStatus();});}
+    const gl=AE.gl||AE.cv.getContext('webgl',{alpha:false,antialias:false,depth:false,stencil:false,premultipliedAlpha:true,preserveDrawingBuffer:false,powerPreference:'high-performance'});
+    if(!gl)throw new Error('brauzerda WebGL yo‘q');if(AE.lost)return false;AE.gl=gl;
+    const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error('shader: '+gl.getShaderInfoLog(o));return o;};
+    const vs=sh(gl.VERTEX_SHADER,AE_VS);AE.PR={};
+    Object.keys(AE_FS).forEach(k=>{const p=gl.createProgram();gl.attachShader(p,vs);gl.attachShader(p,sh(gl.FRAGMENT_SHADER,AE_H+AE_FS[k]));gl.bindAttribLocation(p,0,'p');gl.linkProgram(p);
+      if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error('link '+k+': '+gl.getProgramInfoLog(p));
+      const u={},n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);for(let i=0;i<n;i++){const a=gl.getActiveUniform(p,i);u[a.name]=gl.getUniformLocation(p,a.name);}AE.PR[k]={p,u};});
+    AE.buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,AE.buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);gl.disable(gl.BLEND);gl.disable(gl.DEPTH_TEST);
+    AE.src=aeTex0();AE.vis=aeTex0();AE.w=0;AE.ok=true;AE.err='';
+  }catch(e){AE.ok=false;AE.err=String(e&&e.message||e);console.warn('AE plaginlar: WebGL ishlamadi —',AE.err);}
+  aeStatus();return AE.ok;
+}
+function aeTex0(){const gl=AE.gl,t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);[[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]].forEach(([a,b])=>gl.texParameteri(gl.TEXTURE_2D,a,b));return t;}
+function aeRT(w,h){const gl=AE.gl,t=aeTex0();gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);const f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);return{t,f,w,h};}
+function aeSize(w,h){
+  if(AE.w===w&&AE.h===h)return;const gl=AE.gl;
+  Object.values(AE.F).forEach(x=>{(Array.isArray(x)?x:[x]).forEach(r=>{gl.deleteTexture(r.t);gl.deleteFramebuffer(r.f);});});
+  AE.w=w;AE.h=h;AE.cv.width=w;AE.cv.height=h;AE.echoValid=false;
+  const hw2=Math.max(2,w>>1),hh2=Math.max(2,h>>1),D=[],U=[];
+  for(let i=0;i<7;i++){const dw=Math.max(2,w>>(i+1)),dh=Math.max(2,h>>(i+1));D.push(aeRT(dw,dh));if(i<6)U.push(aeRT(dw,dh));}
+  AE.F={A:aeRT(w,h),B:aeRT(w,h),E:[aeRT(w,h),aeRT(w,h)],D,U,R0:aeRT(hw2,hh2),R1:aeRT(hw2,hh2)};
+}
+function aeUp(tex,cv,premul){const gl=AE.gl;gl.bindTexture(gl.TEXTURE_2D,tex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,!!premul);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,cv);}
+function aePass(name,rt,U_,T_){
+  const gl=AE.gl,pr=AE.PR[name];gl.bindFramebuffer(gl.FRAMEBUFFER,rt?rt.f:null);gl.viewport(0,0,rt?rt.w:AE.w,rt?rt.h:AE.h);gl.useProgram(pr.p);
+  let unit=0;for(const k in T_){gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,T_[k]);if(pr.u[k])gl.uniform1i(pr.u[k],unit);unit++;}
+  for(const k in U_){const l=pr.u[k];if(!l)continue;const x=U_[k];if(typeof x==='number')gl.uniform1f(l,x);else if(x.length===2)gl.uniform2fv(l,x);else if(x.length===3)gl.uniform3fv(l,x);else gl.uniform4fv(l,x);}
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+/* Deep Glow uslubidagi ko'p qatlamli porlash: bright-pass -> kichraytirish zanjiri -> kattalashtirib qo'shish */
+function aeBloom(srcTex,thr,levels,spread){
+  const D=AE.F.D,U=AE.F.U;levels=clamp(levels|0,1,7);
+  aePass('bright',D[0],{uThr:thr},{uT:srcTex});
+  for(let i=1;i<levels;i++)aePass('down',D[i],{uPx:[1/D[i-1].w,1/D[i-1].h]},{uT:D[i-1].t});
+  let up=D[levels-1];
+  for(let i=levels-2;i>=0;i--){aePass('up',U[i],{uPx:[1/up.w,1/up.h],uS:spread},{uT:up.t,uA:D[i].t});up=U[i];}
+  return up;
+}
+function aeLvl(){return P.autoq?PERF.lvl:0;}
+function aeTwitch(){
+  const t=AE.tw,dt=frameDt;
+  if(!P.aeTwOn){t.e=0;t.slide=t.slideV=t.rgb=t.scale=t.light=t.blur=0;return;}
+  const amt=P.aeTwAmt/100,ch=P.aeTwFreq/100;
+  if(t.e<=0&&((beatFlag&&Math.random()<.25+ch*.75)||Math.random()<ch*dt*1.2)){
+    const ty=[];if(P.aeTwSlide)ty.push('slide');if(P.aeTwRgb)ty.push('rgb');if(P.aeTwScale)ty.push('scale');if(P.aeTwLight)ty.push('light');if(P.aeTwBlur)ty.push('blur');
+    if(ty.length){t.e=1;t.dur=rnd(.12,.32);t.k={};const n=1+(Math.random()<.55?1:0);for(let i=0;i<n;i++)t.k[ty[Math.floor(Math.random()*ty.length)]]=1;t.dir=Math.random()<.5?-1:1;}
+  }
+  if(t.e>0){t.e-=dt/t.dur;const e=Math.max(0,t.e),f=e*e;
+    t.slide=t.k.slide?t.dir*amt*.35*f:0;t.slideV=t.k.slide?t.dir*amt*.18*e:0;t.rgb=t.k.rgb?amt*.03*e:0;t.scale=t.k.scale?amt*.25*f:0;t.light=t.k.light?amt*1.2*f:0;t.blur=t.k.blur?amt*.35*e:0;}
+  else{t.slide=t.slideV=t.rgb=t.scale=t.light=t.blur=0;}
+}
+function aeShake(){
+  const s=AE.sh;if(!P.aeShOn){s.x=s.y=s.r=s.vx=s.vy=0;s.z=1;return;}
+  const m=P.aeShAmt/100*aeMod('aeSh');s.t+=frameDt*(.5+P.aeShSpd/100*6);
+  const n=(a,b)=>Math.sin(s.t*a+b)*.6+Math.sin(s.t*a*2.17+b*1.3)*.3+Math.sin(s.t*a*4.31+b*.7)*.1;
+  const nx=n(5.1,1.3)*m*.06,ny=n(4.3,4.1)*m*.06,dt=Math.max(frameDt,1e-3);
+  s.vx=(nx-s.x)/dt;s.vy=(ny-s.y)/dt;s.x=nx;s.y=ny;s.r=n(3.7,2.2)*m*P.aeShRot/100*.12;s.z=1+Math.abs(n(2.9,.5))*m*P.aeShZoom/100*.15+m*.02;
+}
+function aeAnyFrame(){for(const k of AE_FRAME_ONS)if(P[k])return true;return false;}
+/* Kadr effektlari (postFX ichida, vignette/skan/don'dan oldin) */
+function aeFrame(){
+  if(!aeAnyFrame()){AE.echoValid=false;AE.tw.e=0;return;}
+  if(!aeInit())return;
+  const t0=performance.now();
+  try{aeRun();}catch(e){aeFail(e);}
+  AE.ms+=(performance.now()-t0-AE.ms)*.1;
+}
+function aeRun(){
+  const gl=AE.gl,F=AE.F,asp=W/H,dt=frameDt,lv=aeLvl();aeSize(W,H);
+  aeUp(AE.src,C,false);let cur=AE.src,curRT=null;
+  const next=()=>curRT===F.A?F.B:F.A;
+  aeTwitch();aeShake();const tw=AE.tw,sh=AE.sh;
+  /* --- 1) siljitish / buzish (warp) --- */
+  let off=[0,0],rot=0,zoom=1;
+  if(P.aeShOn){off=[sh.x,sh.y];rot=sh.r;zoom=sh.z;}
+  if(P.aeTwOn){off[0]+=tw.slide*asp;zoom*=1+tw.scale;}
+  const td=P.aeTdOn?P.aeTdAmt/100*.3*aeMod('aeTd'):0;if(P.aeTdOn)AE.tdT+=dt*(P.aeTdSpd/100*1.6);
+  const ww=P.aeWwOn?P.aeWwAmp/100*.08*aeMod('aeWw'):0;if(P.aeWwOn)AE.wwPh+=dt*(P.aeWwSpd/100*8);
+  const lens=P.aeLensOn?P.aeLensAmt/100*.6*aeMod('aeLens'):0;
+  if(P.aeKalOn)AE.kalA+=dt*P.aeKalSpin/100*1.5;
+  const glA=P.aeGlOn?clamp(P.aeGlAmt/100*aeMod('aeGl'),0,2):0;if(P.aeGlOn)AE.glT+=dt*(2+P.aeGlSpd/100*30);
+  const rgb=(P.aeRgbOn?P.aeRgbAmt/100*(P.aeRgbMode==='radial'?.06:.02)*aeMod('aeRgb'):0)+tw.rgb;
+  const needWarp=P.aeShOn||(P.aeTwOn&&(tw.slide||tw.scale))||td>0||ww>0||lens!==0||P.aeKalOn||glA>.001||rgb>.0002;
+  if(needWarp){const o=next();const ksg=Math.PI*2/clamp(P.aeKalSeg|0,2,32);aePass('warp',o,{uKo:-Math.PI/2-ksg/4,uAsp:asp,uRot:rot,uZoom:zoom,uOff:off,uLens:lens,uTd:[td,.8+P.aeTdSize/100*6,AE.tdT],
+      uWw:[ww,2+(100-P.aeWwLen)/100*40,AE.wwPh,P.aeWwDir==='v'?1:0],uKal:[clamp(P.aeKalSeg|0,2,32),(P.aeKalRot*Math.PI/180)+AE.kalA,Math.max(.05,P.aeKalZoom/100*aeMod('aeKal')),P.aeKalOn?1:0],
+      uGl:[glA,4+P.aeGlBlock/100*40,Math.floor(AE.glT)*1.31,glA>.001?1:0],uRgb:[rgb,1,P.aeRgbMode==='radial'||!P.aeRgbOn?0:1]},{uT:cur});cur=o.t;curRT=o;}
+  /* --- 2) radial / harakat xiraligi --- */
+  const rb=(P.aeRbOn?P.aeRbAmt/100*.4*aeMod('aeRb'):0)+tw.blur;
+  let dir=[0,0];if(P.aeShOn&&P.aeShBlur>0){const k=P.aeShBlur/100*1.5*dt;dir=[sh.vx*k/asp,sh.vy*k];}
+  if(P.aeTwOn&&tw.slideV)dir[0]+=tw.slideV*.5;
+  if(rb>.002||Math.abs(dir[0])+Math.abs(dir[1])>.0006){const o=next();aePass('blur',o,{uC:[P.aeRbX/100,1-P.aeRbY/100],uD:dir,uZ:rb,uN:lv>=2?12:24},{uT:cur});cur=o.t;curRT=o;}
+  /* --- 3) Echo --- */
+  if(P.aeEcOn){const E=F.E,dst=E[AE.echoI],prev=E[1-AE.echoI];
+    const k=AE.echoValid?Math.pow(clamp((.5+P.aeEcAmt/100*.48)*Math.min(1.15,aeMod('aeEc')),0,.985),dt*60):0;
+    aePass('echo',dst,{uAsp:asp,uZ:P.aeEcZoom/100,uR:P.aeEcRot/100*.05*dt*60,uK:k},{uT:cur,uP:prev.t});cur=dst.t;curRT=dst;AE.echoI=1-AE.echoI;AE.echoValid=true;}
+  else AE.echoValid=false;
+  /* --- 4) Deep Glow --- */
+  let glowT=null,glowA=0,tint=[1,1,1];
+  if(P.aeGlowOn){const lev=Math.max(2,2+Math.round(P.aeGlowRad/100*5)-(lv>=3?2:0));const g=aeBloom(cur,P.aeGlowThr/100,lev,.7+P.aeGlowRad/100*.8);glowT=g.t;
+    glowA=P.aeGlowAmt/100*aeMod('aeGlow')*2.2/lev;const tc=aeRGB(P.aeGlowTint),ta=P.aeGlowTintAmt/100;tint=[lerp(1,tc[0]*1.6,ta),lerp(1,tc[1]*1.6,ta),lerp(1,tc[2]*1.6,ta)];}
+  /* --- 5) Light Rays --- */
+  let rayT=null,rayA=0;
+  if(P.aeRayOn){const N=lv>=2?28:48,dec=.955;aePass('bright',F.R0,{uThr:Math.max(.01,P.aeRayThr/100)},{uT:cur});
+    aePass('rays',F.R1,{uC:[P.aeRayX/100,1-P.aeRayY/100],uDen:.2+P.aeRayLen/100*.8,uK:dec,uW:1/((1-Math.pow(dec,N))/(1-dec)),uN:N},{uT:F.R0.t});rayT=F.R1.t;rayA=P.aeRayAmt/100*1.4*aeMod('aeRay');}
+  /* --- 6) yakuniy: flares + rang --- */
+  AE.flT+=dt;const mv=P.aeFlMove/100;
+  const fl=[P.aeFlX/100+Math.sin(AE.flT*.3)*mv*.15,1-P.aeFlY/100+Math.cos(AE.flT*.23)*mv*.1,P.aeFlAmt/100*aeMod('aeFl'),P.aeFlOn?1:0];
+  const L=AE_LOOKS[P.aeCcLook]||AE_LOOKS.none;
+  aePass('fin',null,{uAsp:asp,uGlA:glowT?glowA:0,uGlTint:tint,uRyA:rayT?rayA:0,uFl:fl,uFlCol:aeRGB(P.aeFlCol),uFlS:[P.aeFlStreak/100,P.aeFlGhost/100],
+    uExpo:1+tw.light,uFlash:tw.light*.12,uCcOn:P.aeCcOn?1:0,uCc:[P.aeCcExp/50,P.aeCcCon/100,P.aeCcSat/100,P.aeCcVib/100],uTemp:P.aeCcTemp/100,
+    uShT:L.sh,uHiT:L.hi,uLSat:L.sat,uLCon:L.con,uFade:L.fade,uMono:L.mono},{uT:cur,uGt:glowT||cur,uRt:rayT||cur});
+  const g=X;g.save();g.setTransform(1,0,0,1,0,0);g.globalAlpha=1;g.globalCompositeOperation='copy';g.filter='none';g.drawImage(AE.cv,0,0,W,H);g.restore();
+}
+/* Saber — spektr qatlamiga (VIS) qo'llanadi, fon/matnga emas */
+function aeVisDraw(g,ox,oy){
+  if(!P.aeSabOn||!aeInit()){g.drawImage(VIS,ox,oy);return;}
+  try{
+    aeSize(W,H);const F=AE.F,lv=aeLvl();aeUp(AE.vis,VIS,true);
+    const nz=P.aeSabNoise/100,fl=.85+.15*Math.sin(T*37)*Math.sin(T*23)*nz,a=P.aeSabAmt/100*aeMod('aeSab');
+    aePass('smask',F.A,{uNz:[nz*.028,5+nz*16,T*(1.5+nz*4)],uPx:[1/W,1/H],uMode:P.aeSabMode==='edge'?1:0,uTh:1.5+P.aeSabRad/100*3},{uT:AE.vis});
+    const lev=Math.max(2,2+Math.round(P.aeSabRad/100*4)-(lv>=3?1:0)),gb=aeBloom(F.A.t,0,lev,.8+P.aeSabRad/100*.7);
+    aePass('saber',null,{uCol:aeRGB(P.aeSabCol),uCore:P.aeSabCore/100,uA:a*3/lev,uF:fl},{uM:F.A.t,uG:gb.t});
+    if(P.aeSabKeep)g.drawImage(VIS,ox,oy);
+    g.save();g.globalCompositeOperation='lighter';g.drawImage(AE.cv,ox,oy,W,H);g.restore();
+  }catch(e){aeFail(e);g.drawImage(VIS,ox,oy);}
+}
+function aeStatus(){
+  const el_=$('aeStat');if(!el_)return;const n=AE_ONS.filter(k=>P[k]).length;
+  el_.className='exstat aest '+(AE.ok===false?'bad':n?'on':'');
+  el_.textContent=AE.ok===false?('⚠ WebGL ishlamadi — AE plaginlar o‘chiq ('+AE.err+'). Brauzer sozlamalarida "Hardware acceleration" ni yoqing.'):
+    (n?'✓ Faol plaginlar: '+n+' ta'+(AE.ms>0?' · '+AE.ms.toFixed(1)+' ms/kadr':''):'Hech qaysi plagin yoqilmagan. Pastdan plaginni yoqing yoki tayyor presetni tanlang.');
+}
+setInterval(()=>{if($('pane_ae')&&$('pane_ae').classList.contains('on'))aeStatus();},700);
+
+/* ---------------- plaginlar ro'yxati (panel uchun) ---------------- */
+const AE_PLUG=[
+ {on:'aeGlowOn',a:'aeGlow',n:'Deep Glow',ae:'Deep Glow — Plugin Everything',d:'Ko‘p qatlamli yumshoq porlash: yorug‘ joylar atrofga nur sochadi.',s:[{k:'aeGlowAmt',l:'Kuchi',min:0,max:300,f:NF.pct},{k:'aeGlowRad',l:'Radius',min:0,max:100,f:NF.pct},{k:'aeGlowThr',l:'Chegara (threshold)',min:0,max:95,f:NF.pct},{k:'aeGlowTintAmt',l:'Rang berish',min:0,max:100,f:NF.pct},{k:'aeGlowTint',l:'Porlash rangi',t:'col'}]},
+ {on:'aeSabOn',a:'aeSab',n:'Saber',ae:'Saber — Video Copilot',d:'Spektr shakli energiya nuriga aylanadi: oq yadro + rangli porlash, turbulent titrash.',s:[{k:'aeSabMode',l:'Rejim',t:'s',o:[['fill','Butun shakl'],['edge','Faqat kontur']]},{k:'aeSabCol',l:'Rang',t:'col'},{k:'aeSabAmt',l:'Porlash kuchi',min:0,max:300,f:NF.pct},{k:'aeSabCore',l:'Yadro (core)',min:0,max:150,f:NF.pct},{k:'aeSabRad',l:'Porlash o‘lchami',min:0,max:100,f:NF.pct},{k:'aeSabNoise',l:'Turbulentlik',min:0,max:100,f:NF.pct},{k:'aeSabKeep',l:'Asl spektr ham ko‘rinsin',t:'c',w:1}]},
+ {on:'aeFlOn',a:'aeFl',n:'Optical Flares',ae:'Optical Flares — Video Copilot',d:'Linza nuri: markaziy yorug‘lik, anamorfik chiziq, halqa va aks-doiralar.',s:[{k:'aeFlX',l:'Joy X',min:0,max:100,f:NF.pct},{k:'aeFlY',l:'Joy Y',min:0,max:100,f:NF.pct},{k:'aeFlAmt',l:'Yorqinlik',min:0,max:200,f:NF.pct},{k:'aeFlMove',l:'Sekin harakat',min:0,max:100,f:NF.pct},{k:'aeFlStreak',l:'Anamorfik chiziq',min:0,max:100,f:NF.pct},{k:'aeFlGhost',l:'Aks-doiralar',min:0,max:100,f:NF.pct},{k:'aeFlCol',l:'Rang',t:'col'}]},
+ {on:'aeRayOn',a:'aeRay',n:'Light Rays',ae:'Shine (Trapcode) / CC Light Rays',d:'Yorug‘ joylardan tarqaladigan hajmli nurlar (god rays).',s:[{k:'aeRayX',l:'Manba X',min:0,max:100,f:NF.pct},{k:'aeRayY',l:'Manba Y',min:0,max:100,f:NF.pct},{k:'aeRayLen',l:'Nur uzunligi',min:0,max:100,f:NF.pct},{k:'aeRayAmt',l:'Kuchi',min:0,max:200,f:NF.pct},{k:'aeRayThr',l:'Chegara',min:0,max:95,f:NF.pct}]},
+ {on:'aeTwOn',a:null,n:'Twitch',ae:'Twitch — Video Copilot',d:'Beatda tasodifiy “silkinish”: siljish, RGB, zoom, chaqnash, xiralik.',s:[{k:'aeTwAmt',l:'Kuchi',min:0,max:100,f:NF.pct},{k:'aeTwFreq',l:'Tez-tezligi',min:0,max:100,f:NF.pct},{k:'aeTwSlide',l:'Slide (siljish)',t:'c'},{k:'aeTwRgb',l:'RGB',t:'c'},{k:'aeTwScale',l:'Scale (zoom)',t:'c'},{k:'aeTwLight',l:'Light (chaqnash)',t:'c'},{k:'aeTwBlur',l:'Blur',t:'c'}]},
+ {on:'aeShOn',a:'aeSh',n:'S_Shake',ae:'S_Shake — Sapphire (Camera Shake)',d:'Kamera titrashi: siljish, burilish, zoom va harakat xiraligi (motion blur).',s:[{k:'aeShAmt',l:'Kuchi',min:0,max:100,f:NF.pct},{k:'aeShSpd',l:'Tezlik',min:0,max:100,f:NF.pct},{k:'aeShRot',l:'Burilish',min:0,max:100,f:NF.pct},{k:'aeShZoom',l:'Zoom',min:0,max:100,f:NF.pct},{k:'aeShBlur',l:'Motion blur',min:0,max:100,f:NF.pct}]},
+ {on:'aeTdOn',a:'aeTd',n:'Turbulent Displace',ae:'Turbulent Displace — After Effects',d:'Kadr suyuqlikdek egiladi (shovqin bo‘yicha siljish).',s:[{k:'aeTdAmt',l:'Kuchi',min:0,max:100,f:NF.pct},{k:'aeTdSize',l:'Mayda ↔ yirik',min:0,max:100,f:NF.pct},{k:'aeTdSpd',l:'Tezlik',min:0,max:100,f:NF.pct}]},
+ {on:'aeWwOn',a:'aeWw',n:'Wave Warp',ae:'Wave Warp — After Effects',d:'Kadr to‘lqinlanadi (gorizontal yoki vertikal).',s:[{k:'aeWwAmp',l:'Balandlik',min:0,max:100,f:NF.pct},{k:'aeWwLen',l:'To‘lqin uzunligi',min:0,max:100,f:NF.pct},{k:'aeWwSpd',l:'Tezlik',min:0,max:100,f:NF.pct},{k:'aeWwDir',l:'Yo‘nalish',t:'s',o:[['h','Gorizontal'],['v','Vertikal']]}]},
+ {on:'aeLensOn',a:'aeLens',n:'CC Lens',ae:'CC Lens / Optics Compensation',d:'Baliq ko‘zi (fisheye) yoki ichkariga bukilish.',s:[{k:'aeLensAmt',l:'Kuchi (− / +)',min:-100,max:100,f:NF.n0}]},
+ {on:'aeKalOn',a:'aeKal',n:'CC Kaleida',ae:'CC Kaleida — After Effects',d:'Kaleydoskop: kadr ko‘zgudek bo‘laklarga bo‘linadi.',s:[{k:'aeKalSeg',l:'Bo‘laklar',min:2,max:16,f:NF.n0},{k:'aeKalRot',l:'Burchak',min:-180,max:180,f:NF.deg},{k:'aeKalSpin',l:'Aylanish',min:-100,max:100,f:NF.n0},{k:'aeKalZoom',l:'Zoom',min:30,max:300,f:NF.pct}]},
+ {on:'aeRbOn',a:'aeRb',n:'Radial Fast Blur',ae:'CC Radial Fast Blur — After Effects',d:'Markazdan zoom-xiralik — beatda “zarba” hissi.',s:[{k:'aeRbAmt',l:'Kuchi',min:0,max:100,f:NF.pct},{k:'aeRbX',l:'Markaz X',min:0,max:100,f:NF.pct},{k:'aeRbY',l:'Markaz Y',min:0,max:100,f:NF.pct}]},
+ {on:'aeRgbOn',a:'aeRgb',n:'RGB Split',ae:'RGB Split / Chromatic Aberration',d:'Qizil, yashil, ko‘k kanallar ajraladi.',s:[{k:'aeRgbAmt',l:'Kuchi',min:0,max:100,f:NF.pct},{k:'aeRgbMode',l:'Turi',t:'s',o:[['radial','Linza (markazdan)'],['h','Gorizontal']]}]},
+ {on:'aeGlOn',a:'aeGl',n:'Glitch',ae:'Universe Glitch / Data Glitch',d:'Raqamli buzilish: bloklar va qatorlar siljiydi.',s:[{k:'aeGlAmt',l:'Kuchi',min:0,max:100,f:NF.pct},{k:'aeGlBlock',l:'Bloklar soni',min:0,max:100,f:NF.pct},{k:'aeGlSpd',l:'Tezlik',min:0,max:100,f:NF.pct}]},
+ {on:'aeEcOn',a:'aeEc',n:'Echo',ae:'Echo — After Effects (feedback tunnel)',d:'Oldingi kadrlar iz bo‘lib qoladi — zoom bilan tunnel effekti.',s:[{k:'aeEcAmt',l:'Iz uzunligi',min:0,max:100,f:NF.pct},{k:'aeEcZoom',l:'Zoom',min:90,max:115,f:NF.pct},{k:'aeEcRot',l:'Burilish',min:-100,max:100,f:NF.n0}]},
+ {on:'aeCcOn',a:null,n:'Lumetri Color',ae:'Lumetri Color / VC Color Vibrance',d:'Kino rang: tayyor “look” + ekspozitsiya, kontrast, to‘yinganlik, harorat.',s:[{k:'aeCcLook',l:'Look',t:'s',w:1,o:[['none','Yo‘q'],['teal','Teal & Orange'],['cine','Kino (cinematic)'],['cyber','Cyberpunk'],['vintage','Vintage'],['bleach','Bleach bypass'],['bw','Qora-oq'],['warm','Iliq'],['cold','Sovuq'],['matrix','Matrix (yashil)']]},{k:'aeCcExp',l:'Ekspozitsiya',min:-100,max:100,f:NF.n0},{k:'aeCcCon',l:'Kontrast',min:-100,max:100,f:NF.n0},{k:'aeCcSat',l:'To‘yinganlik',min:-100,max:100,f:NF.n0},{k:'aeCcVib',l:'Vibrance',min:-100,max:100,f:NF.n0},{k:'aeCcTemp',l:'Harorat (sovuq ↔ iliq)',min:-100,max:100,f:NF.n0}]}
+];
+const AE_PRESETS=[
+ ['🌟 Deep Glow neon',{aeGlowOn:1,aeGlowAmt:140,aeGlowRad:70,aeGlowThr:40,aeCcOn:1,aeCcLook:'cyber',aeCcVib:30}],
+ ['⚡ Saber energiya',{aeSabOn:1,aeSabKeep:0,aeGlowOn:1,aeGlowAmt:60,aeGlowRad:50,aeGlowThr:55}],
+ ['🎬 Kino: flare + nur',{aeFlOn:1,aeFlAmt:75,aeRayOn:1,aeRayAmt:50,aeRayThr:60,aeGlowOn:1,aeGlowAmt:45,aeGlowThr:60,aeCcOn:1,aeCcLook:'teal'}],
+ ['📺 Twitch glitch',{aeTwOn:1,aeGlOn:1,aeRgbOn:1}],
+ ['💥 Shake + zoom blur',{aeShOn:1,aeRbOn:1,aeRbAmt:35}],
+ ['🌀 Kaleida trip',{aeKalOn:1,aeEcOn:1,aeEcAmt:60,aeGlowOn:1,aeGlowAmt:80}],
+ ['🌊 Suyuq to‘lqin',{aeTdOn:1,aeWwOn:1,aeGlowOn:1,aeGlowAmt:80}],
+ ['🕳 Echo tunnel',{aeEcOn:1,aeEcAmt:85,aeEcZoom:104,aeEcRot:15,aeGlowOn:1}],
+ ['🎞 Vintage',{aeCcOn:1,aeCcLook:'vintage',aeLensOn:1,aeLensAmt:20}],
+ ['✕ Hammasini o‘chirish',{}]
+];
+function aePreset(o){Object.keys(AE_DEF).forEach(k=>setP(k,k in o?o[k]:AE_DEF[k]));AE.echoValid=false;aeStatus();}
+addTab('ae','AE PLAGINLAR',pane=>{
+  pane.appendChild(el('p',{class:'note aenote',html:'<b>After Effects plaginlari</b> (.aex) faqat Adobe After Effects ichida ishlaydi — brauzerga ularni “o‘rnatib” bo‘lmaydi. Shuning uchun eng mashhurlarining <b>ko‘rinishi shu sahifaga qayta yozilgan</b>: videokartada (WebGL) ishlaydi, musiqaga bog‘lanadi va <b>eksport videosiga ham tushadi</b>.'}));
+  pane.appendChild(el('div',{class:'exstat aest',id:'aeStat'}));
+  const pr=el('div',{class:'chips aepre'});AE_PRESETS.forEach(([n,o])=>pr.appendChild(el('button',{class:'chip',text:n,onclick:()=>{aePreset(o);setHint('AE preset: '+n.replace(/^\S+\s/,''));}})));
+  pane.appendChild(el('div',{class:'grp'},[el('h4',{text:'TAYYOR PRESETLAR'}),pr]));
+  const list=el('div',{class:'grp'},[el('h4',{text:'PLAGINLAR ('+AE_PLUG.length+')'})]);
+  AE_PLUG.forEach(pl=>{
+    const body=el('div',{class:'aeb'}),tg=ctrl({k:pl.on,l:'',t:'c'});tg.classList.add('aetg');
+    const head=el('div',{class:'aeh'},[el('div',{class:'aet'},[el('b',{text:pl.n}),el('small',{text:pl.ae})]),tg]);
+    const card=el('div',{class:'aep'},[head,body]);
+    head.addEventListener('click',e=>{if(e.target.closest('.aetg'))return;card.classList.toggle('open');});
+    body.appendChild(el('p',{class:'note',text:pl.d}));
+    const specs=pl.s.slice();if(pl.a)specs.push({k:pl.a+'Src',l:'Musiqaga bog‘lash',t:'s',o:AE_SRC},{k:pl.a+'React',l:'Reaksiya',min:0,max:200,f:NF.pct});
+    body.appendChild(group('',specs));
+    const sync=()=>{card.classList.toggle('act',!!P[pl.on]);};
+    HOOKS[pl.on]=v=>{sync();if(v)card.classList.add('open');AE.echoValid=false;aeStatus();};sync();
+    list.appendChild(card);
+  });
+  pane.appendChild(list);
+  pane.appendChild(el('p',{class:'note',html:'<b>Musiqaga bog‘lash</b> — Trapcode Sound Keys g‘oyasi: plagin kuchi tanlangan chastota yoki beatga qarab o‘zgaradi. Reaksiya 0% — doimiy, 100% — to‘liq musiqaga ergashadi.<br><b>Tartib</b> (AE’dagi qatlam kabi): Saber spektrning o‘ziga, qolganlari butun kadrga — matn va fon ham ta’sirlanadi; vignette, skan va don eng oxirida qo‘yiladi.<br>Sekin kompyuterda 3–4 tadan ortiq og‘ir plaginni (Deep Glow, Light Rays, Saber) birga yoqmang.'}));
+  aeStatus();
+});
+window.__AE={AE,AE_DEF,AE_PLUG,AE_PRESETS,aePreset,aeFrame,aeInit,aeVisDraw,C,VIS,X,get W(){return W;},get H(){return H;}};
+
 addTab('overlay','QO‘SHIMCHA',pane=>{
   pane.appendChild(group('QO‘SHIQ MATNI (LRC / SRT)',[
     {k:'lOn',l:'Matn ko‘rsatilsin',t:'c',w:1},
