@@ -384,7 +384,7 @@ let hasFile=false,micOn=false,muted=false,fileName='';
 const B=new Float32Array(256),PK=new Float32Array(256),TG=new Float32Array(256);
 let N=96,bandLo=new Float32Array(257),bandHi=new Float32Array(257),bandKey='';
 let wave=wd,bass=0,mid=0,treb=0,lvl=0,peakDb=-120,beat=0,beatAvg=0,lastBeat=-9,beatTimes=[],bpmVal=0,agcMax=.4,beatCount=0,beatFlag=false;
-let bLP=null,bAn=null,bwd=null;const BD={peak:1e-4,slow:0,prev:0,per:0,syn:false,real:0,synN:0};
+let bLP=null,bAn=null,bwd=null,bassN=0;const BD={peak:1e-4,slow:0,prev:0,per:0,syn:false,real:0,synN:0};
 const demoWave=new Float32Array(2048);
 let T=0,frameDt=1/60;                       // animation clock (s)
 
@@ -470,6 +470,7 @@ function analyze(dt){
     /* Bass zarbasi: 40–150 Hz alohida filtr, chiziqli (dB emas) energiya — baland/uzun bassda ham to'yinmaydi */
     let eB=inst*.5;if(bAn){bAn.getFloatTimeDomainData(bwd);let s=0;for(let i=0;i<bwd.length;i++)s+=bwd[i]*bwd[i];eB=Math.sqrt(s/bwd.length);}
     BD.peak=Math.max(eB,BD.peak*Math.pow(.5,dt/3));
+    {const bt=clamp(eB/Math.max(BD.peak,1e-4),0,1);bassN+=(bt-bassN)*(bt>bassN?.6:1-Math.pow(.15,dt*6));}
     const sn=clamp(P.beatSens,0,100)/100,kk=2-sn*.85,ab=.3-sn*.15,gapMin=BD.syn?.09:.22;
     if(eB>BD.slow*kk+.04*BD.peak&&eB>ab*BD.peak&&eB>=BD.prev&&eB>.002&&T-lastBeat>gapMin){
       if(lastBeat>0&&T-lastBeat<2&&!BD.syn){beatTimes.push(T-lastBeat);if(beatTimes.length>14)beatTimes.shift();}
@@ -481,6 +482,7 @@ function analyze(dt){
     }
     BD.slow+=(eB-BD.slow)*(1-Math.exp(-dt/.2));BD.prev=eB;
   }else if((T*124/60)%1<dt*124/60&&T-lastBeat>.3){lastBeat=T;beat=1;beatFlag=true;beatCount++;}
+  if(!real)bassN=Math.pow(Math.max(0,1-((T*124/60)%1)*3.2),2);
   beat=Math.max(0,beat-dt*3.4);
 }
 function resetAnalysis(){B.fill(0);PK.fill(0);TG.fill(0);beat=0;bass=mid=treb=0;beatTimes=[];bpmVal=0;lastBeat=-9;agcMax=.4;BD.peak=1e-4;BD.slow=0;BD.prev=0;BD.per=0;BD.syn=false;BD.real=0;BD.synN=0;}
@@ -2723,7 +2725,8 @@ function bgSyncPlay(force){
   const shouldPlay=!hasFile||micOn||(!A.paused&&!A.ended);
   if(hasFile&&d&&isFinite(d)){
     const t=P.bgLoop?(A.currentTime%d):Math.min(A.currentTime,d-.05);let diff=Math.abs(bgVid.currentTime-t);if(P.bgLoop)diff=Math.min(diff,d-diff);
-    if(force||diff>.5){try{bgVid.currentTime=t;}catch(e){}}
+    let dl=t-bgVid.currentTime;if(P.bgLoop){if(dl>d/2)dl-=d;else if(dl<-d/2)dl+=d;}const ad=Math.abs(dl);
+    if(force||ad>1.5){try{bgVid.currentTime=t;}catch(e){}bgVid.playbackRate=1;}else{try{bgVid.playbackRate=ad>.06?clamp(1+dl*.25,.85,1.15):1;}catch(e){}}
   }
   if(shouldPlay){bgVid.play().catch(()=>{});}else bgVid.pause();
 }
@@ -2760,7 +2763,7 @@ function drawBackground0(){
   if(P.bgMode==='solid'){g.fillStyle=P.bg2;g.fillRect(0,0,W,H);}
   else if(P.bgMode==='linear'){g.fillStyle=lgrad(g,0,0,0,H,[[0,P.bg1],[1,P.bg2]]);g.fillRect(0,0,W,H);}
   else{g.fillStyle=rgrad(g,W/2,H*.45,0,Math.hypot(W,H)*.6,[[0,P.bg1],[1,P.bg2]]);g.fillRect(0,0,W,H);}
-  bgLevel+=((bass*.7+mid*.3)-bgLevel)*.18;
+  {const tg=clamp(Math.max(bassN*.9,beat*.85)+mid*.12,0,1.2);bgLevel+=(tg-bgLevel)*(tg>bgLevel?.5:.16);}
   if(!P.bgOn||!bgReady)return;
   const src=bgIsVideo?bgVid:bgImg;if(!src)return;
   const sw=bgIsVideo?bgVid.videoWidth:bgImg.naturalWidth,sh=bgIsVideo?bgVid.videoHeight:bgImg.naturalHeight;if(!sw||!sh)return;
@@ -3248,13 +3251,13 @@ function tick(ts){
   const[rw,rh]=renderDims();setRenderSize(rw,rh);frameVars();buildLUT();analyze(dt);frameN++;
   renderFrame();
   if(exporting&&window.__exportPaint)window.__exportPaint();
+  if(bgIsVideo&&hasFile&&!A.paused&&frameN%20===0)bgSyncPlay(false);
   fpsAcc+=dt;fpsN++;if(fpsAcc>=.5){$('fps').textContent=Math.round(fpsN/fpsAcc)+' FPS'+(P.autoq&&PERF.lvl?' · AVTO '+Math.round(PERF_SCALE[PERF.lvl]*100)+'%':'');fpsAcc=0;fpsN=0;}
   if((hudTick++&3)===0){
     $('bpm').textContent=bpmVal?Math.round(bpmVal)+' BPM':'-- BPM';
     $('peak').textContent=peakDb>-100?peakDb.toFixed(1)+' dB':'-∞ dB';
     $('hudL').textContent=micOn?'🎙 MIKROFON':hasFile?fileName:'DEMO · '+modeById(P.mode).name;
     updateTransportUI();
-    if(bgIsVideo&&hasFile&&!A.paused&&(frameN%40===0))bgSyncPlay(false);
   }
 }
 
@@ -3920,7 +3923,7 @@ const AE_LOOKS={
  cold:{sh:[.88,1,1.15],hi:[.92,1,1.12],sat:1,con:.05,fade:0,mono:0},
  matrix:{sh:[.7,1.15,.75],hi:[.85,1.2,.85],sat:1.1,con:.1,fade:0,mono:0}
 };
-function aeSig(s){switch(s){case'bass':return clamp(bass,0,1.2);case'mid':return clamp(mid,0,1.2);case'treb':return clamp(treb,0,1.2);case'beat':return clamp(beat,0,1);case'lvl':return clamp(lvl*3,0,1.2);default:return .5;}}
+function aeSig(s){switch(s){case'bass':return clamp(Math.max(bassN,bass*.4),0,1.2);case'mid':return clamp(mid,0,1.2);case'treb':return clamp(treb,0,1.2);case'beat':return clamp(beat,0,1);case'lvl':return clamp(lvl*3,0,1.2);default:return .5;}}
 /* Sound Keys g'oyasi: parametr musiqaga qarab o'zgaradi. Reaksiya 0% — doimiy, 100% — to'liq musiqaga ergashadi. */
 function aeMod(b){const s=P[b+'Src'],r=(P[b+'React']||0)/100;if(!s||s==='off'||!r)return 1;return Math.max(0,lerp(1,aeSig(s)*2,r));}
 const aeRGB=h=>hexRgb(h).map(v=>v/255);
