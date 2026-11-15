@@ -1906,7 +1906,230 @@ function applyLogos(bytes,opt){
   return{dff:serialize(ctx.roots),report};
 }
 
-root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES};
+/* ---------- LIMUZIN: tayyor SA mashinasini o'rtasidan cho'zish ----------
+ * Usul (ekstruziya): mashina ko'ndalang tekislik y = cut bo'yicha kesiladi. Undan oldingi hamma narsa joyida qoladi,
+ * orqasidagi hamma narsa S metr orqaga suriladi, kesim tekisligini kesib o'tgan uchburchaklar aynan tekislik bo'yicha
+ * bo'linadi va orasiga kesim profilining "cho'zilgan" polosasi qo'yiladi -- tom, ostona, oynalar, eshik, pol, salon
+ * aynan o'sha ko'ndalang shaklda uzayadi (yoriq yo'q, teksturalar/UV, tun ranglari, normal saqlanadi).
+ *  - Freymlar: kelib chiqishi kesimdan orqada bo'lgan freymlar (orqa g'ildirak, orqa eshik, bagaj, chiroqlar, egzoz,
+ *    orqa o'rindiq dummylari...) S ga suriladi; bolalar ota bilan birga ketadi, farq bo'lsa tuzatiladi.
+ *  - Geometriya: faqat kerakli geometriyalar qayta yoziladi, boshqalari bayt-bayt bir xil. Bounding sphere qayta hisoblanadi.
+ *  - COL3 (to'qnashuv): sferalar/qutilar/mesh/soya mesh suriladi, cho'zilgan qismga qo'shimcha sferalar qo'yiladi,
+ *    chegaralar yangilanadi. 2DFX nur nuqtalari ham suriladi. G'ildirak geometriyasi (wheel) o'zgarmaydi. */
+const LIMO_WHEEL=f=>{let p=f,n=0;while(p&&n++<64){if(/^wheel/i.test(p.name||''))return true;p=p.par;}return false;};
+/* Mashinani o'lchab, kesish joyi variantlarini beradi (dunyo Y koordinatasi) */
+function limoScan(bytes){
+  const ctx=dffCtx(bytes),{F,A,G,rwv}=ctx,W=new Map();F.forEach(f=>W.set(f,fWorld(f)));
+  const wf=[],wr=[],wzs=[];for(const f of F){const m=/^wheel_([lr])([fbm])_dummy$/i.exec(f.name||'');if(m){(m[2].toLowerCase()==='f'?wf:wr).push(W.get(f).p[1]);wzs.push(W.get(f).p[2]);}}
+  let r=0.33;const wa=A.find(a=>/^wheel$/i.test(a.frame.name||''));
+  if(wa&&G[wa.geom]){try{const g=decodeGeometry(G[wa.geom],rwv);if(g.pos){let z0=1e9,z1=-1e9;for(let i=2;i<g.pos.length;i+=3){z0=Math.min(z0,g.pos[i]);z1=Math.max(z1,g.pos[i]);}if(z1>z0)r=Math.min(0.8,Math.max(0.15,(z1-z0)/2));}}catch(e){}}
+  const mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30],doorBB={},seen=new Set();
+  for(const a of A){if(LIMO_WHEEL(a.frame)||seen.has(a)||/_vlo$/i.test(a.frame.name||''))continue;seen.add(a);const gc=G[a.geom];if(!gc)continue;let g;try{g=decodeGeometry(gc,rwv);}catch(e){continue;}if(g.native||!g.pos)continue;
+    const Wf=W.get(a.frame),dm=/^door_([lr][fr])_ok$/i.exec(a.frame.name||'');let b=null;if(dm){b=doorBB[dm[1].toLowerCase()]||(doorBB[dm[1].toLowerCase()]=[1e30,-1e30]);}
+    for(let i=0;i<g.nV;i++){const q=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],Wf);for(let c=0;c<3;c++){if(q[c]<mn[c])mn[c]=q[c];if(q[c]>mx[c])mx[c]=q[c];}if(b){if(q[1]<b[0])b[0]=q[1];if(q[1]>b[1])b[1]=q[1];}}}
+  if(mn[0]>mx[0])throw new Error('Mashina geometriyasi topilmadi');
+  // yon siluet (sxema uchun): har Y bo'lagida eng yuqori va eng past nuqta
+  const NB=96,top=new Array(NB).fill(-1e30),bot=new Array(NB).fill(1e30),bi=y=>Math.max(0,Math.min(NB-1,Math.floor((y-mn[1])/((mx[1]-mn[1])||1)*NB)));
+  for(const a of seen){const gc=G[a.geom];let g;try{g=decodeGeometry(gc,rwv);}catch(e){continue;}if(g.native||!g.pos)continue;const Wf=W.get(a.frame);
+    for(let i=0;i<g.nV;i++){const q=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],Wf),k=bi(q[1]);if(q[2]>top[k])top[k]=q[2];if(q[2]<bot[k])bot[k]=q[2];}}
+  for(let k=0;k<NB;k++)if(top[k]<=-1e29){top[k]=-1e30;bot[k]=1e30;}
+  const L=mx[1]-mn[1];let yF=wf.length?Math.max(...wf):NaN,yR=wr.length?Math.min(...wr):NaN;
+  const wOk=yF-yR>0.25*L;if(!wOk){yF=mn[1]+0.78*L;yR=mn[1]+0.22*L;}   // g'ildirak dummylari yo'q yoki noto'g'ri (hammasi 0 da)
+  const lo=yR+r+0.08,hi=yF-r-0.08,cl=y=>Math.min(hi,Math.max(lo,y)),mid=b=>(b[0]+b[1])/2;
+  const dR=['lr','rr'].map(k=>doorBB[k]).filter(Boolean),dF=['lf','rf'].map(k=>doorBB[k]).filter(Boolean);
+  const avg=a=>a.reduce((s,x)=>s+x,0)/a.length,rd=dR.length?[avg(dR.map(b=>b[0])),avg(dR.map(b=>b[1]))]:null,fd=dF.length?[avg(dF.map(b=>b[0])),avg(dF.map(b=>b[1]))]:null;
+  const P={center:{y:cl((lo+hi)/2),lbl:'G‘ildiraklar orasi o‘rtasi'}};
+  if(rd)P.rdoor={y:cl(mid(rd)),lbl:'Orqa eshik o‘rtasi (uzun orqa eshik)'};
+  if(fd)P.fdoor={y:cl(mid(fd)),lbl:'Old eshik o‘rtasi (uzun old eshik)'};
+  if(fd&&rd)P.between={y:cl((fd[0]+rd[1])/2),lbl:'Old va orqa eshik orasi (B ustun) — eshiklar asl holida'};
+  if(fd&&!rd&&fd[0]-lo>0.3)P.behind={y:cl((lo+fd[0])/2),lbl:'Eshikdan orqada (yon panel / orqa oyna)'};
+  const auto=P.rdoor?'rdoor':P.behind?'behind':P.fdoor?'fdoor':'center';
+  const wz=wOk&&wzs.length?wzs.reduce((s2,x)=>s2+x,0)/wzs.length:mn[2]+r;
+  const prof={n:NB,y0:mn[1],y1:mx[1],top,bot,z0:Math.min(mn[2],wz-r),z1:mx[2]};
+  return{len:L,width:mx[0]-mn[0],mn,mx,wheelF:yF,wheelR:yR,wheelR_:r,wheelZ:wz,wheelbase:yF-yR,lo,hi,presets:P,auto,hasWheels:wOk,prof};
+}
+/* COL2/COL3 ni o'qib, cho'zib, qayta yozish */
+function limoCol(data,yc,S,warn){
+  const out=[];let o=0,n=0;const dv=dvOf(data);
+  while(o+8<=data.length){
+    const fcc=String.fromCharCode(data[o],data[o+1],data[o+2],data[o+3]),size=dv.getUint32(o+4,true),end=Math.min(data.length,o+8+size);
+    if(fcc!=='COL2'&&fcc!=='COL3'){if(fcc==='COLL'||fcc==='COL4')warn.push('COL ('+fcc+') formati o‘zgartirilmadi — to‘qnashuv modeli eski uzunlikda qoladi.');out.push(data.slice(o,end));o=end;continue;}
+    const base=o+4,c3=fcc==='COL3',h=o+72,R=(off)=>base+off;
+    const nS=dv.getUint16(h,true),nB=dv.getUint16(h+2,true),nF=dv.getUint16(h+4,true),nL=data[h+6],pad=data[h+7],fl=dv.getUint32(h+8,true);
+    const offS=dv.getUint32(h+12,true),offB=dv.getUint32(h+16,true),offL=dv.getUint32(h+20,true),offV=dv.getUint32(h+24,true),offF=dv.getUint32(h+28,true),offP=dv.getUint32(h+32,true);
+    const nSh=c3?dv.getUint32(h+36,true):0,offSV=c3?dv.getUint32(h+40,true):0,offSF=c3?dv.getUint32(h+44,true):0;
+    const f32=p=>dv.getFloat32(p,true);
+    const mv=y=>y<yc?y-S:y;
+    // sferalar
+    const sph=[];for(let i=0;i<nS;i++){const p=R(offS)+i*20;sph.push({c:[f32(p),f32(p+4),f32(p+8)],r:f32(p+12),s:data.slice(p+16,p+20)});}
+    // cho'zilgan qism uchun sferalar: kesim yaqinidagi "ko'ndalang qator" sferalari (bo'lmasa -- eng yaqinlari) butun uzunlik bo'ylab takrorlanadi
+    const dist=s=>Math.max(0,Math.abs(s.c[1]-yc)-s.r);let cand=sph.filter(s=>dist(s)<=0.05);
+    if(!cand.length&&sph.length){const m0=Math.min(...sph.map(dist));cand=sph.filter(s=>dist(s)<=m0+0.3);}
+    {const byXZ=new Map();for(const s of cand){const k=Math.round(s.c[0]/0.06)+','+Math.round(s.c[2]/0.06);const e=byXZ.get(k);if(!e||s.r>e.r)byXZ.set(k,s);}cand=[...byXZ.values()];}  // bir xil ko'ndalang joydagi takrorlar
+    let sf=1;const cnt=()=>cand.reduce((n,s)=>n+Math.ceil(S/Math.max(0.2,s.r*0.9*sf)),0);while(cnt()>160&&sf<64)sf*=1.25;
+    const add=[];for(const s of cand){const st=Math.max(0.2,s.r*0.9*sf),n=Math.ceil(S/st);for(let k=1;k<=n;k++)add.push({c:[s.c[0],yc-k*S/n,s.c[2]],r:s.r,s:s.s});}
+    for(const s of sph)s.c[1]=mv(s.c[1]);const sph2=sph.concat(add);
+    if(sph2.length>65535)throw new Error('COL: sfera juda ko‘p');
+    // qutilar
+    const box=[];for(let i=0;i<nB;i++){const p=R(offB)+i*28;const b={mn:[f32(p),f32(p+4),f32(p+8)],mx:[f32(p+12),f32(p+16),f32(p+20)],s:data.slice(p+24,p+28)};
+      if(b.mx[1]<yc){b.mn[1]-=S;b.mx[1]-=S;}else if(b.mn[1]<yc)b.mn[1]-=S;box.push(b);}
+    const lines=nL?data.slice(R(offL),R(offL)+nL*24):new Uint8Array(0);if(nL)warn.push('COL ichidagi '+nL+' ta chiziq (line) o‘zgartirilmadi.');
+    // mesh
+    const rdF=(off,cnt)=>{const a=[];let mxI=-1;for(let i=0;i<cnt;i++){const p=R(off)+i*8;const t=[dv.getUint16(p,true),dv.getUint16(p+2,true),dv.getUint16(p+4,true)];a.push({t,m:data.slice(p+6,p+8)});mxI=Math.max(mxI,t[0],t[1],t[2]);}return{a,nv:mxI+1};};
+    const faces=nF?rdF(offF,nF):{a:[],nv:0},sh=nSh?rdF(offSF,nSh):{a:[],nv:0};
+    const rdV=(off,cnt)=>{const v=[];for(let i=0;i<cnt;i++){const p=R(off)+i*6;v.push([dv.getInt16(p,true)/128,dv.getInt16(p+2,true)/128,dv.getInt16(p+4,true)/128]);}return v;};
+    const verts=rdV(offV,faces.nv),sverts=rdV(offSV,sh.nv);
+    for(const v of verts)v[1]=mv(v[1]);for(const v of sverts)v[1]=mv(v[1]);
+    let groups=[];if((fl&8)&&nF){const gc=dv.getUint32(R(offF)-4,true),g0=R(offF)-4-28*gc;for(let i=0;i<gc;i++){const p=g0+i*28;groups.push({mn:[f32(p),f32(p+4),f32(p+8)],mx:[f32(p+12),f32(p+16),f32(p+20)],a:dv.getUint16(p+24,true),b:dv.getUint16(p+26,true)});}
+      for(const g of groups){g.mn=[1e30,1e30,1e30];g.mx=[-1e30,-1e30,-1e30];for(let fi=g.a;fi<=g.b&&fi<faces.a.length;fi++)for(const vi of faces.a[fi].t){const v=verts[vi];for(let c=0;c<3;c++){g.mn[c]=Math.min(g.mn[c],v[c]);g.mx[c]=Math.max(g.mx[c],v[c]);}}}}
+    // chegaralar
+    const bmn=[f32(o+32),f32(o+36),f32(o+40)],bmx=[f32(o+44),f32(o+48),f32(o+52)],bc=[f32(o+56),f32(o+60),f32(o+64)],br=f32(o+68);
+    if(bmn[1]<yc)bmn[1]-=S;if(bmx[1]<yc)bmx[1]-=S;
+    for(const s of add){for(let c=0;c<3;c++){bmn[c]=Math.min(bmn[c],s.c[c]-s.r);bmx[c]=Math.max(bmx[c],s.c[c]+s.r);}}   // faqat yangi sferalar bilan kengaytiramiz
+    const nc=[bc[0],bc[1]-S/2,bc[2]],nr=br+S/2;
+    // yozish
+    const w=new BW();const padTo=()=>{while((w.n-4)%4)w.u8(0);};   // ofsetlar size maydonidan (o+4) boshlab
+    w.bytes(data.slice(o,o+4));w.u32(0);w.bytes(data.slice(o+8,o+32));
+    for(const v of [...bmn,...bmx,...nc,nr])w.f32(v);
+    const hdrAt=w.n;w.bytes(new Uint8Array(c3?48:36));
+    const offs={};
+    offs.S=sph2.length?w.n-4:0;for(const s of sph2){w.f32(s.c[0]);w.f32(s.c[1]);w.f32(s.c[2]);w.f32(s.r);w.bytes(s.s);}
+    offs.B=box.length?w.n-4:0;for(const b of box){for(const v of [...b.mn,...b.mx])w.f32(v);w.bytes(b.s);}
+    offs.L=nL?w.n-4:0;if(nL)w.bytes(lines);
+    const wV=V=>{for(const v of V)for(const x of v){const q=Math.round(x*128);if(q<-32768||q>32767)throw new Error('COL: koordinata chegaradan chiqdi');w.u16(q&0xFFFF);}padTo();};
+    offs.V=verts.length?w.n-4:0;wV(verts);
+    if(groups.length){for(const g of groups){for(const v of [...g.mn,...g.mx])w.f32(v);w.u16(g.a);w.u16(g.b);}w.u32(groups.length);}
+    offs.F=faces.a.length?w.n-4:0;for(const f of faces.a){w.u16(f.t[0]);w.u16(f.t[1]);w.u16(f.t[2]);w.bytes(f.m);}
+    offs.SV=sverts.length?w.n-4:0;wV(sverts);
+    offs.SF=sh.a.length?w.n-4:0;for(const f of sh.a){w.u16(f.t[0]);w.u16(f.t[1]);w.u16(f.t[2]);w.bytes(f.m);}
+    const e=w.done(),ed=dvOf(e);ed.setUint32(4,e.length-8,true);
+    const hp=hdrAt;ed.setUint16(hp,sph2.length,true);ed.setUint16(hp+2,box.length,true);ed.setUint16(hp+4,faces.a.length,true);e[hp+6]=nL;e[hp+7]=pad;
+    ed.setUint32(hp+8,fl,true);ed.setUint32(hp+12,offs.S,true);ed.setUint32(hp+16,offs.B,true);ed.setUint32(hp+20,offs.L,true);ed.setUint32(hp+24,offs.V,true);ed.setUint32(hp+28,offs.F,true);ed.setUint32(hp+32,0,true);
+    if(c3){ed.setUint32(hp+36,sh.a.length,true);ed.setUint32(hp+40,offs.SV,true);ed.setUint32(hp+44,offs.SF,true);}
+    out.push(e);n++;o=end;
+  }
+  const tot=out.reduce((s,x)=>s+x.length,0),r=new Uint8Array(tot);let p=0;for(const x of out){r.set(x,p);p+=x.length;}
+  return{data:r,models:n};
+}
+/* opt: {cut: kesish tekisligi (dunyo Y), len: qo'shiladigan uzunlik (m)} */
+function applyLimo(bytes,opt){
+  const S=Math.max(0,Math.min(12,+opt.len||0)),yc=+opt.cut;
+  if(!(S>0.001)||!isFinite(yc))return{dff:bytes,changed:false,stats:null,warnings:[]};
+  const ctx=dffCtx(bytes),{F,A,G,rwv}=ctx,warn=[];
+  const W0=new Map();F.forEach(f=>W0.set(f,fWorld(f)));
+  const Dof=new Map();F.forEach(f=>Dof.set(f,f.par&&W0.get(f).p[1]<yc?-S:0));   // ildiz freym hech qachon ko'chmaydi
+  // Eshiklar: kesim bir yondagi OLD va ORQA eshikni birga kesib o'tsa (B ustun) -- eshiklar cho'zilmaydi, butunligicha
+  // joyida qoladi (old) yoki orqaga suriladi (orqa); oradagi bo'shliqni kuzov (B ustun) profili to'ldiradi -> ikki eshik ustma-ust chiqmaydi.
+  const rigid=new Set(),rigidNames=[];
+  {const sub=f=>{const out=[];for(const g of F){let p=g,n=0;while(p&&n++<64){if(p===f){out.push(g);break;}p=p.par;}}return out;};
+   const dm={};for(const f of F){const m=/^door_([lr])([fr])_dummy$/i.exec(f.name||'');if(!m)continue;const fr=new Set(sub(f));let y0=1e30,y1=-1e30;
+     for(const a of A){if(!fr.has(a.frame)||/_dam$/i.test(a.frame.name||''))continue;let g;try{g=decodeGeometry(G[a.geom],rwv);}catch(e){continue;}if(g.native||!g.pos)continue;const Wf=W0.get(a.frame);
+       for(let i=0;i<g.nV;i++){const y=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],Wf)[1];if(y<y0)y0=y;if(y>y1)y1=y;}}
+     if(y1>y0)dm[m[1].toLowerCase()+m[2].toLowerCase()]={f,fr,y0,y1};}
+   for(const sd of ['l','r']){const df=dm[sd+'f'],dr=dm[sd+'r'];if(!df||!dr)continue;const inn=d=>yc>d.y0+1e-3&&yc<d.y1-1e-3;
+     if(inn(df)&&inn(dr))for(const d of [df,dr]){const mv=(d.y0+d.y1)/2<yc?-S:0;for(const g of d.fr){rigid.add(g);Dof.set(g,mv);}rigidNames.push(d.f.name.replace(/_dummy$/i,''));}}}
+  // ---- freymlar ----
+  let movedF=0;
+  for(const f of F){const df=Dof.get(f),dp=f.par?Dof.get(f.par):0;if(df!==dp){const Rp=f.par?W0.get(f.par).r:ID3,d=vm3([0,df-dp,0],m3t(Rp));f.p=[f.p[0]+d[0],f.p[1]+d[1],f.p[2]+d[2]];f.dirty=true;}if(df)movedF++;}
+  // ---- geometriyalar ----
+  const byG=new Map();for(const a of A){if(!byG.has(a.geom))byG.set(a.geom,[]);byG.get(a.geom).push(a);}
+  let geomsChanged=0,cross=0,stripTris=0,uid=0;
+  for(const [gi,atoms] of byG){
+    const a=atoms[0],gc=G[gi];if(!gc||LIMO_WHEEL(a.frame)||atoms.some(b=>rigid.has(b.frame)))continue;   // g'ildirak va butun ko'chadigan eshiklar
+    let g;try{g=decodeGeometry(gc,rwv);}catch(e){warn.push('«'+(a.frame.name||gi)+'» geometriyasini o‘qib bo‘lmadi — o‘zgartirilmadi.');continue;}
+    if(g.native||!g.pos||!g.nV)continue;
+    const Wf=W0.get(a.frame),Df=Dof.get(a.frame);
+    if(atoms.some(b=>Dof.get(b.frame)!==Df||Math.abs(W0.get(b.frame).p[1]-Wf.p[1])>1e-4)){warn.push('«'+(a.frame.name||gi)+'» geometriyasi bir nechta freymda — o‘zgartirilmadi.');continue;}
+    const nV=g.nV,nT=g.nTri,wy=new Float64Array(nV);for(let i=0;i<nV;i++)wy[i]=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],Wf)[1]-yc;
+    let anyF=false,anyR=false,crossHere=0;
+    for(let t=0;t<nT;t++){let f=0;for(let k=0;k<3;k++)if(wy[g.tris[t*4+k]]>=0)f++;if(f===3)anyF=true;else if(f===0)anyR=true;else{crossHere++;anyF=anyR=true;}}
+    const locF=vm3([0,-Df,0],m3t(Wf.r)),locR=vm3([0,-S-Df,0],m3t(Wf.r)),needF=Df!==0,needR=Df!==-S;
+    const fx=child(child(gc,T.EXT)||{children:[]},T.FX2D);
+    if(!nT||(!crossHere&&!(anyF&&needF)&&!(anyR&&needR))){if(fx)limoFx(fx,Wf,yc,locF,locR);continue;}   // geometriya freym bilan birga ko'chdi -- tegmaymiz
+    if(!livGeomOk(gc)){warn.push('«'+(a.frame.name||gi)+'» (breakable/skin) — cho‘zib bo‘lmadi, joyida qoldi.');continue;}
+    // ---- qayta qurish ----
+    const outW=[],outReg=[],outT=[],remap=new Map();
+    const vtx=(V,reg)=>{const key=V.k+'|'+reg;let ni=remap.get(key);if(ni===undefined){ni=outW.length;remap.set(key,ni);outW.push(V.ws);outReg.push(reg);}return ni;};
+    const mkV=o=>({ws:[[o,1]],s:wy[o],k:'o'+o});
+    const lerpV=(A2,B2)=>{const t=A2.s/(A2.s-B2.s),m=new Map();for(const [o,x] of A2.ws)m.set(o,(m.get(o)||0)+x*(1-t));for(const [o,x] of B2.ws)m.set(o,(m.get(o)||0)+x*t);
+      const ws=[...m].filter(e=>e[1]>1e-7);let k;if(ws.length===1)k='o'+ws[0][0];else if(ws.length===2){const p=ws[0][0]<ws[1][0]?ws[0]:ws[1],q=ws[0][0]<ws[1][0]?ws[1]:ws[0];k='e'+p[0]+'_'+q[0]+'_'+Math.round(q[1]*1e6);}else k='i'+(uid++);
+      return{ws,s:0,k,cut:true};};
+    const emit=(poly,reg,m)=>{const ids=[];for(const V of poly){const i=vtx(V,reg);if(!ids.length||ids[ids.length-1]!==i)ids.push(i);}while(ids.length>1&&ids[0]===ids[ids.length-1])ids.pop();
+      for(let k=1;k<ids.length-1;k++)outT.push(ids[0],ids[k],ids[k+1],m);};
+    // polosa normallari: cho'zilgan sirt Y bo'ylab ketadi -> normal Y ga perpendikulyar bo'lishi kerak. Kesim nuqtasining normali
+    // deyarli shunday bo'lsa -- vertex umumiy (silliq), aks holda polosaga alohida vertex + to'g'rilangan normal (eshik o'rni chetlari va h.k.)
+    const dL=v3n(vm3([0,1,0],m3t(Wf.r))),nOv=new Map();
+    const sv=(V,side,qn)=>{if(!g.nrm)return vtx(V,side);let x=0,y=0,z=0;for(const [o,w] of V.ws){x+=g.nrm[o*3]*w;y+=g.nrm[o*3+1]*w;z+=g.nrm[o*3+2]*w;}
+      const l=Math.hypot(x,y,z)||1;x/=l;y/=l;z/=l;const dy=x*dL[0]+y*dL[1]+z*dL[2];if(Math.abs(dy)<0.1)return vtx(V,side);
+      const px=x-dy*dL[0],py=y-dy*dL[1],pz=z-dy*dL[2],pl=Math.hypot(px,py,pz),i=vtx(V,'S'+side);if(!nOv.has(i))nOv.set(i,pl>0.3?[px/pl,py/pl,pz/pl]:qn);return i;};
+    const lp=(ws)=>{let x=0,y=0,z=0;for(const [o,w] of ws){x+=g.pos[o*3]*w;y+=g.pos[o*3+1]*w;z+=g.pos[o*3+2]*w;}return[x,y,z];};
+    for(let t=0;t<nT;t++){
+      const m=g.tris[t*4+3],a0=g.tris[t*4],b0=g.tris[t*4+1],c0=g.tris[t*4+2],P0=[mkV(a0),mkV(b0),mkV(c0)],fr=P0.map(V=>V.s>=0);
+      if(fr[0]&&fr[1]&&fr[2]){emit(P0,'F',m);continue;}if(!fr[0]&&!fr[1]&&!fr[2]){emit(P0,'R',m);continue;}
+      const PF=[],PR=[],cuts=[];
+      for(let i=0;i<3;i++){const A2=P0[i],B2=P0[(i+1)%3],fa=A2.s>=0,fb=B2.s>=0;if(fa)PF.push(A2);else PR.push(A2);if(fa!==fb){const V=lerpV(A2,B2);PF.push(V);PR.push(V);cuts.push(V);}}
+      emit(PF,'F',m);emit(PR,'R',m);
+      if(cuts.length===2&&cuts[0].k!==cuts[1].k){ // kesim polosasi
+        const pa=lp(P0[0].ws),pb=lp(P0[1].ws),pc=lp(P0[2].ws),n0=v3x([pb[0]-pa[0],pb[1]-pa[1],pb[2]-pa[2]],[pc[0]-pa[0],pc[1]-pa[1],pc[2]-pa[2]]);
+        let [U,V2]=cuts;const u=lp(U.ws),v=lp(V2.ws),d=[locR[0]-locF[0],locR[1]-locF[1],locR[2]-locF[2]],nq=v3x([v[0]-u[0],v[1]-u[1],v[2]-u[2]],d);
+        if(v3d(nq,n0)<0){const tt=U;U=V2;V2=tt;}
+        const qn=v3n(v3d(nq,n0)<0?[-nq[0],-nq[1],-nq[2]]:nq);   // polosaning o'z normali (asl uchburchak tomoniga qaragan)
+        const uf=sv(U,'F',qn),vf=sv(V2,'F',qn),vr=sv(V2,'R',qn),ur=sv(U,'R',qn);outT.push(uf,vf,vr,m,uf,vr,ur,m);stripTris+=2;
+      }
+    }
+    const nV2=outW.length,nT2=outT.length/4;
+    if(nV2>65535)throw new Error('«'+(a.frame.name||gi)+'»: vertex juda ko‘p ('+nV2+') — kesish joyini o‘zgartiring');
+    // ---- struct ----
+    const st=child(gc,T.STRUCT),od=st.data,odv=dvOf(od),L0=geomPosLayout(od,rwv),flags=odv.getUint32(0,true),nMorph=odv.getUint32(12,true);
+    let numUV=(flags>>16)&255;if(!numUV)numUV=(flags&0x80)?2:(flags&4)?1:0;
+    const one=ws=>ws.length===1&&Math.abs(ws[0][1]-1)<1e-12;
+    const mixU8=(src,off,ws)=>{const o2=new Uint8Array(4);for(let c=0;c<4;c++){let s2=0;for(const e of ws)s2+=src[off+e[0]*4+c]*e[1];o2[c]=Math.max(0,Math.min(255,Math.round(s2)));}return o2;};
+    const bw=new BW();bw.u32(flags);bw.u32(nT2);bw.u32(nV2);bw.u32(nMorph);
+    if(rwv<0x34000)bw.bytes(od.slice(16,28));
+    if(flags&8){const dc=g.dayColors;for(const ws of outW)bw.bytes(one(ws)?dc.slice(ws[0][0]*4,ws[0][0]*4+4):mixU8(dc,0,ws));}
+    for(let s2=0;s2<numUV;s2++){const us=g.uvs[s2];for(const ws of outW){let u=0,v=0;if(us)for(const e of ws){u+=us[e[0]*2]*e[1];v+=us[e[0]*2+1]*e[1];}bw.f32(u);bw.f32(v);}}
+    for(let t=0;t<nT2;t++){bw.u16(outT[t*4+1]);bw.u16(outT[t*4]);bw.u16(outT[t*4+3]);bw.u16(outT[t*4+2]);}
+    for(const mo of L0.morphs){
+      const P=new Float32Array(nV2*3);
+      if(mo.po>=0)for(let i=0;i<nV2;i++){let x=0,y=0,z=0;for(const [o,w] of outW[i]){x+=odv.getFloat32(mo.po+o*12,true)*w;y+=odv.getFloat32(mo.po+o*12+4,true)*w;z+=odv.getFloat32(mo.po+o*12+8,true)*w;}
+        const d=outReg[i]==='R'||outReg[i]==='SR'?locR:locF;P[i*3]=x+d[0];P[i*3+1]=y+d[1];P[i*3+2]=z+d[2];}
+      let b0=[1e30,1e30,1e30],b1=[-1e30,-1e30,-1e30];for(let i=0;i<nV2;i++)for(let c=0;c<3;c++){const v=P[i*3+c];if(v<b0[c])b0[c]=v;if(v>b1[c])b1[c]=v;}
+      const cen=[(b0[0]+b1[0])/2,(b0[1]+b1[1])/2,(b0[2]+b1[2])/2];let rad=0;for(let i=0;i<nV2;i++)rad=Math.max(rad,Math.hypot(P[i*3]-cen[0],P[i*3+1]-cen[1],P[i*3+2]-cen[2]));
+      if(mo.po>=0){bw.f32(cen[0]);bw.f32(cen[1]);bw.f32(cen[2]);bw.f32(rad*1.001+1e-4);}else bw.bytes(od.slice(mo.bs,mo.bs+16));
+      bw.bytes(od.slice(mo.bs+16,mo.bs+24));
+      if(mo.po>=0)for(let i=0;i<nV2*3;i++)bw.f32(P[i]);
+      if(mo.no>=0)for(let i=0;i<nV2;i++){const ws=outW[i],ov=nOv.get(i);if(ov){bw.f32(ov[0]);bw.f32(ov[1]);bw.f32(ov[2]);continue;}if(one(ws)){bw.bytes(od.slice(mo.no+ws[0][0]*12,mo.no+ws[0][0]*12+12));continue;}let x=0,y=0,z=0;for(const [o,w] of ws){x+=odv.getFloat32(mo.no+o*12,true)*w;y+=odv.getFloat32(mo.no+o*12+4,true)*w;z+=odv.getFloat32(mo.no+o*12+8,true)*w;}const l=Math.hypot(x,y,z)||1;bw.f32(x/l);bw.f32(y/l);bw.f32(z/l);}
+    }
+    st.data=bw.done();
+    let ex=child(gc,T.EXT);if(!ex){ex=extChunk(gc.ver);gc.children.push(ex);}
+    const nMat=dvOf(child(child(gc,T.MATLIST),T.STRUCT).data).getUint32(0,true),per=Array.from({length:nMat},()=>[]);
+    for(let t=0;t<nT2;t++)per[outT[t*4+3]].push(outT[t*4],outT[t*4+1],outT[t*4+2]);
+    const bmc0=child(ex,T.BINMESH),strip=bmc0&&bmc0.data.length>=4?dvOf(bmc0.data).getUint32(0,true):0;
+    const bm=new BW(),usedM=per.map((p,i)=>({p,i})).filter(x=>x.p.length);bm.u32(0);bm.u32(usedM.length);bm.u32(usedM.reduce((s2,x)=>s2+x.p.length,0));
+    for(const x of usedM){bm.u32(x.p.length);bm.u32(x.i);for(const v of x.p)bm.u32(v);}
+    if(bmc0)bmc0.data=bm.done();else ex.children.unshift(leaf(T.BINMESH,gc.ver,bm.done()));
+    const nc=child(ex,T.NIGHT);
+    if(nc&&nc.data.length>=4&&dvOf(nc.data).getUint32(0,true)){const nw=new BW();nw.u32(1);for(const ws of outW)nw.bytes(one(ws)?nc.data.slice(4+ws[0][0]*4,8+ws[0][0]*4):mixU8(nc.data,4,ws));nc.data=nw.done();}
+    if(fx)limoFx(fx,Wf,yc,locF,locR);
+    geomsChanged++;cross+=crossHere;
+  }
+  // ---- COL ----
+  let colInfo=null;const cex=child(ctx.clump,T.EXT),col=cex&&child(cex,T.COLEXT);
+  if(col){try{const r=limoCol(col.data,yc,S,warn);col.data=r.data;colInfo=r;}catch(e){warn.push('COL o‘zgartirilmadi: '+e.message);}}
+  else warn.push('DFF ichida COL topilmadi (alohida .col faylda bo‘lsa — u eski uzunlikda qoladi).');
+  // ---- freym ro'yxatini yozish ----
+  const nd=new Uint8Array(ctx.fst.data);F.forEach((f,i)=>{if(!f.dirty)return;const dv=dvOf(nd);for(let k=0;k<3;k++)dv.setFloat32(4+i*56+36+k*4,f.p[k],true);});ctx.fst.data=nd;
+  return{dff:serialize(ctx.roots),changed:true,stats:{len:S,cut:yc,movedFrames:F.filter(f=>Dof.get(f)).length,geoms:geomsChanged,cross,stripTris,col:!!colInfo,rigidDoors:rigidNames},warnings:warn};
+}
+/* 2DFX nuqtalarini surish (geometriya lokal koordinatalarida) */
+function limoFx(fx,Wf,yc,locF,locR){
+  const d=new Uint8Array(fx.data),dv=dvOf(d);if(d.length<4)return;const n=dv.getUint32(0,true);let o=4;
+  for(let i=0;i<n&&o+20<=d.length;i++){const p=[dv.getFloat32(o,true),dv.getFloat32(o+4,true),dv.getFloat32(o+8,true)],sz=dv.getUint32(o+16,true),w=TF.pt(p,Wf),s=w[1]-yc>=0?locF:locR;
+    dv.setFloat32(o,p[0]+s[0],true);dv.setFloat32(o+4,p[1]+s[1],true);dv.setFloat32(o+8,p[2]+s[2],true);o+=20+sz;}
+  fx.data=d;
+}
+
+root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo};
 })(GV);
 /* ---- extension: DFF materials with textures list helper, RW 3.6 version constants ---- */
 (function(G){
@@ -5068,8 +5291,8 @@ function livKeys(it){const L=S.liv;if(!L.keys||L.keysFor!==it.file){L.keys=livDe
 function livTexName(it){return'livery';} // TXD da shu nomli tekstura bo'lsa (oldingi livery) -- almashtiriladi
 /* rasm -> tekis (shaffof joylar fon rangi bilan to'ldiriladi: kuzov shaffof bo'lib qolmasin) */
 /* mashina yon tomonining proporsiyasi (uzunlik / balandlik) -- tanlangan kuzov materiallari bo'yicha */
-function livCarAspect(){const it=curItem(),L=S.liv;if(!it||!it.raw)return 3;const keys=livKeys(it),k=it.file+':'+it.raw.length+':'+[...keys].sort().join(';');
-  if(L.bCache&&L.bCache.k===k)return L.bCache.a;let a=3;try{const b=G.DFF.liveryBounds(it.raw,keys);if(b&&b.h>1e-3)a=b.len/b.h;}catch(e){}L.bCache={k,a};return a;}
+function livCarAspect(){const it=curItem(),L=S.liv;if(!it||!it.raw)return 3;const keys=livKeys(it),lm=S.limo&&S.limo.on?S.limo.len:0,k=it.file+':'+it.raw.length+':'+[...keys].sort().join(';')+':'+lm;   // limuzin: kuzov shuncha uzunroq
+  if(L.bCache&&L.bCache.k===k)return L.bCache.a;let a=3;try{const b=G.DFF.liveryBounds(it.raw,keys);if(b&&b.h>1e-3)a=(b.len+lm)/b.h;}catch(e){}L.bCache={k,a};return a;}
 /* rasmni yon tomon proporsiyasiga keltirish: 'cover' -- markazdan kesish, 'stretch' -- o'zgarishsiz, 'auto' -- juda farq qilsa kesish */
 function livFit(im,target){const L=S.liv,r=(im.w/im.h)/target,mode=L.fit==='auto'?(r<0.4||r>2.5?'cover':'stretch'):L.fit;   // avto: 2.5 martadan ko'p cho'zilsa -- kesamiz
   if(mode!=='cover'||Math.abs(r-1)<0.02)return im;let w=im.w,h=im.h,x0=0,y0=0;
@@ -5106,14 +5329,21 @@ function livTxd(it){
 }
 async function editPipeline(why){
   const it=curItem();if(!it||!it.raw||busy)return;const E=S.edit,L=S.liv;
-  setBusy(true,why==='livery'?'Rasm mashinaga qo‘yilmoqda…':why==='doors'?'Eshiklar tahrirlanmoqda…':'Yangilanmoqda…');await tick();
+  setBusy(true,why==='livery'?'Rasm mashinaga qo‘yilmoqda…':why==='limo'?'Mashina cho‘zilmoqda (limuzin)…':why==='doors'?'Eshiklar tahrirlanmoqda…':'Yangilanmoqda…');await tick();
   const cam=viewer&&viewer.ok?Object.assign({},viewer.cam):null;
   try{
     let dff=it.raw,doorRep=[],changed=false;const info=[],warn=[];
+    const LM=S.limo;let limo=null;
+    if(LM.on){ // limuzin -- birinchi: eshik, rasm, logo cho'zilgan mashinaga qo'llanadi
+      const sc=limoScanOf(it),yc=limoCutY(sc),lk=yc.toFixed(5)+'|'+LM.len;   // natija keshlanadi: rasm/logo slayderlari limuzinni qayta hisoblamaydi
+      if(LM.cache&&LM.cache.raw===it.raw&&LM.cache.k===lk)limo=LM.cache.res;else{limo=G.DFF.applyLimo(dff,{cut:yc,len:LM.len});LM.cache={raw:it.raw,k:lk,res:limo};}dff=limo.dff;changed=changed||limo.changed;
+      if(limo.stats){const st=limo.stats;info.push('Limuzin: +'+st.len.toFixed(1)+' m (uzunlik '+sc.len.toFixed(2)+' → '+(sc.len+st.len).toFixed(2)+' m, g‘ildiraklar orasi '+sc.wheelbase.toFixed(2)+' → '+(sc.wheelbase+st.len).toFixed(2)+' m). Kesish joyi: '+(LM.pos==='manual'?'qo‘lda ('+LM.pct+'%)':(sc.presets[LM.pos==='auto'?sc.auto:LM.pos]||{lbl:'?'}).lbl)+'. '+st.geoms+' ta geometriya cho‘zildi ('+st.cross.toLocaleString()+' uchburchak kesildi, '+st.stripTris.toLocaleString()+' poligon qo‘shildi), '+st.movedFrames+' ta freym orqaga surildi'+(st.col?', to‘qnashuv modeli (COL) ham cho‘zildi':'')+'.'+(st.rigidDoors&&st.rigidDoors.length?' Eshiklar ('+st.rigidDoors.join(', ')+') cho‘zilmadi — asl o‘lchamida, oraliqni kuzov (B ustun) to‘ldirdi.':''));}
+      for(const w of limo.warnings)warn.push('Limuzin: '+w);
+    }
     if(E.doorsDone){
-      const found=G.DFF.scanDoors(it.raw).map(d=>d.name),sel=found.filter(n=>!E.off.has(n));
+      const found=G.DFF.scanDoors(dff).map(d=>d.name),sel=found.filter(n=>!E.off.has(n));
       if(!sel.length)throw new Error('Tahrirlash uchun kamida bitta eshik tanlang');
-      const res=G.DFF.editDoors(it.raw,{style:E.style,flip:E.flip,doors:sel});dff=res.dff;doorRep=res.report;changed=changed||res.changed;
+      const res=G.DFF.editDoors(dff,{style:E.style,flip:E.flip,doors:sel});dff=res.dff;doorRep=res.report;changed=changed||res.changed;
       for(const d of res.report){
         if(d.status==='ok')info.push(d.door+': '+EDIT_LBL[d.kind]+(d.H?' — menteshe ('+d.H.map(v=>v.toFixed(2)).join(', ')+'), o‘q ('+d.u.map(v=>v.toFixed(2)).join(', ')+')':'')+(d.newFrame?' · yangi ota freym d_'+d.door.slice(5):' · mavjud ota freym qayta ishlatildi')+(d.cloned?' · geometriya nusxalandi: '+d.cloned:''));
         else if(/allaqachon/.test(d.status))info.push(d.door+': '+d.status);else warn.push(d.door+': '+d.status);
@@ -5151,16 +5381,18 @@ async function editPipeline(why){
     if(prev&&prev.removedOrig&&prev.removedOrig.size){drop=new Set(prev.removedOrig);removedInfo=new Map(prev.removedInfo);dff0=dff;stats0=dffTotals(dff0);const o=G.DFF.removeAtomics(dff0,drop);dff=o.dff;keep=o.keep;}
     const st=dffTotals(dff);
     if(!changed&&!warn.length)info.push('Hech narsa o‘zgarmadi — fayl asl holicha qaytadi.');
-    const r={kind:'edit',src:it.file,name:it.model.name,dff,txd,txdName,txdChanged:!!liv||LGs.items.length>0,logos:LGs.items.length,liv:liv?{tex:L.tex,stats:liv.stats}:null,doors:E.doorsDone,
+    const r={kind:'edit',src:it.file,name:it.model.name,dff,txd,txdName,txdChanged:!!liv||LGs.items.length>0,logos:LGs.items.length,liv:liv?{tex:L.tex,stats:liv.stats}:null,doors:E.doorsDone,limo:limo&&limo.stats?limo.stats:null,
       model:G.modelFromDff(dff,it.model.name+'.dff',{doorAngle:E.angle}),report:{stats:{geoms:st.geoms,tris:st.tris,verts:st.verts,frames:st.frames,textures:0},info,warnings:warn},changed,edits:doorRep};
     if(drop.size){r.dff0=dff0;r.stats0={geoms:stats0.geoms,tris:stats0.tris,verts:stats0.verts};r.removedOrig=drop;r.removedInfo=removedInfo;r.cur2orig=keep;}
     const keepHid=prev&&why==='preview'?S.hiddenSa:new Set();
     S.result=r;S.view='sa';S.hiddenSa=keepHid;S.hl=null;
-    if(why!=='preview'){log('SA tahrir: '+it.file+(E.doorsDone?' — eshik: '+EDIT_LBL[E.style]:'')+(liv?' — livery: '+L.img.name:'')+'. DFF: '+G.fmtSize(it.raw.length)+' → '+G.fmtSize(dff.length),'o');warn.forEach(w=>log(w,'w'));}
+    if(why!=='preview'){log('SA tahrir: '+it.file+(limo&&limo.stats?' — limuzin +'+limo.stats.len.toFixed(1)+' m':'')+(E.doorsDone?' — eshik: '+EDIT_LBL[E.style]:'')+(liv?' — livery: '+L.img.name:'')+'. DFF: '+G.fmtSize(it.raw.length)+' → '+G.fmtSize(dff.length),'o');warn.forEach(w=>log(w,'w'));}
     if(why==='preview'&&prev){showModel();}else refresh();
     if(cam&&viewer.ok){Object.assign(viewer.cam,cam);viewer.need=true;}
     if(why==='doors')toast(changed?'Tayyor! Eshiklar o‘zgartirildi — DFF/TXD yuklab olishga tayyor':'O‘zgarish yo‘q');
     if(why==='livery')toast('Tayyor! Rasm mashinaga qo‘yildi — DFF va TXD yuklab olishga tayyor');
+    if(why==='limo')toast('Tayyor! Mashina limuzin qilindi (+'+S.limo.len.toFixed(1)+' m) — DFF yuklab olishga tayyor');
+    if(why==='limo-off')toast('Mashina asl uzunligiga qaytdi');
     if(why==='logo')toast(LGs.items.length?'Tayyor! Logo qo‘yildi — sichqoncha bilan aylantirib ko‘ring':'Logo olib tashlandi');
   }catch(e){console.error(e);log('SA tahrir xatosi: '+e.message,'e');toast('Xato: '+e.message);}
   setBusy(false);
@@ -5257,6 +5489,7 @@ function paneEdit(p){
   tsel.addEventListener('change',()=>{E.txd=tsel.value;S.liv.txdCache=null;if(S.result&&S.result.kind==='edit'&&S.result.src===it.file)editPipeline('preview').then(()=>renderPane());else renderPane();});
   p.appendChild(el('div',{class:'row'},[el('label',{text:'Mashinaning TXD fayli'}),tsel]));
   if(!L.length)p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'TXD yuklanmagan. «Fayllar» ga shu mashinaning .txd faylini ham qo‘shing — rasm shu TXD ga qo‘shiladi (qolgan teksturalari bayt-bayt o‘zgarmaydi) va 3D oynada teksturalar ko‘rinadi.'}));
+  paneLimo(p,it);
   paneLivery(p,it);
   paneLogo(p,it);
   let doors=null;try{doors=G.DFF.scanDoors(it.raw);}catch(e){p.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Eshiklarni o‘qib bo‘lmadi: '+e.message}));}
@@ -5296,6 +5529,7 @@ function paneEdit(p){
       r.txd?el('button',{class:'btn'+(r.txdChanged?' pri':''),type:'button',onclick:()=>save(nm+'.txd',r.txd)},[r.txdChanged?'⬇ TXD (rasm bilan)':'⬇ TXD (o‘zgarishsiz)']):null,
       r.txd?el('button',{class:'btn',type:'button',onclick:()=>save(nm+'.zip',G.zipStore([{name:nm+'.dff',data:r.dff},{name:nm+'.txd',data:r.txd}]),'application/zip')},['⬇ ZIP (DFF + TXD)']):null]));
     if(r.liv||r.logos)c.appendChild(el('div',{class:'note',style:'border-left:3px solid #38bdf8;padding-left:10px',html:'<b>Rasm / logo:</b> DFF va TXD ni <b>birga</b> almashtiring (gta3.img ichidagi shu mashinaning ikkala faylini). Faqat DFF almashtirilsa, o‘yin yangi teksturalarni topa olmaydi (kuzov/logo oq ko‘rinadi).'}));
+    if(r.limo)c.appendChild(el('div',{class:'note',style:'border-left:3px solid #f59e0b;padding-left:10px',html:'<b>Limuzin:</b> o‘zgargan faqat <b>DFF</b> (rasm/logo qo‘shilmagan bo‘lsa TXD shart emas). gta3.img ichida shu mashinaning .dff ini almashtiring. To‘qnashuv modeli (COL) DFF ichida bo‘lsa — u ham cho‘zilgan; alohida .col fayl bo‘lsa (ba’zi modlarda) u eski uzunlikda qoladi. Ixtiyoriy: uzun mashina burilishda og‘irroq tuyulishi uchun <code>handling.cfg</code> da shu mashinaning <i>TurnMass</i> qiymatini ~1.5–2 barobar oshirishingiz mumkin (o‘zgartirmasangiz ham ishlaydi).'}));
     if(r.doors)c.appendChild(el('div',{class:'note',style:'border-left:3px solid #fbbf24;padding-left:10px',html:'<b>Tekshirilgan (kompyuterda):</b> yopiq holatda barcha qismlarning koordinatalari o‘zgarmagan (xato ~1e-7), eshikka tegishli bo‘lmagan geometriyalar bayt-bayt bir xil. <b>O‘yinda bu mashinada tekshirilmagan:</b> usul (ota freym burilishi) konvertordagi bilan bir xil bo‘lib, o‘yinda ishlashi tasdiqlangan; baribir mashinangizda sinab ko‘ring — eshik pastga/ichkariga ketsa «teskari» katagini yoqib qayta bosing.'}));
     p.appendChild(c);
     if(S.view==='sa'&&r.doors)previewAngle();
@@ -5397,6 +5631,66 @@ function paneLogo(p,it){
   if(!shown.length)box.appendChild(el('div',{class:'note',text:'Kuzov qismlarida alohida material topilmadi.'}));
   c2.appendChild(box);
   if(D.drop.size)c2.appendChild(el('div',{class:'row'},[el('button',{class:'btn sm',type:'button',onclick:()=>{D.drop.clear();editPipeline('preview').then(()=>renderPane());}},['↩ Hammasini qaytarish ('+D.drop.size+')'])]));
+}
+
+/* ---------- SA tahrir: LIMUZIN (mashinani o'rtasidan cho'zish) ---------- */
+S.limo={on:false,len:1.6,pos:'auto',pct:50,scan:null,scanFor:null};
+/* mashina o'lchovlari (har fayl uchun bir marta) */
+function limoScanOf(it){const M=S.limo;if(M.scan&&M.scanFor===it.raw)return M.scan;M.scan=G.DFF.limoScan(it.raw);M.scanFor=it.raw;return M.scan;}
+/* tanlangan kesish joyi (dunyo Y) */
+function limoCutY(sc){const M=S.limo;if(M.pos==='manual')return sc.lo+(sc.hi-sc.lo)*(1-M.pct/100);const k=M.pos==='auto'?sc.auto:M.pos;return(sc.presets[k]||sc.presets[sc.auto]).y;}
+let limoT=0;function limoPreviewSoon(){clearTimeout(limoT);limoT=setTimeout(()=>{if(S.limo.on)editPipeline('preview').then(()=>renderPane());},260);}
+/* yon siluet: asl mashina va cho'zilgandan keyingi ko'rinish (sxema) */
+function limoSketch(sc,yc,len){
+  const P=sc.prof;if(!P||!P.n)return null;
+  const W=560,H=150,pad=8,Ltot=sc.len+len,zs=(P.z1-P.z0)||1,sx=(W-2*pad)/Ltot,sz=Math.min((H/2-14)/zs,sx*1.2);
+  const X=(y,shift)=>pad+(sc.mx[1]-(y+(shift&&y<yc?-len:0)))*sx,Z=(z,base)=>base-(z-P.z0)*sz;
+  const poly=(base,shift)=>{const top=[],bot=[];const step=(P.y1-P.y0)/P.n;
+    const med=(A,i)=>{const v=[A[i-1],A[i],A[i+1]].filter(x=>x!==undefined&&Math.abs(x)<1e29).sort((x,y)=>x-y);return v.length?v[v.length>>1]:A[i];};  // ko'zgu/antenna kabi ignalarni tekislash
+    const pts=[];for(let i=0;i<P.n;i++){if(P.top[i]<=-1e29)continue;pts.push([P.y0+(i+0.5)*step,med(P.top,i),med(P.bot,i)]);}
+    if(shift){const j=pts.findIndex(p=>p[0]<yc);if(j>0){const a=pts[j-1],b=pts[j];pts.splice(j,0,[yc,a[1],a[2]],[yc-1e-6,b[1],b[2]]);}}
+    for(const p of pts){top.push(X(p[0],shift).toFixed(1)+','+Z(p[1],base).toFixed(1));bot.unshift(X(p[0],shift).toFixed(1)+','+Z(p[2],base).toFixed(1));}
+    return top.concat(bot).join(' ');};
+  const b1=H/2-6,b2=H-8,wr=Math.max(3,sc.wheelR_*sz),wz=b=>Z(sc.wheelZ,b);
+  const wheel=(y,b,sh)=>'<circle cx="'+X(y,sh).toFixed(1)+'" cy="'+wz(b).toFixed(1)+'" r="'+wr.toFixed(1)+'" fill="#0b1220" stroke="#94a3b8" stroke-width="2"/>';
+  const cx1=X(yc,false),cx2a=X(yc,true),cx2b=cx2a+len*sx;
+  let s='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="max-width:'+W+'px;display:block;background:#0b1220;border:1px solid var(--line2);border-radius:8px">';
+  s+='<text x="'+pad+'" y="12" fill="#94a3b8" font-size="10">ASL · old ←</text><text x="'+pad+'" y="'+(H/2+8)+'" fill="#94a3b8" font-size="10">LIMUZIN (+'+len.toFixed(1)+' m)</text>';
+  s+='<polygon points="'+poly(b1,false)+'" fill="#334155" stroke="#64748b"/>';
+  s+=wheel(sc.wheelF,b1,false)+wheel(sc.wheelR,b1,false);
+  s+='<line x1="'+cx1.toFixed(1)+'" y1="14" x2="'+cx1.toFixed(1)+'" y2="'+(b1+4)+'" stroke="#f43f5e" stroke-width="2" stroke-dasharray="4 3"/>';
+  s+='<rect x="'+cx2a.toFixed(1)+'" y="'+(H/2+12)+'" width="'+(cx2b-cx2a).toFixed(1)+'" height="'+(b2-H/2-12)+'" fill="#f59e0b" opacity="0.18"/>';
+  s+='<polygon points="'+poly(b2,true)+'" fill="#475569" stroke="#94a3b8"/>';
+  s+=wheel(sc.wheelF,b2,true)+wheel(sc.wheelR,b2,true);
+  s+='</svg>';return s;
+}
+function paneLimo(p,it){
+  const M=S.limo;
+  p.appendChild(el('h3',{text:'🚘 Limuzin (mashinani cho‘zish)'}));
+  let sc=null;try{sc=limoScanOf(it);}catch(e){p.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Mashinani o‘lchab bo‘lmadi: '+e.message}));return;}
+  if(!(sc.hi>sc.lo)){p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'G‘ildiraklar orasi juda qisqa — bu modelni cho‘zib bo‘lmaydi.'}));return;}
+  p.appendChild(el('div',{class:'note',html:'Mashina g‘ildiraklar orasidagi tanlangan joyidan ko‘ndalang kesiladi va orqa qismi orqaga suriladi; oradagi bo‘shliq <b>aynan shu joyning shakli</b> bilan to‘ldiriladi (tom, oyna, eshik, ostona, pol, salon — yoriqsiz, teksturalar saqlanadi). Orqa g‘ildiraklar, orqa eshiklar, bagaj, chiroqlar, egzoz, o‘rindiq nuqtalari va <b>to‘qnashuv modeli (COL)</b> ham birga suriladi. Old qism va g‘ildiraklar o‘zgarmaydi. Rasm (livery) va logo cho‘zilgan mashinaga qo‘yiladi.'}));
+  // uzunlik
+  const lenI=el('input',{type:'range',id:'limoLen',min:0.5,max:4,step:0.1,value:M.len}),lenL=el('span',{class:'note',id:'limoLenL'});
+  const lenTxt=()=>{lenL.textContent='+'+M.len.toFixed(1)+' m (uzunlik '+sc.len.toFixed(2)+' → '+(sc.len+M.len).toFixed(2)+' m)';};lenTxt();
+  lenI.addEventListener('input',()=>{M.len=+lenI.value;lenTxt();drawSk();limoPreviewSoon();});
+  p.appendChild(el('div',{class:'row'},[el('label',{text:'Qancha uzaytirish'}),lenI,lenL]));
+  // kesish joyi
+  const keys=Object.keys(sc.presets);
+  const psel=el('select',{id:'limoPos'},[el('option',{value:'auto',text:'Avtomatik (tavsiya): '+sc.presets[sc.auto].lbl,selected:M.pos==='auto'})]
+    .concat(keys.map(k=>el('option',{value:k,text:sc.presets[k].lbl,selected:M.pos===k})))
+    .concat([el('option',{value:'manual',text:'Qo‘lda (slayder bilan)',selected:M.pos==='manual'})]));
+  if(M.pos!=='auto'&&M.pos!=='manual'&&!sc.presets[M.pos])M.pos='auto';
+  const pctI=el('input',{type:'range',id:'limoPct',min:0,max:100,step:1,value:M.pct}),pctRow=el('div',{class:'row',style:M.pos==='manual'?'':'display:none'},[el('label',{text:'Kesish joyi (0 — old g‘ildirak orqasi, 100 — orqa g‘ildirak oldi)'}),pctI]);
+  psel.addEventListener('change',()=>{M.pos=psel.value;pctRow.style.display=M.pos==='manual'?'':'none';drawSk();limoPreviewSoon();});
+  pctI.addEventListener('input',()=>{M.pct=+pctI.value;drawSk();limoPreviewSoon();});
+  p.appendChild(el('div',{class:'row'},[el('label',{text:'Qayerdan cho‘zilsin'}),psel]));p.appendChild(pctRow);
+  const sk=el('div',{id:'limoSketch',style:'margin:6px 0'});const drawSk=()=>{const h=limoSketch(sc,limoCutY(sc),M.len);sk.innerHTML=h||'';};drawSk();p.appendChild(sk);
+  p.appendChild(el('div',{class:'note',text:'Qizil uzuq chiziq — kesish joyi, sariq — qo‘shiladigan qism (sxema). Uzun eshik/oyna kerak bo‘lsa «orqa eshik o‘rtasi», eshiklar asl holida qolsin desangiz «old va orqa eshik orasi (B ustun)» ni tanlang.'}));
+  const brow=el('div',{class:'row',style:'flex-wrap:wrap'},[el('button',{class:'btn pri',type:'button',id:'btnLimo',onclick:async()=>{M.on=true;await editPipeline('limo');renderPane();}},[M.on?'🚘 QAYTA QO‘LLASH':'🚘 LIMUZIN QILISH'])]);
+  if(M.on)brow.appendChild(el('button',{class:'btn',type:'button',id:'btnLimoOff',onclick:async()=>{M.on=false;await editPipeline('limo-off');renderPane();}},['↩ Asl uzunlikka qaytarish']));
+  p.appendChild(brow);
+  if(M.on)p.appendChild(el('div',{class:'note',style:'border-left:3px solid #f59e0b;padding-left:10px',text:'Limuzin yoqilgan: slayderlarni surganda 3D oyna o‘zi yangilanadi.'}));
 }
 
 function paneExport(p,it){
