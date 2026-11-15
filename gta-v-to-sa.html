@@ -1329,8 +1329,12 @@ function editDoors(bytes,opt){
 /* ---------- LIVERY: rasmni tayyor SA mashinaning kuzov (bo'yoq) materiallariga tekstura qilib qo'yish ----------
  * Lossless chunk-tahrir: faqat tanlangan materialli geometriyalarning struct'i (UV, kerak bo'lsa vertex nusxalari), BinMesh,
  * tun ranglari va shu materiallarning o'zi o'zgaradi. Freymlar, boshqa geometriyalar, COL, 2dfx -- bayt-bayt bir xil.
- * UV: yon tomondan proyeksiya (dunyo koordinatalarida): u = old->orqa (Y), v = tepa->past (Z). Tom/kapot/bagaj rasmning yuqori qatoridan
- * davom etadi. Kuzov rangi oq (255,255,255) bo'ladi -> rasm o'z rangida chiqadi (carcols bo'yamaydi).
+ * UV: yon tomondan proyeksiya (dunyo koordinatalarida): u = old->orqa (Y), v = tepa->past (Z) -- faqat TASHQI YON yuzalarga
+ * (yonga qaragan, tashqariga qaragan, mashina chetiga yaqin uchburchaklar). Kapot, tom, bagaj, old va orqa yuzalar (top):
+ *   'color' -- bitta tekis rang (yangi material, teksturasiz, yaltiraydi): chok, chiziq-chiziq iz va o'rtada rang sakrashi bo'lmaydi;
+ *   'image' -- yon rasmning davomi (ikkala yon bir xil bo'lsa chok yo'q; ikki xil bo'lsa chap yon xaritasidan).
+ * Ichki devorlar (panjara teshiklari, g'ildirak ichi) yon hisoblanmaydi -- o'rtada rang dog'lari chiqmaydi.
+ * Kuzov rangi oq (255,255,255) bo'ladi -> rasm o'z rangida chiqadi (carcols bo'yamaydi).
  * Yaltirash: MatFX env map ("vehicleenvmap128") + Reflection (0x253F2FC) + Specular (0x253F2F6) -- konvertordagi bilan bir xil tuzilma. */
 const LIV_FX={ultra:{env:1.0,refl:0.15,spec:1.0},high:{env:0.8,refl:0.09,spec:0.70},normal:{env:0.5,refl:0.03,spec:0.30}};
 const livKey=m=>(m&&m.color?m.color:[255,255,255,255]).join(',')+'|'+String(m&&m.tex||'').toLowerCase();
@@ -1362,13 +1366,31 @@ function livMaterial(mc,texName,fx){
   const other=mc.children.filter(c=>c.type!==T.STRUCT&&c.type!==T.TEXTURE&&c.type!==T.EXT);
   mc.children=[st,tex,...other,ex];
 }
-/* opt: {keys:Set(livKey), tex:'livery', layout:'mirror'|'readable'|'halves', front:'left'|'right', zoom, stretch, offU, offV, fx:{env,refl,spec}|null|'keep'} */
+const LIV_SPECIAL=['60,255,0','255,0,175','0,255,255','255,0,255','255,175,0','0,255,200','185,255,0','255,60,0'];
+function livSafeRGB(c){const r=[0,1,2].map(i=>Math.max(0,Math.min(255,Math.round(+c[i]||0))));if(LIV_SPECIAL.includes(r.join(',')))r[1]=r[1]>0?r[1]-1:1;return r;}
+/* tanlangan birinchi material bo'lagi (matlist indekslari -1 = o'zi, boshqasi = nusxa) */
+function livSlotChunk(gc,sel){const ml=child(gc,T.MATLIST),mats=childs(ml,T.MATERIAL),dv=dvOf(child(ml,T.STRUCT).data),cnt=dv.getUint32(0,true),slot=[];let k=0;
+  for(let i=0;i<cnt;i++){const idx=dv.getInt32(4+i*4,true);slot.push(idx<0?mats[k++]:slot[idx]);}
+  for(let i=0;i<cnt;i++)if(sel[i]&&slot[i])return slot[i];return mats[0]||null;}
+/* geometriyaga tekis rangli yangi material qo'shish (carcols bo'yamaydigan rang, yaltirash bilan) -> yangi indeks */
+function livAddSolid(gc,src,rgb,fx){
+  const ml=child(gc,T.MATLIST),st=child(ml,T.STRUCT),od=st.data,cnt=dvOf(od).getUint32(0,true);
+  const nd=new Uint8Array(od.length+4);nd.set(od.subarray(0,4+cnt*4),0);nd.set(od.subarray(4+cnt*4),8+cnt*4);
+  dvOf(nd).setUint32(0,cnt+1,true);dvOf(nd).setInt32(4+cnt*4,-1,true);st.data=nd;
+  const ver=src?src.ver:ml.ver,mc=materialChunk({color:[rgb[0],rgb[1],rgb[2],255],tex:'',fx:fx&&fx!=='keep'?fx:null},ver);
+  if(fx==='keep'&&src){const sx=child(src,T.EXT);if(sx){const cp=parseChunks(serialize([sx]),0,12+sizeOf(sx))[0];mc.children[mc.children.length-1]=cp;}}
+  let li=-1;ml.children.forEach((c,i)=>{if(c.type===T.MATERIAL)li=i;});ml.children.splice(li+1,0,mc);
+  return cnt;
+}
+/* opt: {keys:Set(livKey), tex:'livery', layout:'mirror'|'readable'|'halves', front:'left'|'right', zoom, stretch, offU, offV, fx:{env,refl,spec}|null|'keep',
+ *       top:'image'|'color' (kapot/tom/old/orqa; standart: mirror -> image, boshqalar -> color), topColor:[r,g,b]} */
 function applyLivery(bytes,opt){
   opt=opt||{};const keys=opt.keys instanceof Set?opt.keys:new Set(opt.keys||[]);
   if(!keys.size)throw new Error('Rasm qo‘yiladigan material tanlanmagan');
   const texName=String(opt.tex||'livery').slice(0,31),fx=opt.fx===undefined?LIV_FX.ultra:opt.fx;
   const layout=['mirror','readable','halves'].includes(opt.layout)?opt.layout:'mirror',frontRight=opt.front==='right';
   const zoom=Math.max(0.05,+opt.zoom||1),stretch=Math.max(0.05,+opt.stretch||1),offU=+opt.offU||0,offV=+opt.offV||0;
+  const topMode=opt.top==='color'||opt.top==='image'?opt.top:(layout==='mirror'?'image':'color'),topRGB=livSafeRGB(opt.topColor||[255,255,255]);
   const ctx=dffCtx(bytes),{A,G,rwv}=ctx,skipped=[];
   const bad=new Set();for(const a of A)if(livSkipFrame(a.frame))bad.add(a.geom);
   const gW=new Map();for(const a of A){if(bad.has(a.geom)||gW.has(a.geom))continue;gW.set(a.geom,fWorld(a.frame));}
@@ -1384,7 +1406,31 @@ function applyLivery(bytes,opt){
   if(!work.length)throw new Error('Tanlangan materiallar mashina kuzovida topilmadi');
   const mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30];let selTris=0;
   for(const w of work){const {g,sel,wp}=w;for(let t=0;t<g.nTri;t++){if(!sel[g.tris[t*4+3]])continue;selTris++;for(let k=0;k<3;k++){const v=g.tris[t*4+k];for(let c=0;c<3;c++){const x=wp[v*3+c];if(x<mn[c])mn[c]=x;if(x>mx[c])mx[c]=x;}}}}
-  const xc=(mn[0]+mx[0])/2,L=Math.max(1e-3,mx[1]-mn[1]),Hh=Math.max(1e-3,mx[2]-mn[2]);
+  const xc=(mn[0]+mx[0])/2,hW=Math.max(1e-3,(mx[0]-mn[0])/2),L=Math.max(1e-3,mx[1]-mn[1]),Hh=Math.max(1e-3,mx[2]-mn[2]);
+  /* yon tomondan "eng tashqi yuza" xaritalari (chap: -x, o'ng: +x) -- ichki devorlar (panjara/havo kirish teshiklari, g'ildirak ichi) yon hisoblanmaydi */
+  let _sm=null;const sideMapF=()=>{
+    const cs=Math.max(0.01,Math.max(L,Hh)/256),nu=Math.ceil(L/cs)+3,nv=Math.ceil(Hh/cs)+3,D=[new Float32Array(nu*nv).fill(-1e30),new Float32Array(nu*nv).fill(-1e30)];
+    for(const w of work){const {g,sel,wp}=w;for(let t=0;t<g.nTri;t++){if(!sel[g.tris[t*4+3]])continue;
+      const a=g.tris[t*4]*3,b=g.tris[t*4+1]*3,c=g.tris[t*4+2]*3;
+      const e1x=wp[b]-wp[a],e1y=wp[b+1]-wp[a+1],e1z=wp[b+2]-wp[a+2],e2x=wp[c]-wp[a],e2y=wp[c+1]-wp[a+1],e2z=wp[c+2]-wp[a+2];
+      const nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x,nl=Math.hypot(nx,ny,nz);if(nl<1e-14||Math.abs(nx)/nl<0.15)continue;
+      for(let s2=0;s2<2;s2++){const sg=s2?1:-1,M=D[s2];
+        lgRast((wp[a+1]-mn[1])/cs+1,(wp[a+2]-mn[2])/cs+1,sg*(wp[a]-xc),(wp[b+1]-mn[1])/cs+1,(wp[b+2]-mn[2])/cs+1,sg*(wp[b]-xc),(wp[c+1]-mn[1])/cs+1,(wp[c+2]-mn[2])/cs+1,sg*(wp[c]-xc),nu,nv,
+          (cell,d)=>{if(d>M[cell])M[cell]=d;});}}}
+    return{cs,nu,nv,D,at:(s2,y,z)=>{const i=Math.floor((y-mn[1])/cs+1),j=Math.floor((z-mn[2])/cs+1);if(i<0||j<0||i>=nu||j>=nv)return -1e30;
+      let m=-1e30;for(let jj=j-1;jj<=j+1;jj++)for(let ii=i-1;ii<=i+1;ii++){if(ii<0||jj<0||ii>=nu||jj>=nv)continue;const v=D[s2][jj*nu+ii];if(v>m)m=v;}return m;}};
+  };
+  const sideTol=Math.max(0.03,0.05*hW);
+  /* uchburchak turi: 0 = chap yon, 1 = o'ng yon (tashqi yon yuza), 2 = kapot/tom/old/orqa yoki ichki devor
+   * (vertex normallariga tayanmaymiz: modlarda ular ko'pincha teskari/aralash) */
+  const triKind=(wp,i0,i1,i2)=>{
+    const e1x=wp[i1]-wp[i0],e1y=wp[i1+1]-wp[i0+1],e1z=wp[i1+2]-wp[i0+2],e2x=wp[i2]-wp[i0],e2y=wp[i2+1]-wp[i0+1],e2z=wp[i2+2]-wp[i0+2];
+    const nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x,nl=Math.hypot(nx,ny,nz);if(nl<1e-14)return 2;
+    const cx=(wp[i0]+wp[i1]+wp[i2])/3-xc,cy=(wp[i0+1]+wp[i1+1]+wp[i2+1])/3,cz=(wp[i0+2]+wp[i1+2]+wp[i2+2])/3;
+    if(Math.abs(nx)/nl<0.5||Math.abs(nx)<Math.abs(ny)||Math.abs(cx)<0.25*hW)return 2;   // yonga qaramaydi (oldga/orqaga/tepaga ko'proq) yoki o'rtada
+    const s2=cx<0?0:1;if(Math.abs(cx)<(_sm||(_sm=sideMapF())).at(s2,cy,cz)-sideTol)return 2;     // yondan qaraganda ko'rinmaydi (chuqurda)
+    return s2;
+  };
   const uvOf=(y,z,side)=>{
     let u=(mx[1]-y)/L,v=(mx[2]-z)/Hh;                 // u: old (y max) = 0 -> orqa = 1 ; v: tepa = 0 -> past = 1
     let rev=frontRight;if(side===1&&layout!=='mirror')rev=!rev;
@@ -1393,18 +1439,26 @@ function applyLivery(bytes,opt){
     if(layout==='halves'){u=Math.min(0.998,Math.max(0.002,u));u=side?0.5+u*0.5:u*0.5;}
     return[u,v];
   };
-  let dup=0;const modified=new Set();
+  let dup=0,solidTris=0;const modified=new Set(),solidIdx=new Map();
   for(const w of work){
     const {g,sel,wp,gc}=w,nT=g.nTri,nV=g.nV,uv0=g.uvs&&g.uvs[0]||null;
-    const remap=new Map(),src=[],nuv=[],nt=new Uint16Array(nT*4);
+    const remap=new Map(),src=[],nuv=[],nt=new Uint16Array(nT*4);let solid=-1;
+    const split=!(layout==='mirror'&&topMode==='image'),kind=split?new Uint8Array(nT):null;
+    if(split)for(let t=0;t<nT;t++){if(sel[g.tris[t*4+3]])kind[t]=triKind(wp,g.tris[t*4]*3,g.tris[t*4+1]*3,g.tris[t*4+2]*3);}
     for(let t=0;t<nT;t++){
       const mi=g.tris[t*4+3];nt[t*4+3]=mi;let side=-1;
-      if(sel[mi]){side=0;if(layout!=='mirror'){const cx=(wp[g.tris[t*4]*3]+wp[g.tris[t*4+1]*3]+wp[g.tris[t*4+2]*3])/3;side=cx<xc?0:1;}}
-      for(let k=0;k<3;k++){
-        const v=g.tris[t*4+k],key=v*3+(side<0?0:1+side);let ni=remap.get(key);
+      if(sel[mi]){
+        const k=split?kind[t]:0;
+        if(k===2){
+          if(topMode==='color'){side=2;if(solid<0){solid=livAddSolid(gc,livSlotChunk(gc,sel),topRGB,fx);solidIdx.set(w.gi,solid);}nt[t*4+3]=solid;solidTris++;}
+          else side=0;
+        }else side=layout==='mirror'?0:k;
+      }
+      for(let q=0;q<3;q++){
+        const v=g.tris[t*4+q],key=v*4+(side<0?0:1+side);let ni=remap.get(key);
         if(ni===undefined){ni=src.length;remap.set(key,ni);src.push(v);
-          if(side<0)nuv.push(uv0?uv0[v*2]:0,uv0?uv0[v*2+1]:0);else{const q=uvOf(wp[v*3+1],wp[v*3+2],side);nuv.push(q[0],q[1]);}}
-        nt[t*4+k]=ni;
+          if(side<0)nuv.push(uv0?uv0[v*2]:0,uv0?uv0[v*2+1]:0);else if(side===2)nuv.push(0.5,0.5);else{const p=uvOf(wp[v*3+1],wp[v*3+2],side);nuv.push(p[0],p[1]);}}
+        nt[t*4+q]=ni;
       }
     }
     const nV2=src.length;if(nV2>65535)throw new Error('Geometriyada vertex juda ko‘p ('+nV2+') — bu qismga rasm qo‘yib bo‘lmaydi');
@@ -1430,6 +1484,7 @@ function applyLivery(bytes,opt){
     // ---- extension: BinMesh (uchburchak ro'yxati), tun ranglari ----
     let ex=child(gc,T.EXT);if(!ex){ex=extChunk(gc.ver);gc.children.push(ex);}
     const per=g.materials.map(()=>[]);for(let t=0;t<nT;t++){const m=nt[t*4+3];(per[m]||(per[m]=[])).push(nt[t*4],nt[t*4+1],nt[t*4+2]);}
+    for(let i=0;i<per.length;i++)if(!per[i])per[i]=[];
     const bm=new BW(),usedM=per.map((p,i)=>({p,i})).filter(x=>x.p.length);
     bm.u32(0);bm.u32(usedM.length);bm.u32(usedM.reduce((s,x)=>s+x.p.length,0));
     for(const x of usedM){bm.u32(x.p.length);bm.u32(x.i);for(const v of x.p)bm.u32(v);}
@@ -1439,7 +1494,7 @@ function applyLivery(bytes,opt){
     // ---- materiallar ----
     const ml=child(gc,T.MATLIST),mats=childs(ml,T.MATERIAL),mdv=dvOf(child(ml,T.STRUCT).data),cnt=mdv.getUint32(0,true),slot=[];let k=0;
     for(let i=0;i<cnt;i++){const idx=mdv.getInt32(4+i*4,true);slot.push(idx<0?mats[k++]:slot[idx]);}
-    const doneM=new Set();for(let i=0;i<cnt;i++){if(!sel[i]||!slot[i]||doneM.has(slot[i]))continue;doneM.add(slot[i]);livMaterial(slot[i],texName,fx);}
+    const doneM=new Set();for(let i=0;i<cnt;i++){if(i===solid||!sel[i]||!slot[i]||doneM.has(slot[i]))continue;doneM.add(slot[i]);livMaterial(slot[i],texName,fx);}
     modified.add(w.gi);
   }
   // atomic: MatFX yoqilgan bo'lishi kerak (aks holda o'yin material effektini chizmaydi)
@@ -1448,22 +1503,244 @@ function applyLivery(bytes,opt){
     if(!child(ex,T.RIGHTTORENDER)){const rr=new BW();rr.u32(0x120);rr.u32(0);ex.children.push(leaf(T.RIGHTTORENDER,ex.ver,rr.done()));}
     const mf=child(ex,T.MATFX);if(!mf){const w=new BW();w.u32(1);ex.children.push(leaf(T.MATFX,ex.ver,w.done()));}else if(mf.data.length>=4&&!dvOf(mf.data).getUint32(0,true)){const d=new Uint8Array(mf.data);dvOf(d).setUint32(0,1,true);mf.data=d;}
   }
-  return{dff:serialize(ctx.roots),stats:{geoms:modified.size,tris:selTris,dupVerts:dup,skipped:skipped.length},bounds:{mn,mx}};
+  return{dff:serialize(ctx.roots),stats:{geoms:modified.size,tris:selTris,dupVerts:dup,skipped:skipped.length,solidTris,top:topMode,topColor:topRGB},bounds:{mn,mx}};
 }
 
-/* ---------- LOGO / GERB: kuzov yuzasiga yopishgan alohida decal (yangi geometriya + atomic, mavjud qism freymida) ----------
- * Rasm tanlangan joyning (kapot / tom / bagaj / eshik) BO'YOQ yuzasiga proyeksiya qilinadi: yuzaning uchburchaklari logo to'rtburchagi bilan
- * kesiladi (Sutherland-Hodgman), 4 mm tashqariga ko'tariladi, UV = logo to'rtburchagi. Har bir decal o'sha qismning freymiga (bonnet_ok, door_lf_ok...)
- * biriktiriladi -> kapot/eshik ochilganda birga harakatlanadi, _dam variantiga alohida nusxa qo'yiladi. Material: oq, alfa 254 (shaffof chetlar). */
+/* ---------- LOGO / GERB: kuzov yuzasiga yopishgan alohida decal (yangi geometriya + atomic, o'sha qism freymida) ----------
+ * JOY GEOMETRIYA BO'YICHA TOPILADI (qism nomlariga va "bo'yoq" materialiga ishonmasdan -- modlarda kapot qismida butun kuzov,
+ * yoki kapot kuzov bilan bir bo'lak, yoki karbon (bo'yoqsiz) bo'lishi mumkin):
+ *  - butun mashina (g'ildirak, _dam, _vlo dan tashqari) tepadan / yondan / old-orqadan "balandlik xaritasi" ga chiziladi;
+ *  - kapot = oldingi chetdan old oynagacha bo'lgan tepaga qaragan yuza, tom = eng baland shaffof bo'lmagan yuza,
+ *    bagaj = orqa chetdan orqa oynagacha (juda qisqa bo'lsa -- orqa eshik/qopqoq yuzi), eshik = eshik qismining tashqi yuzi;
+ *  - logo yuza normali bo'yicha proyeksiya qilinadi va FAQAT TASHQI (eng ustki) yuzaga yopishadi: ichki qatlamlar, motor, salon tushmaydi;
+ *  - uchburchaklar logo to'rtburchagi bilan kesiladi (Sutherland-Hodgman), 5 mm tashqariga ko'tariladi, o'rash (winding) tashqariga
+ *    qaratiladi (o'yin orqa yuzni chizmaydi); har bo'lak o'zi yopishgan qism freymiga biriktiriladi (kapot ochilsa birga harakatlanadi),
+ *    _ok qismning _dam juftiga ham nusxa qo'yiladi. Material: oq, alfa 254. */
 const LOGO_PLACES={
-  hood:{re:/^bonnet_(ok|dam)$/i,alt:{re:/^(chassis|bodyshell)$/i,front:true,frac:0.36},ax:[0,0,1],R:[-1,0,0],U:[0,-1,0],lbl:'Kapot'},
-  roof:{re:/^(chassis|chassis_dam|bodyshell)$/i,ax:[0,0,1],R:[1,0,0],U:[0,1,0],top:0.22,lbl:'Tom'},
-  trunk:{re:/^boot_(ok|dam)$/i,alt:{re:/^(chassis|bodyshell)$/i,front:false,frac:0.24},ax:[0,0,1],R:[1,0,0],U:[0,1,0],lbl:'Bagaj'},
-  door_l:{re:/^door_lf_(ok|dam)$/i,ax:[-1,0,0],R:[0,-1,0],U:[0,0,1],lbl:'Chap old eshik'},
-  door_r:{re:/^door_rf_(ok|dam)$/i,ax:[1,0,0],R:[0,1,0],U:[0,0,1],lbl:'O‘ng old eshik'},
-  door_lr:{re:/^door_lr_(ok|dam)$/i,ax:[-1,0,0],R:[0,-1,0],U:[0,0,1],lbl:'Chap orqa eshik'},
-  door_rr:{re:/^door_rr_(ok|dam)$/i,ax:[1,0,0],R:[0,1,0],U:[0,0,1],lbl:'O‘ng orqa eshik'}
+  hood:{view:'top',R:[-1,0,0],U:[0,-1,0],lbl:'Kapot'},
+  roof:{view:'top',R:[1,0,0],U:[0,1,0],lbl:'Tom'},
+  trunk:{view:'top',R:[1,0,0],U:[0,1,0],lbl:'Bagaj'},
+  door_l:{view:'left',re:/^door_lf_ok$/i,R:[0,-1,0],U:[0,0,1],lbl:'Chap old eshik'},
+  door_r:{view:'right',re:/^door_rf_ok$/i,R:[0,1,0],U:[0,0,1],lbl:'O‘ng old eshik'},
+  door_lr:{view:'left',re:/^door_lr_ok$/i,R:[0,-1,0],U:[0,0,1],lbl:'Chap orqa eshik'},
+  door_rr:{view:'right',re:/^door_rr_ok$/i,R:[0,1,0],U:[0,0,1],lbl:'O‘ng orqa eshik'}
 };
+const LG_VIEW={top:{k:2,s:1,iu:0,iv:1,ax:[0,0,1]},left:{k:0,s:-1,iu:1,iv:2,ax:[-1,0,0]},right:{k:0,s:1,iu:1,iv:2,ax:[1,0,0]},
+  front:{k:1,s:1,iu:0,iv:2,ax:[0,1,0]},back:{k:1,s:-1,iu:0,iv:2,ax:[0,-1,0]}};
+const LG_CACHE=new WeakMap();
+const lgUnderWheel=f=>{let p=f.par,n=0;while(p&&n++<64){if(/^wheel/i.test(p.name||''))return true;p=p.par;}return false;};
+function lgPart(a,g,extra){
+  const W=fWorld(a.frame),nV=g.nV,wp=new Float32Array(nV*3),wn=g.nrm?new Float32Array(nV*3):null;
+  for(let i=0;i<nV;i++){const q=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],W);wp[i*3]=q[0];wp[i*3+1]=q[1];wp[i*3+2]=q[2];
+    if(wn){const m=v3n(vm3([g.nrm[i*3],g.nrm[i*3+1],g.nrm[i*3+2]],W.r));wn[i*3]=m[0];wn[i*3+1]=m[1];wn[i*3+2]=m[2];}}
+  const tl=[],gls=[],gp=/wind(screen|shield)|window|glass|steklo/i.test(a.frame.name||'');
+  for(let t=0;t<g.nTri;t++){const m=g.materials[g.tris[t*4+3]];if(!m)continue;const al=m.color?m.color[3]:255;if(al<16)continue;
+    tl.push(g.tris[t*4],g.tris[t*4+1],g.tris[t*4+2]);gls.push(al<250||gp?1:0);}
+  const bmn=[1e30,1e30,1e30],bmx=[-1e30,-1e30,-1e30];for(let i=0;i<nV*3;i+=3)for(let c=0;c<3;c++){const x=wp[i+c];if(x<bmn[c])bmn[c]=x;if(x>bmx[c])bmx[c]=x;}
+  return Object.assign({fn:a.frame.name||'',W,wp,wn,tl:Uint32Array.from(tl),gl:Uint8Array.from(gls),bmn,bmx},extra||{});
+}
+/* butun mashina (dunyo koordinatalarida) -- bir xil baytlar uchun keshlanadi */
+function lgScene(bytes,ctx){
+  let sc=LG_CACHE.get(bytes);if(sc)return sc;
+  const {A,G,rwv}=ctx,parts=[],dec=new Map(),mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30];
+  A.forEach((a,ai)=>{
+    const fn=a.frame.name||'';if(livSkipFrame(a.frame)||lgUnderWheel(a.frame)||/_(dam|vlo)$/i.test(fn))return;
+    const gc=G[a.geom];if(!gc)return;let g=dec.get(a.geom);if(g===undefined){try{g=decodeGeometry(gc,rwv);}catch(e){g=null;}dec.set(a.geom,g);}
+    if(!g||g.native||!g.pos||!g.nTri)return;
+    const P=lgPart(a,g,{ai});if(!P.tl.length)return;parts.push(P);
+    for(let t=0,ti=0;t<P.tl.length;t+=3,ti++){if(P.gl[ti])continue;for(let k=0;k<3;k++){const i=P.tl[t+k]*3;for(let c=0;c<3;c++){const x=P.wp[i+c];if(x<mn[c])mn[c]=x;if(x>mx[c])mx[c]=x;}}}
+  });
+  sc={parts,mn,mx,maps:{}};LG_CACHE.set(bytes,sc);return sc;
+}
+/* uchburchakni katakli to'rga chizish: katak markazlari + (kichik uchburchaklar uchun) markaz va uchlar */
+function lgRast(U0,V0,d0,U1,V1,d1,U2,V2,d2,nu,nv,cb){
+  const i0=Math.max(0,Math.floor(Math.min(U0,U1,U2))),i1=Math.min(nu-1,Math.floor(Math.max(U0,U1,U2))),j0=Math.max(0,Math.floor(Math.min(V0,V1,V2))),j1=Math.min(nv-1,Math.floor(Math.max(V0,V1,V2)));
+  const den=(V1-V2)*(U0-U2)+(U2-U1)*(V0-V2);
+  if(Math.abs(den)>1e-9&&i1>=i0&&j1>=j0)for(let j=j0;j<=j1;j++){const y=j+.5;for(let i=i0;i<=i1;i++){const x=i+.5;
+    const w0=((V1-V2)*(x-U2)+(U2-U1)*(y-V2))/den,w1=((V2-V0)*(x-U2)+(U0-U2)*(y-V2))/den,w2=1-w0-w1;
+    if(w0>=-1e-4&&w1>=-1e-4&&w2>=-1e-4)cb(j*nu+i,w0*d0+w1*d1+w2*d2);}}
+  const cu=(U0+U1+U2)/3,cv=(V0+V1+V2)/3,cd=(d0+d1+d2)/3;
+  const sp=(u,v,d)=>{const i=Math.floor(u),j=Math.floor(v);if(i>=0&&j>=0&&i<nu&&j<nv)cb(j*nu+i,d);};
+  sp(cu,cv,cd);sp(U0+(cu-U0)*.15,V0+(cv-V0)*.15,d0+(cd-d0)*.15);sp(U1+(cu-U1)*.15,V1+(cv-V1)*.15,d1+(cd-d1)*.15);sp(U2+(cu-U2)*.15,V2+(cv-V2)*.15,d2+(cd-d2)*.15);
+}
+/* balandlik xaritasi: ko'rinish yo'nalishidan eng tashqi yuza (D), uning qiyaligi (NA), oynami (GL), qaysi qism (PI) */
+function lgMap(sc,view){
+  if(sc.maps[view])return sc.maps[view];
+  const V=LG_VIEW[view],{k,s,iu,iv}=V,mn=sc.mn,mx=sc.mx,ext=Math.max(mx[iu]-mn[iu],mx[iv]-mn[iv],0.1),cs=Math.max(0.02,ext/220);
+  const u0=mn[iu]-cs*2,v0=mn[iv]-cs*2,nu=Math.ceil((mx[iu]-mn[iu])/cs)+4,nv=Math.ceil((mx[iv]-mn[iv])/cs)+4,N=nu*nv;
+  const D=new Float32Array(N).fill(-1e30),NA=new Float32Array(N),GL=new Uint8Array(N),PI=new Int32Array(N).fill(-1);
+  sc.parts.forEach((P,pi)=>{const p=P.wp,tl=P.tl;
+    for(let t=0,ti=0;t<tl.length;t+=3,ti++){
+      const a=tl[t]*3,b=tl[t+1]*3,c=tl[t+2]*3;
+      const e1x=p[b]-p[a],e1y=p[b+1]-p[a+1],e1z=p[b+2]-p[a+2],e2x=p[c]-p[a],e2y=p[c+1]-p[a+1],e2z=p[c+2]-p[a+2];
+      const nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x,nl=Math.hypot(nx,ny,nz);if(nl<1e-14)continue;
+      const na=Math.abs(k===0?nx:k===1?ny:nz)/nl;if(na<0.2)continue;
+      const gl=P.gl[ti];
+      lgRast((p[a+iu]-u0)/cs,(p[a+iv]-v0)/cs,s*p[a+k],(p[b+iu]-u0)/cs,(p[b+iv]-v0)/cs,s*p[b+k],(p[c+iu]-u0)/cs,(p[c+iv]-v0)/cs,s*p[c+k],nu,nv,
+        (cell,d)=>{if(d>D[cell]){D[cell]=d;NA[cell]=na;GL[cell]=gl;PI[cell]=pi;}});
+    }});
+  return sc.maps[view]={V,cs,u0,v0,nu,nv,D,NA,GL,PI};
+}
+const lgOk=(M,c)=>c>=0&&M.D[c]>-1e29;
+/* markaziy chiziq bo'ylab (3 katak eni) har qator uchun eng tashqi katak */
+function lgProfile(M,uc){
+  const ic=Math.floor((uc-M.u0)/M.cs),rows=[];
+  for(let j=0;j<M.nv;j++){let best=-1;for(let i=ic-1;i<=ic+1;i++){if(i<0||i>=M.nu)continue;const c=j*M.nu+i;if(lgOk(M,c)&&!M.GL[c]&&(best<0||M.D[c]>M.D[best]))best=c;}
+    if(best<0)for(let i=ic-1;i<=ic+1;i++){if(i<0||i>=M.nu)continue;const c=j*M.nu+i;if(lgOk(M,c)){best=c;break;}}
+    rows.push(best<0?null:{d:M.D[best],na:M.NA[best],gl:M.GL[best],c:best});}
+  return rows;
+}
+/* j-qatorda markazdan chap-o'ngga (u bo'yicha) test() to'g'ri bo'lgan uzluksiz oraliq (1 katak bo'shliqqa ruxsat) */
+function lgSpan(M,j,uc,test){
+  const ic=Math.min(M.nu-1,Math.max(0,Math.floor((uc-M.u0)/M.cs)));let s=-1;
+  for(let r=0;r<6&&s<0;r++)for(const i of[ic-r,ic+r])if(s<0&&i>=0&&i<M.nu&&test(j*M.nu+i))s=i;
+  if(s<0)return null;let lo=s,hi=s;
+  for(let i=s-1,gap=0;i>=0;i--){if(test(j*M.nu+i)){lo=i;gap=0;}else if(++gap>1)break;}
+  for(let i=s+1,gap=0;i<M.nu;i++){if(test(j*M.nu+i)){hi=i;gap=0;}else if(++gap>1)break;}
+  return[M.u0+lo*M.cs,M.u0+(hi+1)*M.cs];
+}
+/* markaziy hududdagi tashqi yuza chuqurligi (mediana) -- teshik/ochiq oyna markazga tushsa ham to'g'ri tekislik */
+function lgSurfRegion(M,u,v,W,H,pis){
+  const iu0=Math.floor((u-W*0.3-M.u0)/M.cs),iu1=Math.floor((u+W*0.3-M.u0)/M.cs),jv0=Math.floor((v-H*0.3-M.v0)/M.cs),jv1=Math.floor((v+H*0.3-M.v0)/M.cs),ds=[];
+  for(let j=Math.max(0,jv0);j<=Math.min(M.nv-1,jv1);j++)for(let i=Math.max(0,iu0);i<=Math.min(M.nu-1,iu1);i++){const c=j*M.nu+i;if(lgOk(M,c)&&!M.GL[c]&&M.NA[c]>0.4&&(!pis||pis.has(M.PI[c])))ds.push(M.D[c]);}
+  const c0=lgSurf(M,u,v);if(ds.length<4)return c0;ds.sort((a,b)=>a-b);const med=ds[Math.floor(ds.length*0.6)],V=M.V;
+  if(c0&&Math.abs(V.s*c0[V.k]-med)<0.05)return c0;const w=[0,0,0];w[V.iu]=u;w[V.iv]=v;w[V.k]=V.s*med;return w;
+}
+/* yuza nuqtasi (u,v) da: xarita katagidan dunyo nuqtasi; bo'sh/oyna bo'lsa yaqin katak */
+function lgSurf(M,u,v){
+  const i0=Math.floor((u-M.u0)/M.cs),j0=Math.floor((v-M.v0)/M.cs);
+  for(let r=0;r<=5;r++){let best=-1,bd=1e9;
+    for(let j=j0-r;j<=j0+r;j++)for(let i=i0-r;i<=i0+r;i++){if(i<0||j<0||i>=M.nu||j>=M.nv)continue;if(Math.max(Math.abs(i-i0),Math.abs(j-j0))!==r)continue;
+      const c=j*M.nu+i;if(!lgOk(M,c)||M.GL[c])continue;const dd=(i-i0)**2+(j-j0)**2;if(dd<bd){bd=dd;best=c;}}
+    if(best>=0){const V=M.V,w=[0,0,0];w[V.iu]=r?M.u0+(best%M.nu+.5)*M.cs:u;w[V.iv]=r?M.v0+(Math.floor(best/M.nu)+.5)*M.cs:v;w[V.k]=V.s*M.D[best];return w;}}
+  return null;
+}
+/* old/orqa yuz (furgon kapoti, xetchbek/SUV bagaji): markaziy ustunda oynadan pastdagi tashqariga qaragan yuza */
+function lgFaceRegion(sc,view){
+  const M=lgMap(sc,view),mn=sc.mn,mx=sc.mx,H=mx[2]-mn[2],xc=(mn[0]+mx[0])/2,rows=lgProfile(M,xc);
+  let gLow=-1;for(let j=0;j<M.nv;j++)if(rows[j]&&rows[j].gl&&M.v0+(j+.5)*M.cs>mn[2]+0.35*H){gLow=j;break;}
+  const zMin=mn[2]+0.18*H,good=r=>r&&!r.gl&&r.na>0.5;
+  let s=-1;for(let j=(gLow>=0?gLow-1:M.nv-1);j>=0;j--){if(M.v0+(j+.5)*M.cs<zMin)break;if(good(rows[j])){s=j;break;}}
+  if(s<0)return null;let e=s;
+  for(let j=s-1,gap=0;j>=0;j--){if(M.v0+(j+.5)*M.cs<zMin)break;const r=rows[j];if(r&&!r.gl&&r.na>0.4&&Math.abs(r.d-rows[s].d)<0.35){e=j;gap=0;}else if(++gap>2)break;}
+  const Hh=(s-e+1)*M.cs;if(Hh<0.1)return null;const jc=Math.round((s+e)/2),dc=rows[jc]?rows[jc].d:rows[s].d;
+  const sp=lgSpan(M,jc,xc,c=>lgOk(M,c)&&!M.GL[c]&&M.NA[c]>0.4&&Math.abs(M.D[c]-dc)<0.25),cw=mx[0]-mn[0];
+  return{view,u:xc,v:M.v0+(jc+.5)*M.cs,W:Math.max(sp?sp[1]-sp[0]:0,0.45*cw),H:Hh};
+}
+/* joyni topish: {view,u,v (xarita o'qlarida markaz), W (R bo'yicha eni), H (U bo'yicha bo'yi), R,U (standart)} yoki {err} */
+function lgRegion(sc,place){
+  const P=LOGO_PLACES[place],mn=sc.mn,mx=sc.mx,H=mx[2]-mn[2],L=mx[1]-mn[1],xc=(mn[0]+mx[0])/2;
+  if(P.view==='top'){
+    const M=lgMap(sc,'top'),rows=lgProfile(M,xc),zLo=mn[2]+0.33*H,yOf=j=>M.v0+(j+.5)*M.cs;
+    const good=r=>r&&!r.gl&&r.na>0.5&&r.d>zLo,soft=r=>r&&!r.gl&&r.na>0.4&&r.d>zLo;
+    const spanAt=(j,d0,tol)=>lgSpan(M,j,xc,c=>lgOk(M,c)&&!M.GL[c]&&M.NA[c]>0.4&&Math.abs(M.D[c]-d0)<tol);
+    // markaziy chiziq profili: tom (eng baland) -> old/orqa oyna (keng shaffof yoki keskin qiya) -> kapot/bagaj (yotiqroq yuza)
+    const cwc=(mx[0]-mn[0])/M.cs,wg=new Uint8Array(M.nv);
+    for(let j=0;j<M.nv;j++){let n=0;for(let i=0;i<M.nu;i++){const c=j*M.nu+i;if(lgOk(M,c)&&M.GL[c])n++;}wg[j]=n>=0.3*cwc?1:0;}
+    const valid=j=>j>=0&&j<M.nv&&!wg[j]&&soft(rows[j]);
+    const slope=(j,dir)=>{for(let k=3;k<=6;k++){const q=j+dir*k;if(q>=0&&q<M.nv&&rows[q]&&!rows[q].gl)return Math.abs(rows[j].d-rows[q].d)/(k*M.cs);}return 9;};
+    let jr=-1;for(let j=0;j<M.nv;j++){const r=rows[j];if(r&&!r.gl&&!wg[j]&&r.na>0.6&&(jr<0||r.d>rows[jr].d))jr=j;}
+    if(place==='hood'||place==='trunk'){
+      const dir=place==='hood'?1:-1,inR=j=>j>=0&&j<M.nv;let len=0,s=-1,e=-1;
+      if(jr>=0){
+        let j=jr;while(inR(j+dir)&&valid(j+dir)&&slope(j,dir)<0.38)j+=dir;                         // tom
+        const roofD=rows[jr].d,run=k=>{for(let q=0;q<4;q++)if(!valid(k+dir*q))return false;return rows[k].d<roofD-0.2&&slope(k,dir)<0.38;};
+        let k=j+dir;while(inR(k)&&!run(k))k+=dir;  // oyna
+        if(inR(k)&&valid(k)){s=k;e=k;let g2=0;const d0=rows[k].d;for(let q=k+dir;inR(q);q+=dir){if(valid(q)&&Math.abs(rows[q].d-d0)<0.2&&slope(q-dir,dir)<2.5){e=q;g2=0;}else if(++g2>3)break;}  // kapot/bagaj
+          len=(Math.abs(e-s)+1)*M.cs;}
+      }
+      if(len>=0.3){const jc=Math.round((s+e)/2),r=rows[jc]&&!rows[jc].gl?rows[jc]:rows[s];let sp=spanAt(jc,r.d,0.25);
+        const cw=mx[0]-mn[0];let Wd=sp?sp[1]-sp[0]:0;if(Wd<0.45*cw){const sp2=lgSpan(M,jc,xc,c=>lgOk(M,c)&&!M.GL[c]&&M.NA[c]>0.3&&Math.abs(M.D[c]-r.d)<0.4);Wd=Math.max(Wd,sp2?sp2[1]-sp2[0]:0,0.55*cw);}
+        return{view:'top',u:xc,v:yOf(jc),W:Wd,H:len,R:P.R,U:P.U};}
+      // yuqoridan yuza yo'q/juda qisqa -- old (furgon) yoki orqa (xetchbek, SUV) yuzi
+      const fr=lgFaceRegion(sc,dir>0?'front':'back');
+      if(fr)return Object.assign(fr,dir>0?{R:[-1,0,0],U:[0,0,1]}:{R:[1,0,0],U:[0,0,1]});
+      return{err:'«'+P.lbl+'» yuzasi topilmadi'};
+    }
+    // tom: markaziy chiziqdagi eng baland, oyna bo'lmagan, tepaga qaragan yuza
+    const jm=jr;
+    if(jm<0||rows[jm].d<mn[2]+0.6*H)return{err:'«Tom» topilmadi (ochiq tomli mashina bo‘lishi mumkin)'};
+    const dt=rows[jm].d,ok=r=>r&&!r.gl&&r.na>0.55&&r.d>dt-0.15;let a=jm,b=jm;
+    for(let j=jm-1,gap=0;j>=0;j--){if(ok(rows[j])){a=j;gap=0;}else if(++gap>1)break;}
+    for(let j=jm+1,gap=0;j<M.nv;j++){if(ok(rows[j])){b=j;gap=0;}else if(++gap>1)break;}
+    let len=(b-a+1)*M.cs;
+    if(len<0.4){ // shisha tom (panorama): oynani ham tom deb olamiz
+      const okg=j=>rows[j]&&rows[j].na>0.55&&rows[j].d>dt-0.15;for(let j=a-1,gap=0;j>=0;j--){if(okg(j)){a=j;gap=0;}else if(++gap>1)break;}
+      for(let j=b+1,gap=0;j<M.nv;j++){if(okg(j)){b=j;gap=0;}else if(++gap>1)break;}len=(b-a+1)*M.cs;}
+    if(len<0.2)return{err:'«Tom» yuzasi juda kichik'};
+    const jc=Math.round((a+b)/2),sp=spanAt(jc,rows[jc]?rows[jc].d:dt,0.15),cw=mx[0]-mn[0];
+    return{view:'top',u:xc,v:yOf(jc),W:Math.max(sp?sp[1]-sp[0]:0,0.4*cw),H:len,R:P.R,U:P.U};
+  }
+  // eshiklar: eshik qismining yon tomondan ko'rinadigan tashqi yuzasi
+  const pis=new Set();sc.parts.forEach((p,i)=>{if(P.re.test(p.fn))pis.add(i);});
+  if(!pis.size){ // eshik qismi yo'q (2 eshikli, eshik kuzov bilan bir bo'lak, nostandart nomlar) -- yon yuzaning o'sha joyiga
+    const M=lgMap(sc,P.view),yc=(mn[1]+mx[1])/2,front=place==='door_l'||place==='door_r';
+    const ua=front?yc-0.04*L:yc-0.30*L,ub=front?yc+0.24*L:yc-0.06*L,um=(ua+ub)/2,ic=Math.floor((um-M.u0)/M.cs);
+    let gl=-1;for(let j=M.nv-1;j>=0;j--){const z=M.v0+(j+.5)*M.cs;if(z<mn[2]+0.35*H)break;let g=0,n2=0;for(let i=ic-2;i<=ic+2;i++){if(i<0||i>=M.nu)continue;const c=j*M.nu+i;if(lgOk(M,c)){n2++;if(M.GL[c])g++;}}if(n2&&g*2>=n2)gl=j;}
+    const vHi=gl>=0?M.v0+gl*M.cs-0.03:mn[2]+0.62*H,vLo=Math.max(mn[2]+0.12*H,vHi-0.45*H);
+    if(!(vHi-vLo>0.1))return{err:'bu mashinada «'+P.lbl+'» yuzasi topilmadi'};
+    return{view:P.view,u:um,v:(vLo+vHi)/2,W:ub-ua,H:vHi-vLo,R:P.R,U:P.U,note:'eshik qismi yo‘q — yon yuzaga qo‘yildi'};
+  }
+  const M=lgMap(sc,P.view);let n=0,u0=1e30,u1=-1e30,v0=1e30,v1=-1e30;
+  const rc=new Int32Array(M.nv),isD=c=>lgOk(M,c)&&!M.GL[c]&&M.NA[c]>=0.5&&pis.has(M.PI[c]);
+  for(let c=0;c<M.D.length;c++)if(isD(c)){n++;rc[Math.floor(c/M.nu)]++;}
+  if(n>=6){ // eshik paneli: kenglik katta qatorlar (oyna romi/ustunlar emas)
+    let mxr=0;for(let j=0;j<M.nv;j++)mxr=Math.max(mxr,rc[j]);
+    for(let j=0;j<M.nv;j++){if(rc[j]<0.5*mxr)continue;for(let i=0;i<M.nu;i++){if(!isD(j*M.nu+i))continue;const u=M.u0+(i+.5)*M.cs,v=M.v0+(j+.5)*M.cs;if(u<u0)u0=u;if(u>u1)u1=u;if(v<v0)v0=v;if(v>v1)v1=v;}}
+  }else{ // eshikning tashqi yuzasi boshqa qismda -- eshik qismi chegarasi bo'yicha
+    for(const i of pis){const p=sc.parts[i];for(let t=0;t<p.tl.length;t++){const q=p.tl[t]*3,u=p.wp[q+M.V.iu],v=p.wp[q+M.V.iv];if(u<u0)u0=u;if(u>u1)u1=u;if(v<v0)v0=v;if(v>v1)v1=v;}}
+    if(!(u1>u0))return{err:'«'+P.lbl+'» yuzasi topilmadi'};
+    const h0=v1-v0,vv=v0+h0*0.35;v0=vv-h0*0.2;v1=vv+h0*0.2;  // oyna qismini emas, pastki panelni olamiz
+  }
+  return{view:P.view,u:(u0+u1)/2,v:(v0+v1)/2,W:u1-u0,H:v1-v0,R:P.R,U:P.U,pis};
+}
+/* decal: C markaz (yuzada), n proyeksiya yo'nalishi (tashqariga), R/U tekislik o'qlari, hw/hh yarim o'lcham.
+ * Natija: parts indeksi -> {pos,nrm,uv,tris} (dunyo koordinatalarida) va o'rtacha yuza normali */
+const LG_OFF=0.005;
+function lgDecal(sc,C,n,R,U,hw,hh,extra){
+  const gs=Math.max(hw,hh)*2/128,ga=Math.max(1,Math.ceil(2*hw/gs)),gb=Math.max(1,Math.ceil(2*hh/gs)),Dg=new Float32Array(ga*gb).fill(-1e30);
+  const cand=[],list=sc.parts.map((P,pi)=>({P,pi})).concat((extra||[]).map(P=>({P,pi:-1})));
+  const projAll=P=>{const nV=P.wp.length/3,pa=new Float32Array(nV*3);for(let i=0;i<nV;i++){const x=P.wp[i*3]-C[0],y=P.wp[i*3+1]-C[1],z=P.wp[i*3+2]-C[2];
+    pa[i*3]=x*R[0]+y*R[1]+z*R[2];pa[i*3+1]=x*U[0]+y*U[1]+z*U[2];pa[i*3+2]=x*n[0]+y*n[1]+z*n[2];}return pa;};
+  const rad=Math.hypot(hw,hh)+0.5;
+  for(const it of list){const P=it.P;let dd=0;for(let c=0;c<3;c++){const e=Math.max(P.bmn[c]-C[c],0,C[c]-P.bmx[c]);dd+=e*e;}if(dd>rad*rad){it.pa=null;continue;}  // uzoq qismlar
+    const pa=projAll(P),tl=P.tl;it.pa=pa;
+    for(let t=0;t<tl.length;t+=3){const a=tl[t]*3,b=tl[t+1]*3,c=tl[t+2]*3;
+      if(Math.max(pa[a],pa[b],pa[c])<-hw||Math.min(pa[a],pa[b],pa[c])>hw||Math.max(pa[a+1],pa[b+1],pa[c+1])<-hh||Math.min(pa[a+1],pa[b+1],pa[c+1])>hh)continue;
+      const hmx=Math.max(pa[a+2],pa[b+2],pa[c+2]),hmn=Math.min(pa[a+2],pa[b+2],pa[c+2]);if(hmx<-0.2||hmn>0.45)continue;  // faqat tashqi qobiq qatlami (chuqur ichki qismlar emas)
+      const w=P.wp,e1=[w[b]-w[a],w[b+1]-w[a+1],w[b+2]-w[a+2]],e2=[w[c]-w[a],w[c+1]-w[a+1],w[c+2]-w[a+2]],fx=v3x(e1,e2),fl=Math.hypot(fx[0],fx[1],fx[2]);if(fl<1e-14)continue;
+      const fnn=[fx[0]/fl,fx[1]/fl,fx[2]/fl],dn=v3d(fnn,n);if(Math.abs(dn)<0.12)continue;
+      const g=[(pa[a]+hw)/gs,(pa[a+1]+hh)/gs,pa[a+2],(pa[b]+hw)/gs,(pa[b+1]+hh)/gs,pa[b+2],(pa[c]+hw)/gs,(pa[c+1]+hh)/gs,pa[c+2]];
+      cand.push({it,t,g,fn:dn<0?[-fnn[0],-fnn[1],-fnn[2]]:fnn,area:fl/2,match:it.pi<0});
+      if(it.pi>=0)lgRast(g[0],g[1],g[2],g[3],g[4],g[5],g[6],g[7],g[8],ga,gb,(cell,d)=>{if(d>Dg[cell])Dg[cell]=d;});
+    }}
+  const EPS=0.012,keep=[];let nS=[0,0,0];
+  // teshik/ochiq joylar (oynasiz deraza, panjara orqasi): yuzaning odatiy sathidan ancha chuqur uchburchaklar olinmaydi
+  const dv=[];for(let i=0;i<Dg.length;i++)if(Dg[i]>-1e29)dv.push(Dg[i]);dv.sort((a,b)=>a-b);const dMed=dv.length?dv[Math.floor(dv.length*0.5)]:0;
+  for(const c of cand){const g=c.g;let hit=0,tot=0;if(!c.match&&dv.length&&Math.max(g[2],g[5],g[8])<dMed-0.1)continue;
+    // uchburchakning qancha qismi eng tashqi (ko'rinadigan) -- kichik tirqishdan ko'rinadigan motor/salon bo'laklari o'tmaydi
+    if(!c.match)lgRast(g[0],g[1],g[2],g[3],g[4],g[5],g[6],g[7],g[8],ga,gb,(cell,d)=>{tot++;if(d>=Dg[cell]-EPS)hit++;});
+    else lgRast(g[0],g[1],g[2],g[3],g[4],g[5],g[6],g[7],g[8],ga,gb,(cell,d)=>{tot++;if(Dg[cell]>-1e29&&Math.abs(d-Dg[cell])<0.05)hit++;}); // _dam: ok qism yuzasiga yaqin
+    if(!tot||hit/tot<0.34)continue;keep.push(c);
+    if(!c.match){const cu=(g[0]+g[3]+g[6])/3*gs-hw,cv=(g[1]+g[4]+g[7])/3*gs-hh;if(Math.abs(cu)<hw*0.8&&Math.abs(cv)<hh*0.8){const wgt=c.area;nS[0]+=c.fn[0]*wgt;nS[1]+=c.fn[1]*wgt;nS[2]+=c.fn[2]*wgt;}}}
+  const out=new Map();
+  const clip=(pl,idx,lim,sgn)=>{const o=[];for(let k=0;k<pl.length;k++){const A1=pl[k],B1=pl[(k+1)%pl.length],da=sgn*(lim-A1[idx]),db=sgn*(lim-B1[idx]);
+    if(da>=0)o.push(A1);if((da>=0)!==(db>=0)){const tt=da/(da-db);o.push(A1.map((x,j)=>x+(B1[j]-x)*tt));}}return o;};
+  for(const c of keep){const P=c.it.P,pa=c.it.pa;let poly=[];
+    for(let k=0;k<3;k++){const i=P.tl[c.t+k]*3;let vn=n;if(P.wn){vn=[P.wn[i],P.wn[i+1],P.wn[i+2]];if(v3d(vn,n)<0)vn=[-vn[0],-vn[1],-vn[2]];if(v3d(vn,n)<0.05)vn=n;}
+      poly.push([P.wp[i],P.wp[i+1],P.wp[i+2],vn[0],vn[1],vn[2],pa[i],pa[i+1]]);}
+    poly=clip(poly,6,hw,1);if(poly.length>=3)poly=clip(poly,6,-hw,-1);if(poly.length>=3)poly=clip(poly,7,hh,1);if(poly.length>=3)poly=clip(poly,7,-hh,-1);
+    if(poly.length<3)continue;
+    let nw=[0,0,0];for(let k=0;k<poly.length;k++){const a=poly[k],b=poly[(k+1)%poly.length];nw[0]+=(a[1]-b[1])*(a[2]+b[2]);nw[1]+=(a[2]-b[2])*(a[0]+b[0]);nw[2]+=(a[0]-b[0])*(a[1]+b[1]);}
+    if(v3d(nw,n)<0)poly.reverse();   // o'rash tashqariga (o'yin orqa yuzni chizmaydi)
+    let B=out.get(c.it);if(!B){B={P,pos:[],nrm:[],uv:[],tris:[]};out.set(c.it,B);}
+    const base=B.pos.length/3;
+    for(const v of poly){B.pos.push(v[0]+n[0]*LG_OFF,v[1]+n[1]*LG_OFF,v[2]+n[2]*LG_OFF);const vn=v3n([v[3],v[4],v[5]]);B.nrm.push(vn[0],vn[1],vn[2]);B.uv.push((v[6]+hw)/(2*hw),(hh-v[7])/(2*hh));}
+    for(let k=1;k<poly.length-1;k++)B.tris.push(base,base+k,base+k+1,0);
+  }
+  const nl=Math.hypot(nS[0],nS[1],nS[2]);
+  return{out,nAvg:nl>1e-9?[nS[0]/nl,nS[1]/nl,nS[2]/nl]:null,kept:keep.length};
+}
 /* Kuzovdagi eski bezaklar (stiker/rasm qismlari) -- UI ro'yxati: atomic + material bo'yicha */
 function decalGroups(bytes,paintKeys){
   const ctx=dffCtx(bytes),{A,G,rwv}=ctx,out=[];const pk=paintKeys instanceof Set?paintKeys:new Set(paintKeys||[]);
@@ -1501,78 +1778,47 @@ function dropGroups(bytes,list){
   }
   return{dff:serialize(ctx.roots),dropped};
 }
-/* opt: {logos:[{tex,place,size(0..1 eni ulushi),offX,offY(-0.5..0.5),rot(gradus),aspect(h/w)}], surfKeys:Set, fx}
- * Qaytaradi {dff, report:[{tex,place,pieces,tris,frames:[...] ,status}]} */
+/* opt: {logos:[{tex,place,size(0..1 joy eni ulushi),offX,offY(-0.5..0.5),rot(gradus),aspect(h/w)}], fx}  (surfKeys -- endi kerak emas)
+ * Qaytaradi {dff, report:[{tex,place,pieces,tris,frames:[...],status}]} */
 function applyLogos(bytes,opt){
   const logos=(opt.logos||[]).filter(l=>l&&LOGO_PLACES[l.place]);if(!logos.length)return{dff:bytes,report:[]};
-  const sk=opt.surfKeys instanceof Set?opt.surfKeys:new Set(opt.surfKeys||[]),fx=opt.fx===undefined?null:opt.fx;
-  const ctx=dffCtx(bytes),{A,G,rwv,ver}=ctx,report=[];
+  const fx=opt.fx===undefined?null:opt.fx;
+  const ctx=dffCtx(bytes),{A,G,rwv,ver}=ctx,report=[],sc=lgScene(bytes,ctx);
   const clump=ctx.clump,cst=child(clump,T.STRUCT),newAt=[],newG=[];
-  // har bir atomic uchun (bir marta) dunyo koordinatalaridagi bo'yoq uchburchaklari
-  const cache=new Map();
-  const surf=ai=>{if(cache.has(ai))return cache.get(ai);const a=A[ai];let r=null;const gc=G[a.geom];
-    if(gc){const g=decodeGeometry(gc,rwv);if(!g.native&&g.pos){const W=fWorld(a.frame),nV=g.nV,wp=new Float32Array(nV*3),wn=new Float32Array(nV*3);
-      for(let i=0;i<nV;i++){const q=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],W);wp[i*3]=q[0];wp[i*3+1]=q[1];wp[i*3+2]=q[2];if(g.nrm){const n=vm3([g.nrm[i*3],g.nrm[i*3+1],g.nrm[i*3+2]],W.r);wn[i*3]=n[0];wn[i*3+1]=n[1];wn[i*3+2]=n[2];}}
-      const tl=[];for(let t=0;t<g.nTri;t++){const m=g.materials[g.tris[t*4+3]];if(m&&(sk.has(livKey(m))||(!sk.size&&m.color[3]===255)))tl.push(g.tris[t*4],g.tris[t*4+1],g.tris[t*4+2]);}
-      r={W,wp,wn,hasN:!!g.nrm,tl};}}
-    cache.set(ai,r);return r;};
+  let dams=null;const damParts=()=>{if(dams)return dams;dams=[];
+    A.forEach((a,ai)=>{const fn=a.frame.name||'';if(!/_dam$/i.test(fn)||livSkipFrame(a.frame)||lgUnderWheel(a.frame))return;const gc=G[a.geom];if(!gc)return;
+      let g=null;try{g=decodeGeometry(gc,rwv);}catch(e){}if(!g||g.native||!g.pos||!g.nTri)return;const P=lgPart(a,g,{ai,dam:true});if(P.tl.length)dams.push(P);});
+    return dams;};
   for(const L of logos){
-    const P=LOGO_PLACES[L.place],ax=P.ax,rep={tex:L.tex,place:L.place,pieces:0,tris:0,frames:[],status:'ok'};report.push(rep);
-    let cand=A.map((a,i)=>i).filter(i=>P.re.test(A[i].frame.name||'')),yR=null;
-    const isOk=i=>!/_dam$/i.test(A[i].frame.name||'');
-    if(!cand.length&&P.alt){ // kapot/bagaj alohida qism emas (kuzov bilan bir bo'lak) -- kuzovning old/orqa qismi
-      cand=A.map((a,i)=>i).filter(i=>P.alt.re.test(A[i].frame.name||''));let y0=1e30,y1=-1e30;
-      for(const ai of cand){const s=surf(ai);if(!s)continue;for(const v of s.tl){const y=s.wp[v*3+1];if(y<y0)y0=y;if(y>y1)y1=y;}}
-      if(y1>y0){const Lb=y1-y0;yR=P.alt.front?[y1-P.alt.frac*Lb,y1+1]:[y0-1,y0+P.alt.frac*Lb];}else cand=[];
-    }
-    if(!cand.length){rep.status='bu mashinada «'+P.lbl+'» qismi topilmadi';continue;}
-    const inY=(s,t)=>{if(!yR)return true;const y=(s.wp[s.tl[t]*3+1]+s.wp[s.tl[t+1]*3+1]+s.wp[s.tl[t+2]*3+1])/3;return y>=yR[0]&&y<=yR[1];};
-    // hudud (faqat _ok qismlar, proyeksiya yo'nalishiga qaragan yuzalar)
-    const th=(L.rot||0)*Math.PI/180,cs=Math.cos(th),sn=Math.sin(th);
-    const R=[P.R[0]*cs+P.U[0]*sn,P.R[1]*cs+P.U[1]*sn,P.R[2]*cs+P.U[2]*sn],U=[P.U[0]*cs-P.R[0]*sn,P.U[1]*cs-P.R[1]*sn,P.U[2]*cs-P.R[2]*sn];
-    let amin=1e30,amax=-1e30,bmin=1e30,bmax=-1e30,zTop=-1e30;
-    const facing=(s,t)=>{const i0=s.tl[t]*3,i1=s.tl[t+1]*3,i2=s.tl[t+2]*3,p=s.wp;let n;
-      if(s.hasN){const q=s.wn;n=v3n([q[i0]+q[i1]+q[i2],q[i0+1]+q[i1+1]+q[i2+1],q[i0+2]+q[i1+2]+q[i2+2]]);}   // vertex normallari tashqariga qaraydi (yorug'lik shunga bog'liq)
-      else{const e1=[p[i1]-p[i0],p[i1+1]-p[i0+1],p[i1+2]-p[i0+2]],e2=[p[i2]-p[i0],p[i2+1]-p[i0+1],p[i2+2]-p[i0+2]];n=v3n(v3x(e1,e2));if(v3d(n,ax)<0)n=[-n[0],-n[1],-n[2]];}
-      return[n,v3d(n,ax)];};
-    for(const ai of cand){if(!isOk(ai))continue;const s=surf(ai);if(!s)continue;for(let t=0;t<s.tl.length;t+=3){if(!inY(s,t))continue;const f=facing(s,t);if(f[1]<0.45)continue;for(let k=0;k<3;k++){const i=s.tl[t+k]*3;zTop=Math.max(zTop,v3d([s.wp[i],s.wp[i+1],s.wp[i+2]],ax));}}}
-    for(const ai of cand){if(!isOk(ai))continue;const s=surf(ai);if(!s)continue;for(let t=0;t<s.tl.length;t+=3){if(!inY(s,t))continue;const f=facing(s,t);if(f[1]<0.45)continue;
-      for(let k=0;k<3;k++){const i=s.tl[t+k]*3,q=[s.wp[i],s.wp[i+1],s.wp[i+2]];if(P.top&&v3d(q,ax)<zTop-P.top)continue;const a=v3d(q,P.R),b=v3d(q,P.U);if(a<amin)amin=a;if(a>amax)amax=a;if(b<bmin)bmin=b;if(b>bmax)bmax=b;}}}
-    if(!(amax>amin&&bmax>bmin)){rep.status='«'+P.lbl+'» yuzasi topilmadi (bo‘yoq materiali tanlanmagan bo‘lishi mumkin)';continue;}
-    const wR=amax-amin,hR=bmax-bmin,ca=(amin+amax)/2+(+L.offX||0)*wR,cb=(bmin+bmax)/2+(+L.offY||0)*hR;
-    const w=Math.max(0.02,(+L.size||0.5)*wR),h=w*(+L.aspect||1),hw=w/2,hh=h/2;
-    const C=[P.R[0]*ca+P.U[0]*cb,P.R[1]*ca+P.U[1]*cb,P.R[2]*ca+P.U[2]*cb]; // markaz tekislikda (ax bo'yicha komponent ahamiyatsiz)
-    const cA=v3d(C,R),cB=v3d(C,U);
-    // har bir qism (freym) uchun alohida decal
-    for(const ai of cand){
-      const s=surf(ai);if(!s||!s.tl.length)continue;const a=A[ai];
-      const inv=TF.inv(s.W);if(rigidErr(s.W.r)>1e-3){rep.status='freym matritsasi qattiq emas — '+a.frame.name+' o‘tkazib yuborildi';continue;}
-      const pos=[],nrm=[],uv=[],tris=[];
-      for(let t=0;t<s.tl.length;t+=3){
-        if(!inY(s,t))continue;const f=facing(s,t);if(f[1]<0.25)continue;
-        let poly=[];for(let k=0;k<3;k++){const i=s.tl[t+k]*3,q=[s.wp[i],s.wp[i+1],s.wp[i+2]];if(P.top&&v3d(q,ax)<zTop-P.top-0.05){poly=null;break;}
-          const n=s.hasN?[s.wn[i],s.wn[i+1],s.wn[i+2]]:f[0];poly.push([q[0],q[1],q[2],n[0],n[1],n[2],v3d(q,R)-cA,v3d(q,U)-cB]);}
-        if(!poly)continue;
-        let mnA=1e9,mxA=-1e9,mnB=1e9,mxB=-1e9;for(const v of poly){mnA=Math.min(mnA,v[6]);mxA=Math.max(mxA,v[6]);mnB=Math.min(mnB,v[7]);mxB=Math.max(mxB,v[7]);}
-        if(mxA<-hw||mnA>hw||mxB<-hh||mnB>hh)continue;
-        const clip=(pl,idx,lim,sgn)=>{const o=[];for(let k=0;k<pl.length;k++){const A1=pl[k],B1=pl[(k+1)%pl.length],da=sgn*(lim-A1[idx]),db=sgn*(lim-B1[idx]);
-          if(da>=0)o.push(A1);if((da>=0)!==(db>=0)){const tt=da/(da-db);o.push(A1.map((x,j)=>x+(B1[j]-x)*tt));}}return o;};
-        poly=clip(poly,6,hw,1);if(poly.length>=3)poly=clip(poly,6,-hw,-1);if(poly.length>=3)poly=clip(poly,7,hh,1);if(poly.length>=3)poly=clip(poly,7,-hh,-1);
-        if(poly.length<3)continue;
-        const base=pos.length/3,fn=f[0];
-        for(const v of poly){
-          const wpnt=[v[0]+fn[0]*0.004,v[1]+fn[1]*0.004,v[2]+fn[2]*0.004],lp=TF.pt(wpnt,inv),ln=v3n(vm3([v[3],v[4],v[5]],inv.r));
-          pos.push(lp[0],lp[1],lp[2]);nrm.push(ln[0],ln[1],ln[2]);uv.push((v[6]+hw)/w,(hh-v[7])/h);
-        }
-        for(let k=1;k<poly.length-1;k++)tris.push(base,base+k,base+k+1,0);
-      }
-      if(!tris.length)continue;
-      if(pos.length/3>65535){rep.status='decal juda katta';continue;}
-      const gch=buildGeometry({pos:new Float32Array(pos),nrm:new Float32Array(nrm),uv:new Float32Array(uv),day:null,night:null,tris,materials:[Object.assign({color:[255,255,255,254],tex:L.tex,mask:''},fx?{fx}:{})],fx2d:null},ver);
-      // tekstura: chetidan takrorlanmasin (clamp)
-      const mtc=childs(child(gch,T.MATLIST),T.MATERIAL)[0],tch=child(mtc,T.TEXTURE);if(tch){const ts=child(tch,T.STRUCT);ts.data=new Uint8Array([6,0x33,1,0]);}
+    const P=LOGO_PLACES[L.place],rep={tex:L.tex,place:L.place,pieces:0,tris:0,frames:[],status:'ok'};report.push(rep);
+    if(!sc.parts.length){rep.status='mashina yuzasi topilmadi';continue;}
+    const rg=lgRegion(sc,L.place);if(!rg||rg.err){rep.status=rg&&rg.err||'«'+P.lbl+'» topilmadi';continue;}if(rg.note)rep.note=rg.note;
+    const V=LG_VIEW[rg.view],M=lgMap(sc,rg.view),Rd=rg.R,Ud=rg.U;
+    const ofx=(+L.offX||0)*rg.W,ofy=(+L.offY||0)*rg.H,b3=[0,0,0];b3[V.iu]=rg.u;b3[V.iv]=rg.v;
+    const cp=[b3[0]+Rd[0]*ofx+Ud[0]*ofy,b3[1]+Rd[1]*ofx+Ud[1]*ofy,b3[2]+Rd[2]*ofx+Ud[2]*ofy];
+    const C=(+L.offX||+L.offY)?lgSurf(M,cp[V.iu],cp[V.iv])||lgSurfRegion(M,cp[V.iu],cp[V.iv],rg.W,rg.H,rg.pis):lgSurfRegion(M,cp[V.iu],cp[V.iv],rg.W,rg.H,rg.pis);if(!C){rep.status='logo «'+P.lbl+'» yuzasidan chiqib ketdi (siljitishni kamaytiring)';continue;}
+    const asp=Math.max(0.05,+L.aspect||1),w=Math.max(0.02,(+L.size||0.5)*Math.min(rg.W,rg.H/asp)),h=w*asp,th=(+L.rot||0)*Math.PI/180,cs=Math.cos(th),sn=Math.sin(th);
+    const axes=nn=>{let u=[Ud[0]-nn[0]*v3d(Ud,nn),Ud[1]-nn[1]*v3d(Ud,nn),Ud[2]-nn[2]*v3d(Ud,nn)];
+      if(Math.hypot(u[0],u[1],u[2])<1e-3){const r0=[Rd[0]-nn[0]*v3d(Rd,nn),Rd[1]-nn[1]*v3d(Rd,nn),Rd[2]-nn[2]*v3d(Rd,nn)];u=v3x(nn,v3n(r0));}
+      u=v3n(u);const r=v3x(u,nn);
+      return[[r[0]*cs+u[0]*sn,r[1]*cs+u[1]*sn,r[2]*cs+u[2]*sn],[u[0]*cs-r[0]*sn,u[1]*cs-r[1]*sn,u[2]*cs-r[2]*sn]];};
+    const ax=V.ax;let n=ax,RU=axes(n),res=lgDecal(sc,C,n,RU[0],RU[1],w/2,h/2);
+    if(res.nAvg&&v3d(res.nAvg,ax)>0.3&&v3d(res.nAvg,n)<0.996){n=res.nAvg;RU=axes(n);res=lgDecal(sc,C,n,RU[0],RU[1],w/2,h/2);}   // qiya yuza: yuza normali bo'yicha
+    // yakuniy: _dam juftlariga ham (ok yuzaga yaqin uchburchaklar)
+    const anyOk=[...res.out.keys()].some(it=>/_ok$/i.test(it.P.fn));
+    if(anyOk&&damParts().length)res=lgDecal(sc,C,n,RU[0],RU[1],w/2,h/2,damParts());
+    if(!res.out.size){rep.status='logo «'+P.lbl+'» yuzasiga tushmadi (joyini/o‘lchamini o‘zgartiring)';continue;}
+    for(const [it,B] of res.out){
+      const a=A[it.P.ai];if(!a)continue;const Wf=it.P.W;
+      if(rigidErr(Wf.r)>1e-3){rep.status='freym matritsasi qattiq emas — '+(a.frame.name||'?')+' o‘tkazib yuborildi';continue;}
+      const inv=TF.inv(Wf),nVb=B.pos.length/3;if(nVb>65535){rep.status='decal juda katta';continue;}
+      const pos=new Float32Array(nVb*3),nrm=new Float32Array(nVb*3);
+      for(let i=0;i<nVb;i++){const q=TF.pt([B.pos[i*3],B.pos[i*3+1],B.pos[i*3+2]],inv),m=v3n(vm3([B.nrm[i*3],B.nrm[i*3+1],B.nrm[i*3+2]],inv.r));
+        pos[i*3]=q[0];pos[i*3+1]=q[1];pos[i*3+2]=q[2];nrm[i*3]=m[0];nrm[i*3+1]=m[1];nrm[i*3+2]=m[2];}
+      const gch=buildGeometry({pos,nrm,uv:new Float32Array(B.uv),day:null,night:null,tris:B.tris,materials:[Object.assign({color:[255,255,255,254],tex:L.tex,mask:''},fx?{fx}:{})],fx2d:null},ver);
+      const mtc=childs(child(gch,T.MATLIST),T.MATERIAL)[0],tch=child(mtc,T.TEXTURE);if(tch){const ts=child(tch,T.STRUCT);ts.data=new Uint8Array([6,0x33,1,0]);} // chetidan takrorlanmasin
       newG.push(gch);newAt.push({frame:ctx.F.indexOf(a.frame),geomIdx:ctx.G.length+newG.length-1,fx:!!fx});
-      rep.pieces++;rep.tris+=tris.length/4;rep.frames.push(a.frame.name);
+      rep.pieces++;rep.tris+=B.tris.length/4;rep.frames.push(a.frame.name||'');
     }
     if(!rep.pieces&&rep.status==='ok')rep.status='logo «'+P.lbl+'» yuzasiga tushmadi (joyini/o‘lchamini o‘zgartiring)';
   }
@@ -4721,7 +4967,17 @@ function previewAngle(){
 /* ---------- SA tahrir: umumiy quvur (eshiklar + livery + o'chirilgan qismlar), har safar ASL baytlardan ---------- */
 const LIV_SHINE=[['ultra','Ultra — eng kuchli aks (tavsiya)'],['high','Kuchli'],['normal','Standart (original SA darajasi)'],['keep','Asl holicha qoldirish'],['off','O‘chiq (mat)']];
 const LIV_LAYOUT=[['mirror','Ikkala yonga bir xil (o‘ng yon — ko‘zgu, ranglar oldi-orqa mos)'],['readable','O‘ng yonda ham yozuv to‘g‘ri o‘qilsin'],['halves','Rasmning chap yarmi — chap yon, o‘ng yarmi — o‘ng yon']];
-S.liv={img:null,img2:null,on:false,keys:null,keysFor:'',layout:'mirror',front:'left',zoom:1,stretch:1,offU:0,offV:0,size:1024,shine:'ultra',bg:'#ffffff',compress:'auto',tex:'livery',ver:0,txdCache:null};
+S.liv={img:null,img2:null,on:false,keys:null,keysFor:'',layout:'mirror',front:'left',zoom:1,stretch:1,offU:0,offV:0,size:1024,shine:'ultra',bg:'#ffffff',compress:'auto',tex:'livery',ver:0,txdCache:null,top:'auto',topColor:null,autoCol:null};
+const LIV_TOP=[['auto','Avtomatik (bitta rasm — rasm davomi, ikki xil yon — bitta rang)'],['color','Bitta rang (chok ham, chiziq-chiziq iz ham yo‘q)'],['image','Yon rasmning davomi']];
+/* kapot/tom/old/orqa uchun haqiqiy rejim */
+function livTopMode(){const L=S.liv,lay=L.img2?'halves':L.layout;return L.top==='color'||L.top==='image'?L.top:(lay==='mirror'?'image':'color');}
+/* avto rang: 1-rasmning eng ko‘p uchraydigan rangi (fon rangi odatda) */
+function livAutoColor(){const L=S.liv;if(L.autoCol&&L.autoCol.ver===L.ver)return L.autoCol.hex;const f=livFlat();if(!f)return'#ffffff';
+  const A=L.img2?{rgba:f.rgba,w:f.w,h:f.h,x1:Math.floor(f.w/2)}:{rgba:f.rgba,w:f.w,h:f.h,x1:f.w},bins=new Map(),st=Math.max(1,Math.floor(Math.sqrt(A.x1*A.h/40000)));
+  for(let y=0;y<A.h;y+=st)for(let x=0;x<A.x1;x+=st){const o=(y*A.w+x)*4,k=(A.rgba[o]>>4)<<8|(A.rgba[o+1]>>4)<<4|(A.rgba[o+2]>>4);let b=bins.get(k);if(!b){b=[0,0,0,0];bins.set(k,b);}b[0]+=A.rgba[o];b[1]+=A.rgba[o+1];b[2]+=A.rgba[o+2];b[3]++;}
+  let best=null;for(const b of bins.values())if(!best||b[3]>best[3])best=b;const h=v=>Math.round(v).toString(16).padStart(2,'0');
+  const hex=best?'#'+h(best[0]/best[3])+h(best[1]/best[3])+h(best[2]/best[3]):'#ffffff';L.autoCol={ver:L.ver,hex};return hex;}
+const hexRGB=c=>[parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)];
 function livScan(it){if(!it._livScan||it._livScanSrc!==it.raw){it._livScan=G.DFF.liveryScan(it.raw);it._livScanSrc=it.raw;}return it._livScan;}
 function livDefaultKeys(scan){
   const paint=scan.filter(m=>(m.color[0]===60&&m.color[1]===255&&m.color[2]===0)||(m.color[0]===255&&m.color[1]===0&&m.color[2]===175)||/^livery\d*$/i.test(m.tex||''));
@@ -4770,15 +5026,17 @@ async function editPipeline(why){
     if(LGs.items.length){
       const lr=G.DFF.applyLogos(dff,{logos:LGs.items.map(lg=>({tex:lg.tex,place:lg.place,size:lg.size,offX:lg.offX,offY:lg.offY,rot:lg.rot,aspect:logoAspect(lg)})),surfKeys:livKeys(it),fx:shineFx});
       dff=lr.dff;logoRep=lr.report;changed=true;
-      lr.report.forEach((r,i)=>{const P=G.DFF.LOGO_PLACES[r.place];if(r.status==='ok')info.push((i+1)+'-logo «'+LGs.items[i].img.name+'» → '+(P?P.lbl:r.place)+': '+r.tris.toLocaleString()+' poligon, '+[...new Set(r.frames)].join(', ')+' ga biriktirildi (tekstura «'+r.tex+'»).');else warn.push((i+1)+'-logo: '+r.status);});
+      lr.report.forEach((r,i)=>{const P=G.DFF.LOGO_PLACES[r.place];if(r.status==='ok')info.push((i+1)+'-logo «'+LGs.items[i].img.name+'» → '+(P?P.lbl:r.place)+(r.note?' ('+r.note+')':'')+': '+r.tris.toLocaleString()+' poligon, '+[...new Set(r.frames)].join(', ')+' ga biriktirildi (tekstura «'+r.tex+'»).');else warn.push((i+1)+'-logo: '+r.status);});
     }
     let liv=null,txd=null,txdName='';const tp=editPickTxd(it);
     if(L.on&&L.img){
       L.tex=L.tex||livTexName(it);
       const fx=L.shine==='keep'?'keep':L.shine==='off'?null:G.DFF.LIV_FX[L.shine]||G.DFF.LIV_FX.ultra;
-      liv=G.DFF.applyLivery(dff,{keys:livKeys(it),tex:L.tex,layout:L.img2?'halves':L.layout,front:L.front,zoom:L.zoom,stretch:L.stretch,offU:L.offU,offV:L.offV,fx});dff=liv.dff;changed=true;
+      const topM=livTopMode(),topC=L.topColor||livAutoColor();
+      liv=G.DFF.applyLivery(dff,{keys:livKeys(it),tex:L.tex,layout:L.img2?'halves':L.layout,front:L.front,zoom:L.zoom,stretch:L.stretch,offU:L.offU,offV:L.offV,fx,top:topM,topColor:hexRGB(topC)});dff=liv.dff;changed=true;
       livPool();const tc=livTxd(it);txd=tc.txd;txdName=tc.base||'(yangi)';
       info.push('Rasm «'+L.img.name+'»'+(L.img2?' + o‘ng yon uchun «'+L.img2.name+'»':'')+' → '+liv.stats.geoms+' ta geometriya, '+liv.stats.tris.toLocaleString()+' poligon kuzovga tekstura qilib qo‘yildi (tekstura nomi «'+L.tex+'», '+tc.w+'×'+tc.h+', '+(tc.kind==='argb'?'siqilmagan':tc.kind.toUpperCase())+'). Kuzov rangi oq — rasm o‘z rangida chiqadi.'+(liv.stats.dupVerts?' Chegara uchun '+liv.stats.dupVerts+' ta vertex nusxalandi.':''));
+      info.push(liv.stats.top==='color'?'Kapot, tom, old va orqa yuzalar — bitta rang '+topC+' ('+liv.stats.solidTris.toLocaleString()+' poligon, yaltiraydi); rasm faqat tashqi yon yuzalarda — o‘rtada chok va rang dog‘lari yo‘q.':'Kapot, tom, old va orqa yuzalar — yon rasmning davomi'+(L.img2||L.layout!=='mirror'?' (chap yon xaritasidan, o‘rtada chok yo‘q).':'.'));
       info.push('Yaltirash: '+(LIV_SHINE.find(x=>x[0]===L.shine)||['',''])[1]+(fx&&fx!=='keep'?' (env '+fx.env+', aks '+fx.refl+', specular '+fx.spec+'; MatFX atomiclarda yoqildi)':''));
       if(liv.stats.skipped)warn.push(liv.stats.skipped+' ta geometriyada (breakable/skin ma’lumoti bor) rasm qo‘yilmadi.');
       if(!tp)warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da FAQAT «'+L.tex+'» teksturasi bor. Mashinaning o‘z TXD sini «Fayllar» ga qo‘shib, qayta bosing (aks holda boshqa teksturalar yo‘qoladi).');
@@ -4819,7 +5077,7 @@ function paneLivery(p,it){
   const L=S.liv,scan=(()=>{try{return livScan(it);}catch(e){return null;}})();
   p.appendChild(el('h3',{text:'🎨 Rasm → mashina teksturasi (livery)'}));
   const c=el('div',{class:'card'});p.appendChild(c);
-  c.appendChild(el('div',{class:'note',html:'Rasm (PNG/JPG) tanlang — u mashinaning <b>kuzoviga</b> (bo‘yoq materiallariga) yon tomondan tekstura qilib qo‘yiladi: rasmning chapi — mashinaning <b>old</b> tomoni, tepasi — tom. Tom, kapot va bagaj rasmning yuqori qatoridan davom etadi. Kuzov rangi oq bo‘ladi, rasm o‘z rangida chiqadi; o‘yinda <b>yaltirashi</b> (aks) yoqiladi. Rasm TXD ga qo‘shiladi, DFF qolgan qismlari o‘zgarmaydi.'}));
+  c.appendChild(el('div',{class:'note',html:'Rasm (PNG/JPG) tanlang — u mashinaning <b>kuzoviga</b> (bo‘yoq materiallariga) yon tomondan tekstura qilib qo‘yiladi: rasmning chapi — mashinaning <b>old</b> tomoni, tepasi — tom. Kapot, tom, bagaj, old va orqa yuzalar — <b>bitta rang</b> yoki rasmning davomi (pastda tanlanadi). Kuzov rangi oq bo‘ladi, rasm o‘z rangida chiqadi; o‘yinda <b>yaltirashi</b> (aks) yoqiladi. Rasm TXD ga qo‘shiladi, DFF qolgan qismlari o‘zgarmaydi.'}));
   if(!scan){c.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Bu DFF ga rasm qo‘yib bo‘lmaydi (tuzilishi nostandart).'}));return;}
   const fi=el('input',{type:'file',accept:'image/png,image/jpeg,image/webp,image/bmp,.png,.jpg,.jpeg,.webp,.bmp',hidden:true});
   fi.addEventListener('change',()=>{if(fi.files[0])livLoadImage(fi.files[0]);fi.value='';});
@@ -4852,8 +5110,15 @@ function paneLivery(p,it){
   const rng=(label,key,min,max,step,fmt)=>{const r=el('input',{type:'range',min,max,step,value:L[key],style:'flex:1'}),o=el('span',{class:'note',style:'min-width:46px;text-align:right',text:fmt(L[key])});
     r.addEventListener('input',()=>{L[key]=+r.value;o.textContent=fmt(L[key]);if(L.on&&L.img)livPreviewSoon();});return el('div',{class:'row'},[el('label',{text:label}),r,o]);};
   if(L.img2)c.appendChild(el('div',{class:'note',style:'border-left:3px solid #38bdf8;padding-left:10px',html:'Ikki rasm: <b>chap yonga</b> 1-rasm (mashina oldi rasmning chapida), <b>o‘ng yonga</b> 2-rasm (mashina oldi rasmning o‘ngida) — ikkala yonda ham yozuv to‘g‘ri o‘qiladi.'}));
-  else c.appendChild(sel('Rasm qanday joylashsin','layout',LIV_LAYOUT));
+  else c.appendChild(sel('Rasm qanday joylashsin','layout',LIV_LAYOUT,()=>{const r=document.getElementById('livTopRow');if(r)r.style.display=livTopMode()==='color'?'':'none';if(L.on&&L.img)livPreviewSoon();}));
   c.appendChild(sel('Rasmda mashinaning oldi','front',[['left','Chapda'],['right','O‘ngda']]));
+  const tci=el('input',{type:'color',id:'livTopColor',value:L.topColor||livAutoColor()});
+  tci.addEventListener('input',()=>{L.topColor=tci.value;if(L.on&&L.img)livPreviewSoon();});
+  const tauto=el('button',{class:'btn sm',type:'button',title:'Rasmning asosiy (eng ko‘p uchraydigan) rangi',onclick:()=>{L.topColor=null;tci.value=livAutoColor();if(L.on&&L.img)livPreviewSoon();}},['Avto']);
+  const tcRow=el('div',{class:'row',id:'livTopRow'},[el('label',{text:'Kapot / tom / old-orqa rangi'}),tci,tauto]);
+  const syncTop=()=>{tcRow.style.display=livTopMode()==='color'?'':'none';};
+  c.appendChild(sel('Kapot, tom, old va orqa','top',LIV_TOP,()=>{syncTop();if(L.on&&L.img)livPreviewSoon();}));
+  c.appendChild(tcRow);syncTop();
   c.appendChild(rng('Kattalik','zoom',0.5,2.5,0.01,v=>Math.round(v*100)+'%'));
   c.appendChild(rng('Bo‘yiga cho‘zish','stretch',0.5,2,0.01,v=>Math.round(v*100)+'%'));
   c.appendChild(rng('Oldinga / orqaga','offU',-0.5,0.5,0.005,v=>(v>0?'+':'')+Math.round(v*100)+'%'));
@@ -4948,7 +5213,7 @@ function logoTex(lg){const k=lg.ver+'|'+S.logo.size;if(lg.texCache&&lg.texCache.
   const t=G.makeTxdTexture(lg.tex,lg.proc.rgba,lg.proc.w,lg.proc.h,{maxSize:S.logo.size,compress:'auto',mips:true});lg.texCache={k,t};return t;}
 function logoAspect(lg){return lg.img.h/lg.img.w;}
 let logoT=0;function logoPreviewSoon(){clearTimeout(logoT);logoT=setTimeout(()=>editPipeline('preview'),220);}
-function logoPlacesFor(it){const names=(it.model.frames||[]).map(f=>f.name||'');return Object.entries(G.DFF.LOGO_PLACES).filter(([k,P])=>names.some(n=>P.re.test(n)||(P.alt&&P.alt.re.test(n))));}
+function logoPlacesFor(it){const names=(it.model.frames||[]).map(f=>f.name||'');return Object.entries(G.DFF.LOGO_PLACES).filter(([k,P])=>!P.re||names.some(n=>P.re.test(n)));} // kapot/tom/bagaj -- har doim (geometriyadan topiladi), eshik -- qismi bo'lsa
 async function logoAdd(file){
   try{
     const bmp=await createImageBitmap(file);const k=Math.min(1,1024/Math.max(bmp.width,bmp.height)),w=Math.max(1,Math.round(bmp.width*k)),h=Math.max(1,Math.round(bmp.height*k));
@@ -5000,7 +5265,7 @@ function paneLogo(p,it){
     }
     const ts=el('select',{},[['256','256'],['512','512 (tavsiya)'],['1024','1024 (eng aniq)']].map(([v,t])=>el('option',{value:v,text:t,selected:String(LG.size)===v})));
     ts.addEventListener('change',()=>{LG.size=+ts.value;logoPreviewSoon();});c.appendChild(el('div',{class:'row'},[el('label',{text:'Logo tekstura o‘lchami'}),ts]));
-    c.appendChild(el('div',{class:'note',text:'Rasm yuqorisi: kapotda — oyna tomon, tomda va bagajda — mashina oldi tomon, eshikda — tepaga. Yaltirash kuzov bilan bir xil (yuqoridagi «Yaltirash» sozlamasi).'}));
+    c.appendChild(el('div',{class:'note',text:'Joy mashina shaklidan avtomatik topiladi (qism nomlariga bog‘liq emas), logo faqat tashqi yuzaga yopishadi. Rasm yuqorisi: kapotda — oyna tomon, tomda — oldinga, bagajda — oldinga (xetchbek/SUV da orqa yuzga, tepaga), eshikda — tepaga. Yaltirash kuzov bilan bir xil (yuqoridagi «Yaltirash» sozlamasi).'}));
   }
   // eski stiker / rasm qismlarini olib tashlash
   const groups=logoDropList(it),D=S.logo;
