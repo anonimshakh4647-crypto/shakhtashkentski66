@@ -1939,11 +1939,11 @@ function limoScan(bytes){
   const dR=['lr','rr'].map(k=>doorBB[k]).filter(Boolean),dF=['lf','rf'].map(k=>doorBB[k]).filter(Boolean);
   const avg=a=>a.reduce((s,x)=>s+x,0)/a.length,rd=dR.length?[avg(dR.map(b=>b[0])),avg(dR.map(b=>b[1]))]:null,fd=dF.length?[avg(dF.map(b=>b[0])),avg(dF.map(b=>b[1]))]:null;
   const P={center:{y:cl((lo+hi)/2),lbl:'G‘ildiraklar orasi o‘rtasi'}};
-  if(rd)P.rdoor={y:cl(mid(rd)),lbl:'Orqa eshik o‘rtasi (uzun orqa eshik)'};
-  if(fd)P.fdoor={y:cl(mid(fd)),lbl:'Old eshik o‘rtasi (uzun old eshik)'};
+  if(rd)P.rdoor={y:cl(mid(rd)),lbl:'Orqa eshik o‘rtasi — orqa eshik ham cho‘ziladi (bitta uzun eshik)'};
+  if(fd)P.fdoor={y:cl(mid(fd)),lbl:'Old eshik o‘rtasi — old eshik ham cho‘ziladi (bitta uzun eshik)'};
   if(fd&&rd)P.between={y:cl((fd[0]+rd[1])/2),lbl:'Old va orqa eshik orasi (B ustun) — eshiklar asl holida'};
-  if(fd&&!rd&&fd[0]-lo>0.3)P.behind={y:cl((lo+fd[0])/2),lbl:'Eshikdan orqada (yon panel / orqa oyna)'};
-  const auto=P.rdoor?'rdoor':P.behind?'behind':P.fdoor?'fdoor':'center';
+  if(fd&&!rd&&fd[0]-lo>0.3)P.behind={y:cl((lo+fd[0])/2),lbl:'Eshikdan orqada (yon panel / orqa oyna) — eshik asl holida'};
+  const auto=P.between?'between':P.behind?'behind':'center';   // standart: eshiklar cho'zilmaydi, har biri alohida ochiladi
   const wz=wOk&&wzs.length?wzs.reduce((s2,x)=>s2+x,0)/wzs.length:mn[2]+r;
   const prof={n:NB,y0:mn[1],y1:mx[1],top,bot,z0:Math.min(mn[2],wz-r),z1:mx[2]};
   return{len:L,width:mx[0]-mn[0],mn,mx,wheelF:yF,wheelR:yR,wheelR_:r,wheelZ:wz,wheelbase:yF-yR,lo,hi,presets:P,auto,hasWheels:wOk,prof};
@@ -2011,7 +2011,56 @@ function limoCol(data,yc,S,warn){
   const tot=out.reduce((s,x)=>s+x.length,0),r=new Uint8Array(tot);let p=0;for(const x of out){r.set(x,p);p+=x.length;}
   return{data:r,models:n};
 }
-/* opt: {cut: kesish tekisligi (dunyo Y), len: qo'shiladigan uzunlik (m)} */
+/* ---------- B ustun rejimi: eshik shaklidagi qo'zg'almas panel ----------
+ * B ustun eshiklardan ichkarida turadi -> uni cho'zsak o'rta qism eshiklardan ~5-10 sm ichkarida (botiq) qoladi.
+ * Shuning uchun o'rta qismning yon tomoni OLD ESHIKNING o'z ko'ndalang kesimidan (tashqi sirt, oyna, ichki qoplama) yasaladi:
+ * eshiklar bilan bir tekis, panel kuzovga (chassis) biriktiriladi -- ochilmaydi; eshiklar asl o'lchamida alohida ochiladi.
+ * Panel oldi -- old eshikning orqa qirrasi, orqasi -- (surilgan) orqa eshikning old qirrasi (har balandlikda alohida). */
+function limoPanelPrep(df,dr,A,G,rwv,W0){
+  const parts=d=>{const out=[];for(const a of A){if(!d.fr.has(a.frame)||/_dam$/i.test(a.frame.name||''))continue;let g;try{g=decodeGeometry(G[a.geom],rwv);}catch(e){continue;}
+      if(g.native||!g.pos||!g.nTri)continue;const Wf=W0.get(a.frame),wp=new Float64Array(g.nV*3);
+      for(let i=0;i<g.nV;i++){const q=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],Wf);wp[i*3]=q[0];wp[i*3+1]=q[1];wp[i*3+2]=q[2];}
+      const ml=child(G[a.geom],T.MATLIST),mats=childs(ml,T.MATERIAL),mdv=dvOf(child(ml,T.STRUCT).data),cnt=mdv.getUint32(0,true),slot=[];let k=0;
+      for(let i=0;i<cnt;i++){const idx=mdv.getInt32(4+i*4,true);slot.push(idx<0?mats[k++]:slot[idx]);}
+      out.push({g,Wf,wp,slot,id:out.length});}return out;};
+  const PF=parts(df),PR=parts(dr);if(!PF.length||!PR.length)return null;
+  let z0=1e30,z1=-1e30,y0=1e30,y1=-1e30;for(const P of PF)for(let i=0;i<P.g.nV;i++){z0=Math.min(z0,P.wp[i*3+2]);z1=Math.max(z1,P.wp[i*3+2]);y0=Math.min(y0,P.wp[i*3+1]);y1=Math.max(y1,P.wp[i*3+1]);}
+  for(const P of PR)for(let i=0;i<P.g.nV;i++){z0=Math.min(z0,P.wp[i*3+2]);z1=Math.max(z1,P.wp[i*3+2]);}
+  const dz=0.01,nb=Math.max(2,Math.ceil((z1-z0)/dz)+1),bin=z=>(z-z0)/dz;
+  // har balandlikda eshik qirrasi: old eshik -- eng orqa nuqta (min y), orqa eshik -- eng old nuqta (max y)
+  const edge=(PP,mode)=>{const b=new Float64Array(nb).fill(NaN);
+    for(const P of PP){const g=P.g,w=P.wp;for(let t=0;t<g.nTri;t++){const ix=[g.tris[t*4],g.tris[t*4+1],g.tris[t*4+2]],zz=ix.map(i=>w[i*3+2]);
+      const lo=Math.max(0,Math.ceil(bin(Math.min(...zz)))),hi=Math.min(nb-1,Math.floor(bin(Math.max(...zz))));
+      for(let k=lo;k<=hi;k++){const zc=z0+k*dz;for(let e=0;e<3;e++){const a=ix[e],c=ix[(e+1)%3],za=w[a*3+2],zb=w[c*3+2];if((za-zc)*(zb-zc)>0||za===zb)continue;
+        const y=w[a*3+1]+(w[c*3+1]-w[a*3+1])*(zc-za)/(zb-za);if(isNaN(b[k])||(mode<0?y<b[k]:y>b[k]))b[k]=y;}}}}
+    let last=NaN;for(let k=0;k<nb;k++){if(!isNaN(b[k]))last=b[k];else if(!isNaN(last))b[k]=last;}last=NaN;for(let k=nb-1;k>=0;k--){if(!isNaN(b[k]))last=b[k];else b[k]=last;}
+    return b;};
+  const yF=edge(PF,-1),yR=edge(PR,1);if(yF.some(isNaN)||yR.some(isNaN))return null;
+  const at=(arr,z)=>{const f=Math.max(0,Math.min(nb-1,bin(z))),i=Math.floor(f),j=Math.min(nb-1,i+1),t=f-i;return arr[i]*(1-t)+arr[j]*t;};
+  // profil: old eshikning o'rtasidan sal orqada (oynasi to'liq; oyna ko'zgusi oldida, tutqich orqa qirrada -- tushmaydi)
+  const yp=y0+0.45*(y1-y0),segs=[];let uid=0;
+  for(const P of PF){const g=P.g,w=P.wp;
+    for(let t=0;t<g.nTri;t++){const ix=[g.tris[t*4],g.tris[t*4+1],g.tris[t*4+2]],s0=ix.map(i=>w[i*3+1]-yp),fr=s0.map(v=>v>=0);if(fr[0]===fr[1]&&fr[1]===fr[2])continue;
+      const cut=[];for(let e=0;e<3;e++){const a=ix[e],c=ix[(e+1)%3],sa=s0[e],sc=s0[(e+1)%3];if((sa>=0)===(sc>=0))continue;const tt=sa/(sa-sc);
+        const ws=tt<1e-9?[[a,1]]:tt>1-1e-9?[[c,1]]:[[a,1-tt],[c,tt]];let k;if(ws.length===1)k='o'+ws[0][0];else{const lo=a<c?a:c,hi=a<c?c:a,wt=a<c?tt:1-tt;k='e'+lo+'_'+hi+'_'+Math.round(wt*1e6);}
+        const wp=[0,0,0];for(const [o,x] of ws)for(let q=0;q<3;q++)wp[q]+=w[o*3+q]*x;cut.push({ws,k:P.id+':'+k,w:wp});}
+      if(cut.length!==2||cut[0].k===cut[1].k)continue;
+      const pa=[w[ix[0]*3],w[ix[0]*3+1],w[ix[0]*3+2]],pb=[w[ix[1]*3],w[ix[1]*3+1],w[ix[1]*3+2]],pc=[w[ix[2]*3],w[ix[2]*3+1],w[ix[2]*3+2]];
+      segs.push({P,U:cut[0],V:cut[1],n0:v3x([pb[0]-pa[0],pb[1]-pa[1],pb[2]-pa[2]],[pc[0]-pa[0],pc[1]-pa[1],pc[2]-pa[2]]),mat:g.tris[t*4+3]});}}
+  if(!segs.length)return null;
+  // olib tashlanadigan joy: eshik profilining ichki chegarasi (har balandlikda eng kichik |x|)
+  const xin=new Float64Array(nb).fill(NaN);let pz0=1e30,pz1=-1e30;
+  for(const sg of segs){const a=sg.U.w,b=sg.V.w;pz0=Math.min(pz0,a[2],b[2]);pz1=Math.max(pz1,a[2],b[2]);
+    const lo=Math.max(0,Math.ceil(bin(Math.min(a[2],b[2])))),hi=Math.min(nb-1,Math.floor(bin(Math.max(a[2],b[2]))));
+    for(let k=lo;k<=hi;k++){const zc=z0+k*dz,t=Math.abs(b[2]-a[2])<1e-9?0:(zc-a[2])/(b[2]-a[2]),x=Math.abs(a[0]+(b[0]-a[0])*t);if(isNaN(xin[k])||x<xin[k])xin[k]=x;}
+    for(const q of [a,b]){const k=Math.round(bin(q[2]));if(k>=0&&k<nb&&(isNaN(xin[k])||Math.abs(q[0])<xin[k]))xin[k]=Math.abs(q[0]);}}
+  const side=Math.sign(segs.reduce((s2,sg)=>s2+sg.U.w[0],0))||1;
+  const kill=q=>{if(Math.sign(q[0])!==side||q[2]<pz0-0.01||q[2]>pz1+0.01)return false;const k0=Math.round(bin(q[2]));let x=NaN;
+    for(let d=0;d<=3&&isNaN(x);d++){for(const k of [k0-d,k0+d])if(k>=0&&k<nb&&!isNaN(xin[k])){x=isNaN(x)?xin[k]:Math.min(x,xin[k]);}}
+    return!isNaN(x)&&Math.abs(q[0])>=x-0.06;};
+  return{segs,yF:z=>at(yF,z),yR:z=>at(yR,z),kill,side,yp,pz0,pz1};
+}
+/* opt: {cut: kesish tekisligi (dunyo Y), len: qo'shiladigan uzunlik (m), panel: false -- B ustun panelisiz (faqat test uchun)} */
 function applyLimo(bytes,opt){
   const S=Math.max(0,Math.min(12,+opt.len||0)),yc=+opt.cut;
   if(!(S>0.001)||!isFinite(yc))return{dff:bytes,changed:false,stats:null,warnings:[]};
@@ -2020,20 +2069,27 @@ function applyLimo(bytes,opt){
   const Dof=new Map();F.forEach(f=>Dof.set(f,f.par&&W0.get(f).p[1]<yc?-S:0));   // ildiz freym hech qachon ko'chmaydi
   // Eshiklar: kesim bir yondagi OLD va ORQA eshikni birga kesib o'tsa (B ustun) -- eshiklar cho'zilmaydi, butunligicha
   // joyida qoladi (old) yoki orqaga suriladi (orqa); oradagi bo'shliqni kuzov (B ustun) profili to'ldiradi -> ikki eshik ustma-ust chiqmaydi.
-  const rigid=new Set(),rigidNames=[];
+  const rigid=new Set(),rigidNames=[],panels=[];
   {const sub=f=>{const out=[];for(const g of F){let p=g,n=0;while(p&&n++<64){if(p===f){out.push(g);break;}p=p.par;}}return out;};
    const dm={};for(const f of F){const m=/^door_([lr])([fr])_dummy$/i.exec(f.name||'');if(!m)continue;const fr=new Set(sub(f));let y0=1e30,y1=-1e30;
      for(const a of A){if(!fr.has(a.frame)||/_dam$/i.test(a.frame.name||''))continue;let g;try{g=decodeGeometry(G[a.geom],rwv);}catch(e){continue;}if(g.native||!g.pos)continue;const Wf=W0.get(a.frame);
        for(let i=0;i<g.nV;i++){const y=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],Wf)[1];if(y<y0)y0=y;if(y>y1)y1=y;}}
      if(y1>y0)dm[m[1].toLowerCase()+m[2].toLowerCase()]={f,fr,y0,y1};}
    for(const sd of ['l','r']){const df=dm[sd+'f'],dr=dm[sd+'r'];if(!df||!dr)continue;const inn=d=>yc>d.y0+1e-3&&yc<d.y1-1e-3;
-     if(inn(df)&&inn(dr))for(const d of [df,dr]){const mv=(d.y0+d.y1)/2<yc?-S:0;for(const g of d.fr){rigid.add(g);Dof.set(g,mv);}rigidNames.push(d.f.name.replace(/_dummy$/i,''));}}}
+     if(inn(df)&&inn(dr)){for(const d of [df,dr]){const mv=(d.y0+d.y1)/2<yc?-S:0;for(const g of d.fr){rigid.add(g);Dof.set(g,mv);}rigidNames.push(d.f.name.replace(/_dummy$/i,''));}
+       if(opt.panel!==false){let pn=null;try{pn=limoPanelPrep(df,dr,A,G,rwv,W0);}catch(e){pn=null;}if(pn)panels.push(pn);else warn.push('«'+df.f.name.replace(/_dummy$/i,'')+'» tomonida eshik profili topilmadi — o‘rta qism B ustun shaklida qoldi.');}}}}
+  // panel qaysi geometriyaga qo'shiladi: kuzov (chassis); bo'lmasa -- eng katta (eshik/g'ildirak emas) geometriya
+  let panelGi=-1;
+  if(panels.length){const ok=a=>!LIMO_WHEEL(a.frame)&&!rigid.has(a.frame)&&!/_vlo$|_dam$|^door|^boot|^bonnet|^bump|^wing|^windscreen/i.test(a.frame.name||'')&&G[a.geom]&&livGeomOk(G[a.geom]);
+    const ch=A.find(a=>/^chassis$/i.test(a.frame.name||'')&&ok(a));
+    if(ch)panelGi=ch.geom;else{let best=-1;for(const a of A){if(!ok(a))continue;const n=dvOf(child(G[a.geom],T.STRUCT).data).getUint32(4,true);if(n>best){best=n;panelGi=a.geom;}}}
+    if(panelGi<0){warn.push('Kuzov geometriyasi topilmadi — o‘rta qism B ustun shaklida qoldi.');panels.length=0;}}
   // ---- freymlar ----
   let movedF=0;
   for(const f of F){const df=Dof.get(f),dp=f.par?Dof.get(f.par):0;if(df!==dp){const Rp=f.par?W0.get(f.par).r:ID3,d=vm3([0,df-dp,0],m3t(Rp));f.p=[f.p[0]+d[0],f.p[1]+d[1],f.p[2]+d[2]];f.dirty=true;}if(df)movedF++;}
   // ---- geometriyalar ----
   const byG=new Map();for(const a of A){if(!byG.has(a.geom))byG.set(a.geom,[]);byG.get(a.geom).push(a);}
-  let geomsChanged=0,cross=0,stripTris=0,uid=0;
+  let geomsChanged=0,cross=0,stripTris=0,uid=0,killed=0,panelTris=0;const stretched=[],matCache=new Map();
   for(const [gi,atoms] of byG){
     const a=atoms[0],gc=G[gi];if(!gc||LIMO_WHEEL(a.frame)||atoms.some(b=>rigid.has(b.frame)))continue;   // g'ildirak va butun ko'chadigan eshiklar
     let g;try{g=decodeGeometry(gc,rwv);}catch(e){warn.push('«'+(a.frame.name||gi)+'» geometriyasini o‘qib bo‘lmadi — o‘zgartirilmadi.');continue;}
@@ -2045,10 +2101,11 @@ function applyLimo(bytes,opt){
     for(let t=0;t<nT;t++){let f=0;for(let k=0;k<3;k++)if(wy[g.tris[t*4+k]]>=0)f++;if(f===3)anyF=true;else if(f===0)anyR=true;else{crossHere++;anyF=anyR=true;}}
     const locF=vm3([0,-Df,0],m3t(Wf.r)),locR=vm3([0,-S-Df,0],m3t(Wf.r)),needF=Df!==0,needR=Df!==-S;
     const fx=child(child(gc,T.EXT)||{children:[]},T.FX2D);
-    if(!nT||(!crossHere&&!(anyF&&needF)&&!(anyR&&needR))){if(fx)limoFx(fx,Wf,yc,locF,locR);continue;}   // geometriya freym bilan birga ko'chdi -- tegmaymiz
+    const isPanel=gi===panelGi;
+    if(!isPanel&&(!nT||(!crossHere&&!(anyF&&needF)&&!(anyR&&needR)))){if(fx)limoFx(fx,Wf,yc,locF,locR);continue;}   // geometriya freym bilan birga ko'chdi -- tegmaymiz
     if(!livGeomOk(gc)){warn.push('«'+(a.frame.name||gi)+'» (breakable/skin) — cho‘zib bo‘lmadi, joyida qoldi.');continue;}
     // ---- qayta qurish ----
-    const outW=[],outReg=[],outT=[],remap=new Map();
+    const outW=[],outReg=[],outT=[],remap=new Map(),xAt=new Map();
     const vtx=(V,reg)=>{const key=V.k+'|'+reg;let ni=remap.get(key);if(ni===undefined){ni=outW.length;remap.set(key,ni);outW.push(V.ws);outReg.push(reg);}return ni;};
     const mkV=o=>({ws:[[o,1]],s:wy[o],k:'o'+o});
     const lerpV=(A2,B2)=>{const t=A2.s/(A2.s-B2.s),m=new Map();for(const [o,x] of A2.ws)m.set(o,(m.get(o)||0)+x*(1-t));for(const [o,x] of B2.ws)m.set(o,(m.get(o)||0)+x*t);
@@ -2074,9 +2131,11 @@ function applyLimo(bytes,opt){
         let [U,V2]=cuts;const u=lp(U.ws),v=lp(V2.ws),d=[locR[0]-locF[0],locR[1]-locF[1],locR[2]-locF[2]],nq=v3x([v[0]-u[0],v[1]-u[1],v[2]-u[2]],d);
         if(v3d(nq,n0)<0){const tt=U;U=V2;V2=tt;}
         const qn=v3n(v3d(nq,n0)<0?[-nq[0],-nq[1],-nq[2]]:nq);   // polosaning o'z normali (asl uchburchak tomoniga qaragan)
+        if(panels.length){const wu=TF.pt(u,Wf),wv=TF.pt(v,Wf);if(panels.some(pn=>pn.kill(wu)&&pn.kill(wv))){killed+=2;continue;}}   // eshik panelining o'rni -- B ustun polosasi kerak emas
         const uf=sv(U,'F',qn),vf=sv(V2,'F',qn),vr=sv(V2,'R',qn),ur=sv(U,'R',qn);outT.push(uf,vf,vr,m,uf,vr,ur,m);stripTris+=2;
       }
     }
+    if(isPanel)for(const pn of panels)panelTris+=limoPanelBuild(pn,{gc,g,Wf,Df,S,outW,outReg,outT,remap,xAt,matCache});
     const nV2=outW.length,nT2=outT.length/4;
     if(nV2>65535)throw new Error('«'+(a.frame.name||gi)+'»: vertex juda ko‘p ('+nV2+') — kesish joyini o‘zgartiring');
     // ---- struct ----
@@ -2086,19 +2145,19 @@ function applyLimo(bytes,opt){
     const mixU8=(src,off,ws)=>{const o2=new Uint8Array(4);for(let c=0;c<4;c++){let s2=0;for(const e of ws)s2+=src[off+e[0]*4+c]*e[1];o2[c]=Math.max(0,Math.min(255,Math.round(s2)));}return o2;};
     const bw=new BW();bw.u32(flags);bw.u32(nT2);bw.u32(nV2);bw.u32(nMorph);
     if(rwv<0x34000)bw.bytes(od.slice(16,28));
-    if(flags&8){const dc=g.dayColors;for(const ws of outW)bw.bytes(one(ws)?dc.slice(ws[0][0]*4,ws[0][0]*4+4):mixU8(dc,0,ws));}
-    for(let s2=0;s2<numUV;s2++){const us=g.uvs[s2];for(const ws of outW){let u=0,v=0;if(us)for(const e of ws){u+=us[e[0]*2]*e[1];v+=us[e[0]*2+1]*e[1];}bw.f32(u);bw.f32(v);}}
+    if(flags&8){const dc=g.dayColors;for(let i=0;i<nV2;i++){const ws=outW[i];if(!ws){bw.bytes(xAt.get(i).day);continue;}bw.bytes(one(ws)?dc.slice(ws[0][0]*4,ws[0][0]*4+4):mixU8(dc,0,ws));}}
+    for(let s2=0;s2<numUV;s2++){const us=g.uvs[s2];for(let i=0;i<nV2;i++){const ws=outW[i];if(!ws){const x=xAt.get(i),q=x.uv[s2]||x.uv[0]||[0,0];bw.f32(q[0]);bw.f32(q[1]);continue;}let u=0,v=0;if(us)for(const e of ws){u+=us[e[0]*2]*e[1];v+=us[e[0]*2+1]*e[1];}bw.f32(u);bw.f32(v);}}
     for(let t=0;t<nT2;t++){bw.u16(outT[t*4+1]);bw.u16(outT[t*4]);bw.u16(outT[t*4+3]);bw.u16(outT[t*4+2]);}
     for(const mo of L0.morphs){
       const P=new Float32Array(nV2*3);
-      if(mo.po>=0)for(let i=0;i<nV2;i++){let x=0,y=0,z=0;for(const [o,w] of outW[i]){x+=odv.getFloat32(mo.po+o*12,true)*w;y+=odv.getFloat32(mo.po+o*12+4,true)*w;z+=odv.getFloat32(mo.po+o*12+8,true)*w;}
+      if(mo.po>=0)for(let i=0;i<nV2;i++){if(!outW[i]){const q=xAt.get(i).p;P[i*3]=q[0];P[i*3+1]=q[1];P[i*3+2]=q[2];continue;}let x=0,y=0,z=0;for(const [o,w] of outW[i]){x+=odv.getFloat32(mo.po+o*12,true)*w;y+=odv.getFloat32(mo.po+o*12+4,true)*w;z+=odv.getFloat32(mo.po+o*12+8,true)*w;}
         const d=outReg[i]==='R'||outReg[i]==='SR'?locR:locF;P[i*3]=x+d[0];P[i*3+1]=y+d[1];P[i*3+2]=z+d[2];}
       let b0=[1e30,1e30,1e30],b1=[-1e30,-1e30,-1e30];for(let i=0;i<nV2;i++)for(let c=0;c<3;c++){const v=P[i*3+c];if(v<b0[c])b0[c]=v;if(v>b1[c])b1[c]=v;}
       const cen=[(b0[0]+b1[0])/2,(b0[1]+b1[1])/2,(b0[2]+b1[2])/2];let rad=0;for(let i=0;i<nV2;i++)rad=Math.max(rad,Math.hypot(P[i*3]-cen[0],P[i*3+1]-cen[1],P[i*3+2]-cen[2]));
       if(mo.po>=0){bw.f32(cen[0]);bw.f32(cen[1]);bw.f32(cen[2]);bw.f32(rad*1.001+1e-4);}else bw.bytes(od.slice(mo.bs,mo.bs+16));
       bw.bytes(od.slice(mo.bs+16,mo.bs+24));
       if(mo.po>=0)for(let i=0;i<nV2*3;i++)bw.f32(P[i]);
-      if(mo.no>=0)for(let i=0;i<nV2;i++){const ws=outW[i],ov=nOv.get(i);if(ov){bw.f32(ov[0]);bw.f32(ov[1]);bw.f32(ov[2]);continue;}if(one(ws)){bw.bytes(od.slice(mo.no+ws[0][0]*12,mo.no+ws[0][0]*12+12));continue;}let x=0,y=0,z=0;for(const [o,w] of ws){x+=odv.getFloat32(mo.no+o*12,true)*w;y+=odv.getFloat32(mo.no+o*12+4,true)*w;z+=odv.getFloat32(mo.no+o*12+8,true)*w;}const l=Math.hypot(x,y,z)||1;bw.f32(x/l);bw.f32(y/l);bw.f32(z/l);}
+      if(mo.no>=0)for(let i=0;i<nV2;i++){const ws=outW[i],ov=ws?nOv.get(i):xAt.get(i).n;if(ov){bw.f32(ov[0]);bw.f32(ov[1]);bw.f32(ov[2]);continue;}if(one(ws)){bw.bytes(od.slice(mo.no+ws[0][0]*12,mo.no+ws[0][0]*12+12));continue;}let x=0,y=0,z=0;for(const [o,w] of ws){x+=odv.getFloat32(mo.no+o*12,true)*w;y+=odv.getFloat32(mo.no+o*12+4,true)*w;z+=odv.getFloat32(mo.no+o*12+8,true)*w;}const l=Math.hypot(x,y,z)||1;bw.f32(x/l);bw.f32(y/l);bw.f32(z/l);}
     }
     st.data=bw.done();
     let ex=child(gc,T.EXT);if(!ex){ex=extChunk(gc.ver);gc.children.push(ex);}
@@ -2109,9 +2168,10 @@ function applyLimo(bytes,opt){
     for(const x of usedM){bm.u32(x.p.length);bm.u32(x.i);for(const v of x.p)bm.u32(v);}
     if(bmc0)bmc0.data=bm.done();else ex.children.unshift(leaf(T.BINMESH,gc.ver,bm.done()));
     const nc=child(ex,T.NIGHT);
-    if(nc&&nc.data.length>=4&&dvOf(nc.data).getUint32(0,true)){const nw=new BW();nw.u32(1);for(const ws of outW)nw.bytes(one(ws)?nc.data.slice(4+ws[0][0]*4,8+ws[0][0]*4):mixU8(nc.data,4,ws));nc.data=nw.done();}
+    if(nc&&nc.data.length>=4&&dvOf(nc.data).getUint32(0,true)){const nw=new BW();nw.u32(1);for(let i=0;i<nV2;i++){const ws=outW[i];if(!ws){nw.bytes(xAt.get(i).night);continue;}nw.bytes(one(ws)?nc.data.slice(4+ws[0][0]*4,8+ws[0][0]*4):mixU8(nc.data,4,ws));}nc.data=nw.done();}
     if(fx)limoFx(fx,Wf,yc,locF,locR);
     geomsChanged++;cross+=crossHere;
+    if(crossHere){let q=a.frame,n=0;while(q&&n++<64){const m=/^(door_[lr][fr])_dummy$/i.exec(q.name||'');if(m){if(!/_dam$/i.test(a.frame.name||'')&&!stretched.includes(m[1].toLowerCase()))stretched.push(m[1].toLowerCase());break;}q=q.par;}}
   }
   // ---- COL ----
   let colInfo=null;const cex=child(ctx.clump,T.EXT),col=cex&&child(cex,T.COLEXT);
@@ -2119,7 +2179,7 @@ function applyLimo(bytes,opt){
   else warn.push('DFF ichida COL topilmadi (alohida .col faylda bo‘lsa — u eski uzunlikda qoladi).');
   // ---- freym ro'yxatini yozish ----
   const nd=new Uint8Array(ctx.fst.data);F.forEach((f,i)=>{if(!f.dirty)return;const dv=dvOf(nd);for(let k=0;k<3;k++)dv.setFloat32(4+i*56+36+k*4,f.p[k],true);});ctx.fst.data=nd;
-  return{dff:serialize(ctx.roots),changed:true,stats:{len:S,cut:yc,movedFrames:F.filter(f=>Dof.get(f)).length,geoms:geomsChanged,cross,stripTris,col:!!colInfo,rigidDoors:rigidNames},warnings:warn};
+  return{dff:serialize(ctx.roots),changed:true,stats:{len:S,cut:yc,movedFrames:F.filter(f=>Dof.get(f)).length,geoms:geomsChanged,cross,stripTris,col:!!colInfo,rigidDoors:rigidNames,stretchedDoors:stretched,panelTris,panelSides:panels.length,killedTris:killed},warnings:warn};
 }
 /* 2DFX nuqtalarini surish (geometriya lokal koordinatalarida) */
 function limoFx(fx,Wf,yc,locF,locR){
@@ -2127,6 +2187,39 @@ function limoFx(fx,Wf,yc,locF,locR){
   for(let i=0;i<n&&o+20<=d.length;i++){const p=[dv.getFloat32(o,true),dv.getFloat32(o+4,true),dv.getFloat32(o+8,true)],sz=dv.getUint32(o+16,true),w=TF.pt(p,Wf),s=w[1]-yc>=0?locF:locR;
     dv.setFloat32(o,p[0]+s[0],true);dv.setFloat32(o+4,p[1]+s[1],true);dv.setFloat32(o+8,p[2]+s[2],true);o+=20+sz;}
   fx.data=d;
+}
+
+/* B ustun paneli: eshik profilidan (eshik bilan bir tekis) qo'zg'almas qism -- kuzov geometriyasiga qo'shiladi */
+function limoPanelBuild(pn,c){
+  const {gc,g,Wf,Df,S,outW,outReg,outT,remap,xAt,matCache}=c,Rt=m3t(Wf.r),org=[Wf.p[0],Wf.p[1]+Df,Wf.p[2]];
+  const toL=w=>vm3([w[0]-org[0],w[1]-org[1],w[2]-org[2]],Rt);
+  const tMats=(()=>{const ml=child(gc,T.MATLIST),mats=childs(ml,T.MATERIAL),mdv=dvOf(child(ml,T.STRUCT).data),cnt=mdv.getUint32(0,true),slot=[];let k=0;
+    for(let i=0;i<cnt;i++){const idx=mdv.getInt32(4+i*4,true);slot.push(idx<0?mats[k++]:slot[idx]);}return slot;})();
+  const matOf=(P,mi)=>{const src=P.slot[mi];if(!src)return 0;const key=matCache.get(src);if(key!==undefined&&key.gc===gc)return key.i;
+    const sb=serialize([src]);let idx=-1;
+    for(let i=0;i<tMats.length;i++){const tb=serialize([tMats[i]]);if(tb.length===sb.length&&tb.every((x,j)=>x===sb[j])){idx=i;break;}}
+    if(idx<0){const ml=child(gc,T.MATLIST),st=child(ml,T.STRUCT),od=st.data,cnt=dvOf(od).getUint32(0,true);
+      const nd=new Uint8Array(od.length+4);nd.set(od.subarray(0,4+cnt*4),0);nd.set(od.subarray(4+cnt*4),8+cnt*4);dvOf(nd).setUint32(0,cnt+1,true);dvOf(nd).setInt32(4+cnt*4,-1,true);st.data=nd;
+      const cp=cloneChunk(src);let li=-1;ml.children.forEach((ch,i)=>{if(ch.type===T.MATERIAL)li=i;});ml.children.splice(li+1,0,cp);tMats.push(cp);idx=cnt;}
+    matCache.set(src,{gc,i:idx});return idx;};
+  const defDay=g.dayColors&&g.dayColors.length>=4?g.dayColors.slice(0,4):new Uint8Array([255,255,255,255]);
+  const attr=(P,V,wpos,qn)=>{const pg=P.g,ws=V.ws;const uv=[];for(const us of (pg.uvs||[])){if(!us){uv.push([0,0]);continue;}let u=0,v=0;for(const [o,x] of ws){u+=us[o*2]*x;v+=us[o*2+1]*x;}uv.push([u,v]);}
+    const mix=(src)=>{const o2=new Uint8Array(4);for(let k=0;k<4;k++){let s2=0;for(const [o,x] of ws)s2+=src[o*4+k]*x;o2[k]=Math.max(0,Math.min(255,Math.round(s2)));}return o2;};
+    const day=pg.dayColors?mix(pg.dayColors):defDay,night=pg.night?mix(pg.night):day;
+    let n=qn;if(pg.nrm){let x=0,y=0,z=0;for(const [o,w] of ws){x+=pg.nrm[o*3]*w;y+=pg.nrm[o*3+1]*w;z+=pg.nrm[o*3+2]*w;}const nw=vm3([x,y,z],P.Wf.r);nw[1]=0;const l=Math.hypot(nw[0],nw[2]);if(l>0.3)n=[nw[0]/l,0,nw[2]/l];}
+    return{p:toL(wpos),n:v3n(vm3(n,Rt)),uv,day,night};};
+  const add=(key,P,V,wpos,qn)=>{let i=remap.get(key);if(i===undefined){i=outW.length;remap.set(key,i);outW.push(null);outReg.push('X');xAt.set(i,attr(P,V,wpos,qn));}return i;};
+  let n=0;
+  for(const sg of pn.segs){
+    let U=sg.U,V=sg.V;const wu=U.w,wv=V.w,nq=v3x([wv[0]-wu[0],wv[1]-wu[1],wv[2]-wu[2]],[0,-1,0]);
+    if(v3d(nq,sg.n0)<0){U=sg.V;V=sg.U;}
+    const a=U.w,b=V.w,fa=pn.yF(a[2]),fb=pn.yF(b[2]),ra=pn.yR(a[2])-S,rb=pn.yR(b[2])-S;
+    if(fa-ra<0.03||fb-rb<0.03)continue;
+    const qn0=v3n(v3d(nq,sg.n0)<0?[-nq[0],-nq[1],-nq[2]]:nq),side='P'+pn.side+':';
+    const uf=add(side+U.k+'|f',sg.P,U,[a[0],fa,a[2]],qn0),vf=add(side+V.k+'|f',sg.P,V,[b[0],fb,b[2]],qn0),vr=add(side+V.k+'|r',sg.P,V,[b[0],rb,b[2]],qn0),ur=add(side+U.k+'|r',sg.P,U,[a[0],ra,a[2]],qn0);
+    const m=matOf(sg.P,sg.mat);outT.push(uf,vf,vr,m,uf,vr,ur,m);n+=2;
+  }
+  return n;
 }
 
 root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo};
@@ -5337,8 +5430,9 @@ async function editPipeline(why){
     if(LM.on){ // limuzin -- birinchi: eshik, rasm, logo cho'zilgan mashinaga qo'llanadi
       const sc=limoScanOf(it),yc=limoCutY(sc),lk=yc.toFixed(5)+'|'+LM.len;   // natija keshlanadi: rasm/logo slayderlari limuzinni qayta hisoblamaydi
       if(LM.cache&&LM.cache.raw===it.raw&&LM.cache.k===lk)limo=LM.cache.res;else{limo=G.DFF.applyLimo(dff,{cut:yc,len:LM.len});LM.cache={raw:it.raw,k:lk,res:limo};}dff=limo.dff;changed=changed||limo.changed;
-      if(limo.stats){const st=limo.stats;info.push('Limuzin: +'+st.len.toFixed(1)+' m (uzunlik '+sc.len.toFixed(2)+' → '+(sc.len+st.len).toFixed(2)+' m, g‘ildiraklar orasi '+sc.wheelbase.toFixed(2)+' → '+(sc.wheelbase+st.len).toFixed(2)+' m). Kesish joyi: '+(LM.pos==='manual'?'qo‘lda ('+LM.pct+'%)':(sc.presets[LM.pos==='auto'?sc.auto:LM.pos]||{lbl:'?'}).lbl)+'. '+st.geoms+' ta geometriya cho‘zildi ('+st.cross.toLocaleString()+' uchburchak kesildi, '+st.stripTris.toLocaleString()+' poligon qo‘shildi), '+st.movedFrames+' ta freym orqaga surildi'+(st.col?', to‘qnashuv modeli (COL) ham cho‘zildi':'')+'.'+(st.rigidDoors&&st.rigidDoors.length?' Eshiklar ('+st.rigidDoors.join(', ')+') cho‘zilmadi — asl o‘lchamida, oraliqni kuzov (B ustun) to‘ldirdi.':''));}
+      if(limo.stats){const st=limo.stats;info.push('Limuzin: +'+st.len.toFixed(1)+' m (uzunlik '+sc.len.toFixed(2)+' → '+(sc.len+st.len).toFixed(2)+' m, g‘ildiraklar orasi '+sc.wheelbase.toFixed(2)+' → '+(sc.wheelbase+st.len).toFixed(2)+' m). Kesish joyi: '+(LM.pos==='manual'?'qo‘lda ('+LM.pct+'%)':(sc.presets[LM.pos==='auto'?sc.auto:LM.pos]||{lbl:'?'}).lbl)+'. '+st.geoms+' ta geometriya cho‘zildi ('+st.cross.toLocaleString()+' uchburchak kesildi, '+st.stripTris.toLocaleString()+' poligon qo‘shildi), '+st.movedFrames+' ta freym orqaga surildi'+(st.col?', to‘qnashuv modeli (COL) ham cho‘zildi':'')+'.'+(st.rigidDoors&&st.rigidDoors.length?' Eshiklar ('+st.rigidDoors.join(', ')+') cho‘zilmadi — asl o‘lchamida, har biri alohida ochiladi.'+(st.panelSides?' O‘rta qismning yon tomoni eshikning o‘z shaklidan (tashqi sirti, oynasi, ichki qoplamasi) yasaldi — eshiklar bilan bir tekis, ichkariga botmaydi ('+st.panelTris.toLocaleString()+' poligon, kuzovga biriktirilgan, ochilmaydi).':' Oraliqni kuzov (B ustun) to‘ldirdi.'):''));}
       for(const w of limo.warnings)warn.push('Limuzin: '+w);
+      if(limo.stats&&limo.stats.stretchedDoors&&limo.stats.stretchedDoors.length)(LM.pos==='rdoor'||LM.pos==='fdoor'?info:warn).push('Limuzin: '+limo.stats.stretchedDoors.join(', ')+' eshigi ham cho‘zildi (bitta uzun eshik)'+(LM.pos==='rdoor'||LM.pos==='fdoor'?' — siz shuni tanladingiz.':' — kesish joyi eshik ustidan o‘tdi. Eshiklar alohida qolishi uchun «Qayerdan cho‘zilsin» da «… eshik asl holida» variantini tanlang (bu modelda bo‘lsa).'));
     }
     if(E.doorsDone){
       const found=G.DFF.scanDoors(dff).map(d=>d.name),sel=found.filter(n=>!E.off.has(n));
@@ -5686,7 +5780,7 @@ function paneLimo(p,it){
   pctI.addEventListener('input',()=>{M.pct=+pctI.value;drawSk();limoPreviewSoon();});
   p.appendChild(el('div',{class:'row'},[el('label',{text:'Qayerdan cho‘zilsin'}),psel]));p.appendChild(pctRow);
   const sk=el('div',{id:'limoSketch',style:'margin:6px 0'});const drawSk=()=>{const h=limoSketch(sc,limoCutY(sc),M.len);sk.innerHTML=h||'';};drawSk();p.appendChild(sk);
-  p.appendChild(el('div',{class:'note',text:'Qizil uzuq chiziq — kesish joyi, sariq — qo‘shiladigan qism (sxema). Uzun eshik/oyna kerak bo‘lsa «orqa eshik o‘rtasi», eshiklar asl holida qolsin desangiz «old va orqa eshik orasi (B ustun)» ni tanlang.'}));
+  p.appendChild(el('div',{class:'note',text:'Qizil uzuq chiziq — kesish joyi, sariq — qo‘shiladigan qism (sxema). Avtomatik rejimda eshiklar cho‘zilmaydi: old va orqa eshik asl o‘lchamida qoladi va har biri alohida ochiladi, o‘rtadagi qism kuzovga qo‘shiladi. «… eshik ham cho‘ziladi» variantlarida esa o‘sha eshik bitta uzun eshikka aylanadi.'}));
   const brow=el('div',{class:'row',style:'flex-wrap:wrap'},[el('button',{class:'btn pri',type:'button',id:'btnLimo',onclick:async()=>{M.on=true;await editPipeline('limo');renderPane();}},[M.on?'🚘 QAYTA QO‘LLASH':'🚘 LIMUZIN QILISH'])]);
   if(M.on)brow.appendChild(el('button',{class:'btn',type:'button',id:'btnLimoOff',onclick:async()=>{M.on=false;await editPipeline('limo-off');renderPane();}},['↩ Asl uzunlikka qaytarish']));
   p.appendChild(brow);
