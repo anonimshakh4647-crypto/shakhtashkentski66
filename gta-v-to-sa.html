@@ -1358,6 +1358,14 @@ function liveryScan(bytes){
       for(const a of A)if(a.geom===gi)e.parts.add(a.frame.name||'');}}
   return[...map.values()].map(e=>Object.assign(e,{parts:[...e.parts]})).sort((a,b)=>b.tris-a.tris);
 }
+/* tanlangan kuzov materiallarining dunyo koordinatalaridagi chegarasi (rasm proporsiyasi uchun: yon tomon eni/bo'yi) */
+function liveryBounds(bytes,keys){
+  keys=keys instanceof Set?keys:new Set(keys||[]);const ctx=dffCtx(bytes),{A,G,rwv}=ctx,mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30],seen=new Set();
+  for(const a of A){if(livSkipFrame(a.frame)||seen.has(a.geom))continue;seen.add(a.geom);const gc=G[a.geom];if(!gc)continue;const g=decodeGeometry(gc,rwv);if(g.native||!g.pos)continue;
+    const sel=g.materials.map(m=>m&&keys.has(livKey(m)));if(!sel.some(Boolean))continue;const W=fWorld(a.frame);
+    for(let t=0;t<g.nTri;t++){if(!sel[g.tris[t*4+3]])continue;for(let k=0;k<3;k++){const v=g.tris[t*4+k],q=TF.pt([g.pos[v*3],g.pos[v*3+1],g.pos[v*3+2]],W);for(let c=0;c<3;c++){if(q[c]<mn[c])mn[c]=q[c];if(q[c]>mx[c])mx[c]=q[c];}}}}
+  return mn[0]>mx[0]?null:{mn,mx,len:mx[1]-mn[1],h:mx[2]-mn[2]};
+}
 function livMaterial(mc,texName,fx){
   const ver=mc.ver,st=child(mc,T.STRUCT),d=new Uint8Array(st.data);d[4]=d[5]=d[6]=d[7]=255;dvOf(d).setUint32(12,1,true);st.data=d;
   const tex={type:T.TEXTURE,ver,children:[leaf(T.STRUCT,ver,new Uint8Array([6,0x33,1,0])),strChunk(texName,ver),strChunk('',ver),extChunk(ver)],tail:null};
@@ -1390,7 +1398,8 @@ function applyLivery(bytes,opt){
   const texName=String(opt.tex||'livery').slice(0,31),fx=opt.fx===undefined?LIV_FX.ultra:opt.fx;
   const layout=['mirror','readable','halves'].includes(opt.layout)?opt.layout:'mirror',frontRight=opt.front==='right';
   const zoom=Math.max(0.05,+opt.zoom||1),stretch=Math.max(0.05,+opt.stretch||1),offU=+opt.offU||0,offV=+opt.offV||0;
-  const topMode=opt.top==='color'||opt.top==='image'?opt.top:(layout==='mirror'?'image':'color'),topRGB=livSafeRGB(opt.topColor||[255,255,255]);
+  const topMode=['color','image','split'].includes(opt.top)?opt.top:(layout==='mirror'?'image':layout==='halves'?'split':'color'),topRGB=livSafeRGB(opt.topColor||[255,255,255]);
+  const tcs=opt.topColors||[opt.topColor||[255,255,255],opt.topColor||[255,255,255]],topRGBL=livSafeRGB(tcs[0]),topRGBR=livSafeRGB(tcs[1]);
   const ctx=dffCtx(bytes),{A,G,rwv}=ctx,skipped=[];
   const bad=new Set();for(const a of A)if(livSkipFrame(a.frame))bad.add(a.geom);
   const gW=new Map();for(const a of A){if(bad.has(a.geom)||gW.has(a.geom))continue;gW.set(a.geom,fWorld(a.frame));}
@@ -1421,16 +1430,6 @@ function applyLivery(bytes,opt){
       let m=-1e30;for(let jj=j-1;jj<=j+1;jj++)for(let ii=i-1;ii<=i+1;ii++){if(ii<0||jj<0||ii>=nu||jj>=nv)continue;const v=D[s2][jj*nu+ii];if(v>m)m=v;}return m;}};
   };
   const sideTol=Math.max(0.03,0.05*hW);
-  /* uchburchak turi: 0 = chap yon, 1 = o'ng yon (tashqi yon yuza), 2 = kapot/tom/old/orqa yoki ichki devor
-   * (vertex normallariga tayanmaymiz: modlarda ular ko'pincha teskari/aralash) */
-  const triKind=(wp,i0,i1,i2)=>{
-    const e1x=wp[i1]-wp[i0],e1y=wp[i1+1]-wp[i0+1],e1z=wp[i1+2]-wp[i0+2],e2x=wp[i2]-wp[i0],e2y=wp[i2+1]-wp[i0+1],e2z=wp[i2+2]-wp[i0+2];
-    const nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x,nl=Math.hypot(nx,ny,nz);if(nl<1e-14)return 2;
-    const cx=(wp[i0]+wp[i1]+wp[i2])/3-xc,cy=(wp[i0+1]+wp[i1+1]+wp[i2+1])/3,cz=(wp[i0+2]+wp[i1+2]+wp[i2+2])/3;
-    if(Math.abs(nx)/nl<0.5||Math.abs(nx)<Math.abs(ny)||Math.abs(cx)<0.25*hW)return 2;   // yonga qaramaydi (oldga/orqaga/tepaga ko'proq) yoki o'rtada
-    const s2=cx<0?0:1;if(Math.abs(cx)<(_sm||(_sm=sideMapF())).at(s2,cy,cz)-sideTol)return 2;     // yondan qaraganda ko'rinmaydi (chuqurda)
-    return s2;
-  };
   const uvOf=(y,z,side)=>{
     let u=(mx[1]-y)/L,v=(mx[2]-z)/Hh;                 // u: old (y max) = 0 -> orqa = 1 ; v: tepa = 0 -> past = 1
     let rev=frontRight;if(side===1&&layout!=='mirror')rev=!rev;
@@ -1439,29 +1438,78 @@ function applyLivery(bytes,opt){
     if(layout==='halves'){u=Math.min(0.998,Math.max(0.002,u));u=side?0.5+u*0.5:u*0.5;}
     return[u,v];
   };
-  let dup=0,solidTris=0;const modified=new Set(),solidIdx=new Map();
+  /* ---- yon / kapot-tom chegarasi: silliq maydon (field) bo'yicha uchburchaklarni KESAMIZ ----
+   * f(v) > 0 -- tashqi yon yuza, f(v) <= 0 -- kapot/tom/old/orqa yoki ichki devor. f vertexlarda hisoblanadi:
+   * o'zimiz hisoblagan (moddagi normallarga tayanmasdan), qo'shnilar bo'yicha silliqlangan normal + "yondan eng tashqi" sharti.
+   * Chegara uchburchak qirralari bo'ylab zinapoya bo'lmaydi: uchburchaklar f=0 chizig'i bo'yicha bo'linadi (yangi vertexlar).
+   * 'split' rejimida kapot/tom qismi yana x = o'rta tekisligi bo'yicha bo'linadi (chap yarmi 1-rang, o'ng yarmi 2-rang). */
+  const cutting=!(layout==='mirror'&&topMode==='image'),Cc=[xc,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2];
+  /* old/orqa yuz (fasad) zonasi: oldingi g'ildirakdan oldinda, orqa g'ildirakdan orqada. Faqat shu yerda "oldga qaragan" yuza kapot rangiga o'tadi --
+   * g'ildirak arkalari chetida rang chizig'i chiqmaydi. G'ildirak dummylari bo'lmasa -- uzunlik bo'yicha. */
+  const endW=(()=>{const wy=[];let wr=0.35;
+    for(const f of ctx.F){const m=/^wheel_([lr])([fbm])_dummy$/i.exec(f.name||'');if(m){const q=TF.pt([0,0,0],fWorld(f));wy.push({y:q[1],front:m[2].toLowerCase()==='f'});}}
+    const wa=A.find(a=>/^wheel$/i.test(a.frame.name||''));if(wa&&G[wa.geom]){try{const gw=decodeGeometry(G[wa.geom],rwv);if(gw.pos){let z0=1e9,z1=-1e9;for(let i=2;i<gw.pos.length;i+=3){z0=Math.min(z0,gw.pos[i]);z1=Math.max(z1,gw.pos[i]);}if(z1>z0)wr=Math.min(0.8,Math.max(0.15,(z1-z0)/2));}}catch(e){}}
+    const fy=wy.filter(w=>w.front).map(w=>w.y),ry=wy.filter(w=>!w.front).map(w=>w.y),yc=(mn[1]+mx[1])/2;
+    const yF=fy.length?Math.max(...fy)+wr*1.1:yc+0.36*L,yR=ry.length?Math.min(...ry)-wr*1.1:yc-0.36*L,ramp=0.08;
+    return y=>Math.max(0,Math.min(1,Math.max((y-yF)/ramp,(yR-y)/ramp)));})();
+  function fieldOf(w){
+    const {g,sel,wp}=w,nV=g.nV,used=new Uint8Array(nV);
+    for(let t=0;t<g.nTri;t++){if(sel[g.tris[t*4+3]])for(let k=0;k<3;k++)used[g.tris[t*4+k]]=1;}
+    const km=new Map(),wid=new Int32Array(nV).fill(-1),q=2e-4;let nw=0;
+    for(let i=0;i<nV;i++){if(!used[i])continue;const k=Math.round(wp[i*3]/q)+'|'+Math.round(wp[i*3+1]/q)+'|'+Math.round(wp[i*3+2]/q);let id=km.get(k);if(id===undefined){id=nw++;km.set(k,id);}wid[i]=id;}
+    let N=new Float64Array(nw*3);const E=[];
+    for(let t=0;t<g.nTri;t++){if(!sel[g.tris[t*4+3]])continue;const a=g.tris[t*4],b=g.tris[t*4+1],c=g.tris[t*4+2],A3=a*3,B3=b*3,C3=c*3;
+      const e1x=wp[B3]-wp[A3],e1y=wp[B3+1]-wp[A3+1],e1z=wp[B3+2]-wp[A3+2],e2x=wp[C3]-wp[A3],e2y=wp[C3+1]-wp[A3+1],e2z=wp[C3+2]-wp[A3+2];
+      let nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x;
+      const cx=(wp[A3]+wp[B3]+wp[C3])/3-Cc[0],cy=(wp[A3+1]+wp[B3+1]+wp[C3+1])/3-Cc[1],cz=(wp[A3+2]+wp[B3+2]+wp[C3+2])/3-Cc[2];
+      if(nx*cx+ny*cy+nz*cz<0){nx=-nx;ny=-ny;nz=-nz;}   // tashqariga (mashina markazidan uzoqqa)
+      for(const v of [a,b,c]){const id=wid[v]*3;N[id]+=nx;N[id+1]+=ny;N[id+2]+=nz;}
+      E.push(wid[a],wid[b],wid[b],wid[c],wid[c],wid[a]);}
+    const nrm=M=>{for(let i=0;i<nw;i++){const l=Math.hypot(M[i*3],M[i*3+1],M[i*3+2]);if(l>1e-20){M[i*3]/=l;M[i*3+1]/=l;M[i*3+2]/=l;}}};nrm(N);
+    for(let pass=0;pass<4;pass++){const S=new Float64Array(nw*3),cn=new Uint32Array(nw);
+      for(let e=0;e<E.length;e+=2){const i=E[e],j=E[e+1];if(i===j)continue;S[i*3]+=N[j*3];S[i*3+1]+=N[j*3+1];S[i*3+2]+=N[j*3+2];cn[i]++;S[j*3]+=N[i*3];S[j*3+1]+=N[i*3+1];S[j*3+2]+=N[i*3+2];cn[j]++;}
+      const M2=new Float64Array(nw*3);for(let i=0;i<nw;i++){const k=cn[i]||1;for(let c=0;c<3;c++)M2[i*3+c]=N[i*3+c]+S[i*3+c]/k;}nrm(M2);N=M2;}
+    const F=new Float32Array(nV).fill(-1);
+    for(let i=0;i<nV;i++){if(!used[i])continue;const id=wid[i]*3,ax=Math.abs(N[id]),ay=Math.abs(N[id+1]),nz=N[id+2],x=wp[i*3]-xc,X=Math.abs(x);
+      let f=Math.min(ax-0.5*Math.min(1,Math.max(0,nz*4)),ax-ay*endW(wp[i*3+1]),(X-0.25*hW)/hW);   // pastga qaragan (ostona osti) -- yon; oldga qaragan -- faqat fasad zonasida
+      if(f>0){const Mx=(_sm||(_sm=sideMapF())).at(x<0?0:1,wp[i*3+1],wp[i*3+2]);f=Math.min(f,(X-(Mx-sideTol))/(4*sideTol));}
+      if(Math.abs(f)<1e-3)f=1e-3;F[i]=f;}
+    return F;
+  }
+  let dup=0,solidTris=0,cutTris=0,uid=0;const modified=new Set();
   for(const w of work){
     const {g,sel,wp,gc}=w,nT=g.nTri,nV=g.nV,uv0=g.uvs&&g.uvs[0]||null;
-    const remap=new Map(),src=[],nuv=[],nt=new Uint16Array(nT*4);let solid=-1;
-    const split=!(layout==='mirror'&&topMode==='image'),kind=split?new Uint8Array(nT):null;
-    if(split)for(let t=0;t<nT;t++){if(sel[g.tris[t*4+3]])kind[t]=triKind(wp,g.tris[t*4]*3,g.tris[t*4+1]*3,g.tris[t*4+2]*3);}
+    const F=cutting?fieldOf(w):null;
+    const outW=[],outUV=[],outT=[],remap=new Map();const solid={T:-1,TL:-1,TR:-1};
+    const solidMat=r=>{if(solid[r]<0)solid[r]=livAddSolid(gc,livSlotChunk(gc,sel),r==='TL'?topRGBL:r==='TR'?topRGBR:topRGB,fx);return solid[r];};
+    const wpos=(ws,c)=>{let s2=0;for(const e of ws)s2+=wp[e[0]*3+c]*e[1];return s2;};
+    const vtx=(V,region)=>{const key=V.k+'|'+region;let ni=remap.get(key);if(ni!==undefined)return ni;
+      ni=outW.length;remap.set(key,ni);outW.push(V.ws);
+      if(region==='U'){const o=V.ws[0][0];outUV.push(uv0?uv0[o*2]:0,uv0?uv0[o*2+1]:0);}
+      else if(region==='L'||region==='R'||(region==='T'&&topMode==='image')){const p=uvOf(wpos(V.ws,1),wpos(V.ws,2),region==='R'?1:0);outUV.push(p[0],p[1]);}
+      else outUV.push(0.5,0.5);
+      return ni;};
+    const emit=(poly,region,mi)=>{if(poly.length<3)return;const m=region==='U'||region==='L'||region==='R'||(region==='T'&&topMode==='image')?mi:solidMat(region);
+      const id=poly.map(V=>vtx(V,region));for(let k=1;k<id.length-1;k++)outT.push(id[0],id[k],id[k+1],m);
+      if(m!==mi)solidTris+=id.length-2;};
+    const mkV=o=>{let gx=wp[o*3]-xc;if(Math.abs(gx)<1e-3)gx=1e-3;return{ws:[[o,1]],f:F?F[o]:1,g:gx,k:'o'+o};};
+    const lerpV=(A,B,fa,fb)=>{const t=fa/(fa-fb),m=new Map();for(const [o,x] of A.ws)m.set(o,(m.get(o)||0)+x*(1-t));for(const [o,x] of B.ws)m.set(o,(m.get(o)||0)+x*t);
+      const ws=[...m].filter(e=>e[1]>1e-7);let k;
+      if(ws.length===1)k='o'+ws[0][0];else if(ws.length===2){const p=ws[0][0]<ws[1][0]?ws[0]:ws[1],q2=ws[0][0]<ws[1][0]?ws[1]:ws[0];k='e'+p[0]+'_'+q2[0]+'_'+Math.round(q2[1]*1e6);}else k='i'+(uid++);
+      return{ws,f:A.f+(B.f-A.f)*t,g:A.g+(B.g-A.g)*t,k};};
+    const clip=(poly,fld)=>{const P=[],Q=[];for(let i=0;i<poly.length;i++){const A2=poly[i],B2=poly[(i+1)%poly.length],fa=A2[fld],fb=B2[fld];
+      if(fa>=0)P.push(A2);else Q.push(A2);if((fa>=0)!==(fb>=0)){const V=lerpV(A2,B2,fa,fb);P.push(V);Q.push(V);}}return[P,Q];};
     for(let t=0;t<nT;t++){
-      const mi=g.tris[t*4+3];nt[t*4+3]=mi;let side=-1;
-      if(sel[mi]){
-        const k=split?kind[t]:0;
-        if(k===2){
-          if(topMode==='color'){side=2;if(solid<0){solid=livAddSolid(gc,livSlotChunk(gc,sel),topRGB,fx);solidIdx.set(w.gi,solid);}nt[t*4+3]=solid;solidTris++;}
-          else side=0;
-        }else side=layout==='mirror'?0:k;
-      }
-      for(let q=0;q<3;q++){
-        const v=g.tris[t*4+q],key=v*4+(side<0?0:1+side);let ni=remap.get(key);
-        if(ni===undefined){ni=src.length;remap.set(key,ni);src.push(v);
-          if(side<0)nuv.push(uv0?uv0[v*2]:0,uv0?uv0[v*2+1]:0);else if(side===2)nuv.push(0.5,0.5);else{const p=uvOf(wp[v*3+1],wp[v*3+2],side);nuv.push(p[0],p[1]);}}
-        nt[t*4+q]=ni;
-      }
+      const mi=g.tris[t*4+3],a=g.tris[t*4],b=g.tris[t*4+1],c=g.tris[t*4+2];
+      if(!sel[mi]){emit([mkV(a),mkV(b),mkV(c)],'U',mi);continue;}
+      if(!cutting){emit([mkV(a),mkV(b),mkV(c)],'L',mi);continue;}
+      const poly=[mkV(a),mkV(b),mkV(c)],[sp,tp]=clip(poly,'f');
+      if(sp.length>=3&&tp.length>=3)cutTris++;
+      if(sp.length>=3){let gx=0;for(const V of sp)gx+=V.g;emit(sp,gx<0?'L':'R',mi);}
+      if(tp.length>=3){if(topMode==='split'){const [r,l]=clip(tp,'g');emit(r,'TR',mi);emit(l,'TL',mi);}else emit(tp,'T',mi);}
     }
-    const nV2=src.length;if(nV2>65535)throw new Error('Geometriyada vertex juda ko‘p ('+nV2+') — bu qismga rasm qo‘yib bo‘lmaydi');
+    const nV2=outW.length,nT2=outT.length/4;if(nV2>65535)throw new Error('Geometriyada vertex juda ko‘p ('+nV2+') — bu qismga rasm qo‘yib bo‘lmaydi');
+    if(nT2>65535*4)throw new Error('Geometriyada uchburchak juda ko‘p');
     dup+=Math.max(0,nV2-nV);
     // ---- struct ----
     const st=child(gc,T.STRUCT),od=st.data,odv=dvOf(od),L0=geomPosLayout(od,rwv);
@@ -1469,32 +1517,37 @@ function applyLivery(bytes,opt){
     let numUV=(flags>>16)&255;if(!numUV)numUV=(flags&0x80)?2:(flags&4)?1:0;
     const nUV=Math.max(1,numUV);
     flags=(flags&~0x00FF0000&~0x80&~1)|(nUV<<16)|4|(nUV>=2?0x80:0);
-    const bw=new BW();bw.u32(flags);bw.u32(nT);bw.u32(nV2);bw.u32(nMorph);
+    const one=ws=>ws.length===1&&Math.abs(ws[0][1]-1)<1e-9;
+    const mixU8=(src,off,ws)=>{const o=new Uint8Array(4);for(let c=0;c<4;c++){let s2=0;for(const e of ws)s2+=src[off+e[0]*4+c]*e[1];o[c]=Math.max(0,Math.min(255,Math.round(s2)));}return o;};
+    const mixF3=(off,ws,norm)=>{let x=0,y=0,z=0;for(const e of ws){const p=off+e[0]*12;x+=odv.getFloat32(p,true)*e[1];y+=odv.getFloat32(p+4,true)*e[1];z+=odv.getFloat32(p+8,true)*e[1];}
+      if(norm){const l=Math.hypot(x,y,z);if(l>1e-12){x/=l;y/=l;z/=l;}}const b2=new BW();b2.f32(x);b2.f32(y);b2.f32(z);return b2.done();};
+    const bw=new BW();bw.u32(flags);bw.u32(nT2);bw.u32(nV2);bw.u32(nMorph);
     if(rwv<0x34000)bw.bytes(od.slice(16,28));
-    if(flags&8){const dc=g.dayColors;for(const v of src)bw.bytes(dc.slice(v*4,v*4+4));}
-    for(let i=0;i<nV2;i++){bw.f32(nuv[i*2]);bw.f32(nuv[i*2+1]);}
-    for(let s=1;s<nUV;s++){const us=g.uvs[s];for(const v of src){bw.f32(us?us[v*2]:0);bw.f32(us?us[v*2+1]:0);}}
-    for(let t=0;t<nT;t++){bw.u16(nt[t*4+1]);bw.u16(nt[t*4]);bw.u16(nt[t*4+3]);bw.u16(nt[t*4+2]);}
+    if(flags&8){const dc=g.dayColors;for(const ws of outW)bw.bytes(one(ws)?dc.slice(ws[0][0]*4,ws[0][0]*4+4):mixU8(dc,0,ws));}
+    for(let i=0;i<nV2;i++){bw.f32(outUV[i*2]);bw.f32(outUV[i*2+1]);}
+    for(let s2=1;s2<nUV;s2++){const us=g.uvs[s2];for(const ws of outW){let u=0,v=0;if(us)for(const e of ws){u+=us[e[0]*2]*e[1];v+=us[e[0]*2+1]*e[1];}bw.f32(u);bw.f32(v);}}
+    for(let t=0;t<nT2;t++){bw.u16(outT[t*4+1]);bw.u16(outT[t*4]);bw.u16(outT[t*4+3]);bw.u16(outT[t*4+2]);}
     for(const m of L0.morphs){
       bw.bytes(od.slice(m.bs,m.bs+24));   // bounding sphere (16) + hasVerts + hasNormals
-      if(m.po>=0)for(const v of src)bw.bytes(od.slice(m.po+v*12,m.po+v*12+12));
-      if(m.no>=0)for(const v of src)bw.bytes(od.slice(m.no+v*12,m.no+v*12+12));
+      if(m.po>=0)for(const ws of outW)bw.bytes(one(ws)?od.slice(m.po+ws[0][0]*12,m.po+ws[0][0]*12+12):mixF3(m.po,ws,false));
+      if(m.no>=0)for(const ws of outW)bw.bytes(one(ws)?od.slice(m.no+ws[0][0]*12,m.no+ws[0][0]*12+12):mixF3(m.no,ws,true));
     }
     st.data=bw.done();
     // ---- extension: BinMesh (uchburchak ro'yxati), tun ranglari ----
     let ex=child(gc,T.EXT);if(!ex){ex=extChunk(gc.ver);gc.children.push(ex);}
-    const per=g.materials.map(()=>[]);for(let t=0;t<nT;t++){const m=nt[t*4+3];(per[m]||(per[m]=[])).push(nt[t*4],nt[t*4+1],nt[t*4+2]);}
-    for(let i=0;i<per.length;i++)if(!per[i])per[i]=[];
+    const nMat=dvOf(child(child(gc,T.MATLIST),T.STRUCT).data).getUint32(0,true);
+    const per=Array.from({length:nMat},()=>[]);for(let t=0;t<nT2;t++){const m=outT[t*4+3];per[m].push(outT[t*4],outT[t*4+1],outT[t*4+2]);}
     const bm=new BW(),usedM=per.map((p,i)=>({p,i})).filter(x=>x.p.length);
-    bm.u32(0);bm.u32(usedM.length);bm.u32(usedM.reduce((s,x)=>s+x.p.length,0));
+    bm.u32(0);bm.u32(usedM.length);bm.u32(usedM.reduce((s2,x)=>s2+x.p.length,0));
     for(const x of usedM){bm.u32(x.p.length);bm.u32(x.i);for(const v of x.p)bm.u32(v);}
     const bmc=child(ex,T.BINMESH);if(bmc)bmc.data=bm.done();else ex.children.unshift(leaf(T.BINMESH,gc.ver,bm.done()));
     const nc=child(ex,T.NIGHT);
-    if(nc&&nc.data.length>=4&&dvOf(nc.data).getUint32(0,true)){const nw=new BW();nw.u32(1);for(const v of src)nw.bytes(nc.data.slice(4+v*4,8+v*4));nc.data=nw.done();}
+    if(nc&&nc.data.length>=4&&dvOf(nc.data).getUint32(0,true)){const nw=new BW();nw.u32(1);for(const ws of outW)nw.bytes(one(ws)?nc.data.slice(4+ws[0][0]*4,8+ws[0][0]*4):mixU8(nc.data,4,ws));nc.data=nw.done();}
     // ---- materiallar ----
     const ml=child(gc,T.MATLIST),mats=childs(ml,T.MATERIAL),mdv=dvOf(child(ml,T.STRUCT).data),cnt=mdv.getUint32(0,true),slot=[];let k=0;
     for(let i=0;i<cnt;i++){const idx=mdv.getInt32(4+i*4,true);slot.push(idx<0?mats[k++]:slot[idx]);}
-    const doneM=new Set();for(let i=0;i<cnt;i++){if(i===solid||!sel[i]||!slot[i]||doneM.has(slot[i]))continue;doneM.add(slot[i]);livMaterial(slot[i],texName,fx);}
+    const solidSet=new Set(Object.values(solid).filter(x=>x>=0));
+    const doneM=new Set();for(let i=0;i<cnt;i++){if(solidSet.has(i)||!sel[i]||!slot[i]||doneM.has(slot[i]))continue;doneM.add(slot[i]);livMaterial(slot[i],texName,fx);}
     modified.add(w.gi);
   }
   // atomic: MatFX yoqilgan bo'lishi kerak (aks holda o'yin material effektini chizmaydi)
@@ -1503,7 +1556,7 @@ function applyLivery(bytes,opt){
     if(!child(ex,T.RIGHTTORENDER)){const rr=new BW();rr.u32(0x120);rr.u32(0);ex.children.push(leaf(T.RIGHTTORENDER,ex.ver,rr.done()));}
     const mf=child(ex,T.MATFX);if(!mf){const w=new BW();w.u32(1);ex.children.push(leaf(T.MATFX,ex.ver,w.done()));}else if(mf.data.length>=4&&!dvOf(mf.data).getUint32(0,true)){const d=new Uint8Array(mf.data);dvOf(d).setUint32(0,1,true);mf.data=d;}
   }
-  return{dff:serialize(ctx.roots),stats:{geoms:modified.size,tris:selTris,dupVerts:dup,skipped:skipped.length,solidTris,top:topMode,topColor:topRGB},bounds:{mn,mx}};
+  return{dff:serialize(ctx.roots),stats:{geoms:modified.size,tris:selTris,dupVerts:dup,skipped:skipped.length,solidTris,cutTris,top:topMode,topColor:topRGB,topColors:[topRGBL,topRGBR]},bounds:{mn,mx}};
 }
 
 /* ---------- LOGO / GERB: kuzov yuzasiga yopishgan alohida decal (yangi geometriya + atomic, o'sha qism freymida) ----------
@@ -1831,7 +1884,7 @@ function applyLogos(bytes,opt){
   return{dff:serialize(ctx.roots),report};
 }
 
-root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES};
+root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES};
 })(GV);
 /* ---- extension: DFF materials with textures list helper, RW 3.6 version constants ---- */
 (function(G){
@@ -4967,16 +5020,22 @@ function previewAngle(){
 /* ---------- SA tahrir: umumiy quvur (eshiklar + livery + o'chirilgan qismlar), har safar ASL baytlardan ---------- */
 const LIV_SHINE=[['ultra','Ultra — eng kuchli aks (tavsiya)'],['high','Kuchli'],['normal','Standart (original SA darajasi)'],['keep','Asl holicha qoldirish'],['off','O‘chiq (mat)']];
 const LIV_LAYOUT=[['mirror','Ikkala yonga bir xil (o‘ng yon — ko‘zgu, ranglar oldi-orqa mos)'],['readable','O‘ng yonda ham yozuv to‘g‘ri o‘qilsin'],['halves','Rasmning chap yarmi — chap yon, o‘ng yarmi — o‘ng yon']];
-S.liv={img:null,img2:null,on:false,keys:null,keysFor:'',layout:'mirror',front:'left',zoom:1,stretch:1,offU:0,offV:0,size:1024,shine:'ultra',bg:'#ffffff',compress:'auto',tex:'livery',ver:0,txdCache:null,top:'auto',topColor:null,autoCol:null};
-const LIV_TOP=[['auto','Avtomatik (bitta rasm — rasm davomi, ikki xil yon — bitta rang)'],['color','Bitta rang (chok ham, chiziq-chiziq iz ham yo‘q)'],['image','Yon rasmning davomi']];
+S.liv={img:null,img2:null,on:false,keys:null,keysFor:'',layout:'mirror',front:'left',zoom:1,stretch:1,offU:0,offV:0,size:1024,shine:'ultra',bg:'#ffffff',compress:'auto',tex:'livery',ver:0,txdCache:null,top:'auto',topColor:null,topColors:[null,null],autoCol:null,fit:'auto',flatCache:null,bCache:null};
+const LIV_TOP=[['auto','Avtomatik (tavsiya)'],['split','Ikki rang: chap yarmi — chap rasm rangi, o‘ng yarmi — o‘ng rasm rangi'],['color','Bitta rang (butun kapot, tom, old va orqa)'],['image','Yon rasmning davomi (eski usul)']];
+const LIV_FIT=[['auto','Avtomatik (tik yoki juda tor rasm cho‘zilmaydi)'],['cover','Proporsiyani saqlash (ortiqcha qismi kesiladi)'],['stretch','Mashinaga cho‘zib to‘ldirish']];
 /* kapot/tom/old/orqa uchun haqiqiy rejim */
-function livTopMode(){const L=S.liv,lay=L.img2?'halves':L.layout;return L.top==='color'||L.top==='image'?L.top:(lay==='mirror'?'image':'color');}
+function livTopMode(){const L=S.liv,lay=L.img2?'halves':L.layout;return['color','image','split'].includes(L.top)?L.top:(lay==='mirror'?'image':lay==='halves'?'split':'color');}
 /* avto rang: 1-rasmning eng ko‘p uchraydigan rangi (fon rangi odatda) */
-function livAutoColor(){const L=S.liv;if(L.autoCol&&L.autoCol.ver===L.ver)return L.autoCol.hex;const f=livFlat();if(!f)return'#ffffff';
-  const A=L.img2?{rgba:f.rgba,w:f.w,h:f.h,x1:Math.floor(f.w/2)}:{rgba:f.rgba,w:f.w,h:f.h,x1:f.w},bins=new Map(),st=Math.max(1,Math.floor(Math.sqrt(A.x1*A.h/40000)));
-  for(let y=0;y<A.h;y+=st)for(let x=0;x<A.x1;x+=st){const o=(y*A.w+x)*4,k=(A.rgba[o]>>4)<<8|(A.rgba[o+1]>>4)<<4|(A.rgba[o+2]>>4);let b=bins.get(k);if(!b){b=[0,0,0,0];bins.set(k,b);}b[0]+=A.rgba[o];b[1]+=A.rgba[o+1];b[2]+=A.rgba[o+2];b[3]++;}
-  let best=null;for(const b of bins.values())if(!best||b[3]>best[3])best=b;const h=v=>Math.round(v).toString(16).padStart(2,'0');
-  const hex=best?'#'+h(best[0]/best[3])+h(best[1]/best[3])+h(best[2]/best[3]):'#ffffff';L.autoCol={ver:L.ver,hex};return hex;}
+function livDominant(px,w,x0,x1,h){const bins=new Map(),st=Math.max(1,Math.floor(Math.sqrt((x1-x0)*h/40000)));
+  for(let y=0;y<h;y+=st)for(let x=x0;x<x1;x+=st){const o=(y*w+x)*4,k=(px[o]>>4)<<8|(px[o+1]>>4)<<4|(px[o+2]>>4);let b=bins.get(k);if(!b){b=[0,0,0,0];bins.set(k,b);}b[0]+=px[o];b[1]+=px[o+1];b[2]+=px[o+2];b[3]++;}
+  let best=null;for(const b of bins.values())if(!best||b[3]>best[3])best=b;const hx=v=>Math.round(v).toString(16).padStart(2,'0');
+  return best?'#'+hx(best[0]/best[3])+hx(best[1]/best[3])+hx(best[2]/best[3]):'#ffffff';}
+/* avto ranglar: [chap yon rasmining asosiy rangi, o'ng yon rasmining asosiy rangi] (fon rangi odatda) */
+function livAutoColors(){const L=S.liv,f=livFlat();if(!f)return['#ffffff','#ffffff'];const key=f.key;if(L.autoCol&&L.autoCol.key===key)return L.autoCol.c;
+  const half=livLayout()==='halves';const c=half?[livDominant(f.rgba,f.w,0,f.w>>1,f.h),livDominant(f.rgba,f.w,f.w>>1,f.w,f.h)]:(()=>{const d=livDominant(f.rgba,f.w,0,f.w,f.h);return[d,d];})();
+  L.autoCol={key,c};return c;}
+function livAutoColor(){return livAutoColors()[0];}
+function livLayout(){const L=S.liv;return L.img2?'halves':L.layout;}
 const hexRGB=c=>[parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)];
 function livScan(it){if(!it._livScan||it._livScanSrc!==it.raw){it._livScan=G.DFF.liveryScan(it.raw);it._livScanSrc=it.raw;}return it._livScan;}
 function livDefaultKeys(scan){
@@ -4986,21 +5045,40 @@ function livDefaultKeys(scan){
 function livKeys(it){const L=S.liv;if(!L.keys||L.keysFor!==it.file){L.keys=livDefaultKeys(livScan(it));L.keysFor=it.file;}return L.keys;}
 function livTexName(it){return'livery';} // TXD da shu nomli tekstura bo'lsa (oldingi livery) -- almashtiriladi
 /* rasm -> tekis (shaffof joylar fon rangi bilan to'ldiriladi: kuzov shaffof bo'lib qolmasin) */
+/* mashina yon tomonining proporsiyasi (uzunlik / balandlik) -- tanlangan kuzov materiallari bo'yicha */
+function livCarAspect(){const it=curItem(),L=S.liv;if(!it||!it.raw)return 3;const keys=livKeys(it),k=it.file+':'+it.raw.length+':'+[...keys].sort().join(';');
+  if(L.bCache&&L.bCache.k===k)return L.bCache.a;let a=3;try{const b=G.DFF.liveryBounds(it.raw,keys);if(b&&b.h>1e-3)a=b.len/b.h;}catch(e){}L.bCache={k,a};return a;}
+/* rasmni yon tomon proporsiyasiga keltirish: 'cover' -- markazdan kesish, 'stretch' -- o'zgarishsiz, 'auto' -- juda farq qilsa kesish */
+function livFit(im,target){const L=S.liv,r=(im.w/im.h)/target,mode=L.fit==='auto'?(r<0.4||r>2.5?'cover':'stretch'):L.fit;   // avto: 2.5 martadan ko'p cho'zilsa -- kesamiz
+  if(mode!=='cover'||Math.abs(r-1)<0.02)return im;let w=im.w,h=im.h,x0=0,y0=0;
+  if(r>1){w=Math.max(1,Math.round(im.h*target));x0=Math.floor((im.w-w)/2);}else{h=Math.max(1,Math.round(im.w/target));y0=Math.floor((im.h-h)/2);}
+  const out=new Uint8Array(w*h*4);for(let y=0;y<h;y++)out.set(im.rgba.subarray(((y0+y)*im.w+x0)*4,((y0+y)*im.w+x0+w)*4),y*w*4);return{rgba:out,w,h,crop:true};}
+/* rasm -> tekis (shaffof joylar fon rangi bilan to'ldiriladi: kuzov shaffof bo'lib qolmasin), proporsiya bo'yicha kesilgan */
 function livFlat(){
   const L=S.liv;if(!L.img)return null;
+  const asp=livCarAspect(),lay=livLayout(),key=[L.ver,L.bg,L.fit,asp.toFixed(3),lay,L.img2?1:0].join('|');
+  if(L.flatCache&&L.flatCache.key===key)return L.flatCache;
   const c=L.bg||'#ffffff',br=parseInt(c.slice(1,3),16),bg=parseInt(c.slice(3,5),16),bb=parseInt(c.slice(5,7),16);
   const flat=im=>{const src=im.rgba,out=new Uint8Array(src.length);for(let i=0;i<src.length;i+=4){const a=src[i+3]/255;out[i]=Math.round(src[i]*a+br*(1-a));out[i+1]=Math.round(src[i+1]*a+bg*(1-a));out[i+2]=Math.round(src[i+2]*a+bb*(1-a));out[i+3]=255;}return{rgba:out,w:im.w,h:im.h};};
-  const A=flat(L.img);if(!L.img2)return A;
-  // ikki rasm: chap yarmi -- chap yon, o'ng yarmi -- o'ng yon (bitta teksturaga yonma-yon)
-  const B0=flat(L.img2),B=G.resize(B0.rgba,B0.w,B0.h,A.w,A.h),w=A.w*2,h=A.h,out=new Uint8Array(w*h*4);
-  for(let y=0;y<h;y++){out.set(A.rgba.subarray(y*A.w*4,(y+1)*A.w*4),y*w*4);out.set(B.subarray(y*A.w*4,(y+1)*A.w*4),y*w*4+A.w*4);}
-  return{rgba:out,w,h};
+  let res;
+  if(!L.img2){const A0=flat(L.img);
+    if(lay==='halves'){ // bitta rasm, ikki yarmi: har yarmini alohida proporsiyaga keltiramiz
+      const hw=A0.w>>1,cut=x0=>{const o=new Uint8Array(hw*A0.h*4);for(let y=0;y<A0.h;y++)o.set(A0.rgba.subarray((y*A0.w+x0)*4,(y*A0.w+x0+hw)*4),y*hw*4);return{rgba:o,w:hw,h:A0.h};};
+      const P=livFit(cut(0),asp),Q0=livFit(cut(hw),asp),Q=G.resize(Q0.rgba,Q0.w,Q0.h,P.w,P.h),w=P.w*2,h=P.h,out=new Uint8Array(w*h*4);
+      for(let y=0;y<h;y++){out.set(P.rgba.subarray(y*P.w*4,(y+1)*P.w*4),y*w*4);out.set(Q.subarray(y*P.w*4,(y+1)*P.w*4),y*w*4+P.w*4);}
+      res={rgba:out,w,h,crop:!!(P.crop||Q0.crop)};}
+    else res=livFit(A0,asp);}
+  else{ // ikki rasm: chap yarmi -- chap yon, o'ng yarmi -- o'ng yon (bitta teksturaga yonma-yon)
+    const A=livFit(flat(L.img),asp),B0=livFit(flat(L.img2),asp),B=G.resize(B0.rgba,B0.w,B0.h,A.w,A.h),w=A.w*2,h=A.h,out=new Uint8Array(w*h*4);
+    for(let y=0;y<h;y++){out.set(A.rgba.subarray(y*A.w*4,(y+1)*A.w*4),y*w*4);out.set(B.subarray(y*A.w*4,(y+1)*A.w*4),y*w*4+A.w*4);}
+    res={rgba:out,w,h,crop:!!(A.crop||B0.crop)};}
+  res.key=key;L.flatCache=res;return res;
 }
 function livPool(){const L=S.liv,f=livFlat();if(!f)return;G.poolAdd({name:L.tex,w:f.w,h:f.h,rgba:f.rgba,src:null,fmtName:'Livery (rasm)',levels:1,origin:'livery:'+L.tex});if(viewer&&viewer.ok)viewer.invalidateTextures();}
 function livTxd(it){
-  const L=S.liv,t=editPickTxd(it),key=[L.ver,L.size,L.compress,L.bg,L.tex,t?t.file+':'+t.raw.length:'-'].join('|');
+  const L=S.liv,t=editPickTxd(it),f0=livFlat(),key=[f0?f0.key:'-',L.size,L.compress,L.tex,t?t.file+':'+t.raw.length:'-'].join('|');
   if(L.txdCache&&L.txdCache.key===key)return L.txdCache;
-  const f=livFlat(),tex=G.makeTxdTexture(L.tex,f.rgba,f.w,f.h,{maxSize:L.img2?Math.min(2048,L.size*2):L.size,compress:L.compress,mips:true});
+  const f=f0,tex=G.makeTxdTexture(L.tex,f.rgba,f.w,f.h,{maxSize:L.img2||livLayout()==='halves'?Math.min(2048,L.size*2):L.size,compress:L.compress,mips:true});
   const txd=G.txdPutTexture(t?t.raw:null,tex,true);
   L.txdCache={key,txd,w:tex.w,h:tex.h,kind:tex.kind,base:t?t.file:''};return L.txdCache;
 }
@@ -5032,11 +5110,14 @@ async function editPipeline(why){
     if(L.on&&L.img){
       L.tex=L.tex||livTexName(it);
       const fx=L.shine==='keep'?'keep':L.shine==='off'?null:G.DFF.LIV_FX[L.shine]||G.DFF.LIV_FX.ultra;
-      const topM=livTopMode(),topC=L.topColor||livAutoColor();
-      liv=G.DFF.applyLivery(dff,{keys:livKeys(it),tex:L.tex,layout:L.img2?'halves':L.layout,front:L.front,zoom:L.zoom,stretch:L.stretch,offU:L.offU,offV:L.offV,fx,top:topM,topColor:hexRGB(topC)});dff=liv.dff;changed=true;
+      const topM=livTopMode(),ac=livAutoColors(),topC=L.topColor||ac[0],topCs=[L.topColors[0]||ac[0],L.topColors[1]||ac[1]];
+      liv=G.DFF.applyLivery(dff,{keys:livKeys(it),tex:L.tex,layout:L.img2?'halves':L.layout,front:L.front,zoom:L.zoom,stretch:L.stretch,offU:L.offU,offV:L.offV,fx,top:topM,topColor:hexRGB(topC),topColors:topCs.map(hexRGB)});dff=liv.dff;changed=true;
       livPool();const tc=livTxd(it);txd=tc.txd;txdName=tc.base||'(yangi)';
       info.push('Rasm «'+L.img.name+'»'+(L.img2?' + o‘ng yon uchun «'+L.img2.name+'»':'')+' → '+liv.stats.geoms+' ta geometriya, '+liv.stats.tris.toLocaleString()+' poligon kuzovga tekstura qilib qo‘yildi (tekstura nomi «'+L.tex+'», '+tc.w+'×'+tc.h+', '+(tc.kind==='argb'?'siqilmagan':tc.kind.toUpperCase())+'). Kuzov rangi oq — rasm o‘z rangida chiqadi.'+(liv.stats.dupVerts?' Chegara uchun '+liv.stats.dupVerts+' ta vertex nusxalandi.':''));
-      info.push(liv.stats.top==='color'?'Kapot, tom, old va orqa yuzalar — bitta rang '+topC+' ('+liv.stats.solidTris.toLocaleString()+' poligon, yaltiraydi); rasm faqat tashqi yon yuzalarda — o‘rtada chok va rang dog‘lari yo‘q.':'Kapot, tom, old va orqa yuzalar — yon rasmning davomi'+(L.img2||L.layout!=='mirror'?' (chap yon xaritasidan, o‘rtada chok yo‘q).':'.'));
+      const fl=livFlat();if(fl&&fl.crop)info.push('Rasm proporsiyasi saqlandi: mashina yoniga mos qismi (markazdan) olindi — cho‘zilib, chiziq-chiziq bo‘lmaydi.');
+      info.push(liv.stats.top==='split'?'Kapot, tom, old va orqa: chap yarmi '+topCs[0]+', o‘ng yarmi '+topCs[1]+' — o‘rtada tekis chiziq ('+liv.stats.solidTris.toLocaleString()+' poligon, yaltiraydi). Yon rasm bilan chegara silliq kesildi ('+liv.stats.cutTris.toLocaleString()+' uchburchak bo‘lindi).':
+        liv.stats.top==='color'?'Kapot, tom, old va orqa yuzalar — bitta rang '+topC+' ('+liv.stats.solidTris.toLocaleString()+' poligon, yaltiraydi). Yon rasm bilan chegara silliq kesildi ('+liv.stats.cutTris.toLocaleString()+' uchburchak bo‘lindi).':
+        'Kapot, tom, old va orqa yuzalar — yon rasmning davomi'+(L.img2||L.layout!=='mirror'?' (chap yon xaritasidan, o‘rtada chok yo‘q).':'.'));
       info.push('Yaltirash: '+(LIV_SHINE.find(x=>x[0]===L.shine)||['',''])[1]+(fx&&fx!=='keep'?' (env '+fx.env+', aks '+fx.refl+', specular '+fx.spec+'; MatFX atomiclarda yoqildi)':''));
       if(liv.stats.skipped)warn.push(liv.stats.skipped+' ta geometriyada (breakable/skin ma’lumoti bor) rasm qo‘yilmadi.');
       if(!tp)warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da FAQAT «'+L.tex+'» teksturasi bor. Mashinaning o‘z TXD sini «Fayllar» ga qo‘shib, qayta bosing (aks holda boshqa teksturalar yo‘qoladi).');
@@ -5077,7 +5158,7 @@ function paneLivery(p,it){
   const L=S.liv,scan=(()=>{try{return livScan(it);}catch(e){return null;}})();
   p.appendChild(el('h3',{text:'🎨 Rasm → mashina teksturasi (livery)'}));
   const c=el('div',{class:'card'});p.appendChild(c);
-  c.appendChild(el('div',{class:'note',html:'Rasm (PNG/JPG) tanlang — u mashinaning <b>kuzoviga</b> (bo‘yoq materiallariga) yon tomondan tekstura qilib qo‘yiladi: rasmning chapi — mashinaning <b>old</b> tomoni, tepasi — tom. Kapot, tom, bagaj, old va orqa yuzalar — <b>bitta rang</b> yoki rasmning davomi (pastda tanlanadi). Kuzov rangi oq bo‘ladi, rasm o‘z rangida chiqadi; o‘yinda <b>yaltirashi</b> (aks) yoqiladi. Rasm TXD ga qo‘shiladi, DFF qolgan qismlari o‘zgarmaydi.'}));
+  c.appendChild(el('div',{class:'note',html:'Rasm (PNG/JPG) tanlang — u mashinaning <b>kuzoviga</b> (bo‘yoq materiallariga) yon tomondan tekstura qilib qo‘yiladi: rasmning chapi — mashinaning <b>old</b> tomoni, tepasi — tom. Kapot, tom, bagaj, old va orqa — <b>ikki rang</b> (chap/o‘ng yarmi, o‘rtada tekis chiziq), <b>bitta rang</b> yoki rasmning davomi (pastda tanlanadi); rasm bilan chegara uchburchaklar bo‘yicha emas, silliq chiziq bo‘ylab kesiladi. Tik (portret) rasm cho‘zilmaydi — mos qismi olinadi. Kuzov rangi oq bo‘ladi, rasm o‘z rangida chiqadi; o‘yinda <b>yaltirashi</b> (aks) yoqiladi. Rasm TXD ga qo‘shiladi, DFF qolgan qismlari o‘zgarmaydi.'}));
   if(!scan){c.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Bu DFF ga rasm qo‘yib bo‘lmaydi (tuzilishi nostandart).'}));return;}
   const fi=el('input',{type:'file',accept:'image/png,image/jpeg,image/webp,image/bmp,.png,.jpg,.jpeg,.webp,.bmp',hidden:true});
   fi.addEventListener('change',()=>{if(fi.files[0])livLoadImage(fi.files[0]);fi.value='';});
@@ -5110,15 +5191,22 @@ function paneLivery(p,it){
   const rng=(label,key,min,max,step,fmt)=>{const r=el('input',{type:'range',min,max,step,value:L[key],style:'flex:1'}),o=el('span',{class:'note',style:'min-width:46px;text-align:right',text:fmt(L[key])});
     r.addEventListener('input',()=>{L[key]=+r.value;o.textContent=fmt(L[key]);if(L.on&&L.img)livPreviewSoon();});return el('div',{class:'row'},[el('label',{text:label}),r,o]);};
   if(L.img2)c.appendChild(el('div',{class:'note',style:'border-left:3px solid #38bdf8;padding-left:10px',html:'Ikki rasm: <b>chap yonga</b> 1-rasm (mashina oldi rasmning chapida), <b>o‘ng yonga</b> 2-rasm (mashina oldi rasmning o‘ngida) — ikkala yonda ham yozuv to‘g‘ri o‘qiladi.'}));
-  else c.appendChild(sel('Rasm qanday joylashsin','layout',LIV_LAYOUT,()=>{const r=document.getElementById('livTopRow');if(r)r.style.display=livTopMode()==='color'?'':'none';if(L.on&&L.img)livPreviewSoon();}));
+  else c.appendChild(sel('Rasm qanday joylashsin','layout',LIV_LAYOUT,()=>{L.flatCache=null;L.txdCache=null;if(window.__livSyncTop)window.__livSyncTop();if(L.on&&L.img)livPreviewSoon();}));
   c.appendChild(sel('Rasmda mashinaning oldi','front',[['left','Chapda'],['right','O‘ngda']]));
-  const tci=el('input',{type:'color',id:'livTopColor',value:L.topColor||livAutoColor()});
+  const ac=livAutoColors();
+  const tci=el('input',{type:'color',id:'livTopColor',value:L.topColor||ac[0]});
   tci.addEventListener('input',()=>{L.topColor=tci.value;if(L.on&&L.img)livPreviewSoon();});
-  const tauto=el('button',{class:'btn sm',type:'button',title:'Rasmning asosiy (eng ko‘p uchraydigan) rangi',onclick:()=>{L.topColor=null;tci.value=livAutoColor();if(L.on&&L.img)livPreviewSoon();}},['Avto']);
-  const tcRow=el('div',{class:'row',id:'livTopRow'},[el('label',{text:'Kapot / tom / old-orqa rangi'}),tci,tauto]);
-  const syncTop=()=>{tcRow.style.display=livTopMode()==='color'?'':'none';};
+  const tcL=el('input',{type:'color',id:'livTopColorL',value:L.topColors[0]||ac[0]}),tcR=el('input',{type:'color',id:'livTopColorR',value:L.topColors[1]||ac[1]});
+  tcL.addEventListener('input',()=>{L.topColors[0]=tcL.value;if(L.on&&L.img)livPreviewSoon();});tcR.addEventListener('input',()=>{L.topColors[1]=tcR.value;if(L.on&&L.img)livPreviewSoon();});
+  const tauto=el('button',{class:'btn sm',type:'button',title:'Rasmlarning asosiy (eng ko‘p uchraydigan) ranglari',onclick:()=>{L.topColor=null;L.topColors=[null,null];const a2=livAutoColors();tci.value=a2[0];tcL.value=a2[0];tcR.value=a2[1];if(L.on&&L.img)livPreviewSoon();}},['Avto']);
+  const tcRow=el('div',{class:'row',id:'livTopRow'},[el('label',{text:'Kapot / tom / old-orqa rangi'}),tci]);
+  const tsRow=el('div',{class:'row',id:'livTopRow2',style:'flex-wrap:wrap'},[el('label',{text:'Chap yarmi / o‘ng yarmi rangi'}),tcL,tcR]);
+  const taRow=el('div',{class:'row'},[el('label',{text:''}),tauto]);
+  const syncTop=()=>{const m=livTopMode();tcRow.style.display=m==='color'?'':'none';tsRow.style.display=m==='split'?'':'none';taRow.style.display=m==='image'?'none':'';};
+  window.__livSyncTop=syncTop;
   c.appendChild(sel('Kapot, tom, old va orqa','top',LIV_TOP,()=>{syncTop();if(L.on&&L.img)livPreviewSoon();}));
-  c.appendChild(tcRow);syncTop();
+  c.appendChild(tcRow);c.appendChild(tsRow);c.appendChild(taRow);syncTop();
+  c.appendChild(sel('Rasm proporsiyasi','fit',LIV_FIT,()=>{L.flatCache=null;L.txdCache=null;if(L.on&&L.img)livPreviewSoon();}));
   c.appendChild(rng('Kattalik','zoom',0.5,2.5,0.01,v=>Math.round(v*100)+'%'));
   c.appendChild(rng('Bo‘yiga cho‘zish','stretch',0.5,2,0.01,v=>Math.round(v*100)+'%'));
   c.appendChild(rng('Oldinga / orqaga','offU',-0.5,0.5,0.005,v=>(v>0?'+':'')+Math.round(v*100)+'%'));
