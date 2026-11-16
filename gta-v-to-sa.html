@@ -2606,11 +2606,11 @@ function lampRetexDff(bytes,newName){
 const LF_ATLAS={white:[0.375,0.885],red:[86.5/128,110.5/128],amber:[108.5/128,78.5/128]};   // atlasdagi bir xil rangli joylar (vehicle.txd 128x128 bo'yicha): oq lampa, yorqin qizil lampa, sariq
 const LF_CODES={head:[[255,175,0],[0,255,200]],tail:[[185,255,0],[255,60,0]],brake:[[184,255,0],[255,59,0]],rev:[[255,173,0],[0,255,198]],fog:[[255,174,0],[0,255,199]],
   ind_f:[[183,255,0],[255,58,0]],ind_m:[[182,255,0],[255,57,0]],ind_r:[[181,255,0],[255,56,0]]};
-const LF_ROLE_ATLAS={head:'white',fog:'white',rev:'white',tail:'red',brake:'red',ind:'amber'};
+const LF_ROLE_ATLAS={head:'white',fog:'white',rev:'white',tail:'red',brake:'red',ind:'amber',amb:'amber'};
 const LF_IVF=new Set(['brake','rev','fog','ind']);
 const LF_CODE2ROLE=(()=>{const m={};for(const [k,v] of Object.entries(LF_CODES))v.forEach((c,s)=>{m[c.join(',')]=[k.startsWith('ind')?'ind':k,s];});return m;})();
 const LF_ROLES=[['keep','O‘zgarmasin'],['none','Chiroq emas (yonmasin)'],['head','Fara / old mayda chiroq (faralar bilan yonadi)'],['tail','Orqa chiroq (faralar bilan, tormozda kuchliroq)'],
-  ['ind','Burilish chirog‘i — IVF (Z / C / X)'],['brake','Stop-signal — IVF'],['rev','Orqaga yurish chirog‘i — IVF'],['fog','Tuman chirog‘i — IVF (J)']];
+  ['amb','Sariq chiroq — faralar bilan yonadi, stroboskopda miltillaydi (IVF shart emas)'],['ind','Burilish chirog‘i — faqat IVF (Z / C / X)'],['brake','Stop-signal — IVF'],['rev','Orqaga yurish chirog‘i — IVF'],['fog','Tuman chirog‘i — IVF (J)']];
 /* hech qanday kod (SA bo'yoq/chiroq, IVF) ga tushmaydigan rang -- asliga yaqin */
 const lfSafe=c=>{const isCode=r=>LF_CODE2ROLE[r.join(',')]||LIV_SPECIAL.includes(r.join(','));let r=[0,1,2].map(i=>Math.max(0,Math.min(255,Math.round(+c[i]||0))));
   for(let k=0;k<40&&isCode(r);k++)r=[r[0],r[1]>=12?r[1]-12:r[1]+12,r[2]];return r;};
@@ -2643,9 +2643,9 @@ function lampFixScan(bytes){
       const zone=s.f>=s.rr&&s.f>=s.m?'f':s.rr>=s.m?'r':'m',nm=(tex+' '+frames.join(' ')).toLowerCase();
       const it={key:gi+':'+mi,gi,mi,atoms,frames,tex,col,n:s.n,ctr:[s.cx/s.n,s.cy/s.n,s.cz/s.n],mn:s.mn,mx:s.mx,zone,side:s.l&&s.r?'LR':s.l?'L':'R',code:code?code[0]:null,atlas,sugg:'keep',why:'',cand:false};
       const frontish=zone==='f',rearish=zone==='r',[R,Gc,B]=col,red=R>140&&Gc<90&&B<90,amber=R>180&&Gc>70&&Gc<200&&B<90,whiteish=Math.min(R,Gc,B)>150;
-      if(/(turn|indic|flash|blink|signal|povor|migal|repeat|sein)/.test(nm)&&!/^bonnet|^boot/.test(frames.join(' '))){it.sugg='ind';it.why='nomi burilish chirog‘iga o‘xshaydi';it.cand=true;}
+      if(/(turn|indic|flash|blink|signal|povor|migal|repeat|sein)/.test(nm)&&!/^bonnet|^boot/.test(frames.join(' '))){it.sugg='amb';it.why='burilish chirog‘i (sariq)';it.cand=true;}
       else if(code){it.cand=true;
-        if((code[0]==='rev'||code[0]==='brake'||code[0]==='tail')&&frontish&&!atlas){it.sugg=amber?'ind':'head';it.why='rangi '+(LF_IVF.has(code[0])?'IVF':'orqa chiroq')+' kodiga to‘g‘ri kelib qolgan, lekin old tomonda — '+(amber?'sariq: burilish chirog‘i':'old chiroq');}
+        if((code[0]==='rev'||code[0]==='brake'||code[0]==='tail')&&frontish&&!atlas){it.sugg=amber?'amb':'head';it.why='rangi '+(LF_IVF.has(code[0])?'IVF':'orqa chiroq')+' kodiga to‘g‘ri kelib qolgan, lekin old tomonda — '+(amber?'sariq: burilish chirog‘i':'old chiroq');}
         else if(code[0]==='head'&&rearish&&hasRedTail&&!/^boot/.test(frames[0]||'')){it.sugg='none';it.why='orqa chiroq ichida, lekin fara kodida — ko‘pincha tashqi qoplama (hoshiya)';}
         else if(!atlas&&zone!=='m'&&!/^(bonnet|boot|door|windscreen)/i.test(frames[0]||'')){it.sugg=code[0];it.why='chiroq kodi bor, lekin chiroq teksturasi yo‘q — o‘yinda yonmaydi';}
         else{it.sugg='keep';it.why=atlas?'to‘g‘ri sozlangan':'mashina o‘rtasida — tegilmaydi';}}
@@ -2653,7 +2653,7 @@ function lampFixScan(bytes){
         if(/(brake|stop)/.test(nm)&&rearish){it.sugg='brake';it.why='nomi stop-signalga o‘xshaydi';}
         else if(/(revers|backup)/.test(nm)&&rearish){it.sugg='rev';it.why='nomi orqaga yurish chirog‘iga o‘xshaydi';}
         else if(/(fog|tuman)/.test(nm)&&frontish){it.sugg='head';it.why='tuman chirog‘i (faralar bilan yonadi)';}
-        else if(amber){it.sugg='ind';it.why='sariq rangli chiroq qismi';}
+        else if(amber){it.sugg='amb';it.why='sariq rangli chiroq qismi';}
         else if(rearish&&(red||!whiteish)){it.sugg='tail';it.why='orqa chiroq qismi (qizil)';}
         else if(frontish){it.sugg='head';it.why='old chiroq qismi';}
         else{it.sugg='keep';it.why='aniqlab bo‘lmadi';}}
@@ -2662,7 +2662,9 @@ function lampFixScan(bytes){
   items.sort((a,b)=>(b.cand-a.cand)||(a.zone<b.zone?-1:a.zone>b.zone?1:0)||b.n-a.n);
   return{items,mn,mx};
 }
-function lfCodeFor(role,x,y,mn,mx){const s=x<0?0:1;if(role==='ind'){const z=lfZone(y,mn,mx);return LF_CODES['ind_'+z][s];}return LF_CODES[role][s];}
+function lfCodeFor(role,x,y,mn,mx){const s=x<0?0:1,z=lfZone(y,mn,mx);if(role==='ind')return LF_CODES['ind_'+z][s];
+  if(role==='amb')return LF_CODES[z==='r'?'tail':'head'][s];   // sariq: orqadagisi -- orqa chiroq bilan, qolgani -- fara bilan (o'yinning o'z 4 ta chirog'i)
+  return LF_CODES[role][s];}
 function lfMakeMat(src,rgb,retex){const mc=parseChunks(serialize([src]),0,12+sizeOf(src))[0],st=child(mc,T.STRUCT),d=new Uint8Array(st.data);
   d[4]=rgb[0];d[5]=rgb[1];d[6]=rgb[2];
   if(retex==='untex'){dvOf(d).setUint32(12,0,true);mc.children=mc.children.filter(c=>c.type!==T.TEXTURE);st.data=d;return mc;}   // chiroq teksturasi butunlay olinadi -- hech qanday chiroq tizimi (o'yin yoki IVF) uni yoqa olmaydi
@@ -5055,7 +5057,7 @@ class Viewer{
         gl.uniform4f(L.uCol,cr,cg,cb,o.alpha);gl.uniform1f(L.uLit,o.noN?0:1);gl.uniform1f(L.uShine,o.shine&&this.opt.shine!==false?0.75:0);if(hlM){gl.uniform1f(L.uUseTex,0);gl.uniform4f(L.uCol,1.0,0.42,0.02,1);gl.uniform1f(L.uShine,0);}gl.uniform3f(L.uTint,hlM?0.25:hl?0.18:0,hlM?0.08:hl?0.12:0,0);
         if(LS&&!this.opt.wire){const lk0=LK[(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)];if(lk0){const lk=lk0[0],kd=lk0[1],rear=kd==='r';gl.uniform1f(L.uUseTex,0);gl.uniform1f(L.uShine,0);
           const isLT=/^vehiclelights(128)?$/i.test(o.mesh.mat.tex||'');
-          if(LS[lk]&&!(LS.atlas&&!isLT)){gl.uniform1f(L.uLit,0);const lt=isLT&&LS.atlas?this._lampTex(LS.atlas):null;   // atlas bilan -- o'yindagidek: faqat chiroq teksturali oyna yonadi
+          if(LS[lk]&&isLT){gl.uniform1f(L.uLit,0);const lt=this._lampTex(LS.atlas||this._lampApprox(LS.front,LS.rear));   // o'yindagidek: faqat chiroq teksturali (vehiclelights128) oyna yonadi -- teksturasiz qism o'yinda hech qachon yonmaydi
             if(lt){gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,lt);gl.uniform1f(L.uUseTex,1);gl.uniform4f(L.uCol,1,1,1,Math.max(o.alpha,0.92));gl.uniform3f(L.uTint,0.04,0.04,0.04);}   // aynan o'yindagidek: yoqilgan atlas, UV bo'yicha
             else{const c=kd==='a'?[255,165,25]:(rear?LS.rear:LS.front)||(rear?[255,26,15]:[255,255,245]),k=Math.max(c[0],c[1],c[2],1);gl.uniform4f(L.uCol,c[0]/k,c[1]/k,c[2]/k,Math.max(o.alpha,0.92));gl.uniform3f(L.uTint,0.3*c[0]/k,0.3*c[1]/k,0.3*c[2]/k);}}   // yonib turgan chiroq oynasi
           else{gl.uniform1f(L.uLit,1);gl.uniform4f(L.uCol,rear?0.36:kd==='a'?0.5:0.55,rear?0.05:kd==='a'?0.3:0.56,rear?0.05:kd==='a'?0.08:0.6,o.alpha);gl.uniform3f(L.uTint,0,0,0);}}}   // o'chiq oyna
@@ -5066,6 +5068,13 @@ class Viewer{
     gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);pass(true);gl.depthMask(true);gl.disable(gl.BLEND);
     if(this.fx&&this.fx.live())this._drawFx(PV,V,eye);
   }
+  _lampApprox(F,R){ // vehicle.txd yuklanmagan bo'lsa: yoqilgan chiroq atlasining taxminiy joylashuvi (o'zimiz chizgan: oq / qizil / sariq joylar)
+    const key='approx|'+(F||'')+'|'+(R||'');if(this._la&&this._la.key===key)return this._la;const n=64,d=new Uint8Array(n*n*4),nz=c=>{const m=Math.max(c[0],c[1],c[2],1);return c.map(v=>Math.round(v/m*255));};
+    const W=F?nz(F):[255,255,250],Rd=R?nz(R):[255,30,25],Am=[255,190,40];
+    for(let y=0;y<n;y++)for(let x=0;x<n;x++){const u=(x+.5)/n,v=(y+.5)/n;let c;
+      if(v<0.25)c=u<0.5?W:Rd;else if(v<0.5)c=W;else if(v<0.75)c=u<0.5?W:u<0.75?Rd:Am;else c=u<0.5?W:Rd;
+      const i=(y*n+x)*4;d[i]=c[0];d[i+1]=c[1];d[i+2]=c[2];d[i+3]=255;}
+    this._la={key,rgba:d,w:n,h:n};return this._la;}
   _lampTex(a){const gl=this.gl;if(this._lt&&this._lt.key===a.key)return this._lt.tx;if(this._lt)gl.deleteTexture(this._lt.tx);
     const tx=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tx);gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,a.w,a.h,0,gl.RGBA,gl.UNSIGNED_BYTE,a.rgba);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
@@ -5942,7 +5951,7 @@ async function editPipeline(why){
     if(LGs.items.length){for(const lg of LGs.items)txd=G.txdPutTexture(txd,logoTex(lg),true);if(!tp&&!(L.on&&L.img))warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da faqat logo teksturalari bor. Mashinaning o‘z TXD sini qo‘shing.');}
     if(S.lampfix&&S.lampfix.on&&S.lampfix.assign){ // chiroqlar: har bir qism o'z rolida yonadigan bo'lsin (kod + kerak bo'lsa chiroq teksturasi/UV)
       const lf=G.DFF.lampFixApply(dff,S.lampfix.assign);
-      if(lf.stats.geoms){dff=lf.dff;changed=true;const R=lf.stats.roles,RN={head:'fara',tail:'orqa chiroq',ind:'burilish',brake:'stop',rev:'orqaga yurish',fog:'tuman',none:'chiroq emas'};
+      if(lf.stats.geoms){dff=lf.dff;changed=true;const R=lf.stats.roles,RN={head:'fara',tail:'orqa chiroq',amb:'sariq chiroq',ind:'burilish (IVF)',brake:'stop',rev:'orqaga yurish',fog:'tuman',none:'chiroq emas'};
         info.push('Chiroqlar: '+lf.stats.tris.toLocaleString()+' poligon sozlandi ('+Object.entries(R).map(([k,v])=>RN[k]+' '+v.toLocaleString()).join(', ')+'), '+lf.stats.mats+' ta yangi material'+(lf.stats.dup?', '+lf.stats.dup.toLocaleString()+' vertex nusxalandi':'')+'.');}
       if(lf.stats.skipped)warn.push('Chiroqlar: '+lf.stats.skipped+' ta geometriyada (skin/breakable) o‘zgartirilmadi.');}
     if(S.strobe&&S.strobe.splitOn){ // stroboskop: chap/o'ng chiroq oynalarini o'z kodiga ajratish (oxirida -- boshqa tahrirlar materiallariga tegmaydi)
@@ -5976,7 +5985,7 @@ async function editPipeline(why){
     if(why==='limo-off')toast('Mashina asl uzunligiga qaytdi');
     if(why==='lampfix')toast(S.lampfix.on?'Tayyor! Chiroqlar sozlandi — yangi DFF ni yuklab o‘rnating':'Chiroqlar asl holiga qaytdi');
     if(why==='lampcol')toast(S.lampcol.carOn?'Tayyor! Fara rangi shu mashinaga qo‘llandi — DFF va TXD ni yuklab o‘rnating (IVF kerak)':'Fara rangi shu mashinadan olib tashlandi');
-    if(why==='lamps')toast(S.strobe.splitOn?'Tayyor! Chap va o‘ng chiroq oynalari ajratildi — yangi DFF ni ham yuklab o‘rnating':'Chiroq oynalari asl holiga qaytdi');
+    if(why==='lamps')toast(S.strobe.splitOn||(S.lampfix&&S.lampfix.on)?'Tayyor! Chiroqlar tuzatildi — yangi DFF ni ham yuklab o‘rnating':'Chiroqlar asl holiga qaytdi');
     if(why==='logo')toast(LGs.items.length?'Tayyor! Logo qo‘yildi — sichqoncha bilan aylantirib ko‘ring':'Logo olib tashlandi');
   }catch(e){console.error(e);log('SA tahrir xatosi: '+e.message,'e');toast('Xato: '+e.message);}
   setBusy(false);
@@ -6344,10 +6353,17 @@ function paneStrobe(p,it){
   p.appendChild(row('Haqiqiy faralar va orqa chiroqlar yonib-o‘chsin (chiroq oynasining ichi yonadi)',lm));
   const lmN=sc.lampMats||{fl:0,fr:0,rl:0,rr:0},lmTot=lmN.fl+lmN.fr+lmN.rl+lmN.rr;
   if(M.splitFor!==it.raw){M.splitFor=it.raw;M.splitNeed=G.DFF.strobeLampSplitScan(it.raw);}
-  if(M.splitNeed>0){const done=!!M.splitOn&&S.result&&S.result.kind==='edit'&&S.result.src===it.file;
-    p.appendChild(el('div',{class:'note',id:'strbSplitNote',style:'border-left:3px solid #fbbf24;padding-left:10px',html:done?'✓ Chap va o‘ng chiroq oynalari ajratilgan ('+M.splitNeed.toLocaleString()+' poligon). <b>Yangi DFF ni ham</b> («⬇ ZIP (DFF…)» tugmasi) yuklab o‘rnating — aks holda o‘yinda ikkala fara birga yonadi.':
-      'Bu modelda chap va o‘ng chiroq oynalarining bir qismi <b>bitta kodda</b> ('+M.splitNeed.toLocaleString()+' poligon) — o‘yinda ular chap–o‘ng navbat bilan emas, <b>birga</b> yonadi. Quyidagi tugma ularni o‘z tomoniga ajratadi (faqat old va orqa uchidagi chiroqlar; kapot, bagaj va eshikdagi naqshlarga tegilmaydi). Bu DFF ni o‘zgartiradi — keyin yangi DFF ni ham yuklab o‘rnating. Oddiy haydashda farq yo‘q: faralar yoqilganda ikkala oyna ham yonadi.'}));
-    p.appendChild(el('div',{class:'row'},[el('button',{class:done?'btn':'btn pri',type:'button',id:'btnStrbSplit',onclick:async()=>{M.splitOn=!done;M.cache=null;await editPipeline('lamps');renderPane();}},[done?'↩ Chiroq oynalarini asl holiga':'💡 Chap / o‘ng chiroq oynalarini ajratish'])]));}
+  // chiroqlarni tuzatish (bitta tugma): hoshiya yonmasin, ichki qismlar va sariq chiroqlar yonsin, chap/o'ng alohida -- «Chiroqlar» bo'limi + ajratish
+  const LF=S.lampfix,lsc=lampFixScanOf(it);if(lsc&&!LF.assign)LF.assign=lampFixDefaults(lsc);
+  const fixIt=lsc?lsc.items.filter(x=>LF.assign[x.key]&&LF.assign[x.key]!=='keep'):[],cnt=r=>fixIt.filter(x=>LF.assign[x.key]===r).length;
+  if(M.splitNeed>0||fixIt.length){const done=(!!M.splitOn||!!LF.on)&&S.result&&S.result.kind==='edit'&&S.result.src===it.file;
+    const pr=[];if(cnt('none'))pr.push('chiroq <b>hoshiyasi/qolipi</b> fara kodida — o‘yinda u yonadi ('+cnt('none')+' qism)');
+    const nt=fixIt.filter(x=>(LF.assign[x.key]==='head'||LF.assign[x.key]==='tail')).length;if(nt)pr.push('chiroqning <b>ichki qismlari</b> teksturasiz — o‘yinda hech qachon yonmaydi ('+nt+' qism)');
+    if(cnt('amb')+cnt('ind'))pr.push('<b>sariq (burilish) chiroqlari</b> chiroq sifatida belgilanmagan ('+(cnt('amb')+cnt('ind'))+' qism)');
+    if(M.splitNeed>0)pr.push('chap va o‘ng oynalar <b>bitta kodda</b> — navbat bilan emas, birga yonadi ('+M.splitNeed.toLocaleString()+' poligon)');
+    p.appendChild(el('div',{class:'note',id:'strbSplitNote',style:'border-left:3px solid #fbbf24;padding-left:10px',html:done?'✓ Chiroqlar tuzatildi: hoshiya yonmaydi, ichki qismlar va sariq chiroqlar yonadi, chap va o‘ng alohida. <b>Yangi DFF ni ham</b> («⬇ ZIP (DFF…)» tugmasi) yuklab o‘rnating — aks holda o‘yinda eski holicha qoladi. Har bir qismni alohida sozlash — pastdagi «🔦 Chiroqlar» bo‘limida.':
+      'Bu modelda chiroqlar o‘yinda to‘g‘ri yonmaydi:<br>• '+pr.join('<br>• ')+'<br>Quyidagi tugma hammasini tuzatadi (DFF o‘zgaradi — keyin yangi DFF ni ham yuklab o‘rnating). Sariq chiroqlar faralar bilan yonadi va stroboskopda miltillaydi. Har bir qismni alohida sozlash — pastdagi «🔦 Chiroqlar» bo‘limida.'}));
+    p.appendChild(el('div',{class:'row'},[el('button',{class:done?'btn':'btn pri',type:'button',id:'btnStrbSplit',onclick:async()=>{const on=!done;M.splitOn=on&&M.splitNeed>0;LF.on=on&&fixIt.length>0;M.cache=null;await editPipeline('lamps');renderPane();}},[done?'↩ Chiroqlarni asl holiga':'💡 Chiroqlarni tuzatish'])]));}
   p.appendChild(el('div',{class:'note',id:'strbLampNote',html:'O‘yinning <b>o‘z chiroqlari</b> boshqariladi: chap fara yonganda chap fara oynasi, o‘ng fara yonganda o‘ng fara oynasi yonadi (orqa chiroqlar ham shunday). Bu modelda chiroq oynasi materiallari: chap fara '+lmN.fl+', o‘ng fara '+lmN.fr+', chap orqa '+lmN.rl+', o‘ng orqa '+lmN.rr+' ta'+(lmTot?'.':' — <b style="color:#fbbf24">topilmadi</b>: o‘yin faqat fara nurini yoqadi, oyna yonmaydi (chiroq oynasiga SA rang kodlarini «Konvertatsiya» bo‘limida berish kerak).')+(sc.isCar===false?' <b style="color:#fbbf24">Bu model oddiy 4 g‘ildirakli mashina emas — haqiqiy chiroqlar boshqarilmaydi.</b>':'')+' Faqat GTA SA <b>1.0 US</b> da ishlaydi (boshqa versiyada skript buni o‘zi o‘tkazib yuboradi). Stroboskop o‘chirilganda yoki mashinadan tushganda faralar asl holiga qaytadi (singan chiroqlar ham tuzaladi).'}));
   p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('strbKey',STROBE_KEYS,M.key,v=>{M.key=v;})));
   const gid=strobeGuessId(it),nm=strobeModelName(it);
