@@ -2665,6 +2665,7 @@ function lampFixScan(bytes){
 function lfCodeFor(role,x,y,mn,mx){const s=x<0?0:1;if(role==='ind'){const z=lfZone(y,mn,mx);return LF_CODES['ind_'+z][s];}return LF_CODES[role][s];}
 function lfMakeMat(src,rgb,retex){const mc=parseChunks(serialize([src]),0,12+sizeOf(src))[0],st=child(mc,T.STRUCT),d=new Uint8Array(st.data);
   d[4]=rgb[0];d[5]=rgb[1];d[6]=rgb[2];
+  if(retex==='untex'){dvOf(d).setUint32(12,0,true);mc.children=mc.children.filter(c=>c.type!==T.TEXTURE);st.data=d;return mc;}   // chiroq teksturasi butunlay olinadi -- hech qanday chiroq tizimi (o'yin yoki IVF) uni yoqa olmaydi
   if(retex){dvOf(d).setUint32(12,1,true);const ver=mc.ver;
     const tex={type:T.TEXTURE,ver,children:[leaf(T.STRUCT,ver,new Uint8Array([6,0x11,1,0])),strChunk('vehiclelights128',ver),strChunk('',ver),extChunk(ver)],tail:null};
     const ti=mc.children.findIndex(c=>c.type===T.TEXTURE);if(ti>=0)mc.children[ti]=tex;else{const si=mc.children.indexOf(child(mc,T.STRUCT));mc.children.splice(si+1,0,tex);}}
@@ -2675,13 +2676,14 @@ function lampFixApply(bytes,assign){
     const gc=GE[gi],need=g.materials.some((m,mi)=>{const r=assign[gi+':'+mi];return r&&r!=='keep';});if(!need)continue;
     if(!livGeomOk(gc)){stats.skipped++;continue;}
     const {ml,slot,cnt}=lfSlots(gc),texOf=slot.map(s=>s?lfMatTex(s):''),added=new Map(),newMats=[];let total=cnt;
-    const matFor=(mi,rgb,retex)=>{const key=mi+'|'+rgb.join(',')+'|'+(retex?1:0);if(added.has(key))return added.get(key);
+    const matFor=(mi,rgb,retex)=>{const key=mi+'|'+rgb.join(',')+'|'+(retex||0);if(added.has(key))return added.get(key);
       const mc=lfMakeMat(slot[mi],rgb,retex);let li=-1;ml.children.forEach((c,i)=>{if(c.type===T.MATERIAL)li=i;});ml.children.splice(li+1,0,mc);newMats.push(mc);
       const ni=total++;added.set(key,ni);stats.mats++;return ni;};
     const nT=g.nTri,triM=new Int32Array(nT),triTag=new Array(nT).fill('');let anyTag=false;
     for(let t=0;t<nT;t++){const mi=g.tris[t*4+3],role=assign[gi+':'+mi];triM[t]=mi;if(!role||role==='keep')continue;
       if(role==='none'){const c=g.materials[mi].color||[255,255,255];   // chiroq kodi olinadi: chiroq teksturali bo'lsa -- o'chiq chiroqdagidek kulrang, bo'lmasa -- o'z rangiga yaqin
-        if(LF_CODE2ROLE[c.slice(0,3).join(',')]||LIV_SPECIAL.includes(c.slice(0,3).join(',')))triM[t]=matFor(mi,lfIsAtlas(texOf[mi])?[128,128,128]:lfSafe(c),false);stats.tris++;stats.roles.none=(stats.roles.none||0)+1;continue;}
+        if(lfIsAtlas(texOf[mi]))triM[t]=matFor(mi,[58,58,60],'untex');   // chiroq teksturali hoshiya/qoplama: to'q kulrang plastik, teksturasiz
+        else if(LF_CODE2ROLE[c.slice(0,3).join(',')]||LIV_SPECIAL.includes(c.slice(0,3).join(',')))triM[t]=matFor(mi,lfSafe(c),false);stats.tris++;stats.roles.none=(stats.roles.none||0)+1;continue;}
       let x=0,y=0;for(let k=0;k<3;k++){const v=g.tris[t*4+k];x+=wp[v*3];y+=wp[v*3+1];}x/=3;y/=3;
       const retex=!lfIsAtlas(texOf[mi]);triM[t]=matFor(mi,lfCodeFor(role,x,y,mn,mx),retex);if(retex){triTag[t]=LF_ROLE_ATLAS[role];anyTag=true;}
       stats.tris++;stats.roles[role]=(stats.roles[role]||0)+1;}
