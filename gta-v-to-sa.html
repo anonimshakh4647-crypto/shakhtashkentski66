@@ -2721,7 +2721,309 @@ function lampFixApply(bytes,assign){
   return{dff:stats.geoms?serialize(ctx.roots):bytes,stats};
 }
 
-root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS,lampRecolor,lampClassify,lampRetexDff,LAMP_SKIP,lampFixScan,lampFixApply,LF_ROLES,LF_CODES,LF_ATLAS,LF_IVF};
+/* ---------- NEON / PODSVETKA: mashina ostidan yoritish (CLEO skript) + kuzovdagi LED tasma (DFF) ----------
+ * Uch tizim CLEO skriptda (har qanday rang, 10 ta rejim, har qanday mashinada):
+ *  1) yer yoritish  -- 016F DRAW_SHADOW 3 (qo'shiluvchi yorug'lik dog'i) mashina ostida va atrofida: yo'l rangli yonadi;
+ *  2) g'ildirak va kuzov yoritish -- 09E5 nuqtali yorug'lik mashinaning 4 tomonida, yerdan sal pastda: o'yin uni mashinaga
+ *     "qo'shimcha yo'nalishli yorug'lik" qilib beradi -- g'ildiraklar, eshiklarning pasti, bamperlar rangli yoritiladi;
+ *  3) LED nuqtalar -- 024F koronalar kuzovning pastki cheti bo'ylab. Koronalar o'yinda devor/kuzov orqasidan ham ko'rinadi,
+ *     shuning uchun skript kamerani o'qiydi (068D) va faqat kameraga qaragan tomondagi nuqtalarni chizadi.
+ * DFF da: kuzovning pastki cheti (ostona) va bamperlar ostiga ingichka LED tasma geometriyasi -- chiroq materiali
+ * (fara kodi + vehiclelights128), faralar yonganda (kechasi o'zi) tasma yonadi. Rangi o'yinning chiroq atlasidan: qizil / oq / sariq. */
+const NEON_COLS=[['#ff1028','Qizil'],['#ff6a00','To‘q sariq'],['#ffd400','Sariq'],['#22ff3c','Yashil'],['#00ffc8','Feruza'],['#00aaff','Havorang'],['#1a36ff','Ko‘k'],['#8a2bff','Binafsha'],['#ff1fd0','Pushti'],['#ffffff','Oq']];
+const NEON_MODES={
+  steady:{lbl:'Doimiy yonib turadi',K:1,P:1000},
+  pulse:{lbl:'Nafas olish — sekin yonib-o‘chadi',K:1,P:2400,step:60},
+  flash:{lbl:'Miltillash — ikki marta chaqnaydi',K:1,P:1000},
+  alt:{lbl:'Ikki rang navbat bilan almashadi',K:1,P:1200,two:true},
+  fade2:{lbl:'Ikki rang silliq o‘tadi',K:1,P:3000,step:60,two:true},
+  split:{lbl:'Chapi 1-rang, o‘ngi 2-rang',K:2,P:1000,two:true},
+  police:{lbl:'Politsiya — chap / o‘ng navbat bilan',K:2,P:1000,two:true},
+  rainbow:{lbl:'Kamalak — rang aylanib turadi',K:1,P:6000,step:60},
+  rainwave:{lbl:'Kamalak to‘lqini (old → orqa)',K:4,P:4000,step:60},
+  chase:{lbl:'Yuguruvchi chiroq (old → orqa)',K:4,P:1100,step:50}
+};
+const NEON_LIM={pools:16,dots:24,segs:160};
+const NEON_POOL_I=220;   // 016F intensivligi (rang esa yorqinlik bilan)
+/* DFF LED tasma ranglari: o'yinning umumiy chiroq atlasidagi (vehicle.txd: vehiclelights128 / vehiclelightson128) bir xil rangli joylar */
+const NEON_STRIP_COL={red:{uv:[72/128,72/128],lbl:'Qizil',on:[255,8,10],off:[170,28,32]},white:{uv:[32/128,80/128],lbl:'Oq',on:[255,255,255],off:[230,230,230]},amber:{uv:[108.5/128,78.5/128],lbl:'Sariq',on:[255,209,57],off:[136,82,28]}};
+const NEON_CODE_L=[255,175,0],NEON_CODE_R=[0,255,200];
+const neonHex=h=>{const m=/^#?([0-9a-f]{6})$/i.exec(String(h||''));if(!m)return[255,16,40];const v=parseInt(m[1],16);return[(v>>16)&255,(v>>8)&255,v&255];};
+const neonHsv=(h,s,v)=>{h=((h%360)+360)%360/60;const i=Math.floor(h),f=h-i,p=v*(1-s),q=v*(1-s*f),t=v*(1-s*(1-f));const c=[[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][i%6];return c.map(x=>x*255);};
+const neonSkipFrame=f=>{let p=f,n=0;while(p&&n++<64){const nm=p.name||'';if(/^wheel|^exhaust|^ug_|^misc_/i.test(nm))return true;p=p.par;}return /_(vlo|dam)$/i.test(f.name||'');};
+/* ---- 1. skan: kuzov o'lchami, g'ildiraklar, kuzovning pastki cheti (yon ostonalar, old/orqa bamper osti) ---- */
+function neonScan(bytes){
+  const ctx=dffCtx(bytes),{F,A,G,rwv}=ctx,W=new Map();F.forEach(f=>W.set(f,fWorld(f)));
+  const P=[],TR=[],seen=new Set();
+  for(const a of A){if(neonSkipFrame(a.frame))continue;const key=a.geom+'|'+a.fi;if(seen.has(key))continue;seen.add(key);
+    let g;try{g=decodeGeometry(G[a.geom],rwv);}catch(e){continue;}if(g.native||!g.pos||!g.nTri)continue;const Wf=W.get(a.frame),base=P.length/3;let bad=false;
+    for(let i=0;i<g.nV;i++){const q=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],Wf);if(!isFinite(q[0]+q[1]+q[2])){bad=true;break;}P.push(q[0],q[1],q[2]);}
+    if(bad){P.length=base*3;continue;}
+    for(let t=0;t<g.nTri;t++){const m=g.materials[g.tris[t*4+3]];if(m&&m.color&&m.color[3]<16)continue;TR.push(base+g.tris[t*4],base+g.tris[t*4+1],base+g.tris[t*4+2]);}}
+  if(P.length<30)throw new Error('Mashina geometriyasi topilmadi');
+  const n=P.length/3,mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30];
+  for(let i=0;i<n;i++)for(let c=0;c<3;c++){const v=P[i*3+c];if(v<mn[c])mn[c]=v;if(v>mx[c])mx[c]=v;}
+  const H=mx[2]-mn[2],L=mx[1]-mn[1],hw=Math.max(-mn[0],mx[0]);
+  // g'ildiraklar: dummy lar + g'ildirak geometriyasining radiusi
+  const fr=nm=>{const f=F.find(f=>(f.name||'').toLowerCase()===nm);return f?W.get(f).p:null;};
+  const wl=['wheel_lf_dummy','wheel_rf_dummy','wheel_lb_dummy','wheel_rb_dummy','wheel_lm_dummy','wheel_rm_dummy'].map(fr);
+  const isCar=!!(wl[0]&&wl[1]&&wl[2]&&wl[3]);
+  let wr=0;{const wa=A.find(a=>/^wheel$/i.test(a.frame.name||''));if(wa){try{const g=decodeGeometry(G[wa.geom],rwv);let z0=1e9,z1=-1e9;for(let i=2;i<g.pos.length;i+=3){z0=Math.min(z0,g.pos[i]);z1=Math.max(z1,g.pos[i]);}if(z1>z0)wr=(z1-z0)/2;}catch(e){}}}
+  if(!(wr>0.12&&wr<1.2))wr=Math.max(0.25,Math.min(0.5,H*0.25));
+  // g'ildirak dummylari haqiqiymi (ba'zi modlarda hammasi 0,0,0 da turadi)
+  const wOk=isCar&&Math.max(wl[0][1],wl[1][1])-Math.min(wl[2][1],wl[3][1])>0.35*L&&Math.min(wl[0][1],wl[1][1])>mn[1]+0.3*L&&Math.max(wl[2][1],wl[3][1])<mx[1]-0.3*L;
+  const wz=wOk?wl.filter(Boolean):[];let groundZ=mn[2]-0.03;if(wz.length)groundZ=Math.min(mn[2],wz.reduce((s,p)=>s+p[2],0)/wz.length-wr);
+  const fy=wOk?Math.max(wl[0][1],wl[1][1]):mx[1]-0.22*L,ry=wOk?Math.min(wl[2][1],wl[3][1]):mn[1]+0.22*L,wx=wOk?Math.min(Math.abs(wl[0][0]),Math.abs(wl[1][0]),Math.abs(wl[2][0]),Math.abs(wl[3][0])):0.8*hw;
+    const med=a=>{const b=a.slice().sort((x,y)=>x-y);return b.length?b[b.length>>1]:0;};
+  const medF=(arr,w)=>arr.map((_,i)=>med(arr.slice(Math.max(0,i-w),i+w+1)));
+  // kuzovning pastki qirrasi: yondan (old/orqadan) qaraganda ko'rinadigan TASHQI yuza xaritasi (uchburchaklar 2 sm li to'rga chiziladi,
+  // har katakda eng tashqi yuza). Har kesimda tashqi qobiqning (eng chetdan 10 sm ichkarigacha) eng pastki nuqtasi -- ostona / eshik /
+  // bamperning pastki qirrasi. Ichki pol, salon, gilam, motor tashqi yuza orqasida qoladi -- hisobga kirmaydi.
+  const OT=0.1,GS=0.02,zLow=mn[2]+0.5*H,nvz=Math.max(2,Math.ceil((zLow-mn[2])/GS)+1);
+  const dmap=(ax,sg,u0,u1,dmin)=>{const nu=Math.max(2,Math.ceil((u1-u0)/GS)+1),D=new Float32Array(nu*nvz).fill(-1e30),ua=ax===0?1:0;
+    for(let t=0;t<TR.length;t+=3){const a=TR[t]*3,b=TR[t+1]*3,c=TR[t+2]*3;if(Math.min(P[a+2],P[b+2],P[c+2])>zLow||Math.max(P[a+ax]*sg,P[b+ax]*sg,P[c+ax]*sg)<dmin)continue;   // tashqi qobiqdan uzoq ichki uchburchaklar
+      lgRast((P[a+ua]-u0)/GS,(P[a+2]-mn[2])/GS,P[a+ax]*sg,(P[b+ua]-u0)/GS,(P[b+2]-mn[2])/GS,P[b+ax]*sg,(P[c+ua]-u0)/GS,(P[c+2]-mn[2])/GS,P[c+ax]*sg,nu,nvz,(cell,d)=>{if(d>D[cell])D[cell]=d;});}
+    return{D,nu,u0};};
+  const edge=(M,i,minD)=>{let Xo=-1e30;for(let j=0;j<nvz;j++){const d=M.D[j*M.nu+i];if(d>Xo)Xo=d;}if(Xo<minD)return null;
+    for(let j=0;j<nvz;j++){const d=M.D[j*M.nu+i];if(d>-1e29&&d>=Xo-OT)return{z:mn[2]+(j+0.5)*GS,d};}return null;};
+  const clean=(raw,key)=>{if(raw.length<6)return null;const zm=med(raw.map(r=>r.zb));let pts=raw.filter(r=>Math.abs(r.zb-zm)<0.07);   // arka chetidagi / osilib turgan bo'laklar tashlanadi
+    if(pts.length<6)return null;const dm=med(pts.map(r=>r[key]));pts=pts.filter(r=>r[key]>dm-0.06);if(pts.length<6)return null;
+    // uchlari: arka yonidagi egilgan bo'lak (qolganidan 1.2 sm dan ko'p farq qilsa) kesiladi -- tasma tekis tugaydi
+    const trim=arr=>{let a=0,b=arr.length;const ok=(i,j0,j1)=>{const m=med(arr.slice(j0,j1).map(r=>r.zb)),q=med(arr.slice(j0,j1).map(r=>r[key]));return Math.abs(arr[i].zb-m)<=0.012&&Math.abs(arr[i][key]-q)<=0.015;};
+      while(b-a>8&&!ok(a,a+1,a+11))a++;while(b-a>8&&!ok(b-1,b-11,b-1))b--;return arr.slice(a,b);};
+    if(key==='xs'){pts=trim(pts);if(pts.length<6)return null;}   // faqat yon ostonalar (bamper osti egri bo'lishi tabiiy)
+    const zz=medF(pts.map(r=>r.zb),3),dd=medF(pts.map(r=>r[key]),3);return pts.map((r,i)=>Object.assign({},r,{zb:zz[i],[key]:dd[i]}));};
+  const side=s=>{let y0=ry+wr+0.07,y1=fy-wr-0.07;if(y1-y0<0.5){y0=ry+0.15;y1=fy-0.15;}if(y1-y0<0.4)return null;
+    const M=dmap(0,s,y0,y1,0.4*hw),raw=[];
+    for(let i=0;i<M.nu;i++){const e=edge(M,i,0.5*hw);if(e)raw.push({y:y0+(i+0.5)*GS,zb:e.z,xs:e.d});}
+    const pts=clean(raw,'xs');if(!pts||pts[pts.length-1].y-pts[0].y<0.4)return null;
+    return pts.map(r=>({p:[s*r.xs,r.y,r.zb],n:[s,0,0]}));};
+  // old / orqa bamper osti: g'ildiraklar orasidagi kenglikda
+  const end=e=>{const lim=Math.min(0.72*hw,wx-0.22);if(lim<0.25)return null;
+    const edgeY=(e>0?mx[1]:mn[1])*e,M=dmap(1,e,-lim,lim,edgeY-0.8),raw=[];
+    for(let i=0;i<M.nu;i++){const q=edge(M,i,edgeY-0.7);if(q)raw.push({x:-lim+(i+0.5)*GS,zb:q.z,ys:q.d});}
+    const pts=clean(raw,'ys');if(!pts)return null;
+    const out=pts.map(r=>({p:[r.x,e*r.ys,r.zb],n:[0,e,0]}));
+    for(let i=0;i<out.length;i++){const a=out[Math.max(0,i-1)].p,b=out[Math.min(out.length-1,i+1)].p,t=[b[0]-a[0],b[1]-a[1]],l=Math.hypot(t[0],t[1])||1;let nn=[t[1]/l,-t[0]/l,0];if(nn[1]*e<0)nn=[-nn[0],-nn[1],0];if(nn[1]*e<0.5)nn=[0,e,0];out[i].n=v3n(nn);}
+    return out;};   // chapdan o'ngga (x o'sib boradi)
+  const lines={L:side(-1),R:side(1),F:end(1),B:end(-1)};
+  // tasma qaysi freymga biriktiriladi: chassis (bo'lmasa -- eng katta kuzov qismi)
+  let host=A.find(a=>/^chassis$/i.test(a.frame.name||''));
+  if(!host){let best=-1;for(const a of A){if(neonSkipFrame(a.frame)||/door|bonnet|boot|bump|wind/i.test(a.frame.name||''))continue;let nt=0;try{nt=decodeGeometry(G[a.geom],rwv).nTri;}catch(e){}if(nt>best){best=nt;host=a;}}}
+  // avval qo'shilgan neon tasma bormi (bir xil chiroq kodi + bitta UV nuqta)
+  let hasStrip=false;
+  for(const a of A){let g;try{g=decodeGeometry(G[a.geom],rwv);}catch(e){continue;}if(g.native||!g.uvs||!g.uvs[0]||!g.materials.length)continue;
+    if(!g.materials.every(m=>/^vehiclelights128$/i.test(m.tex||'')&&[NEON_CODE_L,NEON_CODE_R].some(c=>c.join()===m.color.slice(0,3).join())))continue;
+    const uv=g.uvs[0],u0=uv[0],v0=uv[1];let same=true;for(let i=2;i<uv.length;i+=2)if(Math.abs(uv[i]-u0)>1e-5||Math.abs(uv[i+1]-v0)>1e-5){same=false;break;}
+    if(same&&Object.values(NEON_STRIP_COL).some(c=>Math.abs(c.uv[0]-u0)<1e-4&&Math.abs(c.uv[1]-v0)<1e-4))hasStrip=true;}
+  return{mn,mx,hw,H,L,groundZ,wr,fy,ry,wx,isCar,wOk,lines,host:host?A.indexOf(host):-1,hostName:host?host.frame.name||'':'',hasStrip};
+}
+const neonLineLen=ln=>{let s=0;if(ln)for(let i=1;i<ln.length;i++)s+=Math.hypot(ln[i].p[0]-ln[i-1].p[0],ln[i].p[1]-ln[i-1].p[1],ln[i].p[2]-ln[i-1].p[2]);return s;};
+/* chiziq bo'ylab teng oraliqda k ta nuqta (uchlaridan sal ichkarida) */
+function neonSample(ln,k){if(!ln||ln.length<2||k<1)return[];const L=neonLineLen(ln),out=[];
+  for(let j=0;j<k;j++){const d=L*(k===1?0.5:0.06+0.88*j/(k-1));let acc=0;
+    for(let i=1;i<ln.length;i++){const a=ln[i-1],b=ln[i],sl=Math.hypot(b.p[0]-a.p[0],b.p[1]-a.p[1],b.p[2]-a.p[2]);if(acc+sl>=d||i===ln.length-1){const t=sl>1e-9?Math.max(0,Math.min(1,(d-acc)/sl)):0;
+      out.push({p:a.p.map((v,c)=>v+(b.p[c]-v)*t),n:v3n(a.n.map((v,c)=>v+(b.n[c]-v)*t))});break;}acc+=sl;}}
+  return out;}
+/* ---- 2. elementlar: yer dog'lari (pool), nuqtali yorug'lik (light), LED nuqtalar (dot) ---- */
+function neonElems(sc,cfg){
+  const out=[],sz=Math.max(0.5,Math.min(1.8,+cfg.size||1)),gz=sc.groundZ,mn=sc.mn,mx=sc.mx,hw=sc.hw;
+  if(cfg.ground!==false){
+    const y0=sc.ry,y1=sc.fy,ns=Math.max(3,Math.min(6,Math.round((y1-y0)/0.6)+1));   // 60 sm oraliq: dog'lar bir-biriga qo'shilib yaxlit nur bo'ladi
+    for(const s of[-1,1])for(let j=0;j<ns;j++){const y=y0+(y1-y0)*j/(ns-1);out.push({k:'pool',g:s<0?'L':'R',p:[s*Math.max(0.2,hw-0.25),y,gz+0.45],s:+(1.0*sz).toFixed(3)});}
+    for(const e of[1,-1])for(const s of[-1,1])out.push({k:'pool',g:e>0?'F':'B',p:[s*hw*0.42,e>0?mx[1]-0.35:mn[1]+0.35,gz+0.45],s:+(0.9*sz).toFixed(3)});
+  }
+  if(cfg.body!==false){const yc=(sc.fy+sc.ry)/2,z=gz-0.2,k=Math.max(0.2,Math.min(1,+cfg.bodyK||0.8));
+    for(const [g,p] of[['L',[mn[0]-0.6,yc,z]],['R',[mx[0]+0.6,yc,z]],['F',[0,mx[1]+0.6,z]],['B',[0,mn[1]-0.6,z]]]){
+      const d=Math.hypot(p[0],p[1],p[2]),R=k>=0.999?2*d*1.06:2*d/(2-k);out.push({k:'light',g,p,s:+R.toFixed(3),dist:d});}}
+  if(cfg.dots){const N=Math.max(2,Math.min(8,+cfg.dotN||6)),r=Math.max(0.1,Math.min(0.45,+cfg.dotSize||0.22)),O=0.035;
+    const syn=(g)=>{const z=gz+0.28,yA=mn[1]+0.25*sc.L,yB=mx[1]-0.25*sc.L;   // chiziq topilmasa -- kuzov o'lchamidan
+      if(g==='L'||g==='R'){const s=g==='L'?-1:1;return[{p:[s*hw,yA,z],n:[s,0,0]},{p:[s*hw,yB,z],n:[s,0,0]}];}
+      const e=g==='F'?1:-1,y=e>0?mx[1]:mn[1];return[{p:[-0.5*hw,y,z],n:[0,e,0]},{p:[0.5*hw,y,z],n:[0,e,0]}];};
+    for(const g of['L','R','F','B']){if(cfg.dots==='side'&&(g==='F'||g==='B'))continue;const ln=(sc.isCar&&sc.lines[g])||syn(g);   // mototsikl/qayiq: kuzov o'lchamidan
+      const k=g==='L'||g==='R'?N:Math.max(2,Math.min(4,Math.round(neonLineLen(ln)/0.45)));
+      for(const q of neonSample(ln,k))out.push({k:'dot',g,p:q.p.map((v,c)=>+(v+q.n[c]*O).toFixed(3)),s:r});}}
+  const np=out.filter(e=>e.k==='pool').length,nd=out.filter(e=>e.k==='dot').length;
+  if(np>NEON_LIM.pools||nd>NEON_LIM.dots)throw new Error('Neon elementlari juda ko‘p');
+  // rejimga ko'ra rang guruhi (slot): K=1 -- hammasi bitta, K=2 -- chap/o'ng, K=4 -- old→orqa 4 bo'lak
+  const K=(NEON_MODES[cfg.mode]||NEON_MODES.steady).K,Ly=Math.max(0.5,mx[1]-mn[1]);
+  out.forEach(e=>{e.p=e.p.map(v=>+v.toFixed(3));
+    if(K===1)e.slot=0;else if(K===2)e.slot=e.p[0]<-1e-3?0:e.p[0]>1e-3?1:(e.g==='B'?1:0);
+    else e.slot=Math.max(0,Math.min(3,Math.floor((mx[1]-e.p[1])/Ly*4)));});
+  return out;
+}
+/* ---- 3. vaqt jadvali: [{a,b,cols:[[r,g,b] x K]}] -- skript ham, 3D ko'rish ham AYNAN shu jadvaldan ---- */
+function neonColsAt(mode,K,t,P,A,B){const M=mode,ph=((t%P)+P)%P/P,sc=(c,k)=>c.map(v=>v*k);
+  if(M==='steady')return[A];
+  if(M==='pulse')return[sc(A,0.1+0.9*(0.5-0.5*Math.cos(2*Math.PI*ph)))];
+  if(M==='flash'){const q=ph*1000;return[(q<90||(q>=160&&q<250))?A:[0,0,0]];}
+  if(M==='alt')return[ph<0.5?A:B];
+  if(M==='fade2'){const w=0.5-0.5*Math.cos(2*Math.PI*ph);return[A.map((v,i)=>v*(1-w)+B[i]*w)];}
+  if(M==='split')return[A,B];
+  if(M==='police'){const q=ph*1000,on=(a)=>q>=a&&q<a+100||q>=a+150&&q<a+250||q>=a+300&&q<a+400;return[on(0)?A:[0,0,0],on(500)?B:[0,0,0]];}
+  if(M==='rainbow')return[neonHsv(ph*360,1,1)];
+  if(M==='rainwave')return[0,1,2,3].map(b=>neonHsv((ph-b/8)*360,1,1));
+  if(M==='chase'){const h=ph*4;return[0,1,2,3].map(b=>{const d0=Math.abs(h-(b+0.5)),d=Math.min(d0,4-d0);return sc(A,Math.max(0.06,1-d*0.75));});}
+  return[A];}
+function neonTimeline(cfg){
+  const M=NEON_MODES[cfg.mode]?cfg.mode:'steady',md=NEON_MODES[M],sp=Math.max(0.25,Math.min(4,+cfg.speed||1)),K=md.K;
+  const A=neonHex(cfg.colA),B=neonHex(cfg.colB||cfg.colA),br=Math.max(0.15,Math.min(1,+cfg.bright||1));
+  const q=c=>c.map(v=>Math.max(0,Math.min(255,Math.round(v*br))));
+  if(M==='steady'||M==='split')return{P:1000,K,segs:[{a:0,b:1000,cols:neonColsAt(M,K,0,1000,A,B).map(q)}],fixed:true};
+  const P=Math.max(200,Math.round(md.P/sp));let cuts;
+  if(M==='flash'){const k=P/1000;cuts=[0,90,160,250].map(v=>Math.round(v*k));}
+  else if(M==='alt')cuts=[0,Math.round(P/2)];
+  else if(M==='police'){const k=P/1000;cuts=[0,100,150,250,300,400,500,600,650,750,800,900].map(v=>Math.round(v*k));}
+  else{const st=Math.max(md.step||50,Math.ceil(P/NEON_LIM.segs));cuts=[];for(let a=0;a<P;a+=st)cuts.push(a);}
+  cuts=[...new Set(cuts)].filter(v=>v>=0&&v<P).sort((x,y)=>x-y);
+  const segs=[];
+  cuts.forEach((a,i)=>{const b=i+1<cuts.length?cuts[i+1]:P;if(b<=a)return;const mid=md.step?a:(a+b)/2;   // silliq rejimlar: bo'lak boshidagi qiymat; keskinlari: o'rtasidagi
+    const cols=neonColsAt(M,K,mid,P,A,B).map(q),last=segs[segs.length-1];
+    if(last&&last.b===a&&JSON.stringify(last.cols)===JSON.stringify(cols)){last.b=b;return;}segs.push({a,b,cols});});
+  return{P,K,segs,fixed:false};
+}
+function neonAt(tl,t){const m=((t%tl.P)+tl.P)%tl.P;for(const s of tl.segs)if(m>=s.a&&m<s.b)return s.cols;return tl.segs[tl.segs.length-1].cols;}
+/* kamera holatiga ko'ra qaysi LED nuqtalar ko'rinadi (skriptdagi bilan aynan bir xil formula): side 0/1 chap/2 o'ng, end 0/1 old/2 orqa.
+ * c -- kamera mashina koordinatalarida (x o'ngga, y oldinga) */
+const NEON_CULL=0.85;
+function neonCull(sc,c){const lat=c[0],lon=c[1];return{side:lat<NEON_CULL*sc.mn[0]?1:lat>NEON_CULL*sc.mx[0]?2:0,end:lon>NEON_CULL*sc.mx[1]?1:lon<NEON_CULL*sc.mn[1]?2:0};}
+const neonVisible=(e,cl)=>e.g==='L'?cl.side===1:e.g==='R'?cl.side===2:e.g==='F'?cl.end===1:cl.end===2;
+/* o'yindagidek: nuqtali yorug'lik mashinaga "qo'shimcha yo'nalishli yorug'lik" bo'lib tushadi (CPointLights::GenerateLightsAffectingObject):
+ * yo'nalish -- mashina markazidan chiroqqa, kuch -- masofa radiusning yarmidan kichik bo'lsa 1, keyin chiziqli kamayadi */
+function neonLightK(e){const d=e.dist!=null?e.dist:Math.hypot(e.p[0],e.p[1],e.p[2]),R=e.s;return d<R/2?1:Math.max(0,2-2*d/R);}
+/* ---- 4. CLEO skript ----
+ * cfg: {model:ID|null, key:VK|null, mode, colA, colB, speed, bright, size, ground, body, bodyK, dots:false|'side'|'all', dotN, dotSize, stay}
+ * O'zgaruvchilar: 0@ yoqilgan, 1@ mashina, 2@ model, 3@-5@ nuqta, 6@ tugma, 7@-18@ rang guruhlari (4 x RGB), 19@-21@ kamera,
+ * 22@-25@ vaqtinchalik, 26@ ko'rinadigan yon (1 chap / 2 o'ng), 27@ ko'rinadigan uch (1 old / 2 orqa), 33@ taymer */
+function neonBuild(sc,cfg){
+  const els=neonElems(sc,cfg);if(!els.length)throw new Error('Hech bo‘lmasa bitta tizimni yoqing (yer, kuzov yoki LED nuqtalar)');
+  const tl=neonTimeline(cfg),A=scmAsm(),key=cfg.key==null?null:(+cfg.key|0),model=cfg.model==null?null:(+cfg.model|0),stay=cfg.stay!==false;
+  const CV=k=>7+k*3,dots=els.filter(e=>e.k==='dot');
+  A.note('IT SHAKH — GTA SA neon / podsvetka (CLEO 4/5). Model: '+(model==null?'har qanday mashina':model)+', tugma: '+(key==null?'yo‘q (doim yoqiq)':key)+', rejim: '+(cfg.mode||'steady'));
+  A.note('0@ yoqilgan, 1@ mashina, 2@ model, 3@-5@ nuqta, 6@ tugma, 7@-18@ rang guruhlari, 19@-21@ kamera, 22@-25@ vaqtinchalik, 26@ ko‘rinadigan yon, 27@ ko‘rinadigan uch, 33@ taymer');
+  A.op(0x0000,'');
+  A.op(0x0006,'0@ = '+(key==null?1:0),['l',0],['i',key==null?1:0]);
+  A.op(0x0006,'33@ = 0',['l',33],['i',0]);A.op(0x0006,'6@ = 0',['l',6],['i',0]);A.op(0x0006,'1@ = 0',['l',1],['i',0]);
+  A.label('NEON_MAIN');
+  A.op(0x0001,'wait 0',['i',0]);
+  A.op(0x00D6,'if',['i',0]);A.op(0x0256,'  player $PLAYER_CHAR defined',['g',2]);A.op(0x004D,'jump_if_false @NEON_MAIN',['j','NEON_MAIN']);
+  A.op(0x00D6,'if',['i',0]);A.op(0x0449,'  is_char_sitting_in_any_car $PLAYER_ACTOR',['g',3]);A.op(0x004D,'jump_if_false @NEON_OUT',['j','NEON_OUT']);
+  A.op(0x03C0,'store_car_char_is_in_no_save $PLAYER_ACTOR store_to 22@',['g',3],['l',22]);
+  if(model!=null){A.op(0x0441,'get_car_model 22@ store_to 2@',['l',22],['l',2]);
+    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  2@ == '+model,['l',2],['i',model]);A.op(0x004D,'jump_if_false @NEON_NO',['j','NEON_NO']);}
+  A.op(0x0085,'1@ = 22@',['l',1],['l',22]);
+  if(key!=null){ // bir bosish -- bir almashtirish (6@ -- oldingi kadrda bosilganmi)
+    A.op(0x00D6,'if',['i',0]);A.op(0x0AB0,'  is_key_pressed '+key,['i',key]);A.op(0x004D,'jump_if_false @NEON_KUP',['j','NEON_KUP']);
+    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  6@ == 0',['l',6],['i',0]);A.op(0x004D,'jump_if_false @NEON_DRAW',['j','NEON_DRAW']);
+    A.op(0x0006,'6@ = 1',['l',6],['i',1]);
+    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  0@ == 0',['l',0],['i',0]);A.op(0x004D,'jump_if_false @NEON_OFF',['j','NEON_OFF']);
+    A.op(0x0006,'0@ = 1',['l',0],['i',1]);A.op(0x0006,'33@ = 0',['l',33],['i',0]);A.op(0x0002,'jump @NEON_DRAW',['j','NEON_DRAW']);
+    A.label('NEON_OFF');
+    A.op(0x0006,'0@ = 0',['l',0],['i',0]);A.op(0x0002,'jump @NEON_DRAW',['j','NEON_DRAW']);
+    A.label('NEON_KUP');
+    A.op(0x0006,'6@ = 0',['l',6],['i',0]);
+  }
+  A.op(0x0002,'jump @NEON_DRAW',['j','NEON_DRAW']);
+  if(model!=null){A.label('NEON_NO');A.op(0x0006,'1@ = 0',['l',1],['i',0]);A.op(0x0002,'jump @NEON_MAIN',['j','NEON_MAIN']);}
+  A.label('NEON_OUT');   // mashinada emas
+  if(stay){ // oxirgi mashina hali bor bo'lsa -- neon unda yonib turadi
+    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  1@ == 0',['l',1],['i',0]);A.op(0x004D,'jump_if_false @NEON_OE',['j','NEON_OE']);A.op(0x0002,'jump @NEON_MAIN',['j','NEON_MAIN']);
+    A.label('NEON_OE');
+    A.op(0x00D6,'if',['i',0]);A.op(0x056E,'  does_vehicle_exist 1@',['l',1]);A.op(0x004D,'jump_if_false @NEON_GONE',['j','NEON_GONE']);A.op(0x0002,'jump @NEON_DRAW',['j','NEON_DRAW']);
+    A.label('NEON_GONE');}
+  A.op(0x0006,'1@ = 0',['l',1],['i',0]);A.op(0x0002,'jump @NEON_MAIN',['j','NEON_MAIN']);
+  A.label('NEON_DRAW');
+  A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  0@ == 1',['l',0],['i',1]);A.op(0x004D,'jump_if_false @NEON_MAIN',['j','NEON_MAIN']);
+  const setCols=cols=>cols.forEach((c,k)=>c.forEach((v,j)=>A.op(0x0006,(CV(k)+j)+'@ = '+v,['l',CV(k)+j],['i',v])));
+  if(tl.fixed)setCols(tl.segs[0].cols);
+  else{
+    A.op(0x00D6,'if',['i',0]);A.op(0x0029,'  33@ >= '+tl.P,['l',33],['i',tl.P]);A.op(0x004D,'jump_if_false @NEON_CLR',['j','NEON_CLR']);
+    A.op(0x0006,'33@ = 0',['l',33],['i',0]);
+    A.label('NEON_CLR');
+    tl.segs.forEach((sg,k)=>{A.label('NEON_S'+k);
+      A.op(0x00D6,'if and',['i',1]);A.op(0x0029,'  33@ >= '+sg.a,['l',33],['i',sg.a]);A.op(0x8029,'  not 33@ >= '+sg.b,['l',33],['i',sg.b]);
+      A.op(0x004D,'jump_if_false @NEON_S'+(k+1),['j','NEON_S'+(k+1)]);setCols(sg.cols);A.op(0x0002,'jump @NEON_SX',['j','NEON_SX']);});
+    A.label('NEON_S'+tl.segs.length);A.label('NEON_SX');}
+  if(dots.length){ // kamera mashinaning qaysi tomonida: chap/o'ng va old/orqa (10 m lik tayanch nuqtalargacha masofa kvadratlari farqi = 40 * kamera koordinatasi)
+    A.op(0x068D,'get_active_camera_coordinates 19@ 20@ 21@',['l',19],['l',20],['l',21]);
+    const dist2=(off,o)=>{A.op(0x0407,'get_offset_from_car_in_world_coords 1@ offset '+off.map(fF).join(' ')+' store_to '+o+'@ '+(o+1)+'@ '+(o+2)+'@',['l',1],['f',off[0]],['f',off[1]],['f',off[2]],['l',o],['l',o+1],['l',o+2]);
+      A.op(0x0063,o+'@ -= 19@ // (float)',['l',o],['l',19]);A.op(0x0063,(o+1)+'@ -= 20@ // (float)',['l',o+1],['l',20]);
+      A.op(0x006B,o+'@ *= '+o+'@ // (float)',['l',o],['l',o]);A.op(0x006B,(o+1)+'@ *= '+(o+1)+'@ // (float)',['l',o+1],['l',o+1]);A.op(0x005B,o+'@ += '+(o+1)+'@ // (float)',['l',o],['l',o+1]);};
+    const thr=(v)=>+(40*NEON_CULL*v).toFixed(3);
+    dist2([-10,0,0],22);dist2([10,0,0],23);A.op(0x0063,'22@ -= 23@ // (float)  = 40 * kamera_x',['l',22],['l',23]);
+    A.op(0x0006,'26@ = 0',['l',26],['i',0]);
+    A.op(0x00D6,'if',['i',0]);A.op(0x0023,'  '+fF(thr(sc.mn[0]))+' > 22@',['f',thr(sc.mn[0])],['l',22]);A.op(0x004D,'jump_if_false @NEON_C1',['j','NEON_C1']);A.op(0x0006,'26@ = 1',['l',26],['i',1]);A.label('NEON_C1');
+    A.op(0x00D6,'if',['i',0]);A.op(0x0021,'  22@ > '+fF(thr(sc.mx[0])),['l',22],['f',thr(sc.mx[0])]);A.op(0x004D,'jump_if_false @NEON_C2',['j','NEON_C2']);A.op(0x0006,'26@ = 2',['l',26],['i',2]);A.label('NEON_C2');
+    dist2([0,10,0],22);dist2([0,-10,0],23);A.op(0x0063,'22@ -= 23@ // (float)  = -40 * kamera_y',['l',22],['l',23]);
+    A.op(0x0006,'27@ = 0',['l',27],['i',0]);
+    A.op(0x00D6,'if',['i',0]);A.op(0x0023,'  '+fF(-thr(sc.mx[1]))+' > 22@',['f',-thr(sc.mx[1])],['l',22]);A.op(0x004D,'jump_if_false @NEON_C3',['j','NEON_C3']);A.op(0x0006,'27@ = 1',['l',27],['i',1]);A.label('NEON_C3');
+    A.op(0x00D6,'if',['i',0]);A.op(0x0021,'  22@ > '+fF(-thr(sc.mn[1])),['l',22],['f',-thr(sc.mn[1])]);A.op(0x004D,'jump_if_false @NEON_C4',['j','NEON_C4']);A.op(0x0006,'27@ = 2',['l',27],['i',2]);A.label('NEON_C4');
+  }
+  const at=e=>A.op(0x0407,'get_offset_from_car_in_world_coords 1@ offset '+e.p.map(fF).join(' ')+' store_to 3@ 4@ 5@',['l',1],['f',e.p[0]],['f',e.p[1]],['f',e.p[2]],['l',3],['l',4],['l',5]);
+  const cv=e=>[0,1,2].map(j=>['l',CV(e.slot)+j]),cs=e=>[0,1,2].map(j=>(CV(e.slot)+j)+'@').join(' ');
+  for(const e of els.filter(e=>e.k==='pool')){at(e);A.op(0x016F,'draw_shadow 3 at 3@ 4@ 5@ angle 0.0 size '+fF(e.s)+' intensity '+NEON_POOL_I+' colour '+cs(e),['i',3],['l',3],['l',4],['l',5],['f',0],['f',e.s],['i',NEON_POOL_I],...cv(e));}
+  for(const e of els.filter(e=>e.k==='light')){at(e);A.op(0x09E5,'draw_light_with_range 3@ 4@ 5@ rgb '+cs(e)+' radius '+fF(e.s),['l',3],['l',4],['l',5],...cv(e),['f',e.s]);}
+  // LED nuqtalar: faqat kameraga qaragan tomon (koronalar kuzov orqasidan ham ko'rinadi). Har bir nuqta -- o'z 024F buyrug'i (o'z ID si)
+  [['L','26@ == 1',26,1],['R','26@ == 2',26,2],['F','27@ == 1',27,1],['B','27@ == 2',27,2]].forEach(([g,txt,v,val],gi)=>{const list=dots.filter(e=>e.g===g);if(!list.length)return;
+    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  '+txt,['l',v],['i',val]);A.op(0x004D,'jump_if_false @NEON_D'+gi,['j','NEON_D'+gi]);
+    for(const e of list){at(e);A.op(0x024F,'draw_corona 3@ 4@ 5@ radius '+fF(e.s)+' type 0 lensflare 0 colour '+cs(e),['l',3],['l',4],['l',5],['f',e.s],['i',0],['i',0],...cv(e));}
+    A.label('NEON_D'+gi);});
+  A.op(0x0002,'jump @NEON_MAIN',['j','NEON_MAIN']);
+  const r=A.done();
+  return{cs:r.bytes,src:'{$CLEO .cs}\n'+r.src+'\n',els,tl};
+}
+/* ---- 5. DFF: kuzovdagi LED tasma (haqiqiy geometriya) ----
+ * opt: {color:'red'|'white'|'amber', parts:{side,front,rear}, h (balandligi, m)} -> {dff, report} */
+function neonStripGeom(ln,h,d){
+  const pos=[],nrm=[],tris=[],add=(p,n)=>{pos.push(p[0],p[1],p[2]);nrm.push(n[0],n[1],n[2]);return pos.length/3-1;};
+  const quad=(a,b,c,dd,n)=>{const i0=add(a,n),i1=add(b,n),i2=add(c,n),i3=add(dd,n);   // o'rash tashqariga (o'yin orqa yuzni chizmaydi)
+    const cr=v3x([b[0]-a[0],b[1]-a[1],b[2]-a[2]],[c[0]-a[0],c[1]-a[1],c[2]-a[2]]);if(v3d(cr,n)>=0)tris.push(i0,i1,i2,0,i0,i2,i3,0);else tris.push(i0,i2,i1,0,i0,i3,i2,0);};
+  const U=[0,0,1],X=ln.map(q=>{const n=q.n,p=q.p;return{it:[p[0]-n[0]*0.003,p[1]-n[1]*0.003,p[2]+h/2],ot:[p[0]+n[0]*d,p[1]+n[1]*d,p[2]+h/2],ob:[p[0]+n[0]*d,p[1]+n[1]*d,p[2]-h/2],ib:[p[0]-n[0]*0.003,p[1]-n[1]*0.003,p[2]-h/2],n};});
+  for(let i=0;i+1<X.length;i++){const a=X[i],b=X[i+1],nm=v3n([a.n[0]+b.n[0],a.n[1]+b.n[1],0]);
+    quad(a.it,b.it,b.ot,a.ot,v3n([nm[0]*0.35,nm[1]*0.35,1]));quad(a.ot,b.ot,b.ob,a.ob,nm);quad(a.ob,b.ob,b.ib,a.ib,v3n([nm[0]*0.35,nm[1]*0.35,-1]));}
+  for(const [q,o] of[[X[0],X[1]],[X[X.length-1],X[X.length-2]]]){const t=v3n([q.ot[0]-o.ot[0],q.ot[1]-o.ot[1],0]);quad(q.it,q.ot,q.ob,q.ib,t);}   // uchlari yopiq
+  return{pos,nrm,tris};
+}
+function neonStripApply(bytes,opt){
+  opt=opt||{};const col=NEON_STRIP_COL[opt.color]||NEON_STRIP_COL.red,parts=opt.parts||{side:true,front:true,rear:false},h=Math.max(0.012,Math.min(0.05,+opt.h||0.025)),d=0.01;
+  const sc=neonScan(bytes),rep={segs:[],tris:0,frame:sc.hostName,skipped:[]};
+  if(!sc.isCar)return{dff:bytes,report:Object.assign(rep,{err:'LED tasma faqat oddiy 4 g‘ildirakli mashinaga qo‘yiladi (mototsikl, qayiq va h.k. emas)'})};
+  if(sc.hasStrip)return{dff:bytes,report:Object.assign(rep,{err:'Bu modelda neon LED tasma allaqachon bor (avval qo‘shilgan) — ikkinchi marta qo‘shilmadi.'})};
+  if(sc.host<0)return{dff:bytes,report:Object.assign(rep,{err:'Kuzov (chassis) qismi topilmadi'})};
+  const ctx=dffCtx(bytes),{A,ver}=ctx,host=A[sc.host],Wf=fWorld(host.frame);
+  if(rigidErr(Wf.r)>1e-3)return{dff:bytes,report:Object.assign(rep,{err:'chassis freymi matritsasi qattiq emas'})};
+  const inv=TF.inv(Wf),pieces=[];
+  const want=[['L','Chap ostona',parts.side],['R','O‘ng ostona',parts.side],['F','Old bamper osti',parts.front],['B','Orqa bamper osti',parts.rear]];
+  for(const [g,lbl,on] of want){if(!on)continue;let ln=sc.lines[g];if(!ln||ln.length<3){rep.skipped.push(lbl);continue;}
+    // har 8 sm da bitta nuqta (silliq va yengil)
+    ln=ln.map(q=>({p:[q.p[0],q.p[1],q.p[2]+0.004],n:q.n}));   // tasma kuzovning pastki qirrasi ustida: yarmi qirradan pastda, yarmi yuqorida
+    const kept=[ln[0]];for(let i=1;i<ln.length-1;i++){const a=kept[kept.length-1].p,b=ln[i].p;if(Math.hypot(b[0]-a[0],b[1]-a[1])>=0.08)kept.push(ln[i]);}kept.push(ln[ln.length-1]);ln=kept;
+    if(g==='F'||g==='B'){const mid=ln.findIndex(q=>q.p[0]>=0);   // chap yarmi -- chap fara kodi, o'ng yarmi -- o'ng fara kodi (nuqtalar chapdan o'ngga)
+      if(mid>0&&mid<ln.length-1)pieces.push({g,lbl,ln:ln.slice(0,mid+1),code:NEON_CODE_L},{g,lbl,ln:ln.slice(mid),code:NEON_CODE_R});
+      else pieces.push({g,lbl,ln,code:ln[0].p[0]<0?NEON_CODE_L:NEON_CODE_R});}
+    else pieces.push({g,lbl,ln,code:g==='L'?NEON_CODE_L:NEON_CODE_R});
+    rep.segs.push({g,lbl,len:+neonLineLen(ln).toFixed(2),pts:ln.length});}
+  if(!pieces.length)return{dff:bytes,report:Object.assign(rep,{err:'Kuzovning pastki chetini topib bo‘lmadi'})};
+  // bitta geometriya, 2 material (chap / o'ng fara kodi)
+  const pos=[],nrm=[],tris=[],mats=[NEON_CODE_L,NEON_CODE_R];
+  for(const pc of pieces){const g=neonStripGeom(pc.ln,h,d),base=pos.length/3,mi=pc.code===NEON_CODE_L?0:1;
+    for(let i=0;i<g.pos.length;i+=3){const q=TF.pt([g.pos[i],g.pos[i+1],g.pos[i+2]],inv),m=v3n(vm3([g.nrm[i],g.nrm[i+1],g.nrm[i+2]],inv.r));pos.push(q[0],q[1],q[2]);nrm.push(m[0],m[1],m[2]);}
+    for(let i=0;i<g.tris.length;i+=4)tris.push(g.tris[i]+base,g.tris[i+1]+base,g.tris[i+2]+base,mi);}
+  const nV=pos.length/3;if(nV>65535)return{dff:bytes,report:Object.assign(rep,{err:'tasma juda katta'})};
+  const usedM=[...new Set(tris.filter((_,i)=>i%4===3))],remap=new Map(usedM.map((m,i)=>[m,i]));for(let i=3;i<tris.length;i+=4)tris[i]=remap.get(tris[i]);
+  const uv=new Float32Array(nV*2);for(let i=0;i<nV;i++){uv[i*2]=col.uv[0];uv[i*2+1]=col.uv[1];}
+  const gch=buildGeometry({pos:new Float32Array(pos),nrm:new Float32Array(nrm),uv,day:null,night:null,tris,materials:usedM.map(m=>({color:[...mats[m],255],tex:'vehiclelights128',mask:''})),fx2d:null},ver);
+  for(const mc of childs(child(gch,T.MATLIST),T.MATERIAL)){const tch=child(mc,T.TEXTURE);if(tch){const ts=child(tch,T.STRUCT);ts.data=new Uint8Array([6,0x11,1,0]);}}
+  const clump=ctx.clump,cst=child(clump,T.STRUCT);
+  ctx.gl.children.push(gch);const gd=new Uint8Array(ctx.gst.data);dvOf(gd).setUint32(0,ctx.G.length+1,true);ctx.gst.data=gd;
+  let ai=-1;clump.children.forEach((k,i)=>{if(k.type===T.ATOMIC)ai=i;});
+  clump.children.splice(ai+1,0,atomicChunk(host.fi,ctx.G.length,ver,false));
+  const cd=new Uint8Array(cst.data);dvOf(cd).setUint32(0,dvOf(cd).getUint32(0,true)+1,true);cst.data=cd;
+  rep.tris=tris.length/4;rep.verts=nV;rep.color=opt.color||'red';rep.h=h;
+  return{dff:serialize(ctx.roots),report:rep};
+}
+
+root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS,lampRecolor,lampClassify,lampRetexDff,LAMP_SKIP,lampFixScan,lampFixApply,LF_ROLES,LF_CODES,LF_ATLAS,LF_IVF,neonScan,neonElems,neonTimeline,neonAt,neonCull,neonVisible,neonLightK,neonBuild,neonStripApply,neonHex,NEON_COLS,NEON_MODES,NEON_STRIP_COL,NEON_LIM,NEON_POOL_I,NEON_CULL};
 })(GV);
 /* ---- extension: DFF materials with textures list helper, RW 3.6 version constants ---- */
 (function(G){
@@ -4912,13 +5214,15 @@ Object.assign(G,{isUnknownShader,convertToSA,splitWheelParts,classify,classifyBi
 (function(G){
 'use strict';
 const VS=`attribute vec3 aPos;attribute vec3 aNrm;attribute vec2 aUV;uniform mat4 uPV;uniform mat4 uM;uniform mat4 uV;
-varying vec3 vN;varying vec2 vUV;varying vec3 vP;
-void main(){vec4 w=uM*vec4(aPos,1.0);gl_Position=uPV*w;vN=mat3(uV)*(mat3(uM)*aNrm);vUV=aUV;vP=w.xyz;}`;
-const FS=`precision mediump float;varying vec3 vN;varying vec2 vUV;varying vec3 vP;uniform sampler2D uTex;uniform float uUseTex;uniform vec4 uCol;uniform float uLit;uniform vec3 uTint;uniform float uShine;
+varying vec3 vN;varying vec2 vUV;varying vec3 vP;varying vec3 vW;
+void main(){vec4 w=uM*vec4(aPos,1.0);gl_Position=uPV*w;vN=mat3(uV)*(mat3(uM)*aNrm);vW=mat3(uM)*aNrm;vUV=aUV;vP=w.xyz;}`;
+const FS=`precision mediump float;varying vec3 vN;varying vec2 vUV;varying vec3 vP;varying vec3 vW;uniform vec3 uXD[4];uniform vec3 uXC[4];uniform float uNight;uniform sampler2D uTex;uniform float uUseTex;uniform vec4 uCol;uniform float uLit;uniform vec3 uTint;uniform float uShine;
 void main(){vec4 c=uCol;if(uUseTex>0.5){vec4 t=texture2D(uTex,vUV);c.rgb*=t.rgb;c.a*=t.a;}
- if(uLit>0.5){vec3 n=normalize(vN);float d=abs(dot(n,normalize(vec3(-0.4,0.5,0.8))));float h=0.5+0.5*n.z;float l=0.28+0.62*d+0.10*h;c.rgb*=l;
+ vec3 base=c.rgb;
+ if(uLit>0.5){vec3 n=normalize(vN);float d=abs(dot(n,normalize(vec3(-0.4,0.5,0.8))));float h=0.5+0.5*n.z;float l=0.28+0.62*d+0.10*h;c.rgb*=l*(1.0-0.72*uNight);
   if(uShine>0.0){vec3 nn=n*sign(n.z+1e-4);float fr=0.10+0.55*pow(1.0-clamp(nn.z,0.0,1.0),3.0);vec3 env=mix(vec3(0.10,0.11,0.13),vec3(0.80,0.88,1.0),smoothstep(-0.3,0.7,nn.y));
-   float sp=pow(max(dot(reflect(vec3(0.0,0.0,-1.0),nn),normalize(vec3(-0.35,0.55,0.75))),0.0),48.0);c.rgb=c.rgb*(1.0-0.18*uShine)+env*fr*uShine+vec3(sp)*0.9*uShine;}}
+   float sp=pow(max(dot(reflect(vec3(0.0,0.0,-1.0),nn),normalize(vec3(-0.35,0.55,0.75))),0.0),48.0);c.rgb=c.rgb*(1.0-0.18*uShine)+env*fr*uShine+vec3(sp)*0.9*uShine*(1.0-0.72*uNight);}
+  vec3 wn=normalize(vW);c.rgb+=base*(uXC[0]*max(dot(wn,uXD[0]),0.0)+uXC[1]*max(dot(wn,uXD[1]),0.0)+uXC[2]*max(dot(wn,uXD[2]),0.0)+uXC[3]*max(dot(wn,uXD[3]),0.0));}
  c.rgb+=uTint;gl_FragColor=c;}`;
 const m4={
   persp(f,a,n,fa){const t=1/Math.tan(f/2),nf=1/(n-fa);return[t/a,0,0,0,0,t,0,0,0,0,(fa+n)*nf,-1,0,0,2*fa*n*nf,0];},
@@ -4938,7 +5242,7 @@ class Viewer{
     if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));
     this.prog=p;gl.useProgram(p);
     this.loc={};for(const n of['aPos','aNrm','aUV'])this.loc[n]=gl.getAttribLocation(p,n);
-    for(const n of['uPV','uM','uV','uTex','uUseTex','uCol','uLit','uTint','uShine'])this.loc[n]=gl.getUniformLocation(p,n);
+    for(const n of['uPV','uM','uV','uTex','uUseTex','uCol','uLit','uTint','uShine','uNight'])this.loc[n]=gl.getUniformLocation(p,n);this.loc.uXD=gl.getUniformLocation(p,'uXD[0]');this.loc.uXC=gl.getUniformLocation(p,'uXC[0]');
     this.model=null;this.meshes=[];this.texCache=new Map();
     this.opt={wire:false,tex:true,hidden:new Set(),lod:'high',hl:null,bg:[0.055,0.07,0.1],grid:true};
     this.cam={yaw:-0.7,pitch:0.45,dist:6,tx:0,ty:0,tz:0.6};
@@ -5039,6 +5343,8 @@ class Viewer{
     if(this.opt.grid){gl.bindBuffer(gl.ARRAY_BUFFER,this.gridBuf);gl.enableVertexAttribArray(L.aPos);gl.vertexAttribPointer(L.aPos,3,gl.FLOAT,false,0,0);gl.disableVertexAttribArray(L.aNrm);gl.disableVertexAttribArray(L.aUV);
       gl.vertexAttrib3f(L.aNrm,0,0,1);gl.vertexAttrib2f(L.aUV,0,0);gl.uniformMatrix4fv(L.uM,false,[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);gl.uniform1f(L.uUseTex,0);gl.uniform1f(L.uLit,0);gl.uniform1f(L.uShine,0);gl.uniform4f(L.uCol,0.25,0.3,0.4,1);gl.uniform3f(L.uTint,0,0,0);gl.drawArrays(gl.LINES,0,this.gridN);}
     const LS=this.fx&&this.fx.live()&&this.fx.lamps?this.fx.lamps(performance.now()):null,LK={'255,175,0':['fl','f'],'0,255,200':['fr','f'],'185,255,0':['rl','r'],'255,60,0':['rr','r'],'184,255,0':['ivf','r'],'255,59,0':['ivf','r'],'255,173,0':['ivf','f'],'0,255,198':['ivf','f'],'255,174,0':['ivf','f'],'0,255,199':['ivf','f'],'183,255,0':['ivf','a'],'255,58,0':['ivf','a'],'182,255,0':['ivf','a'],'255,57,0':['ivf','a'],'181,255,0':['ivf','a'],'255,56,0':['ivf','a']};
+    const XL=this.fx&&this.fx.live()&&this.fx.xl?this.fx.xl(performance.now()):null,Z12=new Float32Array(12);   // neon: qo'shimcha yorug'lik + tun
+    gl.uniform1f(L.uNight,XL&&XL.night?1:0);gl.uniform3fv(L.uXD,XL?XL.d:Z12);gl.uniform3fv(L.uXC,XL?XL.c:Z12);
     const pass=(transparent)=>{
       for(const o of this.meshes){
         if(!this.visible(o)||(o.alpha<1)!==transparent)continue;
@@ -5080,7 +5386,7 @@ class Viewer{
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
     this._lt={key:a.key,tx};return tx;}
   _drawFx(PV,V,eye){
-    const gl=this.gl,list=this.fx.get(performance.now())||[];if(!list.length)return;
+    const gl=this.gl,list=this.fx.get(performance.now(),eye)||[];if(!list.length)return;
     if(!this.fxProg){const mk=(t,src)=>{const sh=gl.createShader(t);gl.shaderSource(sh,src);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(sh));return sh;};
       const pr=gl.createProgram();gl.attachShader(pr,mk(gl.VERTEX_SHADER,'attribute vec3 aP;attribute vec3 aQ;attribute vec3 aC;uniform mat4 uPV;varying vec3 vQ;varying vec3 vC;void main(){vQ=aQ;vC=aC;gl_Position=uPV*vec4(aP,1.0);}'));
       gl.attachShader(pr,mk(gl.FRAGMENT_SHADER,'precision mediump float;varying vec3 vQ;varying vec3 vC;void main(){float r=length(vQ.xy);vec3 c;if(vQ.z<0.5){float g=exp(-r*r*4.5);float st=exp(-abs(vQ.y)*26.0)*max(0.0,1.0-abs(vQ.x))+exp(-abs(vQ.x)*26.0)*max(0.0,1.0-abs(vQ.y));float core=exp(-r*r*38.0);c=vC*(g*0.95+st*0.55)+vec3(1.0)*core*0.85;}else{c=vC*exp(-r*r*3.5)*max(0.0,1.0-r)*0.45;}gl_FragColor=vec4(c,1.0);}'));
@@ -5957,6 +6263,11 @@ async function editPipeline(why){
     if(S.strobe&&S.strobe.splitOn){ // stroboskop: chap/o'ng chiroq oynalarini o'z kodiga ajratish (oxirida -- boshqa tahrirlar materiallariga tegmaydi)
       const sp=G.DFF.strobeLampSplit(dff);if(sp.changed){dff=sp.dff;changed=true;info.push('Chiroq oynalari: '+sp.changed.toLocaleString()+' poligon chap/o‘ng kodiga ajratildi ('+sp.geoms+' ta geometriya) — endi chap va o‘ng fara (orqa chiroq) alohida yonadi.');}
       if(sp.skipped)warn.push('Chiroq oynalari: '+sp.skipped+' ta geometriyada (skin/breakable) ajratilmadi.');}
+    if(S.neon&&S.neon.strip&&S.neon.strip.on){ // neon: kuzovdagi LED tasma (yangi geometriya, chiroq materiali) -- boshqa tahrirlardan keyin
+      const N=S.neon.strip,ns=G.DFF.neonStripApply(dff,{color:N.color,parts:{side:N.side,front:N.front,rear:N.rear},h:N.h}),R=ns.report;
+      if(R.err)warn.push('LED tasma: '+R.err);
+      else{dff=ns.dff;changed=true;info.push('LED tasma (neon, '+(G.DFF.NEON_STRIP_COL[N.color]||{}).lbl+'): '+R.segs.map(x=>x.lbl+' '+x.len.toFixed(2)+' m').join(', ')+' — '+R.tris.toLocaleString()+' poligon, «'+R.frame+'» ga biriktirildi; faralar yonganda yonadi (chap tomoni — chap fara kodi, o‘ng tomoni — o‘ng fara kodi).');}
+      if(R.skipped&&R.skipped.length)warn.push('LED tasma: '+R.skipped.join(', ')+' — kuzovning pastki qirrasi topilmadi, u yerga qo‘yilmadi.');}
     let lcApplied=false;const LC=S.lampcol;
     if(LC&&LC.carOn&&LC.mode==='car'&&LC.vtxd&&(LC.front||LC.rear)){ // fara rangi -- faqat shu mashinaga (IVF): chiroq oynalari o'z teksturasini ishlatadi
       const rr=G.DFF.lampRetexDff(dff,'vehiclelights');
@@ -5986,6 +6297,7 @@ async function editPipeline(why){
     if(why==='lampfix')toast(S.lampfix.on?'Tayyor! Chiroqlar sozlandi — yangi DFF ni yuklab o‘rnating':'Chiroqlar asl holiga qaytdi');
     if(why==='lampcol')toast(S.lampcol.carOn?'Tayyor! Fara rangi shu mashinaga qo‘llandi — DFF va TXD ni yuklab o‘rnating (IVF kerak)':'Fara rangi shu mashinadan olib tashlandi');
     if(why==='lamps')toast(S.strobe.splitOn||(S.lampfix&&S.lampfix.on)?'Tayyor! Chiroqlar tuzatildi — yangi DFF ni ham yuklab o‘rnating':'Chiroqlar asl holiga qaytdi');
+    if(why==='neon')toast(S.neon.strip.on?'Tayyor! LED tasma qo‘shildi — yangi DFF ni yuklab o‘rnating':'LED tasma olib tashlandi');
     if(why==='logo')toast(LGs.items.length?'Tayyor! Logo qo‘yildi — sichqoncha bilan aylantirib ko‘ring':'Logo olib tashlandi');
   }catch(e){console.error(e);log('SA tahrir xatosi: '+e.message,'e');toast('Xato: '+e.message);}
   setBusy(false);
@@ -6088,6 +6400,7 @@ function paneEdit(p){
   paneLogo(p,it);
   paneLampCol(p,it);   // o'z fayl tanlagichi bor -- rasm/logo tanlagichlaridan keyin turadi
   paneLampFix(p,it);
+  paneNeon(p,it);
   let doors=null;try{doors=G.DFF.scanDoors(it.raw);}catch(e){p.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Eshiklarni o‘qib bo‘lmadi: '+e.message}));}
   p.appendChild(el('h3',{text:'🚪 Eshiklar'+(doors?' ('+doors.length+')':'')}));
   if(doors&&!doors.length)p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'Bu DFF da door_lf/rf/lr/rr_dummy eshik freymlari topilmadi (mototsikl yoki eshiksiz model) — eshik tahriri mumkin emas.'}));
@@ -6306,7 +6619,7 @@ function strobeCfg(it){const M=S.strobe;return{model:strobeModel(it),key:M.key==
 function strobeMake(it){const sc=strobeScanOf(it),cfg=strobeCfg(it),k=JSON.stringify(cfg),M=S.strobe;if(M.cache&&M.cache.k===k&&M.cache.sc===sc)return M.cache.r;const r=G.DFF.strobeBuild(sc,cfg);M.cache={k,sc,r};return r;}
 /* 3D oynada animatsiya: skript bilan aynan bir xil vaqt jadvali */
 function strobePreview(on){
-  S.strobe.preview=!!on;if(!viewer||!viewer.ok)return;if(on&&S.lampcol)S.lampcol.preview=false;
+  S.strobe.preview=!!on;if(!viewer||!viewer.ok)return;if(on&&S.lampcol)S.lampcol.preview=false;if(on&&S.neon)S.neon.preview=false;
   viewer.fx=on?{live:()=>S.strobe.preview&&S.tab==='edit',get:t=>{
     const it=curItem();if(!it||!it.raw||!S.strobe.preview||S.tab!=='edit')return[];let r,sc;try{sc=strobeScanOf(it);r=strobeMake(it);}catch(e){return[];}
     if(!S.strobe.glow)return[];   // tashqi nur yo'q -- faqat chiroq oynalari (lamps)
@@ -6414,7 +6727,7 @@ function lampColView(){const M=S.lampcol,o={front:lampHex(M.front),rear:lampHex(
   const r=lampColRec();if(r){const a=M.vtxd.atlas.on;o.atlas={key:M.front+'|'+M.rear+'|'+M.vtxd.name,rgba:r.rgba,w:a.w,h:a.h};}return o;}
 function lampColPreview(on){
   S.lampcol.preview=!!on;if(!viewer||!viewer.ok)return;
-  if(on&&S.strobe)S.strobe.preview=false;
+  if(on&&S.strobe)S.strobe.preview=false;if(on&&S.neon)S.neon.preview=false;
   viewer.fx=on?{live:()=>S.lampcol.preview&&S.tab==='edit',get:()=>[],lamps:()=>Object.assign({fl:true,fr:true,rl:true,rr:true,ctl:true},lampColView())}:null;
   viewer.need=true;
 }
@@ -6484,7 +6797,7 @@ function lampFixScanOf(it){const M=S.lampfix;if(M.scanFor!==it.raw){M.scanFor=it
 function lampFixDefaults(sc){const a={};for(const x of sc.items)a[x.key]=x.sugg;return a;}
 function lampFixPreview(on){
   S.lampfix.preview=!!on;if(!viewer||!viewer.ok)return;
-  if(on){if(S.strobe)S.strobe.preview=false;if(S.lampcol)S.lampcol.preview=false;}
+  if(on){if(S.strobe)S.strobe.preview=false;if(S.lampcol)S.lampcol.preview=false;if(S.neon)S.neon.preview=false;}
   viewer.fx=on?{live:()=>S.lampfix.preview&&S.tab==='edit',get:()=>[],lamps:()=>Object.assign({fl:true,fr:true,rl:true,rr:true,ivf:true,ctl:true},S.lampcol&&S.lampcol.vtxd?lampColView():{})}:null;
   viewer.need=true;
 }
@@ -6527,6 +6840,115 @@ function paneLampFix(p,it){
   if(ivf)p.appendChild(el('div',{class:'note',style:'border-left:3px solid #fbbf24;padding-left:10px',html:'Burilish / stop / orqaga yurish / tuman rollari <b>IVF kodlari</b> bilan yoziladi. IVF o‘rnatilmagan o‘yinda bu qismlar yonmaydi (va kod rangida ko‘rinishi mumkin). Faqat fara va orqa chiroq rollari IVF siz ham ishlaydi.'}));
   if(done)p.appendChild(el('div',{class:'note',html:'✓ Qo‘llangan. Yangi DFF ni «⬇ ZIP (DFF…)» bilan yuklab o‘rnating. Burilish chiroqlari: o‘yinda <b>Z</b> — chap, <b>C</b> — o‘ng, <b>X</b> — avariya, <b>Shift</b> — o‘chirish (IVF).'}));
   if(M.preview)lampFixPreview(true);
+}
+
+/* ---------- SA tahrir: NEON / PODSVETKA (CLEO skript: yer + kuzov yoritish + LED nuqtalar; DFF: kuzovdagi LED tasma) ---------- */
+S.neon={colA:'#ff1028',colB:'#1a36ff',mode:'steady',speed:1,bright:1,size:1,ground:true,body:true,bodyK:0.45,dots:'all',dotN:6,dotSize:0.22,stay:true,
+  key:'78',modelMode:'auto',modelId:'',preview:false,night:true,strip:{on:false,color:'red',side:true,front:true,rear:false,h:0.025},scan:null,scanFor:null,cache:null};
+const NEON_KEYS=[['78','N'],['66','B'],['75','K'],['74','J'],['76','L'],['77','M'],['85','U'],['89','Y'],['221',']  (yopiq kvadrat qavs)'],['97','NumPad 1'],['98','NumPad 2'],['-','Tugmasiz — mashinaga o‘tirilsa doim yonadi']];
+function neonScanOf(it){const b=strobeSrcBytes(it),M=S.neon;if(M.scan&&M.scanFor===b)return M.scan;M.scan=G.DFF.neonScan(b);M.scanFor=b;M.cache=null;return M.scan;}
+function neonModel(it){const M=S.neon;if(M.modelMode==='any')return null;if(M.modelMode==='id'){const v=parseInt(M.modelId,10);return v>=400&&v<=65535?v:null;}return strobeGuessId(it);}
+function neonCfg(it){const M=S.neon;return{model:neonModel(it),key:M.key==='-'?null:+M.key,mode:M.mode,colA:M.colA,colB:M.colB,speed:M.speed,bright:M.bright,size:M.size,
+  ground:!!M.ground,body:!!M.body,bodyK:M.bodyK,dots:M.dots==='none'?false:M.dots,dotN:M.dotN,dotSize:M.dotSize,stay:!!M.stay};}
+function neonMake(it){const sc=neonScanOf(it),cfg=neonCfg(it),k=JSON.stringify(cfg),M=S.neon;if(M.cache&&M.cache.k===k&&M.cache.sc===sc)return M.cache.r;const r=G.DFF.neonBuild(sc,cfg);M.cache={k,sc,r};return r;}
+/* 3D: skript bilan aynan bir xil jadval -- yer dog'lari (yo'lda), LED nuqtalar (faqat kameraga qaragan tomon), kuzovga tushadigan yorug'lik */
+function neonPreview(on){
+  S.neon.preview=!!on;if(!viewer||!viewer.ok)return;
+  if(on){if(S.strobe)S.strobe.preview=false;if(S.lampcol)S.lampcol.preview=false;if(S.lampfix)S.lampfix.preview=false;}
+  const live=()=>S.neon.preview&&S.tab==='edit',cur=()=>{const it=curItem();if(!it||!it.raw||!live())return null;try{return{sc:neonScanOf(it),r:neonMake(it)};}catch(e){return null;}};
+  viewer.fx=on?{live,
+    get:(t,eye)=>{const q=cur();if(!q)return[];const {sc,r}=q,cols=G.DFF.neonAt(r.tl,t),out=[],cl=eye?G.DFF.neonCull(sc,eye):{side:0,end:0};
+      for(const e of r.els){const c=cols[e.slot];
+        if(e.k==='pool')out.push({ground:true,p:[e.p[0],e.p[1],sc.groundZ+0.02],c:c.map(v=>v*G.DFF.NEON_POOL_I/255),s:e.s});
+        else if(e.k==='dot'&&G.DFF.neonVisible(e,cl))out.push({p:e.p,c,s:e.s*0.75});}
+      return out;},
+    // tunda o'yin faralarni o'zi yoqadi: chiroq oynalari va DFF dagi LED tasma yonadi
+    lamps:t=>S.neon.night&&live()?Object.assign({fl:true,fr:true,rl:true,rr:true,ctl:true},typeof lampColView==='function'&&S.lampcol&&S.lampcol.vtxd?lampColView():{}):null,
+    xl:t=>{const q=cur(),d=new Float32Array(12),c=new Float32Array(12);if(!q)return{d,c,night:S.neon.night};const {r}=q,cols=G.DFF.neonAt(r.tl,t);let k=0;
+      for(const e of r.els){if(e.k!=='light'||k>=4)continue;const L=Math.hypot(e.p[0],e.p[1],e.p[2])||1,w=G.DFF.neonLightK(e)/255,cc=cols[e.slot];
+        for(let j=0;j<3;j++){d[k*3+j]=e.p[j]/L;c[k*3+j]=cc[j]*w;}k++;}
+      return{d,c,night:S.neon.night};}}:null;
+  viewer.need=true;
+}
+function paneNeon(p,it){
+  const M=S.neon;
+  p.appendChild(el('h3',{text:'🌈 Neon / podsvetka (mashina ostidan yoritish, LED tasma)'}));
+  let sc=null;try{sc=neonScanOf(it);}catch(e){p.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Mashina o‘lchamini o‘qib bo‘lmadi: '+e.message}));return;}
+  p.appendChild(el('div',{class:'note',html:'Uch tizim bitta <b>CLEO skript</b>da (DFF o‘zgarmaydi, istalgan rang, har qanday mashinada): <b>yer yoritish</b> — mashina ostidan yo‘lga rangli nur (2-rasmdagidek), <b>g‘ildirak va kuzov yoritish</b> — g‘ildiraklar, eshik va bamperlarning pasti rangli yoritiladi, <b>LED nuqtalar</b> — kuzovning pastki cheti bo‘ylab yonadigan nuqtalar. Pastda alohida: <b>LED tasma</b> — kuzovning o‘ziga (DFF) qo‘shiladigan ingichka chiziq (1-rasmdagidek). Joylar <b>shu mashinaning o‘z modelidan</b> olinadi: ostona va bamperning pastki qirrasi '+(sc.lines.L&&sc.lines.F?'topildi':'qisman topildi')+', g‘ildiraklar '+(sc.wOk?'dummy lardan':'— dummy yo‘q, kuzov o‘lchamidan')+'.'}));
+  const upd=()=>{M.cache=null;info();if(viewer&&viewer.ok)viewer.need=true;};
+  const row=(label,ctl)=>el('div',{class:'row'},[el('label',{text:label}),ctl]);
+  const sel=(id,opts,val,fn,rr)=>{const s=el('select',{id},opts.map(([v,t])=>el('option',{value:v,text:t,selected:String(val)===String(v)})));s.addEventListener('change',()=>{fn(s.value);if(rr){M.cache=null;renderPane();if(viewer&&viewer.ok)viewer.need=true;}else upd();});return s;};
+  const slider=(id,min,max,step,val,fmt,fn)=>{const i=el('input',{type:'range',id,min,max,step,value:val}),l=el('span',{class:'note',text:fmt(+val)});i.addEventListener('input',()=>{fn(+i.value);l.textContent=fmt(+i.value);upd();});return el('div',{style:'display:flex;gap:8px;align-items:center;flex:1'},[i,l]);};
+  const md=G.DFF.NEON_MODES[M.mode]||G.DFF.NEON_MODES.steady,two=!!md.two,rainbow=M.mode==='rainbow'||M.mode==='rainwave';
+  // ranglar: tayyor ranglar + istalgan rang
+  const swatches=(which,id)=>{const box=el('div',{style:'display:flex;gap:5px;align-items:center;flex-wrap:wrap;flex:1'});
+    for(const [hx,nm] of G.DFF.NEON_COLS){const b=el('button',{type:'button',class:'nsw'+(M[which].toLowerCase()===hx?' on':''),title:nm,style:'width:22px;height:22px;border-radius:50%;padding:0;cursor:pointer;background:'+hx+';border:2px solid '+(M[which].toLowerCase()===hx?'#fff':'rgba(255,255,255,.18)'),onclick:()=>{M[which]=hx;M.cache=null;renderPane();if(viewer&&viewer.ok)viewer.need=true;}});b.dataset.hex=hx;box.appendChild(b);}
+    const pk=el('input',{type:'color',id,value:M[which],style:'width:38px;height:26px;padding:0;border:0;background:none;cursor:pointer',title:'Istalgan rang'});
+    pk.addEventListener('input',()=>{M[which]=pk.value;upd();box.querySelectorAll('.nsw').forEach(b=>{b.style.borderColor=b.dataset.hex===pk.value.toLowerCase()?'#fff':'rgba(255,255,255,.18)';});});
+    box.appendChild(pk);box.appendChild(el('span',{class:'note',text:'← istalgan rang'}));return box;};
+  p.appendChild(row('Rejim',sel('neonMode',Object.entries(G.DFF.NEON_MODES).map(([k,v])=>[k,v.lbl]),M.mode,v=>{M.mode=v;},true)));
+  if(!rainbow)p.appendChild(row(two?'1-rang':'Rang',swatches('colA','neonColA')));
+  if(two)p.appendChild(row('2-rang',swatches('colB','neonColB')));
+  if(M.mode!=='steady'&&M.mode!=='split')p.appendChild(row('Tezligi',slider('neonSpeed',0.5,2,0.1,M.speed,v=>'×'+v.toFixed(1),v=>{M.speed=v;})));
+  p.appendChild(row('Yorqinligi',slider('neonBright',0.3,1,0.05,M.bright,v=>Math.round(v*100)+'%',v=>{M.bright=v;})));
+  // tizimlar
+  const box=el('div',{class:'card',style:'padding:8px'});
+  const cbx=(id,val,lbl,fn,kids)=>{const c=el('input',{type:'checkbox',id,checked:!!val});c.addEventListener('change',()=>{fn(c.checked);M.cache=null;renderPane();if(viewer&&viewer.ok)viewer.need=true;});
+    return el('div',{style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0'},[c,el('span',{text:lbl,style:'flex:1;min-width:220px'})].concat(kids||[]));};
+  box.appendChild(cbx('neonGround',M.ground,'Yer yoritish — mashina ostidan yo‘lga rangli nur',v=>{M.ground=v;},M.ground?[el('span',{class:'note',text:'kengligi'}),slider('neonSize',0.6,1.6,0.05,M.size,v=>v.toFixed(2),v=>{M.size=v;})]:[]));
+  box.appendChild(cbx('neonBody',M.body,'G‘ildiraklar va kuzov pastini yoritish',v=>{M.body=v;},M.body?[el('span',{class:'note',text:'kuchi'}),slider('neonBodyK',0.3,1,0.05,M.bodyK,v=>Math.round(v*100)+'%',v=>{M.bodyK=v;})]:[]));
+  const dsel=sel('neonDots',[['none','LED nuqtalar — yo‘q'],['side','LED nuqtalar — faqat yon tomonlarda'],['all','LED nuqtalar — yonlarda, oldi va orqada']],M.dots,v=>{M.dots=v;},true);
+  const dk=[dsel];if(M.dots!=='none')dk.push(el('span',{class:'note',text:'har yonda'}),slider('neonDotN',2,8,1,M.dotN,v=>v+' ta',v=>{M.dotN=v;}),el('span',{class:'note',text:'kattaligi'}),slider('neonDotSize',0.12,0.4,0.01,M.dotSize,v=>v.toFixed(2),v=>{M.dotSize=v;}));
+  box.appendChild(el('div',{style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0'},dk));
+  p.appendChild(box);
+  const st=el('input',{type:'checkbox',id:'neonStay',checked:!!M.stay});st.addEventListener('change',()=>{M.stay=st.checked;upd();});
+  p.appendChild(row('Mashinadan tushganda ham yonib tursin (mashina yaqinida)',st));
+  p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('neonKey',NEON_KEYS,M.key,v=>{M.key=v;})));
+  const gid=strobeGuessId(it),nm=strobeModelName(it);
+  const idI=el('input',{type:'number',id:'neonId',min:400,max:65535,value:M.modelId||gid||'',style:'width:110px;display:'+(M.modelMode==='id'?'':'none')});
+  idI.addEventListener('input',()=>{M.modelId=idI.value;upd();});
+  const ms=sel('neonModel',[['auto',gid?'Faqat shu mashinada: '+nm+' (model ID '+gid+')':'Avtomatik: «'+nm+'» standart nom emas — har qanday mashinada'],['id','Model ID ni o‘zim kiritaman (yangi qo‘shilgan mashina)'],['any','Har qanday mashinada ishlasin']],M.modelMode,v=>{M.modelMode=v;idI.style.display=v==='id'?'':'none';if(v==='id'&&!idI.value&&gid)idI.value=M.modelId=String(gid);});
+  p.appendChild(row('Qaysi mashinada ishlaydi',el('div',{style:'display:flex;gap:8px;align-items:center;flex:1;flex-wrap:wrap'},[ms,idI])));
+  const inf=el('div',{class:'note',id:'neonInfo'});p.appendChild(inf);
+  const info=()=>{let r;try{r=neonMake(it);}catch(e){inf.style.color='#fb7185';inf.textContent='Xato: '+e.message;return;}inf.style.color='';
+    const cfg=neonCfg(it),kn=(NEON_KEYS.find(x=>x[0]===M.key)||['',''])[1].split(' ')[0],n=k=>r.els.filter(e=>e.k===k).length;
+    inf.innerHTML='Skript: <b>'+r.cs.length.toLocaleString()+' bayt</b> — yerda '+n('pool')+' ta yorug‘lik dog‘i, '+n('light')+' ta yoritgich, '+n('dot')+' ta LED nuqta'+(r.tl.fixed?'':', rejim davri '+r.tl.P+' ms ('+r.tl.segs.length+' bo‘lak)')+'. '+
+      (cfg.model==null?'<b>Har qanday mashinada</b> ishlaydi (boshqa mashinalarda nuqtalar shu mashina o‘lchami bo‘yicha turadi — eng aniq natija uchun har mashinaga o‘z skriptini yasang).':'Faqat model ID <b>'+cfg.model+'</b> bo‘lgan mashinada ishlaydi.')+' '+
+      (cfg.key==null?'Mashinaga o‘tirilishi bilan yonadi.':'O‘yinda mashinada <b>'+esc(kn)+'</b> tugmasini bosing — yonadi, yana bosing — o‘chadi.')+(cfg.stay?' Mashinadan tushsangiz ham yonib turadi.':'');};
+  info();
+  const pv=el('button',{class:'btn'+(M.preview?' pri':''),type:'button',id:'btnNeonPrev',onclick:()=>{neonPreview(!M.preview);if(M.preview&&viewer&&viewer.ok){viewer.cam.yaw=Math.PI*0.3;viewer.cam.pitch=0.16;viewer.fit();}renderPane();}},[M.preview?'⏸ 3D ko‘rishni to‘xtatish':'▶ 3D oynada ko‘rish']);
+  const nt=el('input',{type:'checkbox',id:'neonNight',checked:!!M.night});nt.addEventListener('change',()=>{M.night=nt.checked;if(viewer&&viewer.ok)viewer.need=true;});
+  const base='neon_'+nm;
+  const dl=el('button',{class:'btn pri',type:'button',id:'btnNeonCs',onclick:()=>{try{const r=neonMake(it);save(base+'.cs',r.cs);log('Neon: '+base+'.cs ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},['⬇ CLEO skript (.cs)']);
+  const zp=el('button',{class:'btn',type:'button',id:'btnNeonZip',onclick:()=>{try{const r=neonMake(it),cfg=neonCfg(it),kn=(NEON_KEYS.find(x=>x[0]===M.key)||['',''])[1].split(' ')[0];
+      const txt=['GTA San Andreas — Neon / podsvetka (IT SHAKH, shakhtashkentski66.uz)','',
+        '1) O‘yinda CLEO 4 yoki CLEO 5 o‘rnatilgan bo‘lishi kerak (https://cleo.li). O‘yin papkasida CLEO papkasi va cleo.asi bo‘ladi.',
+        '2) '+base+'.cs faylini o‘yin papkasidagi CLEO papkasiga nusxalang (masalan: C:\\Games\\GTA San Andreas\\CLEO\\).',
+        '3) '+(cfg.key==null?'O‘yinda mashinaga o‘tirishingiz bilan neon yonadi.':'O‘yinda mashinaga o‘tiring va '+kn+' tugmasini bosing — neon yonadi; yana bosing — o‘chadi.')+(cfg.stay?' Mashinadan tushsangiz ham yonib turadi.':''),
+        '4) '+(cfg.model==null?'Skript har qanday mashinada ishlaydi; nuqtalar shu mashina ('+nm+') o‘lchamiga moslangan — boshqa mashinalarda biroz boshqa joyda turishi mumkin.':'Skript faqat model ID '+cfg.model+' bo‘lgan mashinada ishlaydi ('+nm+').')+' Boshqa mashinaga ham alohida skript yasab, CLEO papkasiga birga qo‘yishingiz mumkin — har biri o‘z mashinasida ishlaydi (nomlari har xil bo‘lsin).',
+        '5) Neon kechasi yaxshi ko‘rinadi. Yer yoritish yo‘lga tushadi (suv ustida ko‘rinmaydi). LED nuqtalar faqat kameraga qaragan tomonda chiziladi (koronalar kuzov orqasidan ko‘rinmasligi uchun).',
+        '6) O‘chirish: CLEO papkasidan '+base+'.cs ni o‘chiring. DFF/TXD ga tegilmaydi.','',
+        'Eslatma: bu effekt faqat sizning o‘yiningizda ko‘rinadi — SA-MP serverlarida boshqa o‘yinchilar uni ko‘rmaydi.',
+        base+'_manba.txt — skriptning Sanny Builder matni (xohlasangiz o‘zgartirib, Sanny Builder bilan qayta kompilyatsiya qilishingiz mumkin).'].join('\r\n');
+      save(base+'.zip',G.zipStore([{name:base+'.cs',data:r.cs},{name:base+'_manba.txt',data:new TextEncoder().encode(r.src.replace(/\n/g,'\r\n'))},{name:'OQING_neon.txt',data:new TextEncoder().encode(txt)}]),'application/zip');}catch(e){toast('Xato: '+e.message);}}},['⬇ ZIP (.cs + yo‘riqnoma)']);
+  p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap;align-items:center'},[pv,el('label',{style:'display:flex;gap:6px;align-items:center'},[nt,el('span',{text:'🌙 Tun (o‘yindagidek qorong‘i)'})]),dl,zp]));
+  // ---- DFF: kuzovdagi LED tasma ----
+  const N=M.strip,done=!!N.on&&S.result&&S.result.kind==='edit'&&S.result.src===it.file;
+  const card=el('div',{class:'card',style:'padding:8px;border-left:3px solid #f43f5e'});p.appendChild(card);
+  card.appendChild(el('div',{html:'<b>💡 LED tasma — kuzovning o‘zida (1-rasmdagidek)</b>'}));
+  card.appendChild(el('div',{class:'note',html:'Ostonaning (eshiklar ostidagi) va bamperning <b>pastki qirrasi</b> bo‘ylab ingichka yonadigan tasma qo‘shiladi — DFF ga yangi geometriya (asl qismlarga tegilmaydi). U o‘yinning chiroq tizimi bilan yonadi: <b>faralar yonganda</b> (kechasi o‘yin faralarni o‘zi yoqadi) tasma ham yonadi. Rangi o‘yinning chiroq atlasidan olinadi — shuning uchun faqat <b>qizil, oq, sariq</b>. Boshqa rang kerak bo‘lsa — yuqoridagi «LED nuqtalar» (istalgan rang, rejimlar bilan).'+(sc.hasStrip&&!N.on?' <b style="color:#fbbf24">Bu modelda LED tasma allaqachon bor (avval qo‘shilgan) — qayta qo‘shilmaydi.</b>':'')}));
+  const ssel=el('select',{id:'neonStripCol'},Object.entries(G.DFF.NEON_STRIP_COL).map(([k,v])=>el('option',{value:k,text:v.lbl,selected:N.color===k})));
+  const chg=async()=>{if(done){await editPipeline('neon');renderPane();}};
+  ssel.addEventListener('change',()=>{N.color=ssel.value;chg();});
+  const pc=(id,key,lbl,miss)=>{const c=el('input',{type:'checkbox',id,checked:!!N[key]&&!miss,disabled:!!miss});c.addEventListener('change',()=>{N[key]=c.checked;chg();});return el('label',{style:'display:flex;gap:5px;align-items:center',title:miss?'Bu modelda topilmadi':''},[c,el('span',{text:lbl+(miss?' (topilmadi)':'')})]);};
+  card.appendChild(el('div',{class:'row',style:'flex-wrap:wrap;gap:12px;align-items:center'},[el('label',{text:'Rangi'}),ssel,pc('neonStripSide','side','Yon ostonalar',!sc.lines.L&&!sc.lines.R),pc('neonStripFront','front','Old bamper osti',!sc.lines.F),pc('neonStripRear','rear','Orqa bamper osti',!sc.lines.B)]));
+  card.appendChild(el('div',{class:'row'},[el('label',{text:'Tasma eni'}),(()=>{const i=el('input',{type:'range',id:'neonStripH',min:0.015,max:0.04,step:0.005,value:N.h}),l=el('span',{class:'note',text:Math.round(N.h*1000)/10+' sm'});
+    i.addEventListener('input',()=>{N.h=+i.value;l.textContent=Math.round(N.h*1000)/10+' sm';});i.addEventListener('change',chg);return el('div',{style:'display:flex;gap:8px;align-items:center;flex:1'},[i,l]);})()]));
+  card.appendChild(el('div',{class:'row'},[el('button',{class:done?'btn':'btn pri',type:'button',id:'btnNeonStrip',disabled:!sc.isCar&&!done,title:sc.isCar?'':'Faqat 4 g‘ildirakli mashina uchun',onclick:async()=>{N.on=!done;await editPipeline('neon');renderPane();}},[done?'↩ LED tasmani olib tashlash':'💡 LED tasmani qo‘shish'])]));
+  if(!sc.isCar)card.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'Bu model oddiy 4 g‘ildirakli mashina emas — LED tasma qo‘yilmaydi (yuqoridagi neon skript ishlaydi).'}));
+  if(done)card.appendChild(el('div',{class:'note',id:'neonStripNote',html:'✓ LED tasma qo‘shildi. <b>Yangi DFF ni</b> («⬇ ZIP (DFF…)» tugmasi) yuklab o‘rnating. 3D oynada «▶ 3D oynada ko‘rish» + «🌙 Tun» — tasma yonib turgan holda ko‘rinadi.'}));
+  p.appendChild(el('div',{class:'note',style:'border-left:3px solid #f43f5e;padding-left:10px',html:'<b>O‘rnatish:</b> o‘yinda <b>CLEO 4/5</b> bo‘lishi kerak. <code>.cs</code> faylni o‘yin papkasidagi <code>CLEO</code> papkasiga tashlang. LED tasma qo‘shgan bo‘lsangiz — yangi <code>.dff</code> ni ham o‘rnating (IMG ga yoki modloader orqali).'}));
+  if(M.preview)neonPreview(true);
 }
 
 function paneExport(p,it){
