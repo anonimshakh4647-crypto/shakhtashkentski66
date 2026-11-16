@@ -2263,6 +2263,7 @@ const STROBE_PAT={
   wigwag:{lbl:'Wig-wag: sekin chap–o‘ng',P:800,L:[[0,400]],R:[[400,800]],C:[[0,120],[400,520]]},
   steady:{lbl:'Doimiy yonib turadi (miltillamaydi)',P:1000,L:[[0,1000]],R:[[0,1000]],C:[[0,1000]]}
 };
+const STROBE_NONAUTO=[448,461,462,463,468,521,522,523,581,586,481,509,510,430,446,452,453,454,472,473,484,493,595,449,537,538,569,570,590];   // mototsikl, velosiped, qayiq, poyezd (CAutomobile emas)
 const STROBE_MAXCOR=16,STROBE_DUAL_ORDER=['head','roof','rear','fog','grille'];
 const STROBE_GROUPS=[['head','Faralar (old chiroqlar)',1.0],['fog','Tuman chiroqlari / podfarnik',0.65],['grille','Panjara (bamper) ichidagi chiroqlar',0.55],['roof','Tomdagi migalka',0.9],['rear','Orqa chiroqlar',0.8]];
 /* mashinadan chiroq nuqtalarini topish (model koordinatalarida: +x o'ng, +y old, +z tepa) */
@@ -2296,12 +2297,16 @@ function strobeScan(bytes){
   // yer sathi: g'ildirak dummylari balandligi - g'ildirak radiusi (g'ildirak geometriyasi kuzov nuqtalariga kirmaydi)
   let groundZ=mn[2];{const wz=F.filter(f=>/^wheel_[lr][fbm]_dummy$/i.test(f.name||'')).map(f=>W.get(f).p[2]);const wa=A.find(a=>/^wheel$/i.test(a.frame.name||''));
     if(wz.length&&wa){try{const g=decodeGeometry(G[wa.geom],rwv);let z0=1e9,z1=-1e9;for(let i=2;i<g.pos.length;i+=3){z0=Math.min(z0,g.pos[i]);z1=Math.max(z1,g.pos[i]);}if(z1>z0)groundZ=Math.min(mn[2],wz.reduce((a,b)=>a+b,0)/wz.length-(z1-z0)/2);}catch(e){}}}
-  return{head,fog,grille,grille2,rear,roofL,roofC,mn,mx,groundZ,hasHead:!!hp,hasTail:!!tp};
+  // haqiqiy chiroq oynalari: SA material rang kodlari (o'yin shu materiallarni chiroq yonganda "vehiclelightson128" bilan yoritadi)
+  const lampMats={fl:0,fr:0,rl:0,rr:0},LK={'255,175,0':'fl','0,255,200':'fr','185,255,0':'rl','255,60,0':'rr'};
+  for(const gi of new Set(A.map(a=>a.geom))){let g;try{g=decodeGeometry(G[gi],rwv);}catch(e){continue;}for(const m of g.materials||[]){const k=LK[(m.color||[]).slice(0,3).join(',')];if(k)lampMats[k]++;}}
+  const isCar=['wheel_lf_dummy','wheel_rf_dummy','wheel_lb_dummy','wheel_rb_dummy'].every(n=>F.some(f=>(f.name||'').toLowerCase()===n));
+  return{head,fog,grille,grille2,rear,roofL,roofC,mn,mx,groundZ,hasHead:!!hp,hasTail:!!tp,isCar,lampMats};
 }
 /* sozlamalar -> chiroqlar ro'yxati: {g, ch:'L'|'R'|'C', p:[x,y,z], c:[r,g,b], s} */
 function strobeLights(scan,cfg){
   const out=[],sz=+cfg.size||0.7;
-  for(const [g,,base] of STROBE_GROUPS){const G2=cfg.groups&&cfg.groups[g];if(!G2||!G2.on)continue;const col=G2.color||'white',s=Math.round(base*sz*100)/100;
+  for(const [g,,base] of STROBE_GROUPS){const G2=cfg.groups&&cfg.groups[g];if(!G2||!G2.on)continue;const col=G2.color||'white',s=Math.round(base*sz*(cfg.lamps&&(g==='head'||g==='rear')?0.6:1)*100)/100;
     const cL=col==='rb'?STROBE_COL.red:col==='br'?STROBE_COL.blue:STROBE_COL[col]||STROBE_COL.white,cR=col==='rb'?STROBE_COL.blue:col==='br'?STROBE_COL.red:cL;
     if(g==='roof'){const p=(G2.pos==='center'?scan.roofC:scan.roofL).slice();
       if(col==='rb'||col==='br'){if(G2.pos==='center'){const w=Math.max(0.25,Math.min(0.5,Math.abs(scan.roofL[0])*1.2));out.push({g,ch:'L',p:[-w,p[1],p[2]],c:cL,s},{g,ch:'R',p:[w,p[1],p[2]],c:cR,s});}   // tomdagi "lyustra" (lightbar): chapi va o'ngi
@@ -2333,7 +2338,7 @@ function scmAsm(){
   const u8=v=>b.push(v&255),u16=v=>{u8(v);u8(v>>8);},i32=v=>{u8(v);u8(v>>8);u8(v>>16);u8(v>>24);};
   const f32=v=>{const d=new DataView(new ArrayBuffer(4));d.setFloat32(0,v,true);for(let i=0;i<4;i++)u8(d.getUint8(i));};
   const prm={i:v=>{v=Math.round(v);if(v>=-128&&v<=127){u8(4);u8(v);}else if(v>=-32768&&v<=32767){u8(5);u16(v);}else{u8(1);i32(v);}},
-    f:v=>{u8(6);f32(v);},l:n=>{u8(3);u16(n);},g:n=>{u8(2);u16(n*4);},j:nm=>{u8(1);fix.push([b.length,nm]);i32(0);}};
+    f:v=>{u8(6);f32(v);},l:n=>{u8(3);u16(n);},g:n=>{u8(2);u16(n*4);},j:nm=>{u8(1);fix.push([b.length,nm]);i32(0);},e:()=>u8(0)};   // e: o'zgaruvchan sonli parametrlar oxiri (0AA6)
   return{
     op(code,txt,...ps){u16(code);for(const [k,v] of ps)prm[k](v);src.push((code>>>0).toString(16).toUpperCase().padStart(4,'0')+': '+txt);},
     label(nm){if(lab.has(nm))throw new Error('label '+nm);lab.set(nm,b.length);src.push(':'+nm);},
@@ -2363,18 +2368,42 @@ function strobeBuild(scan,cfg){
   if(lights.length>15)throw new Error('Chiroq juda ko‘p');
   const tl=strobeSegments(lights,cfg);if(!tl.segs.length)throw new Error('Naqshda yonadigan vaqt yo‘q');
   const A=scmAsm(),key=cfg.key==null?null:(+cfg.key|0),model=cfg.model==null?null:(+cfg.model|0),FL=16;
+  if(FL+lights.length>28)throw new Error('Chiroq juda ko‘p');
+  // haqiqiy chiroqlar: o'yinning o'z faralari/orqa chiroqlari (FORCE_CAR_LIGHTS + CDamageManager::SetLightStatus) -- faqat oddiy mashina (CAutomobile)
+  const LMP=[['head','L',0],['head','R',1],['rear','R',2],['rear','L',3]].map(([g,ch,k])=>({k,j:lights.findIndex(l=>l.g===g&&l.ch===ch)}));
+  const lamps=!!cfg.lamps&&LMP.some(x=>x.j>=0)&&scan.isCar!==false&&!(model!=null&&STROBE_NONAUTO.includes(model));
+  const REST=lamps?'STRB_REST':'STRB_MAIN';
   A.note('IT SHAKH — GTA SA stroboskop (CLEO 4/5). Model: '+(model==null?'har qanday mashina':model)+', tugma: '+(key==null?'yo‘q (doim yoqiq)':key)+', naqsh: '+(cfg.pattern||'gta5'));
   A.note('0@ yoqilgan, 1@ mashina, 2@ model, 3@-5@ nuqta, 6@ tugma, 7@-9@ nur rangi, 10@-12@ o‘zak rangi, 13@-15@ yo‘l nuqtasi, '+FL+'@.. chiroq bayroqlari, 33@ taymer');
+  if(lamps)A.note('Haqiqiy chiroqlar: 28@ boshqarilayotgan mashina, 29@ mos mashinami, 30@ CDamageManager manzili (mashina + 0x5A0), 31@ chiroq holati. 0x6C2100 = CDamageManager::SetLightStatus (GTA SA 1.0 US)');
   A.op(0x0000,'');                                                   // 0-ofsetda yorliq bo'lmasligi uchun (CLEO qoidasi)
   A.op(0x0006,'0@ = '+(key==null?1:0),['l',0],['i',key==null?1:0]);
   A.op(0x0006,'33@ = 0',['l',33],['i',0]);A.op(0x0006,'6@ = 0',['l',6],['i',0]);
+  if(lamps)A.op(0x0006,'28@ = 0',['l',28],['i',0]);
   A.label('STRB_MAIN');
   A.op(0x0001,'wait 0',['i',0]);
   A.op(0x00D6,'if',['i',0]);A.op(0x0256,'  player $PLAYER_CHAR defined',['g',2]);A.op(0x004D,'jump_if_false @STRB_MAIN',['j','STRB_MAIN']);
-  A.op(0x00D6,'if',['i',0]);A.op(0x0449,'  is_char_sitting_in_any_car $PLAYER_ACTOR',['g',3]);A.op(0x004D,'jump_if_false @STRB_MAIN',['j','STRB_MAIN']);
+  A.op(0x00D6,'if',['i',0]);A.op(0x0449,'  is_char_sitting_in_any_car $PLAYER_ACTOR',['g',3]);A.op(0x004D,'jump_if_false @'+REST,['j',REST]);
   A.op(0x03C0,'store_car_char_is_in_no_save $PLAYER_ACTOR store_to 1@',['g',3],['l',1]);
-  if(model!=null){A.op(0x0441,'get_car_model 1@ store_to 2@',['l',1],['l',2]);
-    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  2@ == '+model,['l',2],['i',model]);A.op(0x004D,'jump_if_false @STRB_MAIN',['j','STRB_MAIN']);}
+  if(model!=null||lamps)A.op(0x0441,'get_car_model 1@ store_to 2@',['l',1],['l',2]);
+  if(model!=null){A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  2@ == '+model,['l',2],['i',model]);A.op(0x004D,'jump_if_false @'+REST,['j',REST]);}
+  if(lamps){
+    // boshqa mashinaga o'tilgan bo'lsa -- avvalgisining chiroqlarini joyiga qaytaramiz
+    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  28@ == 0',['l',28],['i',0]);A.op(0x004D,'jump_if_false @STRB_CC',['j','STRB_CC']);A.op(0x0002,'jump @STRB_CK',['j','STRB_CK']);
+    A.label('STRB_CC');
+    A.op(0x00D6,'if',['i',0]);A.op(0x003B,'  28@ == 1@',['l',28],['l',1]);A.op(0x004D,'jump_if_false @STRB_REST',['j','STRB_REST']);
+    A.label('STRB_CK');
+    // 29@ = 1 -- shu mashinaning chiroqlarini boshqarish xavfsiz: o'yin 1.0 US va oddiy mashina (mototsikl/qayiq/poyezd emas)
+    A.op(0x0006,'29@ = 0',['l',29],['i',0]);
+    A.op(0x00D6,'if',['i',0]);A.op(0x0AA9,'  is_game_version_original');A.op(0x004D,'jump_if_false @STRB_NL',['j','STRB_NL']);
+    if(model==null){
+      A.op(0x00D6,'if',['i',0]);A.op(0x0029,'  2@ >= 612',['l',2],['i',612]);A.op(0x004D,'jump_if_false @STRB_E0',['j','STRB_E0']);A.op(0x0002,'jump @STRB_NL',['j','STRB_NL']);
+      A.label('STRB_E0');
+      STROBE_NONAUTO.forEach((id,k)=>{A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  2@ == '+id,['l',2],['i',id]);A.op(0x004D,'jump_if_false @STRB_E'+(k+1),['j','STRB_E'+(k+1)]);A.op(0x0002,'jump @STRB_NL',['j','STRB_NL']);A.label('STRB_E'+(k+1));});
+    }
+    A.op(0x0006,'29@ = 1',['l',29],['i',1]);
+    A.label('STRB_NL');
+  }
   if(key!=null){ // bosilgan paytni ushlaymiz (6@ -- oldingi kadrda bosilganmi): bir bosish -- bir almashtirish, chizish to'xtamaydi
     A.op(0x00D6,'if',['i',0]);A.op(0x0AB0,'  is_key_pressed '+key,['i',key]);A.op(0x004D,'jump_if_false @STRB_KUP',['j','STRB_KUP']);
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  6@ == 0',['l',6],['i',0]);A.op(0x004D,'jump_if_false @STRB_DRAW',['j','STRB_DRAW']);
@@ -2387,7 +2416,7 @@ function strobeBuild(scan,cfg){
     A.op(0x0006,'6@ = 0',['l',6],['i',0]);
   }
   A.label('STRB_DRAW');
-  A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  0@ == 1',['l',0],['i',1]);A.op(0x004D,'jump_if_false @STRB_MAIN',['j','STRB_MAIN']);
+  A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  0@ == 1',['l',0],['i',1]);A.op(0x004D,'jump_if_false @'+REST,['j',REST]);
   A.op(0x00D6,'if',['i',0]);A.op(0x0029,'  33@ >= '+tl.P,['l',33],['i',tl.P]);A.op(0x004D,'jump_if_false @STRB_CLR',['j','STRB_CLR']);
   A.op(0x0006,'33@ = 0',['l',33],['i',0]);
   A.label('STRB_CLR');
@@ -2398,9 +2427,28 @@ function strobeBuild(scan,cfg){
     A.op(0x00D6,'if and',['i',1]);A.op(0x0029,'  33@ >= '+sg.a,['l',33],['i',sg.a]);A.op(0x8029,'  not 33@ >= '+sg.b,['l',33],['i',sg.b]);
     A.op(0x004D,'jump_if_false @STRB_S'+(k+1),['j','STRB_S'+(k+1)]);
     for(const j of sg.on)A.op(0x0006,(FL+j)+'@ = 1',['l',FL+j],['i',1]);
-    A.op(0x0002,'jump @STRB_L0',['j','STRB_L0']);
+    A.op(0x0002,'jump @STRB_LMP',['j','STRB_LMP']);
   });
   A.label('STRB_S'+tl.segs.length);
+  A.label('STRB_LMP');
+  if(lamps){ // haqiqiy faralar / orqa chiroqlar: yonishi kerak bo'lgani -- butun (0), o'chishi kerak bo'lgani -- "singan" (1)
+    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  29@ == 1',['l',29],['i',1]);A.op(0x004D,'jump_if_false @STRB_LX',['j','STRB_LX']);
+    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  28@ == 0',['l',28],['i',0]);A.op(0x004D,'jump_if_false @STRB_LP',['j','STRB_LP']);
+    A.op(0x0085,'28@ = 1@',['l',28],['l',1]);
+    A.op(0x067F,'force_car_lights 1@ to 2',['l',1],['i',2]);
+    A.label('STRB_LP');
+    A.op(0x0A97,'get_car_pointer 1@ store_to 30@',['l',1],['l',30]);
+    A.op(0x000A,'30@ += 0x5A0',['l',30],['i',0x5A0]);
+    for(const x of LMP){
+      if(x.j<0){A.op(0x0AA6,'call_method 0x6C2100 struct 30@ num_params 2 pop 0 0 '+x.k,['i',0x6C2100],['l',30],['i',2],['i',0],['i',0],['i',x.k],['e',0]);continue;}
+      A.op(0x0006,'31@ = 1',['l',31],['i',1]);
+      A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  '+(FL+x.j)+'@ == 1',['l',FL+x.j],['i',1]);A.op(0x004D,'jump_if_false @STRB_A'+x.k,['j','STRB_A'+x.k]);
+      A.op(0x0006,'31@ = 0',['l',31],['i',0]);
+      A.label('STRB_A'+x.k);
+      A.op(0x0AA6,'call_method 0x6C2100 struct 30@ num_params 2 pop 0 31@ '+x.k,['i',0x6C2100],['l',30],['i',2],['i',0],['l',31],['i',x.k],['e',0]);
+    }
+    A.label('STRB_LX');
+  }
   // har bir chiroq HAR KADRDA chiziladi (o'chiq -- qora): korona doim "yonib turgan" holatda -> miltillash bir zumda ko'rinadi
   lights.forEach((l,i)=>{
     const dual=!!l.d,h=dual?strobeHalo(l.c):l.c,c=strobeCore(l.c),pool=strobePools(scan,l),sz=l.s;
@@ -2422,11 +2470,84 @@ function strobeBuild(scan,cfg){
     if(dual)A.op(0x024F,'draw_corona 3@ 4@ 5@ radius '+fF(sz*STROBE_CORE)+' type 0 lensflare 0 colour 10@ 11@ 12@',['l',3],['l',4],['l',5],['f',sz*STROBE_CORE],['i',0],['i',0],['l',10],['l',11],['l',12]);
   });
   A.op(0x0002,'jump @STRB_MAIN',['j','STRB_MAIN']);
+  if(lamps){ // chiroqlarni joyiga qaytarish: majburiy yoqish bekor, 4 ta chiroq butun
+    A.label('STRB_REST');
+    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  28@ == 0',['l',28],['i',0]);A.op(0x004D,'jump_if_false @STRB_R1',['j','STRB_R1']);A.op(0x0002,'jump @STRB_MAIN',['j','STRB_MAIN']);
+    A.label('STRB_R1');
+    A.op(0x00D6,'if',['i',0]);A.op(0x056E,'  does_vehicle_exist 28@',['l',28]);A.op(0x004D,'jump_if_false @STRB_R2',['j','STRB_R2']);
+    A.op(0x067F,'force_car_lights 28@ to 0',['l',28],['i',0]);
+    A.op(0x0A97,'get_car_pointer 28@ store_to 30@',['l',28],['l',30]);
+    A.op(0x000A,'30@ += 0x5A0',['l',30],['i',0x5A0]);
+    for(const k of [0,1,2,3])A.op(0x0AA6,'call_method 0x6C2100 struct 30@ num_params 2 pop 0 0 '+k,['i',0x6C2100],['l',30],['i',2],['i',0],['i',0],['i',k],['e',0]);
+    A.label('STRB_R2');
+    A.op(0x0006,'28@ = 0',['l',28],['i',0]);
+    A.op(0x0002,'jump @STRB_MAIN',['j','STRB_MAIN']);
+  }
   const r=A.done();
-  return{cs:r.bytes,src:'{$CLEO .cs}\n'+r.src+'\n',lights,tl};
+  return{cs:r.bytes,src:'{$CLEO .cs}\n'+r.src+'\n',lights,tl,lamps,lampMap:LMP};
+}
+/* ---------- HAQIQIY CHIROQ OYNALARINI CHAP / O'NGGA AJRATISH (DFF) ----------
+ * SA chiroq oynasini material rang kodi bo'yicha yoqadi: 255,175,0 -- chap fara, 0,255,200 -- o'ng fara, 185,255,0 -- chap orqa, 255,60,0 -- o'ng orqa.
+ * Ko'p modellarda ikkala fara oynasi BITTA kodda (masalan, ikkalasi ham "o'ng") -- shunda chap–o'ng navbat bilan yonib bo'lmaydi.
+ * Bu tahrir faqat mashinaning OLD va ORQA uchidagi (0.7 m) chiroq uchburchaklarini o'z tomoniga qarab to'g'ri kodga o'tkazadi
+ * (fara turi saqlanadi: old kod -- old, orqa kod -- orqa). Kapot, bagaj, eshik va g'ildiraklarga tegilmaydi (ulardagi naqsh/yozuvlar buzilmaydi).
+ * Lossless: vertex/UV/normal o'zgarmaydi; faqat uchburchakning material raqami, yangi material nusxasi (rangi boshqa) va BinMesh. */
+const STROBE_LK={'255,175,0':['h',0],'0,255,200':['h',1],'185,255,0':['t',0],'255,60,0':['t',1]},STROBE_LC={h:[[255,175,0],[0,255,200]],t:[[185,255,0],[255,60,0]]};
+const strobeSplitSkip=f=>/^(wheel|bonnet|boot|door_|windscreen)/i.test(f&&f.name||'');
+function strobeLampPlan(ctx){
+  const {A,G,rwv,F}=ctx,P=[],mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30],seen=new Set(),geo=[];
+  if(!['wheel_lf_dummy','wheel_rf_dummy','wheel_lb_dummy','wheel_rb_dummy'].every(n=>F.some(f=>(f.name||'').toLowerCase()===n)))return{plan:[],n:0};   // faqat 4 g'ildirakli mashina
+  for(const a of A){if(seen.has(a.geom))continue;seen.add(a.geom);let g;try{g=decodeGeometry(G[a.geom],rwv);}catch(e){continue;}if(g.native||!g.pos)continue;const W=fWorld(a.frame);
+    const wp=new Float32Array(g.nV*3);for(let i=0;i<g.nV;i++){const q=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],W);wp[i*3]=q[0];wp[i*3+1]=q[1];wp[i*3+2]=q[2];
+      if(!/^wheel/i.test(a.frame.name||''))for(let c=0;c<3;c++){if(q[c]<mn[c])mn[c]=q[c];if(q[c]>mx[c])mx[c]=q[c];}}
+    geo.push({a,gi:a.geom,g,wp});}
+  const Z=0.7,plan=[];let n=0;
+  for(const {a,gi,g,wp} of geo){if(strobeSplitSkip(a.frame)||A.filter(b=>b.geom===gi).some(b=>strobeSplitSkip(b.frame)))continue;
+    const code=g.materials.map(m=>STROBE_LK[(m&&m.color||[]).slice(0,3).join(',')]||null);if(!code.some(Boolean))continue;
+    const ch=[];
+    for(let t=0;t<g.nTri;t++){const mi=g.tris[t*4+3],c=code[mi];if(!c)continue;
+      let cx=0,cy=0;for(let k=0;k<3;k++){const v=g.tris[t*4+k];cx+=wp[v*3];cy+=wp[v*3+1];}cx/=3;cy/=3;
+      if(!(cy>=mx[1]-Z||cy<=mn[1]+Z)||Math.abs(cx)<0.05)continue;            // faqat old/orqa uchidagi chiroqlar; o'rtadagisi o'zgarmaydi
+      const side=cx<0?0:1;if(side===c[1])continue;ch.push([t,mi,c[0],side]);}
+    if(ch.length){plan.push({gi,ch});n+=ch.length;}}
+  return{plan,n};
+}
+function strobeLampSplitScan(bytes){try{return strobeLampPlan(dffCtx(bytes)).n;}catch(e){return 0;}}
+function strobeLampSplit(bytes){
+  const ctx=dffCtx(bytes),{G,rwv}=ctx,{plan,n}=strobeLampPlan(ctx);if(!n)return{dff:bytes,changed:0,geoms:0,skipped:0};
+  let changed=0,geoms=0,skipped=0;
+  for(const {gi,ch} of plan){const gc=G[gi];if(!livGeomOk(gc)){skipped++;continue;}
+    const g=decodeGeometry(gc,rwv),ml=child(gc,T.MATLIST),mst=child(ml,T.STRUCT);
+    // material slotlari (matlist indeksi -> material bo'lagi)
+    const mats=childs(ml,T.MATERIAL),mdv=dvOf(mst.data),cnt=mdv.getUint32(0,true),slot=[];let k=0;
+    for(let i=0;i<cnt;i++){const idx=mdv.getInt32(4+i*4,true);slot.push(idx<0?mats[k++]:slot[idx]);}
+    const added=new Map(),idxs=[];let total=cnt;
+    const matFor=(mi,type,side)=>{const key=mi+'|'+type+side;if(added.has(key))return added.get(key);
+      const src=slot[mi],mc=parseChunks(serialize([src]),0,12+sizeOf(src))[0],st=child(mc,T.STRUCT),d=new Uint8Array(st.data),rgb=STROBE_LC[type][side];
+      d[4]=rgb[0];d[5]=rgb[1];d[6]=rgb[2];st.data=d;   // rang kodi (alfa o'zgarmaydi)
+      let li=-1;ml.children.forEach((c,i)=>{if(c.type===T.MATERIAL)li=i;});ml.children.splice(li+1,0,mc);idxs.push(-1);
+      const ni=total++;added.set(key,ni);return ni;};
+    const tris=g.tris.slice();for(const [t,mi,type,side] of ch){tris[t*4+3]=matFor(mi,type,side);changed++;}
+    if(total>65535)throw new Error('Material juda ko‘p');
+    // matlist struct: soni + yangi -1 indekslar
+    const od=mst.data,nd=new Uint8Array(od.length+4*idxs.length);nd.set(od.subarray(0,4+cnt*4),0);nd.set(od.subarray(4+cnt*4),4+total*4);
+    dvOf(nd).setUint32(0,total,true);for(let i=0;i<idxs.length;i++)dvOf(nd).setInt32(4+(cnt+i)*4,-1,true);mst.data=nd;
+    // geometriya struct: faqat uchburchak material raqamlari (+ TRISTRIP bayrog'i olinadi -- BinMesh uchburchak ro'yxati bo'ladi)
+    const st=child(gc,T.STRUCT),sd=new Uint8Array(st.data),sdv=dvOf(sd);let flags=sdv.getUint32(0,true);const nT=sdv.getUint32(4,true),nV=sdv.getUint32(8,true);
+    let o=16;if(rwv<0x34000)o+=12;let numUV=(flags>>16)&255;if(!numUV)numUV=(flags&0x80)?2:(flags&4)?1:0;if(flags&8)o+=nV*4;o+=numUV*nV*8;
+    for(let t=0;t<nT;t++)sdv.setUint16(o+t*8+4,tris[t*4+3],true);
+    sdv.setUint32(0,flags&~1,true);st.data=sd;
+    // BinMesh
+    let ex=child(gc,T.EXT);if(!ex){ex=extChunk(gc.ver);gc.children.push(ex);}
+    const per=Array.from({length:total},()=>[]);for(let t=0;t<nT;t++)per[tris[t*4+3]].push(tris[t*4],tris[t*4+1],tris[t*4+2]);
+    const bm=new BW(),usedM=per.map((p,i)=>({p,i})).filter(x=>x.p.length);
+    bm.u32(0);bm.u32(usedM.length);bm.u32(usedM.reduce((s2,x)=>s2+x.p.length,0));for(const x of usedM){bm.u32(x.p.length);bm.u32(x.i);for(const v of x.p)bm.u32(v);}
+    const bmc=child(ex,T.BINMESH);if(bmc)bmc.data=bm.done();else ex.children.unshift(leaf(T.BINMESH,gc.ver,bm.done()));
+    geoms++;}
+  return{dff:serialize(ctx.roots),changed,geoms,skipped};
 }
 
-root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS};
+root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS};
 })(GV);
 /* ---- extension: DFF materials with textures list helper, RW 3.6 version constants ---- */
 (function(G){
@@ -4743,6 +4864,7 @@ class Viewer{
     // grid
     if(this.opt.grid){gl.bindBuffer(gl.ARRAY_BUFFER,this.gridBuf);gl.enableVertexAttribArray(L.aPos);gl.vertexAttribPointer(L.aPos,3,gl.FLOAT,false,0,0);gl.disableVertexAttribArray(L.aNrm);gl.disableVertexAttribArray(L.aUV);
       gl.vertexAttrib3f(L.aNrm,0,0,1);gl.vertexAttrib2f(L.aUV,0,0);gl.uniformMatrix4fv(L.uM,false,[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);gl.uniform1f(L.uUseTex,0);gl.uniform1f(L.uLit,0);gl.uniform1f(L.uShine,0);gl.uniform4f(L.uCol,0.25,0.3,0.4,1);gl.uniform3f(L.uTint,0,0,0);gl.drawArrays(gl.LINES,0,this.gridN);}
+    const LS=this.fx&&this.fx.live()&&this.fx.lamps?this.fx.lamps(performance.now()):null,LK={'255,175,0':'fl','0,255,200':'fr','185,255,0':'rl','255,60,0':'rr'};
     const pass=(transparent)=>{
       for(const o of this.meshes){
         if(!this.visible(o)||(o.alpha<1)!==transparent)continue;
@@ -4759,6 +4881,9 @@ class Viewer{
         if(!o.mesh.mat.tex&&(o.mesh.mat.shaderName||'').indexOf('vehicle_paint')===0){cr=0.65;cg=0.1;cb=0.1;} // paint preview
         if(tex&&(o.mesh.mat.shaderName||'').indexOf('vehicle_paint')===0){cr=cg=cb=1;}
         gl.uniform4f(L.uCol,cr,cg,cb,o.alpha);gl.uniform1f(L.uLit,o.noN?0:1);gl.uniform1f(L.uShine,o.shine&&this.opt.shine!==false?0.75:0);if(hlM){gl.uniform1f(L.uUseTex,0);gl.uniform4f(L.uCol,1.0,0.42,0.02,1);gl.uniform1f(L.uShine,0);}gl.uniform3f(L.uTint,hlM?0.25:hl?0.18:0,hlM?0.08:hl?0.12:0,0);
+        if(LS&&!this.opt.wire){const lk=LK[(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)];if(lk){const rear=lk[0]==='r';gl.uniform1f(L.uUseTex,0);gl.uniform1f(L.uShine,0);
+          if(LS[lk]){gl.uniform1f(L.uLit,0);gl.uniform4f(L.uCol,1,rear?0.1:1,rear?0.06:0.96,Math.max(o.alpha,0.92));gl.uniform3f(L.uTint,rear?0.35:0.3,rear?0.02:0.3,rear?0.02:0.28);}   // yonib turgan chiroq oynasi
+          else{gl.uniform1f(L.uLit,1);gl.uniform4f(L.uCol,rear?0.36:0.55,rear?0.05:0.56,rear?0.05:0.6,o.alpha);gl.uniform3f(L.uTint,0,0,0);}}}   // o'chiq oyna
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,o.bi);gl.drawElements(gl.TRIANGLES,o.n,o.u32?gl.UNSIGNED_INT:gl.UNSIGNED_SHORT,0);
       }
     };
@@ -5636,6 +5761,9 @@ async function editPipeline(why){
       if(!tp)warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da FAQAT «'+L.tex+'» teksturasi bor. Mashinaning o‘z TXD sini «Fayllar» ga qo‘shib, qayta bosing (aks holda boshqa teksturalar yo‘qoladi).');
     }else if(tp){txd=tp.raw;txdName=tp.file;}
     if(LGs.items.length){for(const lg of LGs.items)txd=G.txdPutTexture(txd,logoTex(lg),true);if(!tp&&!(L.on&&L.img))warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da faqat logo teksturalari bor. Mashinaning o‘z TXD sini qo‘shing.');}
+    if(S.strobe&&S.strobe.splitOn){ // stroboskop: chap/o'ng chiroq oynalarini o'z kodiga ajratish (oxirida -- boshqa tahrirlar materiallariga tegmaydi)
+      const sp=G.DFF.strobeLampSplit(dff);if(sp.changed){dff=sp.dff;changed=true;info.push('Chiroq oynalari: '+sp.changed.toLocaleString()+' poligon chap/o‘ng kodiga ajratildi ('+sp.geoms+' ta geometriya) — endi chap va o‘ng fara (orqa chiroq) alohida yonadi.');}
+      if(sp.skipped)warn.push('Chiroq oynalari: '+sp.skipped+' ta geometriyada (skin/breakable) ajratilmadi.');}
     const prev=S.result&&S.result.kind==='edit'&&S.result.src===it.file?S.result:null;
     let dff0=null,keep=null,drop=new Set(),removedInfo=null,stats0=null;
     if(prev&&prev.removedOrig&&prev.removedOrig.size){drop=new Set(prev.removedOrig);removedInfo=new Map(prev.removedInfo);dff0=dff;stats0=dffTotals(dff0);const o=G.DFF.removeAtomics(dff0,drop);dff=o.dff;keep=o.keep;}
@@ -5653,6 +5781,7 @@ async function editPipeline(why){
     if(why==='livery')toast('Tayyor! Rasm mashinaga qo‘yildi — DFF va TXD yuklab olishga tayyor');
     if(why==='limo')toast('Tayyor! Mashina limuzin qilindi (+'+S.limo.len.toFixed(1)+' m) — DFF yuklab olishga tayyor');
     if(why==='limo-off')toast('Mashina asl uzunligiga qaytdi');
+    if(why==='lamps')toast(S.strobe.splitOn?'Tayyor! Chap va o‘ng chiroq oynalari ajratildi — yangi DFF ni ham yuklab o‘rnating':'Chiroq oynalari asl holiga qaytdi');
     if(why==='logo')toast(LGs.items.length?'Tayyor! Logo qo‘yildi — sichqoncha bilan aylantirib ko‘ring':'Logo olib tashlandi');
   }catch(e){console.error(e);log('SA tahrir xatosi: '+e.message,'e');toast('Xato: '+e.message);}
   setBusy(false);
@@ -5955,7 +6084,7 @@ function paneLimo(p,it){
 }
 
 /* ---------- SA tahrir: STROBOSKOP / MIGALKA (CLEO skript + 3D da animatsiya) ---------- */
-S.strobe={pattern:'gta5',speed:1,size:0.6,ground:true,key:'221',modelMode:'auto',modelId:'',preview:false,
+S.strobe={pattern:'gta5',speed:1,size:0.6,ground:true,lamps:true,splitOn:false,splitFor:null,splitNeed:0,key:'221',modelMode:'auto',modelId:'',preview:false,
   groups:{head:{on:true,color:'white'},fog:{on:false,color:'white'},grille:{on:true,color:'rb'},roof:{on:true,color:'rb',pos:'center'},rear:{on:true,color:'rb'}},
   scan:null,scanFor:null,cache:null};
 const STROBE_KEYS=[['221',']  (yopiq kvadrat qavs — videodagi moddagidek)'],['66','B'],['78','N'],['75','K'],['74','J'],['76','L'],['77','M'],['85','U'],['89','Y'],['90','Z'],['97','NumPad 1'],['98','NumPad 2'],['-','Tugmasiz — mashinaga o‘tirilsa doim yonadi']];
@@ -5967,7 +6096,7 @@ function strobeModelName(it){const raw=String(it.model&&it.model.name||it.file||
   return raw.replace(/[^a-z0-9_]/g,'')||'car';}
 function strobeGuessId(it){return G.DFF.SA_VEH_IDS[strobeModelName(it)]||null;}
 function strobeModel(it){const M=S.strobe;if(M.modelMode==='any')return null;if(M.modelMode==='id'){const v=parseInt(M.modelId,10);return v>=400&&v<=65535?v:null;}return strobeGuessId(it);}
-function strobeCfg(it){const M=S.strobe;return{model:strobeModel(it),key:M.key==='-'?null:+M.key,pattern:M.pattern,speed:M.speed,size:M.size,ground:M.ground,groups:M.groups};}
+function strobeCfg(it){const M=S.strobe;return{model:strobeModel(it),key:M.key==='-'?null:+M.key,pattern:M.pattern,speed:M.speed,size:M.size,ground:M.ground,lamps:!!M.lamps,groups:M.groups};}
 function strobeMake(it){const sc=strobeScanOf(it),cfg=strobeCfg(it),k=JSON.stringify(cfg),M=S.strobe;if(M.cache&&M.cache.k===k&&M.cache.sc===sc)return M.cache.r;const r=G.DFF.strobeBuild(sc,cfg);M.cache={k,sc,r};return r;}
 /* 3D oynada animatsiya: skript bilan aynan bir xil vaqt jadvali */
 function strobePreview(on){
@@ -5977,7 +6106,11 @@ function strobePreview(on){
     const on2=G.DFF.strobeAt(r.lights,r.tl,t),out=[];   // o'yindagidek: katta rangli nur + kichik yorqin o'zak + yo'ldagi yorug'lik dog'i
     for(const l of on2){const H=G.DFF.STROBE_HALO,Cr=G.DFF.STROBE_CORE;if(l.d)out.push({p:l.p,c:G.DFF.strobeHalo(l.c),s:l.s*H*0.75},{p:l.p,c:G.DFF.strobeCore(l.c),s:l.s*Cr*0.75});else out.push({p:l.p,c:l.c,s:l.s*H*0.75});
       if(S.strobe.ground){const pl=G.DFF.strobePools(sc,l);out.push({ground:true,p:[pl.p[0],pl.p[1],sc.groundZ+0.02],c:l.c.map(v=>v*pl.int/255),s:pl.size});}}
-    return out;}}:null;
+    return out;},
+    // haqiqiy chiroq oynalari (SA rang kodli materiallar): skriptdagidek -- yonishi kerak bo'lgani yonadi, qolgani o'chiq
+    lamps:t=>{const it=curItem();if(!it||!it.raw||!S.strobe.preview||S.tab!=='edit')return null;let r;try{r=strobeMake(it);}catch(e){return null;}
+      const L={fl:false,fr:false,rl:false,rr:false,ctl:!!r.lamps};if(!r.lamps)return L;const on=new Set(G.DFF.strobeAt(r.lights,r.tl,t));
+      for(const x of r.lampMap){const k=['fl','fr','rr','rl'][x.k];L[k]=x.j<0?true:on.has(r.lights[x.j]);}return L;}}:null;
   viewer.need=true;
 }
 function paneStrobe(p,it){
@@ -6006,6 +6139,15 @@ function paneStrobe(p,it){
   p.appendChild(box);
   const gr=el('input',{type:'checkbox',id:'strbGround',checked:!!M.ground});gr.addEventListener('change',()=>{M.ground=gr.checked;upd();});
   p.appendChild(row('Yo‘lga va atrofga yorug‘lik tushsin (GTA 5 dagidek)',gr));
+  const lm=el('input',{type:'checkbox',id:'strbLamps',checked:!!M.lamps});lm.addEventListener('change',()=>{M.lamps=lm.checked;upd();});
+  p.appendChild(row('Haqiqiy faralar va orqa chiroqlar yonib-o‘chsin (chiroq oynasining ichi yonadi)',lm));
+  const lmN=sc.lampMats||{fl:0,fr:0,rl:0,rr:0},lmTot=lmN.fl+lmN.fr+lmN.rl+lmN.rr;
+  if(M.splitFor!==it.raw){M.splitFor=it.raw;M.splitNeed=G.DFF.strobeLampSplitScan(it.raw);}
+  if(M.splitNeed>0){const done=!!M.splitOn&&S.result&&S.result.kind==='edit'&&S.result.src===it.file;
+    p.appendChild(el('div',{class:'note',id:'strbSplitNote',style:'border-left:3px solid #fbbf24;padding-left:10px',html:done?'✓ Chap va o‘ng chiroq oynalari ajratilgan ('+M.splitNeed.toLocaleString()+' poligon). <b>Yangi DFF ni ham</b> («⬇ ZIP (DFF…)» tugmasi) yuklab o‘rnating — aks holda o‘yinda ikkala fara birga yonadi.':
+      'Bu modelda chap va o‘ng chiroq oynalarining bir qismi <b>bitta kodda</b> ('+M.splitNeed.toLocaleString()+' poligon) — o‘yinda ular chap–o‘ng navbat bilan emas, <b>birga</b> yonadi. Quyidagi tugma ularni o‘z tomoniga ajratadi (faqat old va orqa uchidagi chiroqlar; kapot, bagaj va eshikdagi naqshlarga tegilmaydi). Bu DFF ni o‘zgartiradi — keyin yangi DFF ni ham yuklab o‘rnating. Oddiy haydashda farq yo‘q: faralar yoqilganda ikkala oyna ham yonadi.'}));
+    p.appendChild(el('div',{class:'row'},[el('button',{class:done?'btn':'btn pri',type:'button',id:'btnStrbSplit',onclick:async()=>{M.splitOn=!done;M.cache=null;await editPipeline('lamps');renderPane();}},[done?'↩ Chiroq oynalarini asl holiga':'💡 Chap / o‘ng chiroq oynalarini ajratish'])]));}
+  p.appendChild(el('div',{class:'note',id:'strbLampNote',html:'O‘yinning <b>o‘z chiroqlari</b> boshqariladi: chap fara yonganda chap fara oynasi, o‘ng fara yonganda o‘ng fara oynasi yonadi (orqa chiroqlar ham shunday). Bu modelda chiroq oynasi materiallari: chap fara '+lmN.fl+', o‘ng fara '+lmN.fr+', chap orqa '+lmN.rl+', o‘ng orqa '+lmN.rr+' ta'+(lmTot?'.':' — <b style="color:#fbbf24">topilmadi</b>: o‘yin faqat fara nurini yoqadi, oyna yonmaydi (chiroq oynasiga SA rang kodlarini «Konvertatsiya» bo‘limida berish kerak).')+(sc.isCar===false?' <b style="color:#fbbf24">Bu model oddiy 4 g‘ildirakli mashina emas — haqiqiy chiroqlar boshqarilmaydi.</b>':'')+' Faqat GTA SA <b>1.0 US</b> da ishlaydi (boshqa versiyada skript buni o‘zi o‘tkazib yuboradi). Stroboskop o‘chirilganda yoki mashinadan tushganda faralar asl holiga qaytadi (singan chiroqlar ham tuzaladi).'}));
   p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('strbKey',STROBE_KEYS,M.key,v=>{M.key=v;})));
   const gid=strobeGuessId(it),nm=strobeModelName(it);
   const idI=el('input',{type:'number',id:'strbId',min:400,max:65535,value:M.modelId||gid||'',style:'width:110px;display:'+(M.modelMode==='id'?'':'none')});
@@ -6015,7 +6157,7 @@ function paneStrobe(p,it){
   const inf=el('div',{class:'note',id:'strbInfo'});p.appendChild(inf);
   const info=()=>{let r;try{r=strobeMake(it);}catch(e){inf.style.color='#fb7185';inf.textContent='Xato: '+e.message;return;}inf.style.color='';
     const cfg=strobeCfg(it),kn=(STROBE_KEYS.find(x=>x[0]===M.key)||['',''])[1].split(' ')[0];
-    inf.innerHTML='Skript: <b>'+r.cs.length.toLocaleString()+' bayt</b>, '+r.lights.length+' ta chiroq, naqsh davri '+r.tl.P+' ms ('+r.tl.segs.length+' bo‘lak). '+(cfg.model==null?'<b>Har qanday mashinada</b> ishlaydi (boshqa mashinalarda chiroqlar shu mashina o‘lchami bo‘yicha turadi).':'Faqat model ID <b>'+cfg.model+'</b> bo‘lgan mashinada ishlaydi.')+' '+(cfg.key==null?'Mashinaga o‘tirilishi bilan yonadi.':'O‘yinda mashinada <b>'+esc(kn)+'</b> tugmasini bosing — yonadi, yana bosing — o‘chadi.');};
+    inf.innerHTML='Skript: <b>'+r.cs.length.toLocaleString()+' bayt</b>, '+r.lights.length+' ta chiroq, naqsh davri '+r.tl.P+' ms ('+r.tl.segs.length+' bo‘lak). '+(cfg.model==null?'<b>Har qanday mashinada</b> ishlaydi (boshqa mashinalarda chiroqlar shu mashina o‘lchami bo‘yicha turadi).':'Faqat model ID <b>'+cfg.model+'</b> bo‘lgan mashinada ishlaydi.')+' '+(cfg.key==null?'Mashinaga o‘tirilishi bilan yonadi.':'O‘yinda mashinada <b>'+esc(kn)+'</b> tugmasini bosing — yonadi, yana bosing — o‘chadi.')+(r.lamps?' Haqiqiy faralar va orqa chiroqlar ham yonib-o‘chadi.':'');};
   info();
   const pv=el('button',{class:'btn'+(M.preview?' pri':''),type:'button',id:'btnStrbPrev',onclick:()=>{strobePreview(!M.preview);if(M.preview&&viewer&&viewer.ok){viewer.cam.yaw=Math.PI*0.32;viewer.cam.pitch=0.22;viewer.fit();}renderPane();}},[M.preview?'⏸ 3D animatsiyani to‘xtatish':'▶ 3D oynada animatsiyani ko‘rish']);
   const base='strobe_'+nm;
@@ -6027,6 +6169,8 @@ function paneStrobe(p,it){
         '3) '+(cfg.key==null?'O‘yinda mashinaga o‘tirishingiz bilan chiroqlar miltillay boshlaydi.':'O‘yinda mashinaga o‘tiring va '+kn+' tugmasini bosing — chiroqlar miltillay boshlaydi; yana bosing — o‘chadi.'),
         '4) '+(cfg.model==null?'Skript har qanday mashinada ishlaydi; chiroqlar shu mashina ('+nm+') o‘lchamiga moslangan — boshqa mashinalarda biroz boshqa joyda turishi mumkin.':'Skript faqat model ID '+cfg.model+' bo‘lgan mashinada ishlaydi ('+nm+'). Chiroqlar aynan shu modelning faralari, panjarasi va tomiga moslangan.'),
         '5) Avvalgi versiyadagi stroboskop .cs fayli CLEO papkasida qolgan bo‘lsa, uni o‘chiring (yoki shu fayl bilan almashtiring) — aks holda ikkala skript bir vaqtda ishlaydi.',
+        ...(r.lamps?['   Haqiqiy chiroqlar: skript mashinaning o‘z faralarini yoqadi va chap/o‘ng chiroqni navbat bilan yoqib-o‘chiradi (chiroq oynasining ichi yonadi). Bu faqat GTA SA 1.0 US da ishlaydi; boshqa versiyada faqat nurlar (koronalar) chiziladi.',
+          '   Stroboskopni o‘chirganingizda yoki mashinadan tushganingizda faralar asl holiga qaytadi (singan fara bo‘lsa, u ham tuzaladi). Agar o‘yinni saqlab-yuklagandan keyin chiroq yonmay qolsa — Pay‘n‘Spray da tuzating.']:[]),
         '6) O‘chirish: CLEO papkasidan '+base+'.cs ni o‘chiring. DFF/TXD ga tegilmaydi.','',
         'Eslatma: chiroqlar (koronalar) o‘yin ichida chiziladi. SA-MP serverlarida boshqa o‘yinchilar ularni ko‘rmaydi — faqat sizning ekraningizda.',
         base+'_manba.txt — skriptning Sanny Builder matni (xohlasangiz o‘zgartirib, Sanny Builder bilan qayta kompilyatsiya qilishingiz mumkin).'].join('\r\n');
