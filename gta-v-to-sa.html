@@ -2578,7 +2578,8 @@ function lampRecolor(rgba,w,h,front,rear){
 /* IVF (Improved Vehicle Features) uchun: shu mashinaning chiroq materiallari o'z teksturasini ishlatadi --
  * DFF da chiroq kodli materiallarning "vehiclelights128" teksturasi nomi "vehiclelights" ga o'zgaradi (TXD ga "vehiclelights" va
  * "vehiclelights_on" qo'shiladi). Faqat material TEXTURE bo'lagidagi nom satri o'zgaradi; qolgani bayt-bayt bir xil. */
-const LAMP_CODES=new Set(['255,175,0','0,255,200','185,255,0','255,60,0']);
+const LAMP_CODES=new Set(['255,175,0','0,255,200','185,255,0','255,60,0',   // SA
+  '184,255,0','255,59,0','255,173,0','0,255,198','255,174,0','0,255,199','183,255,0','255,58,0','182,255,0','255,57,0','181,255,0','255,56,0']);   // IVF: stop, orqaga, tuman, burilish
 function lampRetexDff(bytes,newName){
   newName=newName||'vehiclelights';
   const ctx=dffCtx(bytes),{G:GE}=ctx;let n=0;const seen=new Set();
@@ -2592,7 +2593,131 @@ function lampRetexDff(bytes,newName){
   return{dff:n?serialize(ctx.roots):bytes,changed:n};
 }
 
-root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS,lampRecolor,lampClassify,lampRetexDff,LAMP_SKIP};
+/* ---------- CHIROQLARNI SOZLASH: mashinaning har bir chiroq qismi o'yinda yonadigan bo'lsin ----------
+ * O'yin chiroq oynasini 2 shart bilan yoqadi: (1) materialning rang kodi -- qaysi chiroq ekanini bildiradi,
+ * (2) teksturasi "vehiclelights128" (chiroq yonganda "vehiclelightson128" ga almashadi; oynaning rangi = atlasdagi UV joyi).
+ * Teksturasiz yoki o'z teksturali chiroq qismlari (ko'p modellarda shunday) o'yinda HECH QACHON yonmaydi.
+ * Bu tahrir tanlangan rol bo'yicha: rang kodini qo'yadi (chap/o'ng -- har bir uchburchak o'z tomoniga qarab; burilish chiroqlari --
+ * old/yon/orqa joyiga qarab), kerak bo'lsa teksturani "vehiclelights128" ga almashtirib, UV ni atlasning mos rangli joyiga qo'yadi
+ * (oq -- fara/tuman/orqaga yurish, qizil -- orqa chiroq/stop, sariq -- burilish). Vertexlar faqat zarur bo'lsa nusxalanadi.
+ * Kodlar: SA -- fara 255,175,0 / 0,255,200, orqa 185,255,0 / 255,60,0; IVF (Improved Vehicle Features) -- stop 184,255,0 / 255,59,0,
+ * orqaga yurish 255,173,0 / 0,255,198, tuman 255,174,0 / 0,255,199, burilish old 183,255,0 / 255,58,0, yon 182,255,0 / 255,57,0,
+ * orqa 181,255,0 / 255,56,0. IVF kodlari IVF siz o'yinda yonmaydi. */
+const LF_ATLAS={white:[0.375,0.885],red:[86.5/128,110.5/128],amber:[108.5/128,78.5/128]};   // atlasdagi bir xil rangli joylar (vehicle.txd 128x128 bo'yicha): oq lampa, yorqin qizil lampa, sariq
+const LF_CODES={head:[[255,175,0],[0,255,200]],tail:[[185,255,0],[255,60,0]],brake:[[184,255,0],[255,59,0]],rev:[[255,173,0],[0,255,198]],fog:[[255,174,0],[0,255,199]],
+  ind_f:[[183,255,0],[255,58,0]],ind_m:[[182,255,0],[255,57,0]],ind_r:[[181,255,0],[255,56,0]]};
+const LF_ROLE_ATLAS={head:'white',fog:'white',rev:'white',tail:'red',brake:'red',ind:'amber'};
+const LF_IVF=new Set(['brake','rev','fog','ind']);
+const LF_CODE2ROLE=(()=>{const m={};for(const [k,v] of Object.entries(LF_CODES))v.forEach((c,s)=>{m[c.join(',')]=[k.startsWith('ind')?'ind':k,s];});return m;})();
+const LF_ROLES=[['keep','O‘zgarmasin'],['none','Chiroq emas (yonmasin)'],['head','Fara / old mayda chiroq (faralar bilan yonadi)'],['tail','Orqa chiroq (faralar bilan, tormozda kuchliroq)'],
+  ['ind','Burilish chirog‘i — IVF (Z / C / X)'],['brake','Stop-signal — IVF'],['rev','Orqaga yurish chirog‘i — IVF'],['fog','Tuman chirog‘i — IVF (J)']];
+/* hech qanday kod (SA bo'yoq/chiroq, IVF) ga tushmaydigan rang -- asliga yaqin */
+const lfSafe=c=>{const isCode=r=>LF_CODE2ROLE[r.join(',')]||LIV_SPECIAL.includes(r.join(','));let r=[0,1,2].map(i=>Math.max(0,Math.min(255,Math.round(+c[i]||0))));
+  for(let k=0;k<40&&isCode(r);k++)r=[r[0],r[1]>=12?r[1]-12:r[1]+12,r[2]];return r;};
+const lfIsAtlas=n=>/^vehiclelights(128)?$/i.test(n||'');
+const lfLampName=s=>/(fara|light|lamp|lens|led|zad|stop|tail|head|turn|indic|flash|blink|signal|povor|migal|repeat|sein|fog|tuman|габар|фар|xenon|angel|drl|brake|revers|backup)/i.test(s||'');
+function lfMatTex(mc){const tx=child(mc,T.TEXTURE);if(!tx)return'';const ss=childs(tx,T.STRING);if(!ss.length)return'';let s='';for(let i=0;i<ss[0].data.length&&ss[0].data[i];i++)s+=String.fromCharCode(ss[0].data[i]);return s;}
+function lfSlots(gc){const ml=child(gc,T.MATLIST),mats=childs(ml,T.MATERIAL),mdv=dvOf(child(ml,T.STRUCT).data),cnt=mdv.getUint32(0,true),slot=[];let k=0;
+  for(let i=0;i<cnt;i++){const idx=mdv.getInt32(4+i*4,true);slot.push(idx<0?mats[k++]:slot[idx]);}return{ml,slot,cnt};}
+function lfWorld(ctx){ // geometriyalar (bittadan) + dunyo koordinatalari + mashina chegarasi (g'ildiraksiz)
+  const {A,G,rwv}=ctx,mn=[1e30,1e30,1e30],mx=[-1e30,-1e30,-1e30],seen=new Set(),geo=[];
+  for(const a of A){if(seen.has(a.geom))continue;seen.add(a.geom);let g;try{g=decodeGeometry(G[a.geom],rwv);}catch(e){continue;}if(g.native||!g.pos)continue;
+    const W=fWorld(a.frame),wp=new Float32Array(g.nV*3);
+    for(let i=0;i<g.nV;i++){const q=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],W);wp[i*3]=q[0];wp[i*3+1]=q[1];wp[i*3+2]=q[2];
+      if(!/^wheel/i.test(a.frame.name||''))for(let c=0;c<3;c++){if(q[c]<mn[c])mn[c]=q[c];if(q[c]>mx[c])mx[c]=q[c];}}
+    geo.push({gi:a.geom,g,wp,frames:A.filter(b=>b.geom===a.geom).map(b=>b.frame.name||''),atoms:A.map((b,i)=>b.geom===a.geom?i:-1).filter(i=>i>=0)});}
+  return{geo,mn,mx};
+}
+const lfZone=(y,mn,mx)=>y>mx[1]-0.7?'f':y<mn[1]+0.7?'r':'m';
+function lampFixScan(bytes){
+  const ctx=dffCtx(bytes),{geo,mn,mx}=lfWorld(ctx),items=[];
+  for(const {gi,g,wp,frames,atoms} of geo){
+    if(frames.every(f=>/^wheel/i.test(f)))continue;
+    const {slot}=lfSlots(ctx.G[gi]),st=g.materials.map(()=>({n:0,cx:0,cy:0,cz:0,l:0,r:0,f:0,m:0,rr:0,mn:[1e9,1e9,1e9],mx:[-1e9,-1e9,-1e9]}));
+    for(let t=0;t<g.nTri;t++){const mi=g.tris[t*4+3],s=st[mi];if(!s)continue;let x=0,y=0,z=0;
+      for(let k=0;k<3;k++){const v=g.tris[t*4+k];x+=wp[v*3];y+=wp[v*3+1];z+=wp[v*3+2];for(let c=0;c<3;c++){const q=wp[v*3+c];if(q<s.mn[c])s.mn[c]=q;if(q>s.mx[c])s.mx[c]=q;}}
+      x/=3;y/=3;z/=3;s.n++;s.cx+=x;s.cy+=y;s.cz+=z;if(x<0)s.l++;else s.r++;const zn=lfZone(y,mn,mx);if(zn==='f')s.f++;else if(zn==='r')s.rr++;else s.m++;}
+    const hasRedTail=g.materials.some((m,i)=>st[i].n&&((LF_CODE2ROLE[(m.color||[]).slice(0,3).join(',')]||[])[0]==='tail'||(!LF_CODE2ROLE[(m.color||[]).slice(0,3).join(',')]&&m.color&&m.color[0]>140&&m.color[1]<80&&m.color[2]<80)));
+    g.materials.forEach((m,mi)=>{const s=st[mi];if(!s.n)return;
+      const col=(m.color||[255,255,255,255]).slice(0,4),code=LF_CODE2ROLE[col.slice(0,3).join(',')],tex=slot[mi]?lfMatTex(slot[mi]):'',atlas=lfIsAtlas(tex);
+      const zone=s.f>=s.rr&&s.f>=s.m?'f':s.rr>=s.m?'r':'m',nm=(tex+' '+frames.join(' ')).toLowerCase();
+      const it={key:gi+':'+mi,gi,mi,atoms,frames,tex,col,n:s.n,ctr:[s.cx/s.n,s.cy/s.n,s.cz/s.n],mn:s.mn,mx:s.mx,zone,side:s.l&&s.r?'LR':s.l?'L':'R',code:code?code[0]:null,atlas,sugg:'keep',why:'',cand:false};
+      const frontish=zone==='f',rearish=zone==='r',[R,Gc,B]=col,red=R>140&&Gc<90&&B<90,amber=R>180&&Gc>70&&Gc<200&&B<90,whiteish=Math.min(R,Gc,B)>150;
+      if(/(turn|indic|flash|blink|signal|povor|migal|repeat|sein)/.test(nm)&&!/^bonnet|^boot/.test(frames.join(' '))){it.sugg='ind';it.why='nomi burilish chirog‘iga o‘xshaydi';it.cand=true;}
+      else if(code){it.cand=true;
+        if((code[0]==='rev'||code[0]==='brake'||code[0]==='tail')&&frontish&&!atlas){it.sugg=amber?'ind':'head';it.why='rangi '+(LF_IVF.has(code[0])?'IVF':'orqa chiroq')+' kodiga to‘g‘ri kelib qolgan, lekin old tomonda — '+(amber?'sariq: burilish chirog‘i':'old chiroq');}
+        else if(code[0]==='head'&&rearish&&hasRedTail&&!/^boot/.test(frames[0]||'')){it.sugg='none';it.why='orqa chiroq ichida, lekin fara kodida — ko‘pincha tashqi qoplama (hoshiya)';}
+        else if(!atlas&&zone!=='m'&&!/^(bonnet|boot|door|windscreen)/i.test(frames[0]||'')){it.sugg=code[0];it.why='chiroq kodi bor, lekin chiroq teksturasi yo‘q — o‘yinda yonmaydi';}
+        else{it.sugg='keep';it.why=atlas?'to‘g‘ri sozlangan':'mashina o‘rtasida — tegilmaydi';}}
+      else if(lfLampName(nm)&&zone!=='m'){it.cand=true;
+        if(/(brake|stop)/.test(nm)&&rearish){it.sugg='brake';it.why='nomi stop-signalga o‘xshaydi';}
+        else if(/(revers|backup)/.test(nm)&&rearish){it.sugg='rev';it.why='nomi orqaga yurish chirog‘iga o‘xshaydi';}
+        else if(/(fog|tuman)/.test(nm)&&frontish){it.sugg='head';it.why='tuman chirog‘i (faralar bilan yonadi)';}
+        else if(amber){it.sugg='ind';it.why='sariq rangli chiroq qismi';}
+        else if(rearish&&(red||!whiteish)){it.sugg='tail';it.why='orqa chiroq qismi (qizil)';}
+        else if(frontish){it.sugg='head';it.why='old chiroq qismi';}
+        else{it.sugg='keep';it.why='aniqlab bo‘lmadi';}}
+      items.push(it);});
+  }
+  items.sort((a,b)=>(b.cand-a.cand)||(a.zone<b.zone?-1:a.zone>b.zone?1:0)||b.n-a.n);
+  return{items,mn,mx};
+}
+function lfCodeFor(role,x,y,mn,mx){const s=x<0?0:1;if(role==='ind'){const z=lfZone(y,mn,mx);return LF_CODES['ind_'+z][s];}return LF_CODES[role][s];}
+function lfMakeMat(src,rgb,retex){const mc=parseChunks(serialize([src]),0,12+sizeOf(src))[0],st=child(mc,T.STRUCT),d=new Uint8Array(st.data);
+  d[4]=rgb[0];d[5]=rgb[1];d[6]=rgb[2];
+  if(retex){dvOf(d).setUint32(12,1,true);const ver=mc.ver;
+    const tex={type:T.TEXTURE,ver,children:[leaf(T.STRUCT,ver,new Uint8Array([6,0x11,1,0])),strChunk('vehiclelights128',ver),strChunk('',ver),extChunk(ver)],tail:null};
+    const ti=mc.children.findIndex(c=>c.type===T.TEXTURE);if(ti>=0)mc.children[ti]=tex;else{const si=mc.children.indexOf(child(mc,T.STRUCT));mc.children.splice(si+1,0,tex);}}
+  st.data=d;return mc;}
+function lampFixApply(bytes,assign){
+  const ctx=dffCtx(bytes),{G:GE,rwv}=ctx,{geo,mn,mx}=lfWorld(ctx),stats={geoms:0,tris:0,dup:0,mats:0,skipped:0,roles:{}};
+  for(const {gi,g,wp} of geo){
+    const gc=GE[gi],need=g.materials.some((m,mi)=>{const r=assign[gi+':'+mi];return r&&r!=='keep';});if(!need)continue;
+    if(!livGeomOk(gc)){stats.skipped++;continue;}
+    const {ml,slot,cnt}=lfSlots(gc),texOf=slot.map(s=>s?lfMatTex(s):''),added=new Map(),newMats=[];let total=cnt;
+    const matFor=(mi,rgb,retex)=>{const key=mi+'|'+rgb.join(',')+'|'+(retex?1:0);if(added.has(key))return added.get(key);
+      const mc=lfMakeMat(slot[mi],rgb,retex);let li=-1;ml.children.forEach((c,i)=>{if(c.type===T.MATERIAL)li=i;});ml.children.splice(li+1,0,mc);newMats.push(mc);
+      const ni=total++;added.set(key,ni);stats.mats++;return ni;};
+    const nT=g.nTri,triM=new Int32Array(nT),triTag=new Array(nT).fill('');let anyTag=false;
+    for(let t=0;t<nT;t++){const mi=g.tris[t*4+3],role=assign[gi+':'+mi];triM[t]=mi;if(!role||role==='keep')continue;
+      if(role==='none'){const c=g.materials[mi].color||[255,255,255];   // chiroq kodi olinadi: chiroq teksturali bo'lsa -- o'chiq chiroqdagidek kulrang, bo'lmasa -- o'z rangiga yaqin
+        if(LF_CODE2ROLE[c.slice(0,3).join(',')]||LIV_SPECIAL.includes(c.slice(0,3).join(',')))triM[t]=matFor(mi,lfIsAtlas(texOf[mi])?[128,128,128]:lfSafe(c),false);stats.tris++;stats.roles.none=(stats.roles.none||0)+1;continue;}
+      let x=0,y=0;for(let k=0;k<3;k++){const v=g.tris[t*4+k];x+=wp[v*3];y+=wp[v*3+1];}x/=3;y/=3;
+      const retex=!lfIsAtlas(texOf[mi]);triM[t]=matFor(mi,lfCodeFor(role,x,y,mn,mx),retex);if(retex){triTag[t]=LF_ROLE_ATLAS[role];anyTag=true;}
+      stats.tris++;stats.roles[role]=(stats.roles[role]||0)+1;}
+    if(total>65535)throw new Error('Material juda ko‘p');
+    // matlist struct
+    {const mst=child(ml,T.STRUCT),od=mst.data,add=total-cnt,nd=new Uint8Array(od.length+4*add);nd.set(od.subarray(0,4+cnt*4),0);nd.set(od.subarray(4+cnt*4),4+total*4);
+      dvOf(nd).setUint32(0,total,true);for(let i=0;i<add;i++)dvOf(nd).setInt32(4+(cnt+i)*4,-1,true);mst.data=nd;}
+    // vertexlar: UV o'zgarmaydiganlar -- o'sha, UV si atlasga qo'yiladiganlar -- kerak bo'lsa nusxa
+    const outW=[],outTag=[],remap=new Map(),outT=new Uint32Array(nT*4);
+    for(let t=0;t<nT;t++){for(let k=0;k<3;k++){const o=g.tris[t*4+k],key=o+'|'+triTag[t];let ni=remap.get(key);if(ni===undefined){ni=outW.length;remap.set(key,ni);outW.push(o);outTag.push(triTag[t]);}outT[t*4+k]=ni;}outT[t*4+3]=triM[t];}
+    const nV2=outW.length;if(nV2>65535)throw new Error('Geometriyada vertex juda ko‘p ('+nV2+')');stats.dup+=nV2-g.nV;
+    const st=child(gc,T.STRUCT),od=st.data,odv=dvOf(od),L0=geomPosLayout(od,rwv);
+    let flags=odv.getUint32(0,true);const nMorph=odv.getUint32(12,true);let numUV=(flags>>16)&255;if(!numUV)numUV=(flags&0x80)?2:(flags&4)?1:0;
+    const nUV=Math.max(1,numUV),uv0=g.uvs&&g.uvs[0]||null;
+    flags=(flags&~0x00FF0000&~0x80&~1)|(nUV<<16)|4|(nUV>=2?0x80:0);
+    const bw=new BW();bw.u32(flags);bw.u32(nT);bw.u32(nV2);bw.u32(nMorph);if(rwv<0x34000)bw.bytes(od.slice(16,28));
+    if(flags&8){const dc=g.dayColors;for(const o of outW)bw.bytes(dc.slice(o*4,o*4+4));}
+    for(let i=0;i<nV2;i++){const tg=outTag[i];if(tg){const p=LF_ATLAS[tg];bw.f32(p[0]);bw.f32(p[1]);}else{const o=outW[i];bw.f32(uv0?uv0[o*2]:0);bw.f32(uv0?uv0[o*2+1]:0);}}
+    for(let s2=1;s2<nUV;s2++){const us=g.uvs[s2];for(const o of outW){bw.f32(us?us[o*2]:0);bw.f32(us?us[o*2+1]:0);}}
+    for(let t=0;t<nT;t++){bw.u16(outT[t*4+1]);bw.u16(outT[t*4]);bw.u16(outT[t*4+3]);bw.u16(outT[t*4+2]);}
+    for(const m of L0.morphs){bw.bytes(od.slice(m.bs,m.bs+24));
+      if(m.po>=0)for(const o of outW)bw.bytes(od.slice(m.po+o*12,m.po+o*12+12));
+      if(m.no>=0)for(const o of outW)bw.bytes(od.slice(m.no+o*12,m.no+o*12+12));}
+    st.data=bw.done();
+    let ex=child(gc,T.EXT);if(!ex){ex=extChunk(gc.ver);gc.children.push(ex);}
+    const per=Array.from({length:total},()=>[]);for(let t=0;t<nT;t++)per[outT[t*4+3]].push(outT[t*4],outT[t*4+1],outT[t*4+2]);
+    const bm=new BW(),usedM=per.map((p,i)=>({p,i})).filter(x=>x.p.length);bm.u32(0);bm.u32(usedM.length);bm.u32(usedM.reduce((s2,x)=>s2+x.p.length,0));
+    for(const x of usedM){bm.u32(x.p.length);bm.u32(x.i);for(const v of x.p)bm.u32(v);}
+    const bmc=child(ex,T.BINMESH);if(bmc)bmc.data=bm.done();else ex.children.unshift(leaf(T.BINMESH,gc.ver,bm.done()));
+    const nc=child(ex,T.NIGHT);if(nc&&nc.data.length>=4&&dvOf(nc.data).getUint32(0,true)){const nw=new BW();nw.u32(1);for(const o of outW)nw.bytes(nc.data.slice(4+o*4,8+o*4));nc.data=nw.done();}
+    stats.geoms++;
+  }
+  return{dff:stats.geoms?serialize(ctx.roots):bytes,stats};
+}
+
+root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS,lampRecolor,lampClassify,lampRetexDff,LAMP_SKIP,lampFixScan,lampFixApply,LF_ROLES,LF_CODES,LF_ATLAS,LF_IVF};
 })(GV);
 /* ---- extension: DFF materials with textures list helper, RW 3.6 version constants ---- */
 (function(G){
@@ -4909,7 +5034,7 @@ class Viewer{
     // grid
     if(this.opt.grid){gl.bindBuffer(gl.ARRAY_BUFFER,this.gridBuf);gl.enableVertexAttribArray(L.aPos);gl.vertexAttribPointer(L.aPos,3,gl.FLOAT,false,0,0);gl.disableVertexAttribArray(L.aNrm);gl.disableVertexAttribArray(L.aUV);
       gl.vertexAttrib3f(L.aNrm,0,0,1);gl.vertexAttrib2f(L.aUV,0,0);gl.uniformMatrix4fv(L.uM,false,[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);gl.uniform1f(L.uUseTex,0);gl.uniform1f(L.uLit,0);gl.uniform1f(L.uShine,0);gl.uniform4f(L.uCol,0.25,0.3,0.4,1);gl.uniform3f(L.uTint,0,0,0);gl.drawArrays(gl.LINES,0,this.gridN);}
-    const LS=this.fx&&this.fx.live()&&this.fx.lamps?this.fx.lamps(performance.now()):null,LK={'255,175,0':'fl','0,255,200':'fr','185,255,0':'rl','255,60,0':'rr'};
+    const LS=this.fx&&this.fx.live()&&this.fx.lamps?this.fx.lamps(performance.now()):null,LK={'255,175,0':['fl','f'],'0,255,200':['fr','f'],'185,255,0':['rl','r'],'255,60,0':['rr','r'],'184,255,0':['ivf','r'],'255,59,0':['ivf','r'],'255,173,0':['ivf','f'],'0,255,198':['ivf','f'],'255,174,0':['ivf','f'],'0,255,199':['ivf','f'],'183,255,0':['ivf','a'],'255,58,0':['ivf','a'],'182,255,0':['ivf','a'],'255,57,0':['ivf','a'],'181,255,0':['ivf','a'],'255,56,0':['ivf','a']};
     const pass=(transparent)=>{
       for(const o of this.meshes){
         if(!this.visible(o)||(o.alpha<1)!==transparent)continue;
@@ -4926,12 +5051,12 @@ class Viewer{
         if(!o.mesh.mat.tex&&(o.mesh.mat.shaderName||'').indexOf('vehicle_paint')===0){cr=0.65;cg=0.1;cb=0.1;} // paint preview
         if(tex&&(o.mesh.mat.shaderName||'').indexOf('vehicle_paint')===0){cr=cg=cb=1;}
         gl.uniform4f(L.uCol,cr,cg,cb,o.alpha);gl.uniform1f(L.uLit,o.noN?0:1);gl.uniform1f(L.uShine,o.shine&&this.opt.shine!==false?0.75:0);if(hlM){gl.uniform1f(L.uUseTex,0);gl.uniform4f(L.uCol,1.0,0.42,0.02,1);gl.uniform1f(L.uShine,0);}gl.uniform3f(L.uTint,hlM?0.25:hl?0.18:0,hlM?0.08:hl?0.12:0,0);
-        if(LS&&!this.opt.wire){const lk=LK[(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)];if(lk){const rear=lk[0]==='r';gl.uniform1f(L.uUseTex,0);gl.uniform1f(L.uShine,0);
+        if(LS&&!this.opt.wire){const lk0=LK[(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)];if(lk0){const lk=lk0[0],kd=lk0[1],rear=kd==='r';gl.uniform1f(L.uUseTex,0);gl.uniform1f(L.uShine,0);
           const isLT=/^vehiclelights(128)?$/i.test(o.mesh.mat.tex||'');
           if(LS[lk]&&!(LS.atlas&&!isLT)){gl.uniform1f(L.uLit,0);const lt=isLT&&LS.atlas?this._lampTex(LS.atlas):null;   // atlas bilan -- o'yindagidek: faqat chiroq teksturali oyna yonadi
             if(lt){gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,lt);gl.uniform1f(L.uUseTex,1);gl.uniform4f(L.uCol,1,1,1,Math.max(o.alpha,0.92));gl.uniform3f(L.uTint,0.04,0.04,0.04);}   // aynan o'yindagidek: yoqilgan atlas, UV bo'yicha
-            else{const c=(rear?LS.rear:LS.front)||(rear?[255,26,15]:[255,255,245]),k=Math.max(c[0],c[1],c[2],1);gl.uniform4f(L.uCol,c[0]/k,c[1]/k,c[2]/k,Math.max(o.alpha,0.92));gl.uniform3f(L.uTint,0.3*c[0]/k,0.3*c[1]/k,0.3*c[2]/k);}}   // yonib turgan chiroq oynasi
-          else{gl.uniform1f(L.uLit,1);gl.uniform4f(L.uCol,rear?0.36:0.55,rear?0.05:0.56,rear?0.05:0.6,o.alpha);gl.uniform3f(L.uTint,0,0,0);}}}   // o'chiq oyna
+            else{const c=kd==='a'?[255,165,25]:(rear?LS.rear:LS.front)||(rear?[255,26,15]:[255,255,245]),k=Math.max(c[0],c[1],c[2],1);gl.uniform4f(L.uCol,c[0]/k,c[1]/k,c[2]/k,Math.max(o.alpha,0.92));gl.uniform3f(L.uTint,0.3*c[0]/k,0.3*c[1]/k,0.3*c[2]/k);}}   // yonib turgan chiroq oynasi
+          else{gl.uniform1f(L.uLit,1);gl.uniform4f(L.uCol,rear?0.36:kd==='a'?0.5:0.55,rear?0.05:kd==='a'?0.3:0.56,rear?0.05:kd==='a'?0.08:0.6,o.alpha);gl.uniform3f(L.uTint,0,0,0);}}}   // o'chiq oyna
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,o.bi);gl.drawElements(gl.TRIANGLES,o.n,o.u32?gl.UNSIGNED_INT:gl.UNSIGNED_SHORT,0);
       }
     };
@@ -5813,6 +5938,11 @@ async function editPipeline(why){
       if(!tp)warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da FAQAT «'+L.tex+'» teksturasi bor. Mashinaning o‘z TXD sini «Fayllar» ga qo‘shib, qayta bosing (aks holda boshqa teksturalar yo‘qoladi).');
     }else if(tp){txd=tp.raw;txdName=tp.file;}
     if(LGs.items.length){for(const lg of LGs.items)txd=G.txdPutTexture(txd,logoTex(lg),true);if(!tp&&!(L.on&&L.img))warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da faqat logo teksturalari bor. Mashinaning o‘z TXD sini qo‘shing.');}
+    if(S.lampfix&&S.lampfix.on&&S.lampfix.assign){ // chiroqlar: har bir qism o'z rolida yonadigan bo'lsin (kod + kerak bo'lsa chiroq teksturasi/UV)
+      const lf=G.DFF.lampFixApply(dff,S.lampfix.assign);
+      if(lf.stats.geoms){dff=lf.dff;changed=true;const R=lf.stats.roles,RN={head:'fara',tail:'orqa chiroq',ind:'burilish',brake:'stop',rev:'orqaga yurish',fog:'tuman',none:'chiroq emas'};
+        info.push('Chiroqlar: '+lf.stats.tris.toLocaleString()+' poligon sozlandi ('+Object.entries(R).map(([k,v])=>RN[k]+' '+v.toLocaleString()).join(', ')+'), '+lf.stats.mats+' ta yangi material'+(lf.stats.dup?', '+lf.stats.dup.toLocaleString()+' vertex nusxalandi':'')+'.');}
+      if(lf.stats.skipped)warn.push('Chiroqlar: '+lf.stats.skipped+' ta geometriyada (skin/breakable) o‘zgartirilmadi.');}
     if(S.strobe&&S.strobe.splitOn){ // stroboskop: chap/o'ng chiroq oynalarini o'z kodiga ajratish (oxirida -- boshqa tahrirlar materiallariga tegmaydi)
       const sp=G.DFF.strobeLampSplit(dff);if(sp.changed){dff=sp.dff;changed=true;info.push('Chiroq oynalari: '+sp.changed.toLocaleString()+' poligon chap/o‘ng kodiga ajratildi ('+sp.geoms+' ta geometriya) — endi chap va o‘ng fara (orqa chiroq) alohida yonadi.');}
       if(sp.skipped)warn.push('Chiroq oynalari: '+sp.skipped+' ta geometriyada (skin/breakable) ajratilmadi.');}
@@ -5842,6 +5972,7 @@ async function editPipeline(why){
     if(why==='livery')toast('Tayyor! Rasm mashinaga qo‘yildi — DFF va TXD yuklab olishga tayyor');
     if(why==='limo')toast('Tayyor! Mashina limuzin qilindi (+'+S.limo.len.toFixed(1)+' m) — DFF yuklab olishga tayyor');
     if(why==='limo-off')toast('Mashina asl uzunligiga qaytdi');
+    if(why==='lampfix')toast(S.lampfix.on?'Tayyor! Chiroqlar sozlandi — yangi DFF ni yuklab o‘rnating':'Chiroqlar asl holiga qaytdi');
     if(why==='lampcol')toast(S.lampcol.carOn?'Tayyor! Fara rangi shu mashinaga qo‘llandi — DFF va TXD ni yuklab o‘rnating (IVF kerak)':'Fara rangi shu mashinadan olib tashlandi');
     if(why==='lamps')toast(S.strobe.splitOn?'Tayyor! Chap va o‘ng chiroq oynalari ajratildi — yangi DFF ni ham yuklab o‘rnating':'Chiroq oynalari asl holiga qaytdi');
     if(why==='logo')toast(LGs.items.length?'Tayyor! Logo qo‘yildi — sichqoncha bilan aylantirib ko‘ring':'Logo olib tashlandi');
@@ -5945,6 +6076,7 @@ function paneEdit(p){
   paneLivery(p,it);
   paneLogo(p,it);
   paneLampCol(p,it);   // o'z fayl tanlagichi bor -- rasm/logo tanlagichlaridan keyin turadi
+  paneLampFix(p,it);
   let doors=null;try{doors=G.DFF.scanDoors(it.raw);}catch(e){p.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Eshiklarni o‘qib bo‘lmadi: '+e.message}));}
   p.appendChild(el('h3',{text:'🚪 Eshiklar'+(doors?' ('+doors.length+')':'')}));
   if(doors&&!doors.length)p.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'Bu DFF da door_lf/rf/lr/rr_dummy eshik freymlari topilmadi (mototsikl yoki eshiksiz model) — eshik tahriri mumkin emas.'}));
@@ -6327,6 +6459,57 @@ function paneLampCol(p,it){
   if(M.preview)lampColPreview(true);
 }
 let lcT=0;function lampColSoon(){clearTimeout(lcT);lcT=setTimeout(()=>editPipeline('preview'),250);}
+
+/* ---------- SA tahrir: CHIROQLAR (har bir chiroq qismi o'yinda yonadigan bo'lsin) ---------- */
+S.lampfix={on:false,assign:null,showAll:false,scan:null,scanFor:null,preview:false,sel:null,err:''};
+function lampFixScanOf(it){const M=S.lampfix;if(M.scanFor!==it.raw){M.scanFor=it.raw;try{M.scan=G.DFF.lampFixScan(it.raw);M.err='';}catch(e){M.scan=null;M.err=e.message;}M.assign=null;}return M.scan;}
+function lampFixDefaults(sc){const a={};for(const x of sc.items)a[x.key]=x.sugg;return a;}
+function lampFixPreview(on){
+  S.lampfix.preview=!!on;if(!viewer||!viewer.ok)return;
+  if(on){if(S.strobe)S.strobe.preview=false;if(S.lampcol)S.lampcol.preview=false;}
+  viewer.fx=on?{live:()=>S.lampfix.preview&&S.tab==='edit',get:()=>[],lamps:()=>Object.assign({fl:true,fr:true,rl:true,rr:true,ivf:true,ctl:true},S.lampcol&&S.lampcol.vtxd?lampColView():{})}:null;
+  viewer.need=true;
+}
+let lfT=0;function lampFixSoon(){clearTimeout(lfT);lfT=setTimeout(()=>editPipeline('preview').then(()=>renderPane()),250);}
+function paneLampFix(p,it){
+  const M=S.lampfix,sc=lampFixScanOf(it);
+  p.appendChild(el('h3',{text:'🔦 Chiroqlar — har bir qismi yonadigan bo‘lsin'}));
+  p.appendChild(el('div',{class:'note',html:'O‘yin chiroq oynasini faqat 2 shart bajarilsa yoqadi: materialda <b>chiroq rang kodi</b> bo‘lishi va teksturasi <code>vehiclelights128</code> bo‘lishi. Ko‘p modellarda chiroqning ichki qismlari teksturasiz yoki o‘z teksturasida — ular o‘yinda <b>hech qachon yonmaydi</b>, ba’zan esa chiroq kodi tashqi hoshiyaga qo‘yilgan bo‘ladi. Quyida har bir chiroq qismiga rol tanlang (avtomatik taklif qilingan) — chap/o‘ng va old/yon/orqa har bir poligonning joyiga qarab o‘zi aniqlanadi. Qatorni bossangiz, u 3D da <b style="color:#ff9a3c">to‘q sariq</b> bo‘lib ko‘rinadi.<br><b>Burilish, stop, orqaga yurish va tuman chiroqlari</b> faqat <b>Improved Vehicle Features (IVF)</b> bilan ishlaydi (tugmalar: Z — chap, C — o‘ng, X — ikkalasi, J — tuman). IVF siz o‘yinda bunday qismlar yonmaydi.'}));
+  if(!sc){p.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Chiroqlarni o‘qib bo‘lmadi: '+M.err}));return;}
+  if(!M.assign)M.assign=lampFixDefaults(sc);
+  const done=M.on&&S.result&&S.result.kind==='edit'&&S.result.src===it.file;
+  const ZN={f:'old',m:'yon / o‘rta',r:'orqa'},SD={L:'chap',R:'o‘ng',LR:'chap+o‘ng'};
+  const list=M.showAll?sc.items:sc.items.filter(x=>x.cand);
+  const box=el('div',{id:'lfList',style:'display:flex;flex-direction:column;gap:4px;max-height:420px;overflow:auto;margin:6px 0'});
+  for(const x of list){
+    const sel=el('select',{id:'lf_'+x.key.replace(':','_'),style:'max-width:270px'},G.DFF.LF_ROLES.map(([v,t])=>el('option',{value:v,text:t,selected:(M.assign[x.key]||'keep')===v})));
+    sel.addEventListener('click',e=>e.stopPropagation());
+    sel.addEventListener('change',()=>{M.assign[x.key]=sel.value;if(done)lampFixSoon();else renderPane();});
+    const sw='rgb('+x.col[0]+','+x.col[1]+','+x.col[2]+')',cur=x.code?({head:'fara kodi',tail:'orqa chiroq kodi',brake:'stop kodi',rev:'orqaga yurish kodi',fog:'tuman kodi',ind:'burilish kodi'})[x.code]:'chiroq kodi yo‘q';
+    const row=el('div',{class:'lfrow',style:'display:flex;gap:8px;align-items:center;padding:5px 7px;border-radius:7px;cursor:pointer;background:'+(M.sel===x.key?'rgba(255,154,60,.18)':'rgba(255,255,255,.03)')},[
+      el('span',{style:'width:14px;height:14px;border-radius:3px;flex:none;border:1px solid #556;background:'+sw}),
+      el('div',{style:'flex:1;min-width:0'},[el('div',{style:'font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis',text:(x.frames[0]||'?')+' · #'+x.mi+(x.tex?' · '+x.tex:' · teksturasiz')}),
+        el('div',{style:'font-size:11px;opacity:.7',text:ZN[x.zone]+', '+SD[x.side]+' · '+x.n.toLocaleString()+' poligon · '+cur+(x.why?' — '+x.why:'')})]),sel]);
+    row.dataset.key=x.key;
+    row.addEventListener('click',()=>{M.sel=M.sel===x.key?null:x.key;if(viewer&&viewer.ok){viewer.opt.hlAM=M.sel?{a:x.atoms[0],m:x.mi}:null;viewer.need=true;}
+      for(const r2 of box.querySelectorAll('.lfrow'))r2.style.background=M.sel===r2.dataset.key?'rgba(255,154,60,.18)':'rgba(255,255,255,.03)';});
+    box.appendChild(row);
+  }
+  if(!list.length)box.appendChild(el('div',{class:'note',text:'Chiroqqa o‘xshash material topilmadi. «Barcha materiallarni ko‘rsatish» ni yoqing.'}));
+  p.appendChild(box);
+  const sa=el('input',{type:'checkbox',id:'lfAll',checked:!!M.showAll});sa.addEventListener('change',()=>{M.showAll=sa.checked;renderPane();});
+  p.appendChild(el('div',{class:'row'},[el('label',{text:'Barcha materiallarni ko‘rsatish ('+sc.items.length+')'}),sa]));
+  const nChg=Object.values(M.assign).filter(v=>v&&v!=='keep').length,ivf=Object.values(M.assign).some(v=>G.DFF.LF_IVF.has(v));
+  p.appendChild(el('div',{class:'note',id:'lfSum',text:'O‘zgaradigan qismlar: '+nChg+' ta'+(ivf?' (ichida IVF kerak bo‘ladiganlari bor)':'')+'.'}));
+  const pv=el('button',{class:'btn'+(M.preview?' pri':''),type:'button',id:'btnLfPrev',onclick:()=>{lampFixPreview(!M.preview);renderPane();}},[M.preview?'⏸ 3D ko‘rinishni o‘chirish':'▶ 3D da barcha chiroqlar yongan holda']);
+  p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap'},[
+    el('button',{class:'btn',type:'button',id:'btnLfAuto',onclick:()=>{M.assign=lampFixDefaults(sc);if(done)lampFixSoon();else renderPane();}},['✨ Avtomatik tanlash']),
+    el('button',{class:'btn',type:'button',id:'btnLfNone',onclick:()=>{for(const k in M.assign)M.assign[k]='keep';if(done)lampFixSoon();else renderPane();}},['Hammasi «O‘zgarmasin»']),
+    el('button',{class:done?'btn':'btn pri',type:'button',id:'btnLfApply',disabled:!done&&!nChg,onclick:async()=>{M.on=!done;await editPipeline('lampfix');renderPane();}},[done?'↩ Chiroqlarni asl holiga':'🔦 Qo‘llash']),pv]));
+  if(ivf)p.appendChild(el('div',{class:'note',style:'border-left:3px solid #fbbf24;padding-left:10px',html:'Burilish / stop / orqaga yurish / tuman rollari <b>IVF kodlari</b> bilan yoziladi. IVF o‘rnatilmagan o‘yinda bu qismlar yonmaydi (va kod rangida ko‘rinishi mumkin). Faqat fara va orqa chiroq rollari IVF siz ham ishlaydi.'}));
+  if(done)p.appendChild(el('div',{class:'note',html:'✓ Qo‘llangan. Yangi DFF ni «⬇ ZIP (DFF…)» bilan yuklab o‘rnating. Burilish chiroqlari: o‘yinda <b>Z</b> — chap, <b>C</b> — o‘ng, <b>X</b> — avariya, <b>Shift</b> — o‘chirish (IVF).'}));
+  if(M.preview)lampFixPreview(true);
+}
 
 function paneExport(p,it){
   p.appendChild(el('h3',{text:'Boshqa eksport'}));
