@@ -3031,9 +3031,12 @@ function neonStripApply(bytes,opt){
  * Shuning uchun DFF da:
  *  - dvornik: topilgan dvornik bo'laklari (yoki dvornik yo'q bo'lsa -- yangi, qora) "itsh_wp1", "itsh_wp2" freymlariga ko'chiriladi.
  *    Freym boshi -- dvornikning o'qi (burilish nuqtasi), z o'qi -- old oyna normali: skript freymni o'z z o'qi atrofida buradi;
- *  - yon oyna: eshik ochilganda ham birga yurishi uchun "itsh_win_lf" va h.k. freymlari ESHIK DUMMY siga bola qilib qo'shiladi,
- *    oyna uchburchaklari (eshikdan, yoki oynalar alohida qismda bo'lsa -- o'sha yerdan) shu freymga ko'chiriladi.
- *    Skript freymni oyna tekisligi bo'ylab pastga siljitadi (oyna eshik ichiga kiradi). Eshik uzilib tushsa -- oyna yashiriladi.
+ *  - yon oyna: "itsh_win_lf" va h.k. freymlari ESHIK DUMMY SINING OTASIGA (dummy bilan yonma-yon) qo'shiladi -- dummy ning o'ziga EMAS:
+ *    o'yin modelni yuklaganda (CVehicleModelInfo::PreprocessHierarchy -> CollapseFramesCB) eshik dummy si ichidagi barcha bola freymlarni
+ *    yo'q qiladi va ularning atomic larini geometriyasini o'zgartirmasdan dummy ga yopishtiradi (oyna siljib, eshik pastida qora dog' bo'lib
+ *    ko'rinadi, skript esa freymni topa olmaydi). Oyna uchburchaklari shu freymga ko'chiriladi; tinch holatda oyna o'z joyida turadi.
+ *    Skript har kadrda eshik dummy sining joriy matritsasini o'qib, oyna freymiga yozadi (eshik ochilsa oyna birga buriladi) va
+ *    oynani eshik koordinatalarida tik pastga siljitadi (oyna eshik ichiga kiradi). Eshik uzilib tushsa -- oyna yashiriladi.
  * Asl qismlarning qolgan uchburchaklari, vertexlari, materiallari o'zgarmaydi. */
 const AN_DOORS=[['lf','door_lf_dummy',-1,2],['rf','door_rf_dummy',1,3],['lr','door_lr_dummy',-1,4],['rr','door_rr_dummy',1,5]];   // nomi, dummy, tomoni, CDamageManager eshik raqami
 const AN_GLASS_RE=/glass|stekl|okno|okna|window|vehglass|glsy|tint|^win|_win/i,AN_WIPER_RE=/wip|dvorn|dvor_|stekloochist|blade|щет|дворн/i;
@@ -3210,10 +3213,39 @@ function anMakeWiper(Lb){
   box(Lb*0.08,Lb,0.009,0.014,0.008);          // cho'tka
   return{pos,nrm,tris};
 }
+/* Avval tayyorlangan DFF (itsh_* freymlari bor): yangi qism qo'shilmaydi.
+ * Eski versiyada oyna freymi eshik dummy siga BOLA qilib qo'shilgan edi -- o'yin uni yo'q qiladi (oyna siljib, qora dog' bo'lib ko'rinadi).
+ * Bu yerda shunday freym dummy ning otasiga ko'chiriladi (dunyodagi joyi o'zgarmaydi: L' = L * D_local), skript uchun ma'lumot freymlardan tiklanadi. */
+function anUpgrade(bytes,sc,opt,rep,meta){
+  const S=sc.S,{ctx}=S,F=ctx.F,WN=(opt&&opt.windows)||{},frac=Math.max(0.3,Math.min(1,+WN.frac||1));let fixed=0;
+  F.forEach(f=>{const m=/^itsh_wp(\d)$/i.exec(f.name||'');if(!m)return;
+    meta.wipers.push({name:f.name,X:L3(f.r,0),Y:L3(f.r,3),Z:L3(f.r,6),p:f.p.slice(),gen:false,id:'d'+m[1]});rep.wipers.push({name:f.name,id:'d'+m[1],old:true});});
+  for(const [d,dn,s,didx] of AN_DOORS){const f=F.find(x=>(x.name||'').toLowerCase()==='itsh_win_'+d);if(!f)continue;
+    const Df=F.find(x=>(x.name||'').toLowerCase()===dn);if(!Df||!Df.par){rep.warn.push(d+' oynasi: eshik dummy si topilmadi');continue;}
+    if(f.par===Df){const L=TF.mul({r:f.r,p:f.p},{r:Df.r,p:Df.p});f.r=L.r.slice();f.p=L.p.slice();f.par=Df.par;f.dirty=true;fixed++;}
+    const Wd=fWorld(Df),Ww=fWorld(f),Rel=TF.mul(Ww,TF.inv(Wd));
+    if(rigidErr(Wd.r)>1e-3||!TF.isId(Rel,2e-3)){rep.warn.push(d+' oynasi: freym eshik dummy siga mos emas — o‘tkazib yuborildi');continue;}
+    // tushish masofasi: oyna geometriyasi (dunyoda) va eshikning pastki cheti
+    const zs=[];for(const P of S.parts)if(P.a.frame===f)for(let i=2;i<P.wp.length;i+=3)zs.push(P.wp[i]);
+    let zmn=1e30;for(const P of S.parts){if(P.dam||P.a.frame===f)continue;let q=P.a.frame,n=0,u=false;while(q&&n++<64){if(q===Df){u=true;break;}q=q.par;}if(!u)continue;for(let i=2;i<P.wp.length;i+=3)zmn=Math.min(zmn,P.wp[i]);}
+    if(!zs.length||zmn>1e29){rep.warn.push(d+' oynasi: geometriya topilmadi');continue;}
+    const hG=Math.max(...zs)-Math.min(...zs),travel=Math.max(0,Math.min(hG+0.01,Math.min(...zs)-zmn-0.03))*frac;
+    if(travel<0.05){rep.warn.push(d+' oynasi: eshik ichida joy yo‘q');continue;}
+    const dl=vm3([0,0,-1],TF.inv(Wd).r);
+    meta.windows.push({name:f.name,d,didx,dummy:Df.name,o:Rel.p.slice(),p:f.p.slice(),dir:dl.map(v=>v*travel),travel,Wdown:[0,0,-travel]});
+    rep.windows.push({d,name:f.name,old:true,fixed:f.dirty?1:0,travel:+travel.toFixed(3)});}
+  rep.upgraded=true;rep.fixed=fixed;
+  if(!meta.wipers.length&&!meta.windows.length)return{dff:bytes,report:Object.assign(rep,{err:'Avval tayyorlangan freymlar (itsh_*) yaroqsiz: '+(rep.warn.join('; ')||'—')}),meta:null};
+  if(!fixed)return{dff:bytes,report:rep,meta};
+  const idx=new Map();F.forEach((f,i)=>idx.set(f,i));const nd=new Uint8Array(ctx.fst.data);
+  F.forEach((f,i)=>{if(!f.dirty)return;const dv=dvOf(nd),o=4+i*56;for(let k=0;k<9;k++)dv.setFloat32(o+k*4,f.r[k],true);for(let k=0;k<3;k++)dv.setFloat32(o+36+k*4,f.p[k],true);
+    dv.setInt32(o+48,idx.get(f.par),true);});
+  ctx.fst.data=nd;return{dff:serialize(ctx.roots),report:rep,meta};
+}
 /* opt: {wipers:{mode:'found'|'new'|'none', sel:[id..], flip:{id:true}}, windows:{doors:{lf:[keys]..}, frac:0..1}} */
 function animApply(bytes,opt){
   opt=opt||{};const sc=animScan(bytes),S=sc.S,{ctx}=S,{F,A,ver}=ctx,rep={wipers:[],windows:[],warn:[]},meta={wipers:[],windows:[]};
-  if(sc.has)return{dff:bytes,report:Object.assign(rep,{err:'Bu modelda dvornik/oyna freymlari allaqachon bor (avval tayyorlangan) — qayta qo‘shilmadi.'}),meta:null};
+  if(sc.has)return anUpgrade(bytes,sc,opt,rep,meta);   // avval tayyorlangan DFF: eski (xato) oyna freymlari tuzatiladi, skript uchun ma'lumot freymlardan olinadi
   if(!sc.isCar)return{dff:bytes,report:Object.assign(rep,{err:'Faqat oddiy 4 g‘ildirakli mashina uchun'}),meta:null};
   const newF=[],newG=[],newAt=[],drops=new Map(),addDrop=(gi,t)=>{let s=drops.get(gi);if(!s){s=new Set();drops.set(gi,s);}s.add(t);};
   const root=F.find(f=>/^chassis_dummy$/i.test(f.name||''))||(()=>{const ch=F.find(f=>/^chassis$/i.test(f.name||''));return ch&&ch.par||F.find(f=>!f.par);})();
@@ -3262,7 +3294,9 @@ function animApply(bytes,opt){
     const down=[0,0,-1],zs=pts.map(p=>p[2]),hG=Math.max(...zs)-Math.min(...zs),zGmin=Math.min(...zs);
     const depth=zGmin-D.mn[2]-0.03,travel=Math.max(0,Math.min(hG+0.01,depth))*frac;
     if(travel<0.05){rep.warn.push(D.d+' oynasi: eshik ichida joy yo‘q — o‘tkazib yuborildi');continue;}
-    const c=[0,1,2].map(k=>pts.reduce((s,p)=>s+p[k],0)/pts.length),Wn={r:Wd.r.slice(),p:c},name='itsh_win_'+D.d,fr=addFrame(name,D.frame,Wn);
+    if(!D.frame.par){rep.warn.push(D.d+': eshik dummy sining otasi yo‘q — o‘tkazib yuborildi');continue;}
+    // freym eshik dummy sining OTASIGA qo'shiladi (dummy ichidagisini o'yin yo'q qiladi); aylanishi = dummy aylanishi, boshi = oyna markazi
+    const c=[0,1,2].map(k=>pts.reduce((s,p)=>s+p[k],0)/pts.length),Wn={r:Wd.r.slice(),p:c},name='itsh_win_'+D.d,fr=addFrame(name,D.frame.par,Wn);
     const src=gs.map(g=>({P:g.P,tris:g.tris})),pend=[];for(const g of gs)for(const t of g.tris)pend.push([g.P.a.geom,t]);
     // _dam juftidan ham shu material/shu joydagi shisha olinadi (shikastlanganda ikki oyna ko'rinmasligi uchun)
     for(const P of S.parts){if(!P.dam||!P.ok||P.shared)continue;const base=(P.fn||'').replace(/_dam$/i,'');if(!gs.some(g=>(g.part||'').replace(/_ok$/i,'')===base))continue;
@@ -3270,7 +3304,7 @@ function animApply(bytes,opt){
       for(let t=0;t<P.g.nTri;t++){const m=P.g.materials[P.g.tris[t*4+3]];if(!m||!keys.has((m.tex||'')+'|'+(m.color||[]).join(',')))continue;const T2=anTri(P,t);if(T2.ctr[2]>=Math.min(...gs.map(g=>g.zmn))-0.03)pend.push([P.a.geom,t]);}}
     let gb;try{gb=anBuildGeom(ctx,src,Wn,ver);}catch(e){newF.pop();rep.warn.push(D.d+' oynasi: '+e.message);continue;}newG.push(gb.gch);newAt.push({f:fr,fx:gb.fx});for(const [gi,t] of pend)addDrop(gi,t);
     const dl=vm3(down,TF.inv(Wd).r);   // pastga yo'nalish -- eshik dummy koordinatalarida
-    meta.windows.push({name,d:D.d,didx:D.didx,p:fr.p.slice(),dir:dl.map(v=>v*travel),travel,Wdown:down.map(v=>v*travel)});
+    meta.windows.push({name,d:D.d,didx:D.didx,dummy:D.frame.name,o:TF.pt(c,TF.inv(Wd)),p:fr.p.slice(),dir:dl.map(v=>v*travel),travel,Wdown:down.map(v=>v*travel)});
     rep.windows.push({d:D.d,name,tris:gb.nT,travel:+travel.toFixed(3),glassH:+hG.toFixed(3),groups:gs.map(g=>g.part+' / '+(g.tex||'rang '+g.color.slice(0,3).join(',')))});}
   if(!newF.length)return{dff:bytes,report:Object.assign(rep,{err:rep.warn.length?rep.warn.join('; '):'Hech narsa tanlanmagan'}),meta:null};
   // uchburchaklarni asl qismlardan olib tashlash
@@ -3308,34 +3342,47 @@ function anWiperAt(mode,t){if(!mode)return 0;const T2=anWiperSteps(mode===2?'fas
 function animBuild(meta,cfg){
   if(!meta||(!meta.wipers.length&&!meta.windows.length))throw new Error('Avval DFF ni tayyorlang (dvornik yoki oyna tanlang va «Qo‘llash» ni bosing)');
   const A=scmAsm(),model=cfg.model==null?null:(+cfg.model|0),kW=+cfg.keyW|0,kO=+cfg.keyO|0,max=Math.max(40,Math.min(140,+cfg.angle||95))*Math.PI/180,K=AN_WIPE.K;
-  const WP=meta.wipers.slice(0,3),WN=meta.windows.filter(w=>cfg.front!=='front'||w.d==='lf'||w.d==='rf').slice(0,4),WV={lf:17,rf:18,lr:19,rr:20};
+  const WP=meta.wipers.slice(0,3),WN=meta.windows.filter(w=>w.dummy&&w.o&&(cfg.front!=='front'||w.d==='lf'||w.d==='rf')).slice(0,4),WV={lf:17,rf:18,lr:19,rr:20},DV={lf:26,rf:27,lr:28,rr:29};
   const ff=v=>fF(v);
   A.note('IT SHAKH — GTA SA dvornik va yon oynalar (CLEO 4/5, faqat GTA SA 1.0 US). Model: '+(model==null?'har qanday (freymlari bor mashina)':model)+', dvornik tugmasi: '+kW+', oyna tugmasi: '+kO);
   A.note('Freymlar: '+WP.map(w=>w.name).concat(WN.map(w=>w.name)).join(', ')+'. 0x4C5400 = CClumpModelInfo::GetFrameFromName, 0x7F0910 = RwFrameUpdateObjects, mashina + 0x18 = RwObject (clump), mashina + 0x5A0 + 9 = eshiklar holati');
+  A.note('Oyna freymlari eshik dummy sining otasida (o‘yin dummy ichidagi bola freymlarni yo‘q qiladi): skript har kadrda eshik dummy sining matritsasini o‘qib oynaga yozadi -- eshik ochilsa oyna ham buriladi. Kuzatiladigan mashina: o‘yinchi o‘tirgan / o‘tirayotgan (0811), tushgandan keyin ham -- mashina yo‘qolguncha.');
   A.op(0x0000,'');
-  for(const [v,x] of [[5,0],[6,0],[7,0],[8,0],[9,-1],[11,0],[13,0]])A.op(0x0006,v+'@ = '+x,['l',v],['i',x]);
+  for(const [v,x] of [[5,0],[6,0],[7,0],[8,0],[9,-1],[11,0],[13,-1]])A.op(0x0006,v+'@ = '+x,['l',v],['i',x]);
   A.op(0x0007,'10@ = 0.0',['l',10],['f',0]);
   A.label('AN_MAIN');
   A.op(0x0001,'wait 0',['i',0]);
   A.op(0x00D6,'if',['i',0]);A.op(0x0256,'  player $PLAYER_CHAR defined',['g',2]);A.op(0x004D,'jump_if_false @AN_MAIN',['j','AN_MAIN']);
-  A.op(0x00D6,'if',['i',0]);A.op(0x0449,'  is_char_sitting_in_any_car $PLAYER_ACTOR',['g',3]);A.op(0x004D,'jump_if_false @AN_MAIN',['j','AN_MAIN']);
   A.op(0x00D6,'if',['i',0]);A.op(0x0AA9,'  is_game_version_original');A.op(0x004D,'jump_if_false @AN_MAIN',['j','AN_MAIN']);
-  A.op(0x03C0,'store_car_char_is_in_no_save $PLAYER_ACTOR store_to 0@',['g',3],['l',0]);
-  if(model!=null){A.op(0x0441,'get_car_model 0@ store_to 4@',['l',0],['l',4]);A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  4@ == '+model,['l',4],['i',model]);A.op(0x004D,'jump_if_false @AN_MAIN',['j','AN_MAIN']);}
+  // o'yinchi o'tirgan YOKI o'tirayotgan mashina (eshik ochilayotganda ham oyna eshikka ergashishi uchun)
+  A.op(0x0811,'0@ = get_car_char_is_using $PLAYER_ACTOR',['g',3],['l',0]);
+  A.op(0x00D6,'if',['i',0]);A.op(0x8039,'  not 0@ == -1',['l',0],['i',-1]);A.op(0x004D,'jump_if_false @AN_LAST',['j','AN_LAST']);
+  if(model!=null){A.op(0x0441,'get_car_model 0@ store_to 4@',['l',0],['l',4]);A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  4@ == '+model,['l',4],['i',model]);A.op(0x004D,'jump_if_false @AN_LAST',['j','AN_LAST']);}
+  A.op(0x0A97,'get_car_pointer 0@ store_to 22@',['l',0],['l',22]);
+  A.op(0x00D6,'if and',['i',1]);A.op(0x003B,'  0@ == 13@',['l',0],['l',13]);A.op(0x003B,'  22@ == 1@',['l',22],['l',1]);A.op(0x004D,'jump_if_false @AN_NEW',['j','AN_NEW']);
+  A.op(0x0002,'jump @AN_HAVE',['j','AN_HAVE']);
+  // o'yinchi bu mashinadan tushgan: mashina hali bor bo'lsa -- oynalar eshikka ergashishda davom etadi, dvornik joyiga qaytib to'xtaydi
+  A.label('AN_LAST');
+  A.op(0x00D6,'if',['i',0]);A.op(0x8039,'  not 13@ == -1',['l',13],['i',-1]);A.op(0x004D,'jump_if_false @AN_MAIN',['j','AN_MAIN']);
+  A.op(0x00D6,'if',['i',0]);A.op(0x056E,'  car 13@ defined',['l',13]);A.op(0x004D,'jump_if_false @AN_GONE',['j','AN_GONE']);
+  A.op(0x0085,'0@ = 13@',['l',0],['l',13]);A.op(0x0006,'7@ = 0',['l',7],['i',0]);A.op(0x0002,'jump @AN_UPD',['j','AN_UPD']);
+  A.label('AN_GONE');A.op(0x0006,'13@ = -1',['l',13],['i',-1]);A.op(0x0002,'jump @AN_MAIN',['j','AN_MAIN']);
   // yangi mashina: freymlarni nomi bo'yicha topish (bir marta)
-  A.op(0x00D6,'if',['i',0]);A.op(0x003B,'  0@ == 13@',['l',0],['l',13]);A.op(0x004D,'jump_if_false @AN_NEW',['j','AN_NEW']);A.op(0x0002,'jump @AN_KEYS',['j','AN_KEYS']);
   A.label('AN_NEW');
   A.op(0x0085,'13@ = 0@',['l',13],['l',0]);
-  A.op(0x0A97,'get_car_pointer 0@ store_to 1@',['l',0],['l',1]);
-  A.op(0x0085,'22@ = 1@',['l',22],['l',1]);A.op(0x000A,'22@ += 0x18',['l',22],['i',0x18]);
+  A.op(0x0085,'1@ = 22@',['l',1],['l',22]);
+  A.op(0x000A,'22@ += 0x18',['l',22],['i',0x18]);
   A.op(0x0A8D,'2@ = read_memory 22@ size 4 virtual_protect 0',['l',22],['i',4],['i',0],['l',2]);
-  const fvars=WP.map((w,j)=>[w.name,14+j]).concat(WN.map(w=>[w.name,WV[w.d]]));
+  const fvars=WP.map((w,j)=>[w.name,14+j]).concat(WN.map(w=>[w.name,WV[w.d]]),WN.map(w=>[w.dummy,DV[w.d]]));
   for(const [,v] of fvars)A.op(0x0006,v+'@ = 0',['l',v],['i',0]);
   A.op(0x00D6,'if',['i',0]);A.op(0x8039,'  not 2@ == 0',['l',2],['i',0]);A.op(0x004D,'jump_if_false @AN_NF',['j','AN_NF']);
   fvars.forEach(([nm,v],i)=>{A.op(0x0AC6,'22@ = label @AN_STR'+i+' offset',['j','AN_STR'+i],['l',22]);
     A.op(0x0AA7,'call_function 0x4C5400 num_params 2 pop 2 name 22@ clump 2@ store_to '+v+'@  // GetFrameFromName("'+nm+'")',['i',AN_FN.getFrame],['i',2],['i',2],['l',22],['l',2],['l',v],['e',0]);});
   A.label('AN_NF');
   for(const [v,x] of [[7,0],[8,0],[9,-1],[11,0]])A.op(0x0006,v+'@ = '+x,['l',v],['i',x]);A.op(0x0007,'10@ = 0.0',['l',10],['f',0]);
+  // tugmalar faqat mashinada o'tirganda; o'tirmagan bo'lsa (o'tirayotgan / tushayotgan) dvornik o'chadi
+  A.label('AN_HAVE');
+  A.op(0x00D6,'if',['i',0]);A.op(0x0449,'  is_char_sitting_in_any_car $PLAYER_ACTOR',['g',3]);A.op(0x004D,'jump_if_false @AN_OFF',['j','AN_OFF']);
   A.label('AN_KEYS');
   const keyEdge=(key,prev,lbl,onPress)=>{A.op(0x00D6,'if',['i',0]);A.op(0x0AB0,'  is_key_pressed '+key,['i',key]);A.op(0x004D,'jump_if_false @'+lbl+'U',['j',lbl+'U']);
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  '+prev+'@ == 0',['l',prev],['i',0]);A.op(0x004D,'jump_if_false @'+lbl+'X',['j',lbl+'X']);
@@ -3349,6 +3396,9 @@ function animBuild(meta,cfg){
   if(WN.length)keyEdge(kO,6,'AN_KO',()=>{
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  11@ == 0',['l',11],['i',0]);A.op(0x004D,'jump_if_false @AN_KO1',['j','AN_KO1']);A.op(0x0006,'11@ = 1',['l',11],['i',1]);A.op(0x0006,'33@ = 0',['l',33],['i',0]);A.op(0x0002,'jump @AN_KOE',['j','AN_KOE']);
     A.label('AN_KO1');A.op(0x0006,'11@ = 0',['l',11],['i',0]);A.op(0x0006,'33@ = 0',['l',33],['i',0]);A.label('AN_KOE');});
+  A.op(0x0002,'jump @AN_UPD',['j','AN_UPD']);
+  A.label('AN_OFF');A.op(0x0006,'7@ = 0',['l',7],['i',0]);
+  A.label('AN_UPD');
   // ---- dvornik ----
   if(WP.length){
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  7@ == 0',['l',7],['i',0]);A.op(0x004D,'jump_if_false @AN_WON',['j','AN_WON']);
@@ -3389,16 +3439,26 @@ function animBuild(meta,cfg){
     A.label('AN_OTX');
     A.op(0x00D6,'if',['i',0]);A.op(0x0029,'  33@ >= 200',['l',33],['i',200]);A.op(0x004D,'jump_if_false @AN_OW',['j','AN_OW']);A.op(0x0006,'33@ = 0',['l',33],['i',0]);   // uzoq to'xtash (pauza)dan keyin sakramasin
     A.label('AN_OW');
-    WN.forEach(w=>{const v=WV[w.d],L='AN_O'+w.d;
-      A.op(0x00D6,'if',['i',0]);A.op(0x8039,'  not '+v+'@ == 0',['l',v],['i',0]);A.op(0x004D,'jump_if_false @'+L+'X',['j',L+'X']);
+    WN.forEach(w=>{const v=WV[w.d],dv=DV[w.d],L='AN_O'+w.d;
+      A.op(0x00D6,'if and',['i',1]);A.op(0x8039,'  not '+v+'@ == 0',['l',v],['i',0]);A.op(0x8039,'  not '+dv+'@ == 0',['l',dv],['i',0]);A.op(0x004D,'jump_if_false @'+L+'X',['j',L+'X']);
       A.op(0x0085,'23@ = 1@',['l',23],['l',1]);A.op(0x000A,'23@ += '+(AN_FN.dm+9+w.didx)+'  // CDamageManager eshik holati',['l',23],['i',AN_FN.dm+9+w.didx]);
       A.op(0x0A8D,'24@ = read_memory 23@ size 1 virtual_protect 0',['l',23],['i',1],['i',0],['l',24]);
-      A.op(0x0085,'22@ = '+v+'@',['l',22],['l',v]);A.op(0x000A,'22@ += 0x40  // RwFrame.modelling.pos',['l',22],['i',0x40]);
-      A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  24@ == 4  // eshik yo\'q (uzilib tushgan)',['l',24],['i',4]);A.op(0x004D,'jump_if_false @'+L+'S',['j',L+'S']);
-      A.op(0x000A,'22@ += 8',['l',22],['i',8]);A.op(0x0A8C,'write_memory 22@ size 4 value '+ff(w.p[2]-60)+' virtual_protect 0',['l',22],['i',4],['f',w.p[2]-60],['i',0]);A.op(0x0002,'jump @'+L+'U',['j',L+'U']);
+      A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  24@ == 4  // eshik yo\'q (uzilib tushgan) -- oyna 60 m pastga',['l',24],['i',4]);A.op(0x004D,'jump_if_false @'+L+'S',['j',L+'S']);
+      A.op(0x0085,'22@ = '+v+'@',['l',22],['l',v]);A.op(0x000A,'22@ += 0x48',['l',22],['i',0x48]);
+      A.op(0x0A8C,'write_memory 22@ size 4 value '+ff(w.p[2]-60)+' virtual_protect 0',['l',22],['i',4],['f',w.p[2]-60],['i',0]);A.op(0x0002,'jump @'+L+'U',['j',L+'U']);
       A.label(L+'S');
-      [0,1,2].forEach(c=>{if(c)A.op(0x000A,'22@ += 4',['l',22],['i',4]);A.op(0x0087,'21@ = 10@ // (float)',['l',21],['l',10]);A.op(0x0013,'21@ *= '+ff(w.dir[c]),['l',21],['f',w.dir[c]]);
-        A.op(0x000B,'21@ += '+ff(w.p[c]),['l',21],['f',w.p[c]]);A.op(0x0A8C,'write_memory 22@ size 4 value 21@ virtual_protect 0',['l',22],['i',4],['l',21],['i',0]);});
+      // 1) aylanish: eshik dummy sining joriy matritsasi (right, up, at) oyna freymiga
+      A.op(0x0085,'22@ = '+dv+'@',['l',22],['l',dv]);A.op(0x000A,'22@ += 0x10  // eshik dummy .right',['l',22],['i',0x10]);
+      A.op(0x0085,'23@ = '+v+'@',['l',23],['l',v]);A.op(0x000A,'23@ += 0x10  // oyna .right',['l',23],['i',0x10]);
+      for(let q=0;q<9;q++){if(q){const st=q%3===0?8:4;A.op(0x000A,'22@ += '+st,['l',22],['i',st]);A.op(0x000A,'23@ += '+st,['l',23],['i',st]);}
+        A.op(0x0A8D,'24@ = read_memory 22@ size 4 virtual_protect 0',['l',22],['i',4],['i',0],['l',24]);A.op(0x0A8C,'write_memory 23@ size 4 value 24@ virtual_protect 0',['l',23],['i',4],['l',24],['i',0]);}
+      // 2) oyna markazi eshik koordinatalarida: q = o + holat * pastga
+      [[3,0],[12,1],[31,2]].forEach(([qv,k])=>{A.op(0x0087,qv+'@ = 10@ // (float)',['l',qv],['l',10]);A.op(0x0013,qv+'@ *= '+ff(w.dir[k]),['l',qv],['f',w.dir[k]]);A.op(0x000B,qv+'@ += '+ff(w.o[k]),['l',qv],['f',w.o[k]]);});
+      // 3) joy = dummy.pos + q.x*right + q.y*up + q.z*at
+      [0,1,2].forEach(c=>{A.op(0x0085,'22@ = '+dv+'@',['l',22],['l',dv]);A.op(0x000A,'22@ += '+(0x40+4*c),['l',22],['i',0x40+4*c]);A.op(0x0A8D,'30@ = read_memory 22@ size 4 virtual_protect 0',['l',22],['i',4],['i',0],['l',30]);
+        [[3,0],[12,1],[31,2]].forEach(([qv,k])=>{A.op(0x0085,'22@ = '+dv+'@',['l',22],['l',dv]);A.op(0x000A,'22@ += '+(0x10+0x10*k+4*c),['l',22],['i',0x10+0x10*k+4*c]);
+          A.op(0x0A8D,'24@ = read_memory 22@ size 4 virtual_protect 0',['l',22],['i',4],['i',0],['l',24]);A.op(0x006B,'24@ *= '+qv+'@ // (float)',['l',24],['l',qv]);A.op(0x005B,'30@ += 24@ // (float)',['l',30],['l',24]);});
+        A.op(0x0085,'23@ = '+v+'@',['l',23],['l',v]);A.op(0x000A,'23@ += '+(0x40+4*c),['l',23],['i',0x40+4*c]);A.op(0x0A8C,'write_memory 23@ size 4 value 30@ virtual_protect 0',['l',23],['i',4],['l',30],['i',0]);});
       A.label(L+'U');A.op(0x0AA5,'call 0x7F0910 num_params 1 pop 1 '+v+'@  // RwFrameUpdateObjects',['i',AN_FN.update],['i',1],['i',1],['l',v],['e',0]);
       A.label(L+'X');});
   }
@@ -6612,8 +6672,10 @@ async function editPipeline(why){
       const ar=G.DFF.animApply(dff,animOpt()),R=ar.report;
       if(R.err)warn.push('Dvornik/oynalar: '+R.err);
       else{dff=ar.dff;changed=true;animMeta=ar.meta;
+        if(R.upgraded){info.push('Dvornik/oynalar: bu DFF avval tayyorlangan — '+(R.fixed?R.fixed+' ta oyna freymi tuzatildi (eski versiyada eshik dummy si ichida edi: o‘yin uni yo‘q qilib, oynani eshik pastiga siljitardi — qora dog‘).':'freymlar to‘g‘ri, o‘zgartirilmadi.')+' Skript uchun: '+R.wipers.length+' ta dvornik, '+R.windows.length+' ta oyna'+(R.windows.length?' ('+R.windows.map(w=>w.name+' — '+Math.round(w.travel*100)+' sm').join(', ')+')':'')+'.');}
+        else{
         if(R.wipers.length)info.push('Dvornik: '+R.wipers.map(w=>w.name+(w.gen?' (yangi)':'')+' — uzunligi '+w.len+' m, '+w.tris+' poligon').join('; ')+'.');
-        if(R.windows.length)info.push('Yon oynalar: '+R.windows.map(w=>w.name+' — '+w.tris+' poligon, '+Math.round(w.travel*100)+' sm tushadi').join('; ')+'. Oynalar eshik dummy siga biriktirildi (eshik bilan birga ochiladi).');}
+        if(R.windows.length)info.push('Yon oynalar: '+R.windows.map(w=>w.name+' — '+w.tris+' poligon, '+Math.round(w.travel*100)+' sm tushadi').join('; ')+'. Oyna freymlari eshik dummy sining yonida (o‘yin dummy ichidagi freymlarni yo‘q qiladi); eshik ochilganda skript oynani eshikka ergashtiradi.');}}
       for(const w of R.warn||[])warn.push('Dvornik/oynalar: '+w);}
     if(E.doorsDone){
       const found=G.DFF.scanDoors(dff).map(d=>d.name),sel=found.filter(n=>!E.off.has(n));
@@ -7386,8 +7448,9 @@ function paneAnim(p,it){
   p.appendChild(el('div',{class:'note',html:'O‘yinda <b>dvornik</b> tugma bilan ishlaydi (o‘chiq → sekin → tez → o‘chiq), <b>yon oynalar</b> tugma bilan tushadi va ko‘tariladi (eshik ichiga kiradi). Buning uchun ikki narsa kerak: <b>1) yangi DFF</b> — dvornik va oyna bo‘laklari alohida qismlarga ajratiladi (o‘yin skriptga ularni harakatlantirishga faqat shunda ruxsat beradi; oyna eshik bilan birga ochiladi), <b>2) CLEO skript</b> — shu qismlarni harakatlantiradi. Faqat <b>GTA SA 1.0 US</b> da ishlaydi (boshqa versiyada skript hech narsa qilmaydi).'+(sc.has?' <b style="color:#fbbf24">Bu model allaqachon tayyorlangan (itsh_ qismlari bor) — asl DFF ni yuklang.</b>':'')+(sc.isCar?'':' <b style="color:#fbbf24">Bu model oddiy 4 g‘ildirakli mashina emas.</b>')}));
   const rerun=async()=>{if(done){await editPipeline('anim');}renderPane();if(viewer&&viewer.ok)viewer.need=true;};
   const row=(label,ctl)=>el('div',{class:'row'},[el('label',{text:label}),ctl]);
+  if(sc.has)p.appendChild(el('div',{class:'note',id:'anOld',style:'color:#fbbf24',html:'Bu DFF da dvornik/oyna freymlari <b>allaqachon bor</b> (avval shu bo‘limda tayyorlangan). «⚙ DFF ni tayyorlash» ni bossangiz yangi qism qo‘shilmaydi: eski versiyadagi <b>oyna freymlari tuzatiladi</b> (ular eshik dummy si ichida edi — o‘yin bunday freymni yo‘q qilib, oynani eshik pastiga siljitardi: qora dog‘, oyna ochilmasdi) va skript qayta yaratiladi.'}));
   // ---- dvornik ----
-  const wc=el('div',{class:'card',style:'padding:8px'});p.appendChild(wc);
+  const wc=el('div',{class:'card',style:'padding:8px'});if(!sc.has)p.appendChild(wc);
   wc.appendChild(el('div',{html:'<b>Dvornik</b>'+(sc.ws?' — old oyna topildi (eni '+(sc.ws.x1-sc.ws.x0).toFixed(2)+' m)':' — <span style="color:#fbbf24">old oyna topilmadi</span>')}));
   const wm=el('select',{id:'anWMode'},[['found','Mashinadagi dvornikni harakatlantirish ('+sc.wipers.length+' ta nomzod)'],['new','Yangi dvornik qo‘shish (mashinada dvornik yo‘q bo‘lsa)'],['none','Dvorniksiz — faqat oynalar']].filter(([v])=>v!=='found'||sc.wipers.length).filter(([v])=>v==='none'||sc.ws).map(([v,t])=>el('option',{value:v,text:t,selected:M.wMode===v})));
   wm.addEventListener('change',()=>{M.wMode=wm.value;rerun();});wc.appendChild(row('Usul',wm));
@@ -7408,7 +7471,7 @@ function paneAnim(p,it){
   if(M.wMode!=='none'){const i=el('input',{type:'range',id:'anAngle',min:50,max:130,step:5,value:M.angle}),l=el('span',{class:'note',text:M.angle+'°'});
     i.addEventListener('input',()=>{M.angle=+i.value;l.textContent=M.angle+'°';if(viewer&&viewer.ok)viewer.need=true;});wc.appendChild(row('Burilish burchagi',el('div',{style:'display:flex;gap:8px;align-items:center;flex:1'},[i,l])));}
   // ---- yon oynalar ----
-  const oc=el('div',{class:'card',style:'padding:8px'});p.appendChild(oc);
+  const oc=el('div',{class:'card',style:'padding:8px'});p.appendChild(oc);if(sc.has)oc.style.display='none';
   oc.appendChild(el('div',{html:'<b>Yon oynalar</b>'+(sc.doors.length?' — '+sc.doors.length+' ta eshik':' — <span style="color:#fbbf24">eshik topilmadi</span>')}));
   const DL={lf:'Chap old',rf:'O‘ng old',lr:'Chap orqa',rr:'O‘ng orqa'};
   for(const d of sc.doors){const sel=new Set(M.doors[d.d]||[]);
@@ -7417,12 +7480,12 @@ function paneAnim(p,it){
       c.addEventListener('change',()=>{const s2=new Set(M.doors[d.d]||[]);if(c.checked)s2.add(g.key);else s2.delete(g.key);M.doors[d.d]=[...s2];rerun();});
       box.appendChild(el('label',{style:'display:flex;gap:6px;align-items:center;margin:2px 0'},[c,el('span',{html:esc(g.part)+' · '+esc(g.tex||'rang '+g.color.slice(0,3).join(','))+(g.color[3]<255?' (shaffof)':'')+' <small style="color:var(--dim)">'+g.area.toFixed(2)+' m², '+g.n+' poligon</small>'})]));});
     oc.appendChild(box);}
-  if(sc.doors.length){
+  if(sc.doors.length||sc.has){const oc2=sc.has?el('div',{class:'card',style:'padding:8px'}):oc;if(sc.has)p.appendChild(oc2);
     const f=el('input',{type:'range',id:'anFrac',min:0.3,max:1,step:0.05,value:M.frac}),fl=el('span',{class:'note',text:Math.round(M.frac*100)+'%'});
     f.addEventListener('input',()=>{M.frac=+f.value;fl.textContent=Math.round(M.frac*100)+'%';});f.addEventListener('change',rerun);
-    oc.appendChild(row('Oyna qancha tushsin',el('div',{style:'display:flex;gap:8px;align-items:center;flex:1'},[f,fl])));
+    oc2.appendChild(row('Oyna qancha tushsin',el('div',{style:'display:flex;gap:8px;align-items:center;flex:1'},[f,fl])));
     const fs=el('select',{id:'anFront'},[['all','Hamma yon oynalar'],['front','Faqat old eshik oynalari']].map(([v,t])=>el('option',{value:v,text:t,selected:M.front===v})));
-    fs.addEventListener('change',()=>{M.front=fs.value;info();if(viewer&&viewer.ok)viewer.need=true;});oc.appendChild(row('Tugma bosilganda',fs));}
+    fs.addEventListener('change',()=>{M.front=fs.value;info();if(viewer&&viewer.ok)viewer.need=true;});oc2.appendChild(row('Tugma bosilganda',fs));}
   // ---- tugmalar, model ----
   const ks=(id,val,fn)=>{const s=el('select',{id},AN_KEYS_UI.map(([v,t])=>el('option',{value:v,text:t,selected:String(val)===v})));s.addEventListener('change',()=>{fn(s.value);info();});return s;};
   p.appendChild(row('Dvornik tugmasi',ks('anKeyW',M.keyW,v=>{M.keyW=v;})));
@@ -7437,7 +7500,7 @@ function paneAnim(p,it){
     let r;try{r=G.DFF.animBuild(meta,animCfg(it));}catch(e){inf.style.color='#fb7185';inf.textContent='Xato: '+e.message;return;}inf.style.color='';const cfg=animCfg(it),kn=v=>(AN_KEYS_UI.find(x=>x[0]===String(v))||['',''])[1];
     inf.innerHTML='Skript: <b>'+r.cs.length.toLocaleString()+' bayt</b> — '+r.wipers+' ta dvornik, '+r.windows+' ta oyna. '+(r.wipers?'Dvornik: <b>'+esc(kn(cfg.keyW))+'</b> tugmasi (o‘chiq → sekin → tez → o‘chiq). ':'')+(r.windows?'Oynalar: <b>'+esc(kn(cfg.keyO))+'</b> tugmasi (tushadi / ko‘tariladi). ':'')+(cfg.model==null?'Har qanday mashinada (shu sayt tayyorlagan DFF bo‘lsa) ishlaydi.':'Faqat model ID <b>'+cfg.model+'</b> da ishlaydi.');};
   info();
-  const ap=el('button',{class:done?'btn':'btn pri',type:'button',id:'btnAnApply',disabled:!sc.isCar||sc.has,onclick:async()=>{M.on=!done;M.hl=null;await editPipeline('anim');if(M.on&&animMeta(it)&&!M.preview)animPreview(true);renderPane();}},[done?'↩ Asl holiga qaytarish':'⚙ DFF ni tayyorlash']);
+  const ap=el('button',{class:done?'btn':'btn pri',type:'button',id:'btnAnApply',disabled:!sc.isCar,onclick:async()=>{M.on=!done;M.hl=null;await editPipeline('anim');if(M.on&&animMeta(it)&&!M.preview)animPreview(true);renderPane();}},[done?'↩ Asl holiga qaytarish':sc.has?'⚙ DFF ni tayyorlash (tuzatish)':'⚙ DFF ni tayyorlash']);
   const pv=el('button',{class:'btn'+(M.preview?' pri':''),type:'button',id:'btnAnPrev',onclick:()=>{animPreview(!M.preview);if(M.preview&&viewer&&viewer.ok){viewer.cam.yaw=Math.PI*0.42;viewer.cam.pitch=0.32;viewer.fit();}renderPane();}},[M.preview?'⏸ 3D ko‘rishni to‘xtatish':'▶ 3D da ko‘rish']);
   const base='dvornik_oyna_'+nm;
   const getCs=()=>{const meta=animMeta(it);if(!done||!meta)throw new Error('Avval «⚙ DFF ni tayyorlash» ni bosing');return G.DFF.animBuild(meta,animCfg(it));};
@@ -7450,7 +7513,8 @@ function paneAnim(p,it){
         '4) Skript faqat GTA San Andreas 1.0 US (asl exe) da ishlaydi. Boshqa versiyada (Steam, 1.01, 2.0) hech narsa qilmaydi — o‘yin buzilmaydi.',
         '5) O‘yinda mashinaga o‘tiring: '+(r.wipers?kn(cfg.keyW)+' — dvornik (birinchi bosish — sekin, ikkinchi — tez, uchinchi — o‘chadi, dvornik joyiga qaytib to‘xtaydi). ':'')+(r.windows?kn(cfg.keyO)+' — yon oynalar tushadi, yana bosing — ko‘tariladi'+(cfg.front==='front'?' (faqat old eshiklar).':'.'):''),
         '6) '+(cfg.model==null?'Skript har qanday mashinada ishlaydi, lekin faqat shu sayt tayyorlagan DFF li mashinalarda (boshqalarida bu qismlar yo‘q — hech narsa qilmaydi).':'Skript faqat model ID '+cfg.model+' da ishlaydi ('+nm+').'),
-        '7) Oyna eshik ichiga tushadi va eshik ochilganda u bilan birga yuradi. Eshik urilib uzilib tushsa, oyna ham yashiriladi.','',
+        '7) Oyna eshik ichiga tushadi. Siz o‘tirgan, o‘tirayotgan va oxirgi tushgan mashinangizda eshik ochilsa oyna eshik bilan birga buriladi (skript har kadrda eshik holatini o‘qiydi). Ko‘chadagi boshqa (siz minmagan) shu modeldagi mashinalarda oyna joyida turadi, lekin ular eshigini ochganda oyna eshikka ergashmaydi. Eshik urilib uzilib tushsa, oyna ham yashiriladi.',
+        '8) Avvalgi versiyadagi DFF ni ishlatmang (unda oyna eshik pastida qora dog‘ bo‘lib ko‘rinadi va ochilmaydi) — shu ZIP dagi yangi '+dn+' bilan almashtiring.','',
         base+'_manba.txt — skriptning Sanny Builder matni.'].join('\r\n');
       const files=[{name:base+'.cs',data:r.cs},{name:base+'_manba.txt',data:new TextEncoder().encode(r.src.replace(/\n/g,'\r\n'))},{name:'OQING_dvornik_oyna.txt',data:new TextEncoder().encode(txt)},{name:dn,data:R.dff}];
       save(base+'.zip',G.zipStore(files),'application/zip');}catch(e){toast('Xato: '+e.message);}}},['⬇ Skript + DFF (ZIP, yo‘riqnoma bilan)']);
