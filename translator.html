@@ -110,8 +110,8 @@
 <p class="notice">Rasm <b>brauzeringizdan chiqmaydi</b> — matn tanish (OCR) shu qurilmada ishlaydi; birinchi marta til ma’lumoti (bir necha MB) yuklanadi, keyin xotirada saqlanadi. Hamma kataklar matn sifatida yoziladi: 0 bilan boshlanadigan raqamlar, 14 xonali JSHSHIR va sanalar o‘zgarmaydi.</p>
 <p class="fmts">Bosma (kompyuterda yozilgan) matn yaxshi tanladi; <b>qo‘lda yozilgan</b> matnni kompyuter ko‘pincha xato o‘qiydi — sariq hoshiyali kataklarni bosib, asl rasm bilan solishtirib to‘g‘rilang. Eng yaxshi natija uchun: jadvalni to‘g‘ridan, yorug‘ joyda, butun kadrga sig‘dirib suratga oling.</p>
 </section><section class="panel" id="casePanel" hidden>
-<label class="upload" id="cDrop"><input id="cFile" type="file" accept=".xlsx,.xlsm,.docx,.docm"><b>EXCEL YOKI WORD FAYLNI TANLANG YOKI SHU YERGA TASHLANG</b><span>.xlsx · .docx — fayl brauzerdan chiqmaydi</span></label>
-<p class="notice" id="cStatus">Fayl ochilgach, kerakli kataklarni tanlang va harf tugmasini bosing. Bezak, ranglar, formulalar va raqamlar o‘zgarmaydi.</p>
+<label class="upload" id="cDrop"><input id="cFile" type="file" accept=".xlsx,.xlsm,.docx,.docm,.doc,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"><b>EXCEL YOKI WORD FAYLNI TANLANG YOKI SHU YERGA TASHLANG</b><br><span class="notice">Excel: .xlsx · Word: .docx va eski .doc — fayl brauzerdan chiqmaydi</span></label>
+<p class="notice" id="cStatus">Excel yoki Word fayl ochilgach, kerakli kataklarni / paragraflarni tanlang va harf tugmasini bosing. Bezak, ranglar, formulalar va raqamlar o‘zgarmaydi.</p>
 <div id="cWork" hidden>
  <div class="cx-bar">
   <div class="cx-grp">
@@ -138,7 +138,7 @@
  <div class="cx-tabs" id="cTabs"></div>
  <div class="acts"><button id="cSave" type="button">⬇ SAQLASH</button></div>
 </div>
-<p class="fmts"><b>Tanlash:</b> ustun harfini (A, B, H…) bossangiz — butun ustun; qator raqamini bossangiz — butun qator; sichqoncha bilan tortib — bir nechta katak; <b>Ctrl</b> bilan — qo‘shimcha joy; <b>Shift</b> bilan — oraliq. Telefonda «＋ Qo‘shib tanlash» ni yoqing. «🔍 Kichik harfli kataklarni belgilash» — kichik harf bilan yozib qo‘yilganlarini o‘zi topadi. Sarlavha qatori o‘zgarmasin desangiz, diapazonni 2-qatordan bering (masalan H2:H500). O‘zbekcha <b>o‘g‘li, Og"li</b> kabi so‘zlar to‘g‘ri: «O‘g‘li». Eski .xls / .doc fayllarni avval .xlsx / .docx qilib saqlang.</p>
+<p class="fmts"><b>Tanlash:</b> ustun harfini (A, B, H…) bossangiz — butun ustun; qator raqamini bossangiz — butun qator; sichqoncha bilan tortib — bir nechta katak; <b>Ctrl</b> bilan — qo‘shimcha joy; <b>Shift</b> bilan — oraliq. Telefonda «＋ Qo‘shib tanlash» ni yoqing. «🔍 Kichik harfli kataklarni belgilash» — kichik harf bilan yozib qo‘yilganlarini o‘zi topadi. Sarlavha qatori o‘zgarmasin desangiz, diapazonni 2-qatordan bering (masalan H2:H500). O‘zbekcha <b>o‘g‘li, Og"li</b> kabi so‘zlar to‘g‘ri: «O‘g‘li».<br><b>Word:</b> hujjat matni «📄 Matn» varag‘ida (har paragraf — bitta qator), har bir jadval — alohida «▦ Jadval» varag‘ida (Excel kabi ustunlari bilan), ramka va kolontitul matnlari — o‘z varaqlarida (varaqlar to‘r ostida). Eski .xls faylni avval .xlsx qilib saqlang.</p>
 </section></main>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
@@ -2713,14 +2713,17 @@ function pRuns(p) {   // paragraf matni hujjat tartibida; tab / qator ko'chishi 
   walk(p); return out;
 }
 async function readDocx(zip) {
-  const f = zip.file('word/document.xml'); if (!f) throw new Error('Bu Word fayli emas (word/document.xml yo‘q).');
-  const doc = parse(await f.async('string')), sheets = [];
-  const ps = qs(doc, 'p').filter(p => !up(p, 'tbl') && !up(p, 'txbxContent') && !inFallback(p));
-  const txt = mkSheet('Matn', 'w'); txt.path = 'word/document.xml'; txt.doc = doc;
-  ps.forEach((p, i) => { const parts = [pRuns(p)], text = joinParts(parts); addCell(txt, { r: i, c: 0, kind: 'w', edit: text !== '', parts, text, orig: text, disp: '' }); });
+  const mainPath = 'word/document.xml', f = zip.file(mainPath); if (!f) throw new Error('Bu Word fayli emas (word/document.xml yo‘q).');
+  const doc = parse(await f.async('string')), sheets = [], docs = new Map([[mainPath, doc]]);
+  const mk = (name, path, d) => { const sh = mkSheet(name, 'w'); sh.path = path; sh.doc = d; return sh; };
+  const pCell = (sh, r, p, path) => { const parts = [pRuns(p)], text = joinParts(parts); addCell(sh, { r, c: 0, kind: 'w', path, edit: /\S/.test(text), parts, text, orig: text, disp: '' }); };
+  // 1) oddiy matn (jadval va ramkadan tashqari)
+  const txt = mk('📄 Matn', mainPath, doc);
+  qs(doc, 'p').filter(p => !up(p, 'tbl') && !up(p, 'txbxContent') && !inFallback(p)).forEach((p, i) => pCell(txt, i, p, mainPath));
   if (txt.list.some(c => c.edit)) sheets.push(txt);
+  // 2) jadvallar
   qs(doc, 'tbl').filter(t => !up(t, 'txbxContent') && !inFallback(t)).forEach((tb, ti) => {
-    const sh = mkSheet('Jadval ' + (ti + 1), 'w'); sh.path = 'word/document.xml'; sh.doc = doc;
+    const sh = mk('▦ Jadval ' + (ti + 1), mainPath, doc);
     kids(tb, 'tr').forEach((tr, r) => {
       let c = 0; const trPr = kids(tr, 'trPr')[0], gb = trPr && kids(trPr, 'gridBefore')[0]; if (gb) c += +wval(gb) || 0;
       const tcs = []; for (const ch of Array.from(tr.childNodes)) { if (ch.nodeType !== 1) continue; if (ch.localName === 'tc') tcs.push(ch); else if (ch.localName === 'sdt') qs(ch, 'tc').filter(x => up(x, 'tr') === tr).forEach(x => tcs.push(x)); }
@@ -2728,30 +2731,182 @@ async function readDocx(zip) {
         const tcPr = kids(tc, 'tcPr')[0], gs = tcPr && kids(tcPr, 'gridSpan')[0], span = gs ? Math.max(1, +wval(gs) || 1) : 1;
         const paras = qs(tc, 'p').filter(p => up(p, 'tc') === tc && !up(p, 'txbxContent') && !inFallback(p));
         const parts = paras.map(pRuns), text = joinParts(parts);
-        addCell(sh, { r, c, kind: 'w', edit: /\S/.test(text), parts, text, orig: text, disp: '', span });
+        addCell(sh, { r, c, kind: 'w', path: mainPath, edit: /\S/.test(text), parts, text, orig: text, disp: '', span });
         c += span;
       }
     });
-    if (sh.list.length) sheets.push(sh);
+    if (sh.list.some(c => c.edit)) sheets.push(sh);
   });
+  // 3) ramka (yozuv maydoni / text box) ichidagi matn
+  const bx = mk('▭ Ramkalar', mainPath, doc);
+  qs(doc, 'p').filter(p => up(p, 'txbxContent') && !inFallback(p)).forEach((p, i) => pCell(bx, i, p, mainPath));
+  if (bx.list.some(c => c.edit)) sheets.push(bx);
+  // 4) yuqori / pastki kolontitullar
+  const rl = await rels(zip, mainPath), hf = mk('⤒ Kolontitullar', '', null); let hr = 0;
+  for (const r of rl.filter(r => /\/(header|footer)$/.test(r.type) && r.target && zip.file(r.target))) {
+    const d = parse(await zip.file(r.target).async('string')); docs.set(r.target, d);
+    qs(d, 'p').filter(p => !inFallback(p) && /\S/.test(joinParts([pRuns(p)]))).forEach(p => pCell(hf, hr++, p, r.target));
+  }
+  if (hf.list.some(c => c.edit)) sheets.push(hf);
   for (const sh of sheets) {
-    sh.colPx = Array.from({ length: sh.C }, (_, c) => { let m = 4; for (const x of sh.list) if (x.c === c) m = Math.max(m, Math.min(80, (x.text.split('\n')[0] || '').length)); return Math.max(48, Math.min(sh.name === 'Matn' ? 900 : 420, m * 7.5 + 16)); });
+    sh.colPx = Array.from({ length: sh.C }, (_, c) => { let m = 4; for (const x of sh.list) if (x.c === c) m = Math.max(m, Math.min(110, (x.text.split('\n')[0] || '').length)); return Math.max(48, Math.min(sh.C === 1 ? 900 : 420, m * 7.5 + 16)); });
   }
   if (!sheets.length) throw new Error('Hujjatda matn topilmadi.');
-  return { sheets };
+  return { sheets, docs };
+}
+
+/* ---------------- eski Word (.doc, Word 97–2003) ----------------
+   Matn faylning o'zida, o'sha baytlarda almashtiriladi: harf soni o'zgarmaydi, shuning uchun fayl tuzilishi, bezak,
+   jadval, rasm va boshqa hamma narsa baytma-bayt o'z joyida qoladi. */
+const CP1252 = '€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008DŽ\u008F\u0090‘’“”•–—˜™š›œ\u009DžŸ';
+const dec1252 = b => b >= 0x80 && b < 0xA0 ? CP1252[b - 0x80] : String.fromCharCode(b);
+const enc1252 = ch => { const c = ch.charCodeAt(0); if (c < 0x80 || (c >= 0xA0 && c <= 0xFF)) return c; const i = CP1252.indexOf(ch); return i >= 0 ? 0x80 + i : null; };
+function cfbOpen(u8) {   // Compound File (OLE) konteyneri: oqimlarni o'qish va oqimdagi bayt -> fayldagi bayt manzili
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), SIG = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+  if (u8.length < 512 || SIG.some((b, i) => u8[i] !== b)) return null;
+  const ss = 1 << dv.getUint16(0x1E, true), mss = 1 << dv.getUint16(0x20, true), END = 0xFFFFFFFA;
+  const nFat = dv.getUint32(0x2C, true), dir0 = dv.getUint32(0x30, true), cutoff = dv.getUint32(0x38, true), mfat0 = dv.getUint32(0x3C, true), difat0 = dv.getUint32(0x44, true), nDifat = dv.getUint32(0x48, true);
+  const off = sct => (sct + 1) * ss, per = ss / 4;
+  const fatSecs = []; for (let i = 0; i < 109 && fatSecs.length < nFat; i++) fatSecs.push(dv.getUint32(0x4C + 4 * i, true));
+  for (let d = difat0, k = 0; k < nDifat && d < END; k++) { for (let i = 0; i < per - 1 && fatSecs.length < nFat; i++) fatSecs.push(dv.getUint32(off(d) + 4 * i, true)); d = dv.getUint32(off(d) + 4 * (per - 1), true); }
+  const fat = new Uint32Array(fatSecs.length * per); fatSecs.forEach((sc, i) => { for (let j = 0; j < per; j++) fat[i * per + j] = off(sc) + 4 * j + 4 <= u8.length ? dv.getUint32(off(sc) + 4 * j, true) : END; });
+  const chain = (st, tbl) => { const out = [], seen = new Set(); while (st < END && st < tbl.length && !seen.has(st)) { seen.add(st); out.push(st); st = tbl[st]; } return out; };
+  const ents = [];
+  for (const sc of chain(dir0, fat)) for (let k = 0; k < ss / 128; k++) {
+    const o = off(sc) + k * 128; if (o + 128 > u8.length) break;
+    const nl = dv.getUint16(o + 64, true); let name = ''; for (let i = 0; i < Math.max(0, nl / 2 - 1) && i < 32; i++) name += String.fromCharCode(dv.getUint16(o + 2 * i, true));
+    ents.push({ name, type: u8[o + 66], start: dv.getUint32(o + 116, true), size: dv.getUint32(o + 120, true) });
+  }
+  const root = ents[0]; if (!root) return null;
+  const mfat = []; for (const sc of chain(mfat0, fat)) for (let j = 0; j < per; j++) mfat.push(dv.getUint32(off(sc) + 4 * j, true));
+  const rootChain = chain(root.start, fat);
+  return {
+    stream(name) {
+      const e = ents.find(x => x.type === 2 && x.name === name); if (!e) return null;
+      let map;
+      if (e.size < cutoff) { const mc = chain(e.start, mfat); map = q => { const rp = mc[Math.floor(q / mss)] * mss + q % mss; return off(rootChain[Math.floor(rp / ss)]) + rp % ss; }; }
+      else { const c = chain(e.start, fat); map = q => off(c[Math.floor(q / ss)]) + q % ss; }
+      const data = new Uint8Array(e.size), blk = e.size < cutoff ? mss : ss;
+      for (let q = 0; q < e.size; q += blk) { const fo = map(q), n = Math.min(blk, e.size - q); if (fo + n > u8.length) throw new Error('fayl buzilgan'); data.set(u8.subarray(fo, fo + n), q); }
+      return { data, size: e.size, map };
+    }
+  };
+}
+function readDoc(u8) {
+  const cf = cfbOpen(u8); if (!cf) throw new Error('nocfb');
+  const wd = cf.stream('WordDocument'); if (!wd) throw new Error('Bu Word hujjati emas (Excel yoki boshqa dastur fayli bo‘lishi mumkin).');
+  const W = new DataView(wd.data.buffer);
+  if (W.getUint16(0, true) !== 0xA5EC) throw new Error('Bu Word 97–2003 hujjati emas.');
+  if (W.getUint16(2, true) < 0xC0) throw new Error('Juda eski Word (6.0/95) formati — Word’da ochib .docx qilib saqlang.');
+  const flags = W.getUint16(0x0A, true);
+  if (flags & 0x100) throw new Error('Hujjat parol bilan himoyalangan — avval Word’da parolni olib tashlang.');
+  const tbl = cf.stream(flags & 0x200 ? '1Table' : '0Table'); if (!tbl) throw new Error('hujjat jadval oqimi topilmadi');
+  const T = new DataView(tbl.data.buffer);
+  const csw = W.getUint16(0x20, true), lw = 0x22 + csw * 2 + 2, cslw = W.getUint16(0x22 + csw * 2, true), blob = lw + cslw * 4 + 2;
+  const ccpText = W.getInt32(lw + 12, true), fcLcb = i => [W.getUint32(blob + i * 8, true), W.getUint32(blob + i * 8 + 4, true)];
+  // bo'laklar jadvali (Clx -> PlcPcd): matn qayerda va qanday kodlangan
+  const [fcClx, lcbClx] = fcLcb(33); let i = fcClx, end = fcClx + lcbClx;
+  while (i < end && tbl.data[i] === 1) i += 3 + T.getUint16(i + 1, true);
+  if (tbl.data[i] !== 2) throw new Error('matn jadvali (Clx) o‘qilmadi');
+  const lcb = T.getUint32(i + 1, true), pb = i + 5, n = (lcb - 4) / 12, pcs = [];
+  for (let k = 0; k < n; k++) { const raw = T.getUint32(pb + 4 * (n + 1) + 8 * k + 2, true), comp = !!(raw & 0x40000000); pcs.push({ cp0: T.getUint32(pb + 4 * k, true), cp1: T.getUint32(pb + 4 * (k + 1), true), comp, fc: comp ? (raw & 0x3FFFFFFF) / 2 : raw }); }
+  let pi = 0; const pieceOf = cp => { if (!(pcs[pi] && cp >= pcs[pi].cp0 && cp < pcs[pi].cp1)) pi = pcs.findIndex(q => cp >= q.cp0 && cp < q.cp1); return pcs[pi]; };
+  const fcOf = cp => { const q = pieceOf(cp); return q ? q.fc + (cp - q.cp0) * (q.comp ? 1 : 2) : -1; };
+  const chAt = cp => { const q = pieceOf(cp); if (!q) return '\u0000'; const o = q.fc + (cp - q.cp0) * (q.comp ? 1 : 2); return q.comp ? dec1252(wd.data[o]) : String.fromCharCode(W.getUint16(o, true)); };
+  // paragraf xossalari (PAPX): jadval ichidami, qator oxirimi
+  const [fcBte, lcbBte] = fcLcb(13), nb = Math.max(0, (lcbBte - 4) / 8);
+  const bteFc = k => T.getUint32(fcBte + 4 * k, true), btePn = k => T.getUint32(fcBte + 4 * (nb + 1) + 4 * k, true) & 0x3FFFFF;
+  function pap(fc) {
+    const res = { inT: false, ttp: false, itap: 0 };
+    try {
+      let k = 0; while (k < nb && !(fc >= bteFc(k) && fc < bteFc(k + 1))) k++; if (k >= nb) return res;
+      const pg = btePn(k) * 512, crun = wd.data[pg + 511]; let j = 0;
+      while (j < crun && !(fc >= W.getUint32(pg + 4 * j, true) && fc < W.getUint32(pg + 4 * (j + 1), true))) j++; if (j >= crun) return res;
+      const bOff = wd.data[pg + 4 * (crun + 1) + 13 * j]; if (!bOff) return res;
+      let o = pg + bOff * 2, cb = wd.data[o], len; if (cb === 0) { len = 2 * wd.data[o + 1]; o += 2; } else { len = 2 * cb - 1; o += 1; }
+      let q = o + 2; const e = o + len;
+      while (q + 2 <= e) {
+        const op = W.getUint16(q, true); q += 2; const spra = op >> 13; let sz;
+        if (spra === 0 || spra === 1) sz = 1; else if (spra === 2 || spra === 4 || spra === 5) sz = 2; else if (spra === 3) sz = 4; else if (spra === 7) sz = 3;
+        else if (op === 0xD608) sz = W.getUint16(q, true) + 1; else if (op === 0xC615 && wd.data[q] === 255) break; else sz = wd.data[q] + 1;
+        if (op === 0x2416) res.inT = !!wd.data[q]; else if (op === 0x2417) res.ttp = !!wd.data[q]; else if (op === 0x6649) res.itap = W.getInt32(q, true); else if (op === 0x244C && wd.data[q]) res.innerTtp = true;
+        q += sz;
+      }
+    } catch (e) { }
+    if (res.itap > 0) res.inT = true; else if (res.inT) res.itap = 1;
+    return res;
+  }
+  // matnni paragraf / katak birliklariga bo'lish; maydon (field) kodlari va maxsus belgilar tahrirlanmaydi
+  const SEPV = { '\u000B': ' ', '\u000C': ' ', '\u001E': '-', '\t': '\t' };
+  const units = []; let segs = [], fld = [];
+  const ccp = k => W.getInt32(lw + k, true), ccpFtn = ccp(16), ccpHdd = ccp(20), ccpAtn = ccp(28), ccpEdn = ccp(32), ccpTxbx = ccp(36);
+  for (let cp = 0; cp < ccpText; cp++) {
+    const ch = chAt(cp), c = ch.charCodeAt(0);
+    if (c === 0x13) { fld.push('i'); continue; } if (c === 0x14) { if (fld.length) fld[fld.length - 1] = 'r'; continue; } if (c === 0x15) { fld.pop(); continue; }
+    if (fld.includes('i')) continue;   // maydon kodi (masalan HYPERLINK "...") -- tegilmaydi
+    if (c === 0x0D || c === 0x07) { units.push({ segs, term: c, pap: pap(fcOf(cp)) }); segs = []; continue; }
+    if (SEPV[ch]) { segs.push({ cp: null, s: SEPV[ch] }); continue; }
+    if (c < 0x20 || c === 0x1F) continue;   // rasm, izoh belgisi, yumshoq chiziqcha va h.k.
+    segs.push({ cp, s: ch, o: ch });
+  }
+  if (segs.length) units.push({ segs, term: 0x0D, pap: { inT: false } });
+  // qo'shimcha bo'limlar: kolontitullar va ramkalar (har paragraf -- bitta qator)
+  const story = (a, b) => {
+    const out = []; let sg = [], fl = [];
+    for (let cp = a; cp < b; cp++) {
+      const ch = chAt(cp), c = ch.charCodeAt(0);
+      if (c === 0x13) { fl.push('i'); continue; } if (c === 0x14) { if (fl.length) fl[fl.length - 1] = 'r'; continue; } if (c === 0x15) { fl.pop(); continue; }
+      if (fl.includes('i')) continue;
+      if (c === 0x0D || c === 0x07) { out.push(sg); sg = []; continue; }
+      if (SEPV[ch]) { sg.push({ cp: null, s: SEPV[ch] }); continue; }
+      if (c < 0x20 || c === 0x1F) continue;
+      sg.push({ cp, s: ch, o: ch });
+    }
+    if (sg.length) out.push(sg); return out;
+  };
+  const extra = [];
+  if (ccpHdd > 0) extra.push(['⤒ Kolontitullar', story(ccpText + ccpFtn, ccpText + ccpFtn + ccpHdd)]);
+  if (ccpTxbx > 0) extra.push(['▭ Ramkalar', story(ccpText + ccpFtn + ccpHdd + ccpAtn + ccpEdn, ccpText + ccpFtn + ccpHdd + ccpAtn + ccpEdn + ccpTxbx)]);
+  // varaqlar: oddiy matn va jadvallar
+  const sheets = [], txt = mkSheet('📄 Matn', 'd'); let tb = null, row = null, cell = null, tn = 0, tr = 0;
+  const mkCell = (sh, r, c, parts) => { const text = joinParts(parts); addCell(sh, { r, c, kind: 'd', edit: /\S/.test(text), parts, text, orig: text, disp: '' }); };
+  const endTable = () => { if (tb && tb.list.length) sheets.push(tb); tb = null; row = null; cell = null; };
+  for (const u of units) {
+    const P = u.pap || {};
+    if (!P.inT) { endTable(); mkCell(txt, txt.R, 0, [u.segs]); continue; }
+    if (!tb) { tb = mkSheet('▦ Jadval ' + (++tn), 'd'); tr = 0; row = []; cell = null; }
+    if (P.ttp && P.itap <= 1) { if (cell) { row.push(cell); cell = null; } row.forEach((parts, c) => mkCell(tb, tr, c, parts)); tr++; row = []; continue; }   // qator oxiri belgisi
+    if (!cell) cell = [];
+    cell.push(u.segs);
+    if (u.term === 0x07 && P.itap <= 1) { row.push(cell); cell = null; }   // katak oxiri
+  }
+  if (row && row.length) row.forEach((parts, c) => mkCell(tb, tr, c, parts));
+  endTable();
+  if (txt.list.some(c => c.edit)) sheets.unshift(txt);
+  for (const [name, us] of extra) { const sh = mkSheet(name, 'd'); us.filter(u => u.some(q => /\S/.test(q.s))).forEach((u, r) => mkCell(sh, r, 0, [u])); if (sh.list.some(c => c.edit)) sheets.push(sh); }
+  for (const sh of sheets) sh.colPx = Array.from({ length: sh.C }, (_, c) => { let m = 4; for (const x of sh.list) if (x.c === c) m = Math.max(m, Math.min(110, (x.text.split('\n')[0] || '').length)); return Math.max(48, Math.min(sh.C === 1 ? 900 : 420, m * 7.5 + 16)); });
+  if (!sheets.length) throw new Error('Hujjatda matn topilmadi.');
+  // yozish: oqimdagi bayt -> fayldagi bayt (o'lcham o'zgarmaydi)
+  const put = (out, cp, ch) => {
+    const q = pieceOf(cp); if (!q) return false; const o = q.fc + (cp - q.cp0) * (q.comp ? 1 : 2);
+    if (q.comp) { const b = enc1252(ch); if (b == null) return false; out[wd.map(o)] = b; return true; }
+    const v = ch.charCodeAt(0); out[wd.map(o)] = v & 255; out[wd.map(o + 1)] = v >> 8; return true;
+  };
+  return { sheets, put };
 }
 
 /* ---------------- faylni ochish ---------------- */
 async function openFile(file) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
-  if (ext === 'xls' || ext === 'doc') { cSay('Eski .' + ext + ' formati: avval Excel/Word’da «Saqlash (Save As)» → .' + ext + 'x qilib saqlang, keyin shu faylni tashlang.', 'err'); return; }
-  if (!['xlsx', 'xlsm', 'docx', 'docm'].includes(ext)) { cSay('Faqat Excel (.xlsx) yoki Word (.docx) fayl.', 'err'); return; }
+  if (ext === 'xls') { cSay('Eski .xls formati: avval Excel’da «Saqlash (Save As)» → .xlsx qilib saqlang, keyin shu faylni tashlang.', 'err'); return; }
+  if (!['xlsx', 'xlsm', 'docx', 'docm', 'doc'].includes(ext)) { cSay('Faqat Excel (.xlsx) yoki Word (.docx, .doc) fayl.', 'err'); return; }
+  if (ext === 'doc') return openDoc(file);
   if (!window.JSZip) { cSay('ZIP kutubxonasi (JSZip) yuklanmadi — internetni tekshirib, sahifani yangilang.', 'err'); return; }
   cSay('Fayl ochilmoqda…');
   try {
     const zip = await JSZip.loadAsync(await file.arrayBuffer());
     const r = ext[0] === 'x' ? await readXlsx(zip) : await readDocx(zip);
-    Object.assign(CS, { name: file.name, ext, zip, kind: ext[0] === 'x' ? 'x' : 'w', sheets: r.sheets, sst: r.sst || null, cur: Math.max(0, r.sheets.findIndex(s => !s.hidden)), sel: null, anchor: null, hist: [] });
+    Object.assign(CS, { name: file.name, ext, zip, kind: ext[0] === 'x' ? 'x' : 'w', sheets: r.sheets, sst: r.sst || null, docs: r.docs || null, raw: null, put: null, cur: Math.max(0, r.sheets.findIndex(s => !s.hidden)), sel: null, anchor: null, hist: [] });
     $c('cWork').hidden = false; $c('cSave').textContent = '⬇ SAQLASH (.' + ext + ')';
     $c('cGrid').scrollTop = 0; $c('cGrid').scrollLeft = 0;
     renderTabs(); render(); info();
@@ -2760,6 +2915,27 @@ async function openFile(file) {
   } catch (e) {
     cSay('Faylni ochib bo‘lmadi: ' + (/zip|end of central|signature|Corrupted/i.test(String(e && e.message)) ? 'fayl buzilgan yoki parol bilan himoyalangan.' : (e.message || e)), 'err');
   }
+}
+
+async function openDoc(file) {
+  cSay('Word (.doc) fayl ochilmoqda…');
+  try {
+    const raw = new Uint8Array(await file.arrayBuffer());
+    const head = new TextDecoder('latin1').decode(raw.subarray(0, 600)).toLowerCase();
+    if (!cfbOpen(raw)) {
+      if (head.startsWith('{\\rtf')) throw new Error('bu fayl aslida RTF (.doc nomi bilan saqlangan). Word’da ochib «Saqlash (Save As)» → .docx qilib saqlang.');
+      if (/<html|<\?xml|<w:worddocument|mime-version/.test(head)) throw new Error('bu fayl aslida veb-sahifa (HTML/XML) .doc nomi bilan. Word’da ochib «Saqlash (Save As)» → .docx qilib saqlang.');
+      if (raw[0] === 0x50 && raw[1] === 0x4B) { const f2 = new File([raw], file.name.replace(/\.doc$/i, '.docx')); return openFile(f2); }   // aslida .docx
+      throw new Error('fayl buzilgan yoki Word fayli emas.');
+    }
+    const r = readDoc(raw);
+    Object.assign(CS, { name: file.name, ext: 'doc', zip: null, kind: 'd', sheets: r.sheets, sst: null, docs: null, raw, put: r.put, cur: 0, sel: null, anchor: null, hist: [] });
+    $c('cWork').hidden = false; $c('cSave').textContent = '⬇ SAQLASH (.doc)';
+    $c('cGrid').scrollTop = 0; $c('cGrid').scrollLeft = 0;
+    renderTabs(); render(); info();
+    const n = CS.sheets.reduce((a, s) => a + s.list.filter(c => c.edit).length, 0);
+    cSay('✓ ' + file.name + ' (Word 97–2003) ochildi: ' + n + ' ta matnli paragraf/katak' + (CS.sheets.length > 1 ? ' — «📄 Matn» va jadvallar pastdagi varaqlarda' : '') + '. Tanlang va tugmani bosing.', 'ok');
+  } catch (e) { cSay('Faylni ochib bo‘lmadi: ' + (e.message === 'nocfb' ? 'fayl buzilgan yoki Word fayli emas.' : (e.message || e)), 'err'); }
 }
 
 /* ---------------- tanlov ---------------- */
@@ -2813,7 +2989,8 @@ function findLower() {
   cSay(keys.size ? '🔍 ' + keys.size + ' ta katak kichik harf bilan boshlangan — belgilandi. Endi «Aa Har so‘z bosh harfi katta» ni bosing.' : 'Kichik harf bilan boshlangan katak topilmadi' + (pool !== sh.list ? ' (tanlangan joyda)' : '') + '.', keys.size ? 'ok' : '');
 }
 async function saveFile() {
-  if (!CS.zip) return;
+  if (!CS.zip && !CS.raw) return;
+  if (CS.kind === 'd') return saveDoc();
   const btn = $c('cSave'); btn.disabled = true;
   try {
     const changed = CS.sheets.flatMap(sh => sh.list.filter(x => x.edit && x.text !== x.orig).map(x => ({ sh, x })));
@@ -2848,8 +3025,9 @@ async function saveFile() {
       }
       for (const sh of touched) zip.file(sh.path, ser(sh.doc), ZF);
     } else {
-      for (const { x } of changed) x.parts.forEach(p => p.forEach(q => { if (q.node) q.node.textContent = q.s; }));
-      if (changed.length) zip.file('word/document.xml', ser(CS.sheets[0].doc), ZF);
+      const paths = new Set();
+      for (const { x } of changed) { x.parts.forEach(p => p.forEach(q => { if (q.node) q.node.textContent = q.s; })); paths.add(x.path || 'word/document.xml'); }
+      for (const pth of paths) zip.file(pth, ser(CS.docs.get(pth)), ZF);
     }
     const mime = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', docm: 'application/vnd.ms-word.document.macroEnabled.12' }[CS.ext];
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: mime });
@@ -2863,6 +3041,21 @@ async function saveFile() {
     }
     render(); info();
     cSay('✓ ' + nm + ' saqlandi (' + changed.length + ' ta katak o‘zgargan). Bezak, formulalar va raqamlar o‘zgarmadi.', 'ok');
+  } catch (e) { cSay('Saqlab bo‘lmadi: ' + (e.message || e), 'err'); }
+  btn.disabled = false;
+}
+function saveDoc() {
+  const btn = $c('cSave');
+  try {
+    const out = new Uint8Array(CS.raw);   // nusxa: asl fayl baytlari
+    let n = 0, bad = 0;
+    const changed = CS.sheets.flatMap(sh => sh.list.filter(x => x.edit && x.text !== x.orig));
+    for (const x of changed) { let ok = true; x.parts.forEach(p => p.forEach(q => { if (q.cp == null || q.s === q.o) return; if (!CS.put(out, q.cp, q.s)) { ok = false; bad++; } })); n++; }
+    const nm = CS.name.replace(/\.[^.]+$/, '') + '_tahrirlangan.doc';
+    (window.save || dlBlob)(new Blob([out], { type: 'application/msword' }), nm);
+    CS.raw = out; for (const x of changed) { x.orig = x.text; x.parts.forEach(p => p.forEach(q => { if (q.cp != null) q.o = q.s; })); }
+    render(); info();
+    cSay('✓ ' + nm + ' saqlandi (' + n + ' ta paragraf/katak o‘zgargan' + (bad ? '; ' + bad + ' ta harfni bu eski formatda yozib bo‘lmadi' : '') + '). Fayl tuzilishi va bezagi o‘zgarmadi.', 'ok');
   } catch (e) { cSay('Saqlab bo‘lmadi: ' + (e.message || e), 'err'); }
   btn.disabled = false;
 }
@@ -2988,8 +3181,8 @@ function initCase() {
   initGrid();
   const inp = $c('cFile'), drop = $c('cDrop');
   inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) openFile(f); inp.value = ''; };
-  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); }));
-  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); }));
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('hot'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('hot'); }));
   drop.addEventListener('drop', e => { const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) openFile(f); });
   document.querySelectorAll('#casePanel [data-op]').forEach(b => b.onclick = () => apply(b.dataset.op));
   $c('cUndo').onclick = undo; $c('cFind').onclick = findLower; $c('cSave').onclick = saveFile;
