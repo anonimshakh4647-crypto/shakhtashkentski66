@@ -2547,13 +2547,13 @@ const isL = ch => !!ch && /\p{L}/u.test(ch), isD = ch => !!ch && /\p{N}/u.test(c
 const APOS = '\'‘’ʻʼ`´"″';
 const up1 = ch => { const u = ch.toUpperCase(); return u.length === ch.length ? u : ch; };   // ß -> SS kabi uzunlik o'zgarsa -- o'zgartirilmaydi
 const lo1 = ch => { const u = ch.toLowerCase(); return u.length === ch.length ? u : ch; };
-// so'z boshi: oldida harf/raqam yo'q; o'g'li, Og"li dagi apostrof va "15-tupik" dagi chiziqcha so'zni bo'lmaydi
+// so'z boshi: oldida harf yo'q (raqam, chiziqcha, bo'shliq, / . va h.k. dan keyin -- yangi so'z: "2/6-uy" -> "2/6-Uy");
+// faqat so'z ichidagi apostrof so'zni bo'lmaydi: o'g'li, o‘g‘li, Og"li -> O'g'li
 function wordStart(t, i) {
   if (i === 0) return true;
   const p = t[i - 1], pp = t[i - 2];
-  if (isL(p) || isD(p)) return false;
+  if (isL(p)) return false;
   if (APOS.includes(p) && isL(pp)) return false;
-  if (p === '-' && isD(pp)) return false;
   return true;
 }
 function sentStart(t, i) {   // gap boshi: matn boshi, yangi satr yoki . ! ? dan keyin (bo'shliq bilan)
@@ -2585,8 +2585,8 @@ function transform(t, mode, re) {
   if (re && mode !== 'upper') o = o.replace(re, (m, a, w) => { const u = w.toUpperCase(); return a + (u.length === w.length ? u : w); });
   return o.length === t.length ? o : t;
 }
-// kichik harf bilan yozib qo'yilgan katak: matndagi birinchi harf kichik ("qaxramon mfy…", "2 bolalikdan"); "Тошкент вилояти" -- yo'q
-const hasLowerStart = t => { for (let i = 0; i < t.length; i++) if (isL(t[i])) return t[i] !== up1(t[i]); return false; };
+// kichik harf bilan boshlangan so'zi bor katak ("qaxramon mfy…", "Farobiy mfy hakjihad", "2/6-uy") -- bosh harf tugmasi aynan shularni o'zgartiradi
+const hasLowerStart = t => { for (let i = 0; i < t.length; i++) if (isL(t[i]) && wordStart(t, i) && t[i] !== up1(t[i])) return true; return false; };
 const CASE = { transform, wordStart, hasLowerStart };
 
 /* ---------------- katak: matn bo'laklari (run) bilan ---------------- */
@@ -2652,6 +2652,8 @@ async function readXlsx(zip) {
           const idx = +v.textContent; if (!(idx >= 0 && idx < sst.sis.length)) continue;
           sst.use[idx]++;
           cell.kind = 's'; cell.idx = idx; cell.edit = true; cell.parts = [sst.runs[idx].map(n => ({ node: n, s: n.textContent }))];
+        } else if (t === 'str' && v && !f) {   // ba'zi dasturlar matnni formulasiz "str" turida yozadi
+          cell.kind = 'is'; cell.edit = true; cell.parts = [[{ node: v, s: v.textContent }]];
         } else if (t === 'inlineStr' && !f) {
           const is = kids(c, 'is')[0]; if (!is) continue;
           cell.kind = 'is'; cell.edit = true; cell.parts = [tNodes(is).map(n => ({ node: n, s: n.textContent }))];
@@ -2696,7 +2698,20 @@ const MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006', WNS = 
 const wval = n => n.getAttributeNS(WNS, 'val') || n.getAttribute('w:val') || '';
 const up = (n, tag) => { for (let x = n.parentNode; x && x.nodeType === 1; x = x.parentNode) if (x.localName === tag) return x; return null; };
 const inFallback = n => { for (let x = n.parentNode; x && x.nodeType === 1; x = x.parentNode) if (x.localName === 'Fallback' && x.namespaceURI === MC) return true; return false; };
-function pRuns(p) { return qs(p, 't').filter(t => up(t, 'p') === p && !inFallback(t)).map(n => ({ node: n, s: n.textContent })); }
+const WSEP = { tab: '\t', ptab: '\t', br: ' ', cr: ' ', noBreakHyphen: '-', sym: ' ' };
+function pRuns(p) {   // paragraf matni hujjat tartibida; tab / qator ko'chishi -- virtual ajratgich (node: null), so'zlar yopishib qolmasin
+  const out = [];
+  const walk = n => {
+    for (const ch of Array.from(n.childNodes)) {
+      if (ch.nodeType !== 1) continue; const ln = ch.localName;
+      if (ln === 'p' || ln === 'pPr' || ln === 'rPr' || ln === 'tbl' || ln === 'txbxContent' || ln === 'delText' || ln === 'instrText' || (ln === 'Fallback' && ch.namespaceURI === MC)) continue;
+      if (ch.namespaceURI === WNS && ln === 't') { out.push({ node: ch, s: ch.textContent }); continue; }
+      if (ch.namespaceURI === WNS && WSEP[ln]) { out.push({ node: null, s: WSEP[ln] }); continue; }
+      walk(ch);
+    }
+  };
+  walk(p); return out;
+}
 async function readDocx(zip) {
   const f = zip.file('word/document.xml'); if (!f) throw new Error('Bu Word fayli emas (word/document.xml yo‘q).');
   const doc = parse(await f.async('string')), sheets = [];
@@ -2833,7 +2848,7 @@ async function saveFile() {
       }
       for (const sh of touched) zip.file(sh.path, ser(sh.doc), ZF);
     } else {
-      for (const { x } of changed) x.parts.forEach(p => p.forEach(q => { q.node.textContent = q.s; }));
+      for (const { x } of changed) x.parts.forEach(p => p.forEach(q => { if (q.node) q.node.textContent = q.s; }));
       if (changed.length) zip.file('word/document.xml', ser(CS.sheets[0].doc), ZF);
     }
     const mime = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', docm: 'application/vnd.ms-word.document.macroEnabled.12' }[CS.ext];
@@ -2870,7 +2885,7 @@ function render() {
     for (let c = 0; c < sh.C; c++) {
       const x = sh.map.get(KEY(r, c)), sel = inSel(r, c);
       let cls = sel ? 'sel' : '', t = '';
-      if (x) { if (x.edit) { t = x.text.replace(/\n/g, ' ⏎ '); if (x.text !== x.orig) cls += ' chg'; } else { t = x.disp || x.text; cls += ' ro'; } }
+      if (x) { if (x.edit) { t = x.text.replace(/\n/g, ' ⏎ ').replace(/\t/g, ' '); if (x.text !== x.orig) cls += ' chg'; } else { t = x.disp || x.text; cls += ' ro'; } }
       h += '<td data-r="' + r + '" data-c="' + c + '"' + (cls ? ' class="' + cls.trim() + '"' : '') + (t.length > 18 ? ' title="' + escH(t) + '"' : '') + '>' + escH(t) + '</td>';
     }
     h += '</tr>';
@@ -2927,12 +2942,38 @@ function initGrid() {
     if (pick(e, h)) { CS.drag = h; e.preventDefault(); }
   });
 
-  g.addEventListener('pointerover', e => {
-    if (!CS.drag || !CS.sel) return; const h = hit(e); if (!h || h.all) return;
-    const a = CS.drag; if ((a.col != null) !== (h.col != null) || (a.row != null) !== (h.row != null)) return;
-    CS.sel.rects[CS.sel.rects.length - 1] = rectFor(a, h); render(); info();
-  });
-  window.addEventListener('pointerup', () => { CS.drag = null; });
+  // sudrash: sichqoncha to'r chetiga (yoki tashqarisiga) chiqsa -- to'r o'zi suriladi va tanlov davom etadi
+  let pt = null, raf = 0;
+  const hitAt = (px, py) => {
+    const d = CS.drag, rc = g.getBoundingClientRect(), th = g.querySelector('thead'), HDR = th ? th.offsetHeight : RH;
+    let x = Math.max(rc.left + 2, Math.min(rc.left + g.clientWidth - 3, px)), y = Math.max(rc.top + 2, Math.min(rc.top + g.clientHeight - 3, py));
+    if (d.row != null) x = rc.left + RHW / 2; else x = Math.max(rc.left + RHW + 2, x);
+    if (d.col != null) y = rc.top + HDR / 2; else y = Math.max(rc.top + HDR + 2, y);
+    x = Math.max(0, Math.min(innerWidth - 1, x)); y = Math.max(0, Math.min(innerHeight - 1, y));
+    const el = document.elementFromPoint(x, y); return el && g.contains(el) ? hit({ target: el }) : null;
+  };
+  const extend = h => {
+    const a = CS.drag; if (!a || !h || h.all || !CS.sel) return;
+    if ((a.col != null) !== (h.col != null) || (a.row != null) !== (h.row != null)) return;
+    const q = rectFor(a, h), last = CS.sel.rects[CS.sel.rects.length - 1];
+    if (last && last.r0 === q.r0 && last.r1 === q.r1 && last.c0 === q.c0 && last.c1 === q.c1) return;
+    CS.sel.rects[CS.sel.rects.length - 1] = q; render(); info();
+  };
+  const step = () => {
+    raf = 0; if (!CS.drag || !pt) return;
+    const rc = g.getBoundingClientRect(), bot = rc.top + g.clientHeight, rgt = rc.left + g.clientWidth;
+    let dy = 0, dx = 0;
+    if (CS.drag.col == null) { if (pt.y > bot - 16) dy = Math.min(80, (pt.y - bot + 16) / 2 + 8); else if (pt.y < rc.top + RH + 6) dy = -Math.min(80, (rc.top + RH + 6 - pt.y) / 2 + 8); }
+    if (CS.drag.row == null) { if (pt.x > rgt - 16) dx = Math.min(80, (pt.x - rgt + 16) / 2 + 8); else if (pt.x < rc.left + RHW + 6) dx = -Math.min(80, (rc.left + RHW + 6 - pt.x) / 2 + 8); }
+    const t0 = g.scrollTop, l0 = g.scrollLeft;
+    if (dy) g.scrollTop += dy; if (dx) g.scrollLeft += dx;
+    const moved = g.scrollTop !== t0 || g.scrollLeft !== l0;
+    if (moved) render();
+    extend(hitAt(pt.x, pt.y));
+    if (moved) raf = requestAnimationFrame(step);
+  };
+  document.addEventListener('pointermove', e => { if (!CS.drag || e.pointerType !== 'mouse') return; pt = { x: e.clientX, y: e.clientY }; if (!raf) raf = requestAnimationFrame(step); });
+  window.addEventListener('pointerup', () => { CS.drag = null; pt = null; });
   g.addEventListener('keydown', e => {
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && k === 'a') { e.preventDefault(); setSel([{ r0: 0, c0: 0, r1: sheet().R - 1, c1: sheet().C - 1 }], false); }
