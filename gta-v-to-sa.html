@@ -7264,13 +7264,17 @@ function strobeModelName(it){const raw=String(it.model&&it.model.name||it.file||
 function strobeGuessId(it){return G.DFF.SA_VEH_IDS[strobeModelName(it)]||null;}
 function strobeModel(it){const M=S.strobe;if(M.modelMode==='any')return null;if(M.modelMode==='id'){const v=parseInt(M.modelId,10);return v>=400&&v<=65535?v:null;}return strobeGuessId(it);}
 /* ---------- CLEO platformasi: kompyuter (CLEO 4/5, .cs) yoki telefon (CLEO Android / AML CLEOMod, .csa) -- stroboskop, neon, dvornik uchun umumiy ---------- */
-S.cleoPlat=(()=>{try{return localStorage.getItem('itshakh_gvsa_plat')==='android'?'android':'pc';}catch(e){return 'pc';}})();
+// tanlov saqlangan bo'lsa -- o'sha; saqlanmagan bo'lsa: sayt Android telefonda ochilgan bo'lsa -- telefon, aks holda -- kompyuter
+S.cleoPlat=(()=>{try{const v=localStorage.getItem('itshakh_gvsa_plat');if(v==='android'||v==='pc')return v;}catch(e){}try{return /Android/i.test(navigator.userAgent||'')?'android':'pc';}catch(e){return 'pc';}})();
 const isAnd=()=>S.cleoPlat==='android';
 (()=>{try{const st=document.createElement('style');st.textContent='.tzgrid{display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(3,30px);gap:3px;padding:5px;border:2px solid var(--line2);border-radius:12px;background:var(--bg1);width:max-content}.tzgrid .tz{padding:0;border:1px solid var(--line2);border-radius:6px;background:var(--bg2);color:var(--mute);font-weight:700;cursor:pointer}.tzgrid .tz.on{background:var(--amber);color:#111;border-color:var(--amber)}.tzgrid .tz:hover{border-color:var(--amber)}';document.head.appendChild(st);}catch(e){}})();
 function platRow(p,onChange){
   const b=(v,t)=>el('button',{class:'btn'+(S.cleoPlat===v?' pri':''),type:'button',id:'plat_'+v,onclick:()=>{if(S.cleoPlat===v)return;S.cleoPlat=v;try{localStorage.setItem('itshakh_gvsa_plat',v);}catch(e){}if(onChange)onChange();renderPane();}},[t]);
   p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap;align-items:center'},[el('label',{text:'Skript qaysi o‘yin uchun'}),el('div',{style:'display:flex;gap:6px;flex-wrap:wrap'},[b('pc','🖥 Kompyuter (CLEO 4/5, .cs)'),b('android','📱 Telefon — Android (.csa)')])]));
 }
+// kompyuter rejimidagi klaviatura tugmasi yonida: telefonda bunday tugma yo'q -- bir bosishda telefon versiyasiga o'tish
+function andHint(p,id){p.appendChild(el('div',{class:'note',id,style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-left:3px solid #38bdf8;padding-left:10px'},[el('span',{html:'⌨ Bu — <b>kompyuter klaviaturasi</b> tugmalari. Telefonda klaviatura yo‘q: telefon versiyasida tugma o‘rniga <b>ekranning bir joyini bosib turasiz</b>.'}),
+  el('button',{class:'btn pri',type:'button',id:id+'Btn',onclick:()=>{S.cleoPlat='android';try{localStorage.setItem('itshakh_gvsa_plat','android');}catch(e){}renderPane();}},['📱 Telefon versiyasiga o‘tish'])]));}
 // CLEO Android ekranni 3x3 bo'lakka bo'ladi: chap ustun 1-3 (yuqoridan pastga), o'rta 4-6, o'ng 7-9
 const TOUCH_UI={1:'chap yuqori (radar)',2:'chap o‘rta',3:'chap pastki (rul tugmalari)',4:'o‘rta yuqori',5:'ekran o‘rtasi',6:'o‘rta pastki',7:'o‘ng yuqori (qurol)',8:'o‘ng o‘rta',9:'o‘ng pastki (gaz / tormoz)'};
 function touchRow(p,M,def,upd,idp){
@@ -7366,7 +7370,7 @@ function paneStrobe(p,it){
     p.appendChild(el('div',{class:'row'},[el('button',{class:done?'btn':'btn pri',type:'button',id:'btnStrbSplit',onclick:async()=>{const on=!done;M.splitOn=on&&M.splitNeed>0;LF.on=on&&fixIt.length>0;M.cache=null;await editPipeline('lamps');renderPane();}},[done?'↩ Chiroqlarni asl holiga':'💡 Chiroqlarni tuzatish'])]));}
   p.appendChild(el('div',{class:'note',id:'strbLampNote',html:'O‘yinning <b>o‘z chiroqlari</b> boshqariladi: chap fara yonganda chap fara oynasi, o‘ng fara yonganda o‘ng fara oynasi yonadi (orqa chiroqlar ham shunday). Bu modelda chiroq oynasi materiallari: chap fara '+lmN.fl+', o‘ng fara '+lmN.fr+', chap orqa '+lmN.rl+', o‘ng orqa '+lmN.rr+' ta'+(lmTot?'.':' — <b style="color:#fbbf24">topilmadi</b>: o‘yin faqat fara nurini yoqadi, oyna yonmaydi (chiroq oynasiga SA rang kodlarini «Konvertatsiya» bo‘limida berish kerak).')+(sc.isCar===false?' <b style="color:#fbbf24">Bu model oddiy 4 g‘ildirakli mashina emas — haqiqiy chiroqlar boshqarilmaydi.</b>':'')+(AND?' Telefonda faqat <b>32-bit GTA SA 2.00</b> da ishlaydi (boshqa versiyada skript buni o‘zi o‘tkazib yuboradi).':' Faqat GTA SA <b>1.0 US</b> da ishlaydi (boshqa versiyada skript buni o‘zi o‘tkazib yuboradi).')+' Stroboskop o‘chirilganda yoki mashinadan tushganda faralar asl holiga qaytadi (singan chiroqlar ham tuzaladi).'}));
   }   // haqiqiy chiroqlar (kompyuter va telefon)
-  if(AND)touchRow(p,M,4,upd,'strb');else p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('strbKey',STROBE_KEYS,M.key,v=>{M.key=v;})));
+  if(AND)touchRow(p,M,4,upd,'strb');else{p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('strbKey',STROBE_KEYS,M.key,v=>{M.key=v;})));andHint(p,'strbToAnd');}
   const gid=strobeGuessId(it),nm=strobeModelName(it);
   const idI=el('input',{type:'number',id:'strbId',min:400,max:65535,value:M.modelId||gid||'',style:'width:110px;display:'+(M.modelMode==='id'?'':'none')});
   idI.addEventListener('input',()=>{M.modelId=idI.value;upd();});
@@ -7601,7 +7605,7 @@ function paneNeon(p,it){
   p.appendChild(box);
   const st=el('input',{type:'checkbox',id:'neonStay',checked:!!M.stay});st.addEventListener('change',()=>{M.stay=st.checked;upd();});
   p.appendChild(row('Mashinadan tushganda ham yonib tursin (mashina yaqinida)',st));
-  if(isAnd())touchRow(p,M,6,upd,'neon');else p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('neonKey',NEON_KEYS,M.key,v=>{M.key=v;})));
+  if(isAnd())touchRow(p,M,6,upd,'neon');else{p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('neonKey',NEON_KEYS,M.key,v=>{M.key=v;})));andHint(p,'neonToAnd');}
   const gid=strobeGuessId(it),nm=strobeModelName(it);
   const idI=el('input',{type:'number',id:'neonId',min:400,max:65535,value:M.modelId||gid||'',style:'width:110px;display:'+(M.modelMode==='id'?'':'none')});
   idI.addEventListener('input',()=>{M.modelId=idI.value;upd();});
@@ -7750,7 +7754,7 @@ function paneAnim(p,it){
     p.appendChild(row('Bosib turish vaqti',hs));}
   else{
   p.appendChild(row('Dvornik tugmasi',ks('anKeyW',M.keyW,v=>{M.keyW=v;})));
-  p.appendChild(row('Oyna tugmasi',ks('anKeyO',M.keyO,v=>{M.keyO=v;})));}
+  p.appendChild(row('Oyna tugmasi',ks('anKeyO',M.keyO,v=>{M.keyO=v;})));andHint(p,'anToAnd');}
   const gid=strobeGuessId(it),nm=strobeModelName(it);
   const idI=el('input',{type:'number',id:'anId',min:400,max:65535,value:M.modelId||gid||'',style:'width:110px;display:'+(M.modelMode==='id'?'':'none')});idI.addEventListener('input',()=>{M.modelId=idI.value;info();});
   const ms=el('select',{id:'anModel'},[['auto',gid?'Faqat shu mashinada: '+nm+' (model ID '+gid+')':'Avtomatik: «'+nm+'» standart nom emas — har qanday mashinada'],['id','Model ID ni o‘zim kiritaman'],['any','Har qanday mashinada (tayyorlangan DFF li)']].map(([v,t])=>el('option',{value:v,text:t,selected:M.modelMode===v})));
