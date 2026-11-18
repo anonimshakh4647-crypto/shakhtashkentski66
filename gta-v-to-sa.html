@@ -2367,7 +2367,21 @@ function strobePools(scan,l){const P=STROBE_POOL[l.g],gz=(scan.groundZ!=null?sca
 const strobeLampPt=l=>{const o=STROBE_POOL[l.g].o;return[l.p[0]+o[0],l.p[1]+o[1],l.p[2]+o[2]];};
 const STROBE_HALO=1.4,STROBE_CORE=0.5;   // korona radiuslari: rangli nur = o'lcham*1.4, oq-yorqin o'zak = o'lcham*0.5
 const strobeCore=c=>c.map(v=>Math.round(v+(255-v)*0.65)),strobeHalo=c=>c.slice();
+/* telefon (CLEO Android / AML CLEOMod, .csa): klaviatura yo'q -- ekranning 3x3 bo'lagidan birini bosib turish.
+ * Bo'laklar (CLEO Android): 1 4 7 / 2 5 8 / 3 6 9 -- chap ustun yuqoridan pastga 1-3, o'rta 4-6, o'ng 7-9.
+ * 0DE0: natija = shu bo'lak kamida "mintime" ms bosib turilganmi (0/1)  -- CLEO Android: 0DE0=3,%1d% = get_touch_point_state %2d% mintime %3d% */
+const TOUCH_ZONES={1:'chap yuqori',2:'chap o‘rta',3:'chap pastki',4:'o‘rta yuqori',5:'ekran o‘rtasi',6:'o‘rta pastki',7:'o‘ng yuqori',8:'o‘ng o‘rta',9:'o‘ng pastki'};
+function scmToggleIn(A,cfg,tv,lblUp){   // shart: tugma (PC) yoki ekran bo'lagi (telefon) -- if blokini ochadi, yolg'on bo'lsa lblUp ga
+  if(cfg.plat==='android'){const z=+cfg.key|0,h=Math.max(0,Math.min(5000,+cfg.hold||500)|0);
+    if(!(z>=1&&z<=9))throw new Error('Ekran bo‘lagi 1–9 bo‘lishi kerak');
+    A.op(0x0DE0,tv+'@ = get_touch_point_state '+z+' mintime '+h+'  // '+TOUCH_ZONES[z],['l',tv],['i',z],['i',h]);
+    A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  '+tv+'@ == 1',['l',tv],['i',1]);}
+  else{A.op(0x00D6,'if',['i',0]);A.op(0x0AB0,'  is_key_pressed '+cfg.key,['i',cfg.key]);}
+  A.op(0x004D,'jump_if_false @'+lblUp,['j',lblUp]);}
 function strobeBuild(scan,cfg){
+  const AND=cfg.plat==='android';
+  if(AND&&cfg.glow===false)throw new Error('Telefon versiyasida mashinaning o‘z faralarini boshqarib bo‘lmaydi — «Tashqi nurlar» ni yoqing');
+  if(AND)cfg=Object.assign({},cfg,{lamps:false});
   const lights=strobeLights(scan,cfg);if(!lights.length)throw new Error('Hech bo‘lmasa bitta chiroq guruhini yoqing');
   if(lights.length>15)throw new Error('Chiroq juda ko‘p');
   const tl=strobeSegments(lights,cfg);if(!tl.segs.length)throw new Error('Naqshda yonadigan vaqt yo‘q');
@@ -2378,7 +2392,8 @@ function strobeBuild(scan,cfg){
   const lamps=!!cfg.lamps&&LMP.some(x=>x.j>=0)&&scan.isCar!==false&&!(model!=null&&STROBE_NONAUTO.includes(model));
   const REST=lamps?'STRB_REST':'STRB_MAIN',glow=cfg.glow!==false;
   if(!glow&&!lamps)throw new Error(cfg.lamps?'Bu mashinada haqiqiy chiroqlarni boshqarib bo‘lmaydi (oddiy 4 g‘ildirakli mashina emas) — tashqi nurlarni yoqing':'Tashqi nurlar ham, haqiqiy chiroqlar ham o‘chiq — hech narsa yonmaydi');
-  A.note('IT SHAKH — GTA SA stroboskop (CLEO 4/5). '+(glow?'':'Faqat mashinaning o‘z chiroqlari (tashqi nur yo‘q). ')+'Model: '+(model==null?'har qanday mashina':model)+', tugma: '+(key==null?'yo‘q (doim yoqiq)':key)+', naqsh: '+(cfg.pattern||'gta5'));
+  A.note('IT SHAKH — GTA SA stroboskop ('+(AND?'telefon: CLEO Android / AML CLEOMod, .csa':'CLEO 4/5')+'). '+(glow?'':'Faqat mashinaning o‘z chiroqlari (tashqi nur yo‘q). ')+'Model: '+(model==null?'har qanday mashina':model)+', '+(AND?'ekran bo‘lagi: '+(key==null?'yo‘q (doim yoqiq)':key+' ('+TOUCH_ZONES[key]+'), '+(+cfg.hold||500)+' ms bosib turish'):'tugma: '+(key==null?'yo‘q (doim yoqiq)':key))+', naqsh: '+(cfg.pattern||'gta5'));
+  if(AND)A.note('Telefon versiyasi faqat o‘yinning standart buyruqlari + 0DE0 (ekran bosilishi) dan foydalanadi: xotira manzillari yo‘q, shuning uchun 32-bit va 64-bit o‘yinda bir xil. 31@ -- ekran bo‘lagi holati');
   A.note('0@ yoqilgan, 1@ mashina, 2@ model, 3@-5@ nuqta, 6@ tugma, 7@-9@ nur rangi, 10@-12@ o‘zak rangi, 13@-15@ yo‘l nuqtasi, '+FL+'@.. chiroq bayroqlari, 33@ taymer');
   if(lamps)A.note('Haqiqiy chiroqlar: 28@ boshqarilayotgan mashina, 29@ mos mashinami, 30@ CDamageManager manzili (mashina + 0x5A0), 31@ chiroq holati. 0x6C2100 = CDamageManager::SetLightStatus (GTA SA 1.0 US)');
   A.op(0x0000,'');                                                   // 0-ofsetda yorliq bo'lmasligi uchun (CLEO qoidasi)
@@ -2410,7 +2425,7 @@ function strobeBuild(scan,cfg){
     A.label('STRB_NL');
   }
   if(key!=null){ // bosilgan paytni ushlaymiz (6@ -- oldingi kadrda bosilganmi): bir bosish -- bir almashtirish, chizish to'xtamaydi
-    A.op(0x00D6,'if',['i',0]);A.op(0x0AB0,'  is_key_pressed '+key,['i',key]);A.op(0x004D,'jump_if_false @STRB_KUP',['j','STRB_KUP']);
+    scmToggleIn(A,{plat:cfg.plat,key,hold:cfg.hold},31,'STRB_KUP');
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  6@ == 0',['l',6],['i',0]);A.op(0x004D,'jump_if_false @STRB_DRAW',['j','STRB_DRAW']);
     A.op(0x0006,'6@ = 1',['l',6],['i',1]);
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  0@ == 0',['l',0],['i',0]);A.op(0x004D,'jump_if_false @STRB_OFF',['j','STRB_OFF']);
@@ -2489,7 +2504,7 @@ function strobeBuild(scan,cfg){
     A.op(0x0002,'jump @STRB_MAIN',['j','STRB_MAIN']);
   }
   const r=A.done();
-  return{cs:r.bytes,src:'{$CLEO .cs}\n'+r.src+'\n',lights,tl,lamps,lampMap:LMP};
+  return{cs:r.bytes,src:'{$CLEO .'+(AND?'csa':'cs')+'}\n'+r.src+'\n',lights,tl,lamps,lampMap:LMP,ext:AND?'csa':'cs'};
 }
 /* ---------- HAQIQIY CHIROQ OYNALARINI CHAP / O'NGGA AJRATISH (DFF) ----------
  * SA chiroq oynasini material rang kodi bo'yicha yoqadi: 255,175,0 -- chap fara, 0,255,200 -- o'ng fara, 185,255,0 -- chap orqa, 255,60,0 -- o'ng orqa.
@@ -2903,7 +2918,9 @@ function neonBuild(sc,cfg){
   const els=neonElems(sc,cfg);if(!els.length)throw new Error('Hech bo‘lmasa bitta tizimni yoqing (yer, kuzov yoki LED nuqtalar)');
   const tl=neonTimeline(cfg),A=scmAsm(),key=cfg.key==null?null:(+cfg.key|0),model=cfg.model==null?null:(+cfg.model|0),stay=cfg.stay!==false;
   const CV=k=>7+k*3,dots=els.filter(e=>e.k==='dot');
-  A.note('IT SHAKH — GTA SA neon / podsvetka (CLEO 4/5). Model: '+(model==null?'har qanday mashina':model)+', tugma: '+(key==null?'yo‘q (doim yoqiq)':key)+', rejim: '+(cfg.mode||'steady'));
+  const AND=cfg.plat==='android';
+  A.note('IT SHAKH — GTA SA neon / podsvetka ('+(AND?'telefon: CLEO Android / AML CLEOMod, .csa':'CLEO 4/5')+'). Model: '+(model==null?'har qanday mashina':model)+', '+(AND?'ekran bo‘lagi: '+(key==null?'yo‘q (doim yoqiq)':key+' ('+TOUCH_ZONES[key]+'), '+(+cfg.hold||500)+' ms bosib turish'):'tugma: '+(key==null?'yo‘q (doim yoqiq)':key))+', rejim: '+(cfg.mode||'steady'));
+  if(AND)A.note('Telefon versiyasi faqat o‘yinning standart buyruqlari + 0DE0 (ekran bosilishi) dan foydalanadi: xotira manzillari yo‘q, 32-bit va 64-bit o‘yinda bir xil. 28@ -- ekran bo‘lagi holati');
   A.note('0@ yoqilgan, 1@ mashina, 2@ model, 3@-5@ nuqta, 6@ tugma, 7@-18@ rang guruhlari, 19@-21@ kamera, 22@-25@ vaqtinchalik, 26@ ko‘rinadigan yon, 27@ ko‘rinadigan uch, 33@ taymer');
   A.op(0x0000,'');
   A.op(0x0006,'0@ = '+(key==null?1:0),['l',0],['i',key==null?1:0]);
@@ -2917,7 +2934,7 @@ function neonBuild(sc,cfg){
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  2@ == '+model,['l',2],['i',model]);A.op(0x004D,'jump_if_false @NEON_NO',['j','NEON_NO']);}
   A.op(0x0085,'1@ = 22@',['l',1],['l',22]);
   if(key!=null){ // bir bosish -- bir almashtirish (6@ -- oldingi kadrda bosilganmi)
-    A.op(0x00D6,'if',['i',0]);A.op(0x0AB0,'  is_key_pressed '+key,['i',key]);A.op(0x004D,'jump_if_false @NEON_KUP',['j','NEON_KUP']);
+    scmToggleIn(A,{plat:cfg.plat,key,hold:cfg.hold},28,'NEON_KUP');
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  6@ == 0',['l',6],['i',0]);A.op(0x004D,'jump_if_false @NEON_DRAW',['j','NEON_DRAW']);
     A.op(0x0006,'6@ = 1',['l',6],['i',1]);
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  0@ == 0',['l',0],['i',0]);A.op(0x004D,'jump_if_false @NEON_OFF',['j','NEON_OFF']);
@@ -2974,7 +2991,7 @@ function neonBuild(sc,cfg){
     A.label('NEON_D'+gi);});
   A.op(0x0002,'jump @NEON_MAIN',['j','NEON_MAIN']);
   const r=A.done();
-  return{cs:r.bytes,src:'{$CLEO .cs}\n'+r.src+'\n',els,tl};
+  return{cs:r.bytes,src:'{$CLEO .'+(AND?'csa':'cs')+'}\n'+r.src+'\n',els,tl,ext:AND?'csa':'cs'};
 }
 /* ---- 5. DFF: kuzovdagi LED tasma (haqiqiy geometriya) ----
  * opt: {color:'red'|'white'|'amber', parts:{side,front,rear}, h (balandligi, m)} -> {dff, report} */
@@ -7149,14 +7166,47 @@ function strobeModelName(it){const raw=String(it.model&&it.model.name||it.file||
   return raw.replace(/[^a-z0-9_]/g,'')||'car';}
 function strobeGuessId(it){return G.DFF.SA_VEH_IDS[strobeModelName(it)]||null;}
 function strobeModel(it){const M=S.strobe;if(M.modelMode==='any')return null;if(M.modelMode==='id'){const v=parseInt(M.modelId,10);return v>=400&&v<=65535?v:null;}return strobeGuessId(it);}
-function strobeCfg(it){const M=S.strobe;return{model:strobeModel(it),key:M.key==='-'?null:+M.key,pattern:M.pattern,speed:M.speed,size:M.size,ground:M.ground,lamps:!!M.lamps,glow:!!M.glow,groups:M.groups};}
+/* ---------- CLEO platformasi: kompyuter (CLEO 4/5, .cs) yoki telefon (CLEO Android / AML CLEOMod, .csa) -- stroboskop, neon, dvornik uchun umumiy ---------- */
+S.cleoPlat=(()=>{try{return localStorage.getItem('itshakh_gvsa_plat')==='android'?'android':'pc';}catch(e){return 'pc';}})();
+const isAnd=()=>S.cleoPlat==='android';
+(()=>{try{const st=document.createElement('style');st.textContent='.tzgrid{display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(3,30px);gap:3px;padding:5px;border:2px solid var(--line2);border-radius:12px;background:var(--bg1);width:max-content}.tzgrid .tz{padding:0;border:1px solid var(--line2);border-radius:6px;background:var(--bg2);color:var(--mute);font-weight:700;cursor:pointer}.tzgrid .tz.on{background:var(--amber);color:#111;border-color:var(--amber)}.tzgrid .tz:hover{border-color:var(--amber)}';document.head.appendChild(st);}catch(e){}})();
+function platRow(p,onChange){
+  const b=(v,t)=>el('button',{class:'btn'+(S.cleoPlat===v?' pri':''),type:'button',id:'plat_'+v,onclick:()=>{if(S.cleoPlat===v)return;S.cleoPlat=v;try{localStorage.setItem('itshakh_gvsa_plat',v);}catch(e){}if(onChange)onChange();renderPane();}},[t]);
+  p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap;align-items:center'},[el('label',{text:'Skript qaysi o‘yin uchun'}),el('div',{style:'display:flex;gap:6px;flex-wrap:wrap'},[b('pc','🖥 Kompyuter (CLEO 4/5, .cs)'),b('android','📱 Telefon — Android (.csa)')])]));
+}
+// CLEO Android ekranni 3x3 bo'lakka bo'ladi: chap ustun 1-3 (yuqoridan pastga), o'rta 4-6, o'ng 7-9
+const TOUCH_UI={1:'chap yuqori (radar)',2:'chap o‘rta',3:'chap pastki (rul tugmalari)',4:'o‘rta yuqori',5:'ekran o‘rtasi',6:'o‘rta pastki',7:'o‘ng yuqori (qurol)',8:'o‘ng o‘rta',9:'o‘ng pastki (gaz / tormoz)'};
+function touchRow(p,M,def,upd,idp){
+  if(M.zone==null)M.zone=String(def);if(M.hold==null)M.hold=500;
+  const grid=el('div',{class:'tzgrid',id:idp+'Zone',title:'Telefon ekrani (yotqizilgan holda)'});
+  for(const r of [0,1,2])for(const c of [0,1,2]){const z=String(c*3+r+1);
+    grid.appendChild(el('button',{type:'button',class:'tz'+(M.zone===z?' on':''),'data-z':z,title:z+' — '+TOUCH_UI[z],onclick:()=>{M.zone=z;upd();renderPane();}},[z]));}
+  const off=el('input',{type:'checkbox',id:idp+'NoTouch',checked:M.zone==='-'});off.addEventListener('change',()=>{M.zone=off.checked?'-':String(def);upd();renderPane();});
+  const hs=el('select',{id:idp+'Hold'},[[300,'0,3 soniya'],[500,'0,5 soniya'],[1000,'1 soniya'],[1500,'1,5 soniya']].map(([v,t])=>el('option',{value:v,text:t,selected:+M.hold===v})));hs.addEventListener('change',()=>{M.hold=+hs.value;upd();});
+  const on=M.zone!=='-';
+  p.appendChild(el('div',{class:'row',style:'align-items:flex-start;flex-wrap:wrap'},[el('label',{text:'Yoqish / o‘chirish: telefon ekranining qaysi joyini bosib turish kerak'}),
+    el('div',{style:'display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;flex:1'},[on?grid:null,
+      el('div',{style:'display:flex;flex-direction:column;gap:6px'},[on?el('span',{class:'note',id:idp+'ZoneTxt',html:'Tanlangan: <b>'+M.zone+'</b> — '+TOUCH_UI[M.zone]+'. Mashinada shu joyni barmoq bilan bosib turing — yonadi, yana — o‘chadi.'}):null,
+        on?el('label',{style:'display:flex;gap:6px;align-items:center'},[el('span',{text:'Bosib turish vaqti:'}),hs]):null,
+        el('label',{style:'display:flex;gap:6px;align-items:center'},[off,el('span',{text:'Tugmasiz — mashinaga o‘tirilsa doim yonadi'})])])])]));
+}
+const touchTxt=M=>M.zone==='-'||M.zone==null?'':'ekranning '+M.zone+'-joyini ('+TOUCH_UI[M.zone]+') '+((+M.hold||500)/1000).toString().replace('.',',')+' soniya bosib turing';
+// telefon uchun o'rnatish yo'riqnomasi (ZIP ichidagi matn)
+const ANDROID_HOWTO=f=>['1) Telefondagi o‘yinda CLEO bo‘lishi kerak — ikki yo‘ldan biri:',
+  '   • AML (Android Mod Loader) + CLEOMod o‘rnatilgan APK (masalan FLA/AML APK, GTA SA 2.00 yoki 2.10 64-bit) — eng ko‘p ishlatiladigani;',
+  '   • yoki CLEO Android 2.0.1 (Alexander Blade, root kerak, GTA SA 2.00 gacha).',
+  '2) '+f+' faylini CLEO papkasiga nusxalang:',
+  '   • AML / CLEOMod: Android/data/com.rockstargames.gtasa/cleo/ (o‘yin bir marta ishga tushganda yaratiladi; ba’zi APK larda — Android/data/com.rockstargames.gtasa/ yoki ichki xotiradagi cleo/ papkasi);',
+  '   • CLEO Android 2.0.1: ichki xotira /cleo/sa/ papkasi.',
+  '   Fayl kengaytmasi .csa bo‘lsin (.cs emas) — .csa o‘yin yuklanishi bilan o‘zi ishga tushadi.'];
+function strobeCfg(it){const M=S.strobe,A=isAnd();if(A&&M.zone==null)M.zone='4';if(M.hold==null)M.hold=500;return{plat:A?'android':'pc',model:strobeModel(it),key:A?(M.zone==='-'?null:+M.zone):(M.key==='-'?null:+M.key),hold:+M.hold,pattern:M.pattern,speed:M.speed,size:M.size,ground:M.ground,lamps:A?false:!!M.lamps,glow:A?true:!!M.glow,groups:M.groups};}
 function strobeMake(it){const sc=strobeScanOf(it),cfg=strobeCfg(it),k=JSON.stringify(cfg),M=S.strobe;if(M.cache&&M.cache.k===k&&M.cache.sc===sc)return M.cache.r;const r=G.DFF.strobeBuild(sc,cfg);M.cache={k,sc,r};return r;}
 /* 3D oynada animatsiya: skript bilan aynan bir xil vaqt jadvali */
 function strobePreview(on){
   S.strobe.preview=!!on;if(!viewer||!viewer.ok)return;if(on&&S.lampcol)S.lampcol.preview=false;if(on&&S.neon)S.neon.preview=false;if(on&&S.anim)S.anim.preview=false;
   viewer.fx=on?{live:()=>S.strobe.preview&&S.tab==='edit',get:t=>{
     const it=curItem();if(!it||!it.raw||!S.strobe.preview||S.tab!=='edit')return[];let r,sc;try{sc=strobeScanOf(it);r=strobeMake(it);}catch(e){return[];}
-    if(!S.strobe.glow)return[];   // tashqi nur yo'q -- faqat chiroq oynalari (lamps)
+    if(!S.strobe.glow&&!isAnd())return[];   // tashqi nur yo'q -- faqat chiroq oynalari (lamps); telefonda doim tashqi nurlar
     const on2=G.DFF.strobeAt(r.lights,r.tl,t),out=[];   // o'yindagidek: katta rangli nur + kichik yorqin o'zak + yo'ldagi yorug'lik dog'i
     for(const l of on2){const H=G.DFF.STROBE_HALO,Cr=G.DFF.STROBE_CORE;if(l.d)out.push({p:l.p,c:G.DFF.strobeHalo(l.c),s:l.s*H*0.75},{p:l.p,c:G.DFF.strobeCore(l.c),s:l.s*Cr*0.75});else out.push({p:l.p,c:l.c,s:l.s*H*0.75});
       if(S.strobe.ground){const pl=G.DFF.strobePools(sc,l);out.push({ground:true,p:[pl.p[0],pl.p[1],sc.groundZ+0.02],c:l.c.map(v=>v*pl.int/255),s:pl.size});}}
@@ -7170,32 +7220,36 @@ function strobePreview(on){
 function paneStrobe(p,it){
   const M=S.strobe;
   p.appendChild(el('h3',{text:'🚨 Stroboskop / migalka (yonib-o‘chadigan chiroqlar)'}));
+  platRow(p,()=>{M.cache=null;});
+  const AND=isAnd(),GL=AND||!!M.glow;
   let sc=null;try{sc=strobeScanOf(it);}catch(e){p.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Chiroq nuqtalarini topib bo‘lmadi: '+e.message}));return;}
-  p.appendChild(el('div',{class:'note',html:(M.glow?'GTA 5 dagi «Emergency Strobes» kabi: faralar chap–o‘ng navbat bilan tez miltillaydi, panjara, tom va orqa chiroqlar qizil-ko‘k yonadi, yo‘lga yorug‘lik tushadi.':'<b>Faqat mashinaning o‘z chiroqlari</b> yonib-o‘chadi: chap va o‘ng fara, chap va o‘ng orqa chiroq — chiroq oynasining ichi yonadi, tashqarida qo‘shimcha nur (korona) yo‘q.')+' O‘yinda chiroqni <b>miltillatish</b> DFF ning o‘zi bilan bo‘lmaydi — buni o‘yin ichida ishlaydigan <b>CLEO skript</b> qiladi (videodagi mod ham shunday). Bu yerda skript <b>shu mashinaning o‘z modelidan</b> olingan nuqtalar bilan yasaladi (faralar'+(sc.hasHead?' — <code>headlights</code> dummy dan':' — <code>headlights</code> dummy yo‘q, kuzov shaklidan taxminiy')+', orqa chiroqlar'+(sc.hasTail?' — <code>taillights</code> dummy dan':' — taxminiy')+', tuman/panjara chiroqlari va tom — kuzovdan). DFF o‘zgarmaydi; kerakli fayl — bitta <code>.cs</code>.'}));
+  p.appendChild(el('div',{class:'note',html:(GL?'GTA 5 dagi «Emergency Strobes» kabi: faralar chap–o‘ng navbat bilan tez miltillaydi, panjara, tom va orqa chiroqlar qizil-ko‘k yonadi, yo‘lga yorug‘lik tushadi.':'<b>Faqat mashinaning o‘z chiroqlari</b> yonib-o‘chadi: chap va o‘ng fara, chap va o‘ng orqa chiroq — chiroq oynasining ichi yonadi, tashqarida qo‘shimcha nur (korona) yo‘q.')+' O‘yinda chiroqni <b>miltillatish</b> DFF ning o‘zi bilan bo‘lmaydi — buni o‘yin ichida ishlaydigan <b>CLEO skript</b> qiladi (videodagi mod ham shunday). Bu yerda skript <b>shu mashinaning o‘z modelidan</b> olingan nuqtalar bilan yasaladi (faralar'+(sc.hasHead?' — <code>headlights</code> dummy dan':' — <code>headlights</code> dummy yo‘q, kuzov shaklidan taxminiy')+', orqa chiroqlar'+(sc.hasTail?' — <code>taillights</code> dummy dan':' — taxminiy')+', tuman/panjara chiroqlari va tom — kuzovdan). DFF o‘zgarmaydi; kerakli fayl — bitta <code>.cs</code>.'}));
   const upd=()=>{M.cache=null;info();if(viewer&&viewer.ok)viewer.need=true;};
   const row=(label,ctl)=>el('div',{class:'row'},[el('label',{text:label}),ctl]);
   const sel=(id,opts,val,fn)=>{const s=el('select',{id},opts.map(([v,t])=>el('option',{value:v,text:t,selected:String(val)===String(v)})));s.addEventListener('change',()=>{fn(s.value);upd();});return s;};
   const gw=el('input',{type:'checkbox',id:'strbGlow',checked:!!M.glow});gw.addEventListener('change',()=>{M.glow=gw.checked;M.cache=null;renderPane();if(viewer&&viewer.ok)viewer.need=true;});
-  p.appendChild(row('Tashqi nurlar ham bo‘lsin (korona, panjara/tomdagi rangli chiroqlar, yo‘lga yorug‘lik)',gw));
+  if(AND)p.appendChild(el('div',{class:'note',id:'strbAndNote',style:'border-left:3px solid #38bdf8;padding-left:10px',html:'📱 <b>Telefon versiyasi:</b> koronalar (panjara, tom, fara va orqa chiroq nurlari) va yo‘lga yorug‘lik — kompyuterdagidek. Mashinaning <b>o‘z faralarini</b> miltillatish o‘yin xotirasi manzillari bilan ishlaydi — telefondagi o‘yinda ular boshqacha (32-bit va 64-bit versiyada ham farq qiladi), shuning uchun telefon skriptida bu qism yo‘q.'}));
+  else p.appendChild(row('Tashqi nurlar ham bo‘lsin (korona, panjara/tomdagi rangli chiroqlar, yo‘lga yorug‘lik)',gw));
   p.appendChild(row('Miltillash naqshi',sel('strbPat',Object.entries(G.DFF.STROBE_PAT).map(([k,v])=>[k,v.lbl]),M.pattern,v=>{M.pattern=v;})));
   const spI=el('input',{type:'range',id:'strbSpeed',min:0.5,max:2,step:0.1,value:M.speed}),spL=el('span',{class:'note',text:'×'+M.speed.toFixed(1)});
   spI.addEventListener('input',()=>{M.speed=+spI.value;spL.textContent='×'+M.speed.toFixed(1);upd();});
   p.appendChild(row('Tezligi',el('div',{style:'display:flex;gap:8px;align-items:center;flex:1'},[spI,spL])));
   const szI=el('input',{type:'range',id:'strbSize',min:0.3,max:1.5,step:0.05,value:M.size}),szL=el('span',{class:'note',text:M.size.toFixed(2)});
   szI.addEventListener('input',()=>{M.size=+szI.value;szL.textContent=M.size.toFixed(2);upd();});
-  if(M.glow)p.appendChild(row('Chiroq kattaligi',el('div',{style:'display:flex;gap:8px;align-items:center;flex:1'},[szI,szL])));
+  if(GL)p.appendChild(row('Chiroq kattaligi',el('div',{style:'display:flex;gap:8px;align-items:center;flex:1'},[szI,szL])));
   // chiroq guruhlari
   const box=el('div',{class:'card',style:'padding:8px'});
-  for(const [g,lbl0] of G.DFF.STROBE_GROUPS){const st=M.groups[g];if(!M.glow&&g!=='head'&&g!=='rear')continue;   // tashqi nursiz: faqat haqiqiy chiroqlar
-    const lbl=M.glow?lbl0:g==='head'?'Faralar (chap / o‘ng fara oynasi)':'Orqa chiroqlar (chap / o‘ng)';
+  for(const [g,lbl0] of G.DFF.STROBE_GROUPS){const st=M.groups[g];if(!GL&&g!=='head'&&g!=='rear')continue;   // tashqi nursiz: faqat haqiqiy chiroqlar
+    const lbl=GL?lbl0:g==='head'?'Faralar (chap / o‘ng fara oynasi)':'Orqa chiroqlar (chap / o‘ng)';
     const cb=el('input',{type:'checkbox',id:'strbG_'+g,checked:!!st.on});cb.addEventListener('change',()=>{st.on=cb.checked;upd();});
     const cs=el('select',{id:'strbC_'+g},STROBE_COLS.map(([v,t])=>el('option',{value:v,text:t,selected:st.color===v})));cs.addEventListener('change',()=>{st.color=cs.value;upd();});
-    const kids=M.glow?[cb,el('span',{text:lbl,style:'flex:1'}),cs]:[cb,el('span',{text:lbl,style:'flex:1'})];
+    const kids=GL?[cb,el('span',{text:lbl,style:'flex:1'}),cs]:[cb,el('span',{text:lbl,style:'flex:1'})];
     if(g==='roof'){const ps=el('select',{id:'strbRoofPos'},[['left','Chap tomonda (haydovchi ustida)'],['center','O‘rtada']].map(([v,t])=>el('option',{value:v,text:t,selected:st.pos===v})));ps.addEventListener('change',()=>{st.pos=ps.value;upd();});kids.push(ps);}
     box.appendChild(el('div',{style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:3px 0'},kids));}
   p.appendChild(box);
   const gr=el('input',{type:'checkbox',id:'strbGround',checked:!!M.ground});gr.addEventListener('change',()=>{M.ground=gr.checked;upd();});
-  if(M.glow)p.appendChild(row('Yo‘lga va atrofga yorug‘lik tushsin (GTA 5 dagidek)',gr));
+  if(GL)p.appendChild(row('Yo‘lga va atrofga yorug‘lik tushsin (GTA 5 dagidek)',gr));
+  if(!AND){
   const lm=el('input',{type:'checkbox',id:'strbLamps',checked:!!M.lamps});lm.addEventListener('change',()=>{M.lamps=lm.checked;upd();});
   p.appendChild(row('Haqiqiy faralar va orqa chiroqlar yonib-o‘chsin (chiroq oynasining ichi yonadi)',lm));
   const lmN=sc.lampMats||{fl:0,fr:0,rl:0,rr:0},lmTot=lmN.fl+lmN.fr+lmN.rl+lmN.rr;
@@ -7212,7 +7266,8 @@ function paneStrobe(p,it){
       'Bu modelda chiroqlar o‘yinda to‘g‘ri yonmaydi:<br>• '+pr.join('<br>• ')+'<br>Quyidagi tugma hammasini tuzatadi (DFF o‘zgaradi — keyin yangi DFF ni ham yuklab o‘rnating). Sariq chiroqlar faralar bilan yonadi va stroboskopda miltillaydi. Har bir qismni alohida sozlash — pastdagi «🔦 Chiroqlar» bo‘limida.'}));
     p.appendChild(el('div',{class:'row'},[el('button',{class:done?'btn':'btn pri',type:'button',id:'btnStrbSplit',onclick:async()=>{const on=!done;M.splitOn=on&&M.splitNeed>0;LF.on=on&&fixIt.length>0;M.cache=null;await editPipeline('lamps');renderPane();}},[done?'↩ Chiroqlarni asl holiga':'💡 Chiroqlarni tuzatish'])]));}
   p.appendChild(el('div',{class:'note',id:'strbLampNote',html:'O‘yinning <b>o‘z chiroqlari</b> boshqariladi: chap fara yonganda chap fara oynasi, o‘ng fara yonganda o‘ng fara oynasi yonadi (orqa chiroqlar ham shunday). Bu modelda chiroq oynasi materiallari: chap fara '+lmN.fl+', o‘ng fara '+lmN.fr+', chap orqa '+lmN.rl+', o‘ng orqa '+lmN.rr+' ta'+(lmTot?'.':' — <b style="color:#fbbf24">topilmadi</b>: o‘yin faqat fara nurini yoqadi, oyna yonmaydi (chiroq oynasiga SA rang kodlarini «Konvertatsiya» bo‘limida berish kerak).')+(sc.isCar===false?' <b style="color:#fbbf24">Bu model oddiy 4 g‘ildirakli mashina emas — haqiqiy chiroqlar boshqarilmaydi.</b>':'')+' Faqat GTA SA <b>1.0 US</b> da ishlaydi (boshqa versiyada skript buni o‘zi o‘tkazib yuboradi). Stroboskop o‘chirilganda yoki mashinadan tushganda faralar asl holiga qaytadi (singan chiroqlar ham tuzaladi).'}));
-  p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('strbKey',STROBE_KEYS,M.key,v=>{M.key=v;})));
+  }   // !AND (haqiqiy chiroqlar faqat kompyuterda)
+  if(AND)touchRow(p,M,4,upd,'strb');else p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('strbKey',STROBE_KEYS,M.key,v=>{M.key=v;})));
   const gid=strobeGuessId(it),nm=strobeModelName(it);
   const idI=el('input',{type:'number',id:'strbId',min:400,max:65535,value:M.modelId||gid||'',style:'width:110px;display:'+(M.modelMode==='id'?'':'none')});
   idI.addEventListener('input',()=>{M.modelId=idI.value;upd();});
@@ -7221,13 +7276,19 @@ function paneStrobe(p,it){
   const inf=el('div',{class:'note',id:'strbInfo'});p.appendChild(inf);
   const info=()=>{let r;try{r=strobeMake(it);}catch(e){inf.style.color='#fb7185';inf.textContent='Xato: '+e.message;return;}inf.style.color='';
     const cfg=strobeCfg(it),kn=(STROBE_KEYS.find(x=>x[0]===M.key)||['',''])[1].split(' ')[0];
-    inf.innerHTML='Skript: <b>'+r.cs.length.toLocaleString()+' bayt</b>, '+r.lights.length+' ta chiroq, naqsh davri '+r.tl.P+' ms ('+r.tl.segs.length+' bo‘lak). '+(cfg.model==null?'<b>Har qanday mashinada</b> ishlaydi (boshqa mashinalarda chiroqlar shu mashina o‘lchami bo‘yicha turadi).':'Faqat model ID <b>'+cfg.model+'</b> bo‘lgan mashinada ishlaydi.')+' '+(cfg.key==null?'Mashinaga o‘tirilishi bilan yonadi.':'O‘yinda mashinada <b>'+esc(kn)+'</b> tugmasini bosing — yonadi, yana bosing — o‘chadi.')+(r.lamps?' Haqiqiy faralar va orqa chiroqlar ham yonib-o‘chadi.':'');};
+    inf.innerHTML='Skript: <b>'+r.cs.length.toLocaleString()+' bayt</b>, '+r.lights.length+' ta chiroq, naqsh davri '+r.tl.P+' ms ('+r.tl.segs.length+' bo‘lak). '+(cfg.model==null?'<b>Har qanday mashinada</b> ishlaydi (boshqa mashinalarda chiroqlar shu mashina o‘lchami bo‘yicha turadi).':'Faqat model ID <b>'+cfg.model+'</b> bo‘lgan mashinada ishlaydi.')+' '+(cfg.key==null?'Mashinaga o‘tirilishi bilan yonadi.':AND?'O‘yinda mashinada '+esc(touchTxt(M))+' — yonadi, yana shunday qiling — o‘chadi.':'O‘yinda mashinada <b>'+esc(kn)+'</b> tugmasini bosing — yonadi, yana bosing — o‘chadi.')+(r.lamps?' Haqiqiy faralar va orqa chiroqlar ham yonib-o‘chadi.':'')+(AND?' Fayl: <b>.csa</b> (telefon).':'');};
   info();
   const pv=el('button',{class:'btn'+(M.preview?' pri':''),type:'button',id:'btnStrbPrev',onclick:()=>{strobePreview(!M.preview);if(M.preview&&viewer&&viewer.ok){viewer.cam.yaw=Math.PI*0.32;viewer.cam.pitch=0.22;viewer.fit();}renderPane();}},[M.preview?'⏸ 3D animatsiyani to‘xtatish':'▶ 3D oynada animatsiyani ko‘rish']);
   const base='strobe_'+nm;
-  const dl=el('button',{class:'btn pri',type:'button',id:'btnStrbCs',onclick:()=>{try{const r=strobeMake(it);save(base+'.cs',r.cs);log('Stroboskop: '+base+'.cs ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},['⬇ CLEO skript (.cs)']);
+  const dl=el('button',{class:'btn pri',type:'button',id:'btnStrbCs',onclick:()=>{try{const r=strobeMake(it);save(base+'.'+r.ext,r.cs);log('Stroboskop: '+base+'.'+r.ext+' ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},[AND?'⬇ CLEO skript (.csa) — telefon':'⬇ CLEO skript (.cs)']);
   const zp=el('button',{class:'btn',type:'button',id:'btnStrbZip',onclick:()=>{try{const r=strobeMake(it),cfg=strobeCfg(it),kn=(STROBE_KEYS.find(x=>x[0]===M.key)||['',''])[1].split(' ')[0];
-      const txt=['GTA San Andreas — Stroboskop / migalka (IT SHAKH, shakhtashkentski66.uz)','',
+      const txt=AND?['GTA San Andreas (TELEFON, Android) — Stroboskop / migalka (IT SHAKH, shakhtashkentski66.uz)','',...ANDROID_HOWTO(base+'.csa'),
+        '3) '+(cfg.key==null?'O‘yinda mashinaga o‘tirishingiz bilan chiroqlar miltillay boshlaydi.':'O‘yinda mashinaga o‘tiring va '+touchTxt(M)+' — chiroqlar miltillay boshlaydi; yana shunday qiling — o‘chadi. Ekran 3 ga 3 bo‘lakka bo‘lingan: chap ustun 1-2-3, o‘rta 4-5-6, o‘ng 7-8-9 (yuqoridan pastga).'),
+        '4) '+(cfg.model==null?'Skript har qanday mashinada ishlaydi; chiroqlar shu mashina ('+nm+') o‘lchamiga moslangan.':'Skript faqat model ID '+cfg.model+' bo‘lgan mashinada ishlaydi ('+nm+').'),
+        '5) Telefon versiyasida koronalar va yo‘lga yorug‘lik bor; mashinaning o‘z faralarini miltillatish (kompyuter versiyasidagi «haqiqiy chiroqlar») yo‘q.',
+        '6) Skript faqat o‘yinning standart buyruqlari va CLEO Android ning ekran bosilishi buyrug‘idan (0DE0) foydalanadi — xotira manzillari yo‘q, shuning uchun 32-bit va 64-bit o‘yinda bir xil ishlaydi.',
+        '7) O‘chirish: CLEO papkasidan '+base+'.csa ni o‘chiring.','',
+        base+'_manba.txt — skriptning Sanny Builder matni (SA Mobile rejimida, CLEO Android buyruqlari qo‘shilgan holda kompilyatsiya qilinadi).'].join('\r\n'):['GTA San Andreas — Stroboskop / migalka (IT SHAKH, shakhtashkentski66.uz)','',
         '1) O‘yinda CLEO 4 yoki CLEO 5 o‘rnatilgan bo‘lishi kerak (https://cleo.li). Ko‘p mod to‘plamlarida u allaqachon bor: o‘yin papkasida CLEO papkasi va cleo.asi bo‘ladi.',
         '2) '+base+'.cs faylini o‘yin papkasidagi CLEO papkasiga nusxalang (masalan: C:\\Games\\GTA San Andreas\\CLEO\\).',
         '3) '+(cfg.key==null?'O‘yinda mashinaga o‘tirishingiz bilan chiroqlar miltillay boshlaydi.':'O‘yinda mashinaga o‘tiring va '+kn+' tugmasini bosing — chiroqlar miltillay boshlaydi; yana bosing — o‘chadi.'),
@@ -7238,9 +7299,10 @@ function paneStrobe(p,it){
         '6) O‘chirish: CLEO papkasidan '+base+'.cs ni o‘chiring. DFF/TXD ga tegilmaydi.','',
         'Eslatma: bu effekt faqat sizning o‘yiningizda ko‘rinadi — SA-MP serverlarida boshqa o‘yinchilar uni ko‘rmaydi.',
         base+'_manba.txt — skriptning Sanny Builder matni (xohlasangiz o‘zgartirib, Sanny Builder bilan qayta kompilyatsiya qilishingiz mumkin).'].join('\r\n');
-      save(base+'.zip',G.zipStore([{name:base+'.cs',data:r.cs},{name:base+'_manba.txt',data:new TextEncoder().encode(r.src.replace(/\n/g,'\r\n'))},{name:'OQING_stroboskop.txt',data:new TextEncoder().encode(txt)}]),'application/zip');}catch(e){toast('Xato: '+e.message);}}},['⬇ ZIP (.cs + yo‘riqnoma)']);
+      save(base+(AND?'_telefon':'')+'.zip',G.zipStore([{name:base+'.'+r.ext,data:r.cs},{name:base+'_manba.txt',data:new TextEncoder().encode(r.src.replace(/\n/g,'\r\n'))},{name:'OQING_stroboskop.txt',data:new TextEncoder().encode(txt)}]),'application/zip');}catch(e){toast('Xato: '+e.message);}}},[AND?'⬇ ZIP (.csa + yo‘riqnoma)':'⬇ ZIP (.cs + yo‘riqnoma)']);
   p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap'},[pv,dl,zp]));
-  p.appendChild(el('div',{class:'note',style:'border-left:3px solid #f43f5e;padding-left:10px',html:'<b>O‘rnatish:</b> o‘yinda <b>CLEO 4/5</b> bo‘lishi kerak. <code>.cs</code> faylni o‘yin papkasidagi <code>CLEO</code> papkasiga tashlang. Avvalgi versiyadagi stroboskop <code>.cs</code> faylini o‘chiring yoki shu yangisi bilan almashtiring. Limuzin qilgan bo‘lsangiz, chiroqlar cho‘zilgan mashinaning nuqtalariga qo‘yiladi (orqa chiroqlar ham).'}));
+  if(AND)p.appendChild(el('div',{class:'note',id:'strbInstAnd',style:'border-left:3px solid #f43f5e;padding-left:10px',html:'<b>O‘rnatish (telefon):</b> o‘yinda <b>CLEO</b> bo‘lishi kerak — AML + CLEOMod (GTA SA 2.00 / 2.10 64-bit) yoki CLEO Android 2.0.1. <code>.csa</code> faylni CLEO papkasiga tashlang: AML da <code>Android/data/com.rockstargames.gtasa/cleo/</code>, CLEO Android da <code>/cleo/sa/</code>. Batafsil — ZIP ichidagi yo‘riqnomada.'}));
+  else p.appendChild(el('div',{class:'note',style:'border-left:3px solid #f43f5e;padding-left:10px',html:'<b>O‘rnatish:</b> o‘yinda <b>CLEO 4/5</b> bo‘lishi kerak. <code>.cs</code> faylni o‘yin papkasidagi <code>CLEO</code> papkasiga tashlang. Avvalgi versiyadagi stroboskop <code>.cs</code> faylini o‘chiring yoki shu yangisi bilan almashtiring. Limuzin qilgan bo‘lsangiz, chiroqlar cho‘zilgan mashinaning nuqtalariga qo‘yiladi (orqa chiroqlar ham).'}));
   if(M.preview)strobePreview(true);
 }
 
@@ -7382,7 +7444,7 @@ S.neon={colA:'#ff1028',colB:'#1a36ff',mode:'steady',speed:1,bright:1,size:1,grou
 const NEON_KEYS=[['78','N'],['66','B'],['75','K'],['74','J'],['76','L'],['77','M'],['85','U'],['89','Y'],['221',']  (yopiq kvadrat qavs)'],['97','NumPad 1'],['98','NumPad 2'],['-','Tugmasiz — mashinaga o‘tirilsa doim yonadi']];
 function neonScanOf(it){const b=strobeSrcBytes(it),M=S.neon;if(M.scan&&M.scanFor===b)return M.scan;M.scan=G.DFF.neonScan(b);M.scanFor=b;M.cache=null;return M.scan;}
 function neonModel(it){const M=S.neon;if(M.modelMode==='any')return null;if(M.modelMode==='id'){const v=parseInt(M.modelId,10);return v>=400&&v<=65535?v:null;}return strobeGuessId(it);}
-function neonCfg(it){const M=S.neon;return{model:neonModel(it),key:M.key==='-'?null:+M.key,mode:M.mode,colA:M.colA,colB:M.colB,speed:M.speed,bright:M.bright,size:M.size,
+function neonCfg(it){const M=S.neon,A=isAnd();if(A&&M.zone==null)M.zone='6';if(M.hold==null)M.hold=500;return{plat:A?'android':'pc',hold:+M.hold,model:neonModel(it),key:A?(M.zone==='-'?null:+M.zone):(M.key==='-'?null:+M.key),mode:M.mode,colA:M.colA,colB:M.colB,speed:M.speed,bright:M.bright,size:M.size,
   ground:!!M.ground,body:!!M.body,bodyK:M.bodyK,dots:M.dots==='none'?false:M.dots,dotN:M.dotN,dotSize:M.dotSize,stay:!!M.stay};}
 function neonMake(it){const sc=neonScanOf(it),cfg=neonCfg(it),k=JSON.stringify(cfg),M=S.neon;if(M.cache&&M.cache.k===k&&M.cache.sc===sc)return M.cache.r;const r=G.DFF.neonBuild(sc,cfg);M.cache={k,sc,r};return r;}
 /* 3D: skript bilan aynan bir xil jadval -- yer dog'lari (yo'lda), LED nuqtalar (faqat kameraga qaragan tomon), kuzovga tushadigan yorug'lik */
@@ -7407,6 +7469,7 @@ function neonPreview(on){
 function paneNeon(p,it){
   const M=S.neon;
   p.appendChild(el('h3',{text:'🌈 Neon / podsvetka (mashina ostidan yoritish, LED tasma)'}));
+  platRow(p,()=>{M.cache=null;});
   let sc=null;try{sc=neonScanOf(it);}catch(e){p.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Mashina o‘lchamini o‘qib bo‘lmadi: '+e.message}));return;}
   p.appendChild(el('div',{class:'note',html:'Uch tizim bitta <b>CLEO skript</b>da (DFF o‘zgarmaydi, istalgan rang, har qanday mashinada): <b>yer yoritish</b> — mashina ostidan yo‘lga rangli nur (2-rasmdagidek), <b>g‘ildirak va kuzov yoritish</b> — g‘ildiraklar, eshik va bamperlarning pasti rangli yoritiladi, <b>LED nuqtalar</b> — kuzovning pastki cheti bo‘ylab yonadigan nuqtalar. Pastda alohida: <b>LED tasma</b> — kuzovning o‘ziga (DFF) qo‘shiladigan ingichka chiziq (1-rasmdagidek). Joylar <b>shu mashinaning o‘z modelidan</b> olinadi: ostona va bamperning pastki qirrasi '+(sc.lines.L&&sc.lines.F?'topildi':'qisman topildi')+', g‘ildiraklar '+(sc.wOk?'dummy lardan':'— dummy yo‘q, kuzov o‘lchamidan')+'.'}));
   const upd=()=>{M.cache=null;info();if(viewer&&viewer.ok)viewer.need=true;};
@@ -7437,7 +7500,7 @@ function paneNeon(p,it){
   p.appendChild(box);
   const st=el('input',{type:'checkbox',id:'neonStay',checked:!!M.stay});st.addEventListener('change',()=>{M.stay=st.checked;upd();});
   p.appendChild(row('Mashinadan tushganda ham yonib tursin (mashina yaqinida)',st));
-  p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('neonKey',NEON_KEYS,M.key,v=>{M.key=v;})));
+  if(isAnd())touchRow(p,M,6,upd,'neon');else p.appendChild(row('Yoqish / o‘chirish tugmasi',sel('neonKey',NEON_KEYS,M.key,v=>{M.key=v;})));
   const gid=strobeGuessId(it),nm=strobeModelName(it);
   const idI=el('input',{type:'number',id:'neonId',min:400,max:65535,value:M.modelId||gid||'',style:'width:110px;display:'+(M.modelMode==='id'?'':'none')});
   idI.addEventListener('input',()=>{M.modelId=idI.value;upd();});
@@ -7448,14 +7511,21 @@ function paneNeon(p,it){
     const cfg=neonCfg(it),kn=(NEON_KEYS.find(x=>x[0]===M.key)||['',''])[1].split(' ')[0],n=k=>r.els.filter(e=>e.k===k).length;
     inf.innerHTML='Skript: <b>'+r.cs.length.toLocaleString()+' bayt</b> — yerda '+n('pool')+' ta yorug‘lik dog‘i, '+n('light')+' ta yoritgich, '+n('dot')+' ta LED nuqta'+(r.tl.fixed?'':', rejim davri '+r.tl.P+' ms ('+r.tl.segs.length+' bo‘lak)')+'. '+
       (cfg.model==null?'<b>Har qanday mashinada</b> ishlaydi (boshqa mashinalarda nuqtalar shu mashina o‘lchami bo‘yicha turadi — eng aniq natija uchun har mashinaga o‘z skriptini yasang).':'Faqat model ID <b>'+cfg.model+'</b> bo‘lgan mashinada ishlaydi.')+' '+
-      (cfg.key==null?'Mashinaga o‘tirilishi bilan yonadi.':'O‘yinda mashinada <b>'+esc(kn)+'</b> tugmasini bosing — yonadi, yana bosing — o‘chadi.')+(cfg.stay?' Mashinadan tushsangiz ham yonib turadi.':'');};
+      (cfg.key==null?'Mashinaga o‘tirilishi bilan yonadi.':isAnd()?'O‘yinda mashinada '+esc(touchTxt(M))+' — yonadi, yana shunday qiling — o‘chadi.':'O‘yinda mashinada <b>'+esc(kn)+'</b> tugmasini bosing — yonadi, yana bosing — o‘chadi.')+(cfg.stay?' Mashinadan tushsangiz ham yonib turadi.':'')+(isAnd()?' Fayl: <b>.csa</b> (telefon).':'');};
   info();
   const pv=el('button',{class:'btn'+(M.preview?' pri':''),type:'button',id:'btnNeonPrev',onclick:()=>{neonPreview(!M.preview);if(M.preview&&viewer&&viewer.ok){viewer.cam.yaw=Math.PI*0.3;viewer.cam.pitch=0.16;viewer.fit();}renderPane();}},[M.preview?'⏸ 3D ko‘rishni to‘xtatish':'▶ 3D oynada ko‘rish']);
   const nt=el('input',{type:'checkbox',id:'neonNight',checked:!!M.night});nt.addEventListener('change',()=>{M.night=nt.checked;if(viewer&&viewer.ok)viewer.need=true;});
   const base='neon_'+nm;
-  const dl=el('button',{class:'btn pri',type:'button',id:'btnNeonCs',onclick:()=>{try{const r=neonMake(it);save(base+'.cs',r.cs);log('Neon: '+base+'.cs ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},['⬇ CLEO skript (.cs)']);
+  const dl=el('button',{class:'btn pri',type:'button',id:'btnNeonCs',onclick:()=>{try{const r=neonMake(it);save(base+'.'+r.ext,r.cs);log('Neon: '+base+'.'+r.ext+' ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},[isAnd()?'⬇ CLEO skript (.csa) — telefon':'⬇ CLEO skript (.cs)']);
   const zp=el('button',{class:'btn',type:'button',id:'btnNeonZip',onclick:()=>{try{const r=neonMake(it),cfg=neonCfg(it),kn=(NEON_KEYS.find(x=>x[0]===M.key)||['',''])[1].split(' ')[0];
-      const txt=['GTA San Andreas — Neon / podsvetka (IT SHAKH, shakhtashkentski66.uz)','',
+      const txt=isAnd()?['GTA San Andreas (TELEFON, Android) — Neon / podsvetka (IT SHAKH, shakhtashkentski66.uz)','',...ANDROID_HOWTO(base+'.csa'),
+        '3) '+(cfg.key==null?'O‘yinda mashinaga o‘tirishingiz bilan neon yonadi.':'O‘yinda mashinaga o‘tiring va '+touchTxt(M)+' — neon yonadi; yana shunday qiling — o‘chadi. Ekran 3 ga 3 bo‘lakka bo‘lingan: chap ustun 1-2-3, o‘rta 4-5-6, o‘ng 7-8-9 (yuqoridan pastga).')+(cfg.stay?' Mashinadan tushsangiz ham yonib turadi.':''),
+        '4) '+(cfg.model==null?'Skript har qanday mashinada ishlaydi; nuqtalar shu mashina ('+nm+') o‘lchamiga moslangan.':'Skript faqat model ID '+cfg.model+' bo‘lgan mashinada ishlaydi ('+nm+').'),
+        '5) Neon kechasi yaxshi ko‘rinadi. Telefon versiyasi kompyuterdagi bilan bir xil: yer yoritish, kuzov yoritish va LED nuqtalar.',
+        '6) Skript faqat o‘yinning standart buyruqlari va CLEO Android ning ekran bosilishi buyrug‘idan (0DE0) foydalanadi — xotira manzillari yo‘q, shuning uchun 32-bit va 64-bit o‘yinda bir xil ishlaydi.',
+        '7) LED tasma (DFF) qo‘shgan bo‘lsangiz — telefonda mashina modelini almashtirish usuli bilan (masalan AML ModLoader) yangi .dff ni ham o‘rnating.',
+        '8) O‘chirish: CLEO papkasidan '+base+'.csa ni o‘chiring.','',
+        base+'_manba.txt — skriptning Sanny Builder matni (SA Mobile rejimida, CLEO Android buyruqlari qo‘shilgan holda kompilyatsiya qilinadi).'].join('\r\n'):['GTA San Andreas — Neon / podsvetka (IT SHAKH, shakhtashkentski66.uz)','',
         '1) O‘yinda CLEO 4 yoki CLEO 5 o‘rnatilgan bo‘lishi kerak (https://cleo.li). O‘yin papkasida CLEO papkasi va cleo.asi bo‘ladi.',
         '2) '+base+'.cs faylini o‘yin papkasidagi CLEO papkasiga nusxalang (masalan: C:\\Games\\GTA San Andreas\\CLEO\\).',
         '3) '+(cfg.key==null?'O‘yinda mashinaga o‘tirishingiz bilan neon yonadi.':'O‘yinda mashinaga o‘tiring va '+kn+' tugmasini bosing — neon yonadi; yana bosing — o‘chadi.')+(cfg.stay?' Mashinadan tushsangiz ham yonib turadi.':''),
@@ -7464,7 +7534,7 @@ function paneNeon(p,it){
         '6) O‘chirish: CLEO papkasidan '+base+'.cs ni o‘chiring. DFF/TXD ga tegilmaydi.','',
         'Eslatma: bu effekt faqat sizning o‘yiningizda ko‘rinadi — SA-MP serverlarida boshqa o‘yinchilar uni ko‘rmaydi.',
         base+'_manba.txt — skriptning Sanny Builder matni (xohlasangiz o‘zgartirib, Sanny Builder bilan qayta kompilyatsiya qilishingiz mumkin).'].join('\r\n');
-      save(base+'.zip',G.zipStore([{name:base+'.cs',data:r.cs},{name:base+'_manba.txt',data:new TextEncoder().encode(r.src.replace(/\n/g,'\r\n'))},{name:'OQING_neon.txt',data:new TextEncoder().encode(txt)}]),'application/zip');}catch(e){toast('Xato: '+e.message);}}},['⬇ ZIP (.cs + yo‘riqnoma)']);
+      save(base+(isAnd()?'_telefon':'')+'.zip',G.zipStore([{name:base+'.'+r.ext,data:r.cs},{name:base+'_manba.txt',data:new TextEncoder().encode(r.src.replace(/\n/g,'\r\n'))},{name:'OQING_neon.txt',data:new TextEncoder().encode(txt)}]),'application/zip');}catch(e){toast('Xato: '+e.message);}}},[isAnd()?'⬇ ZIP (.csa + yo‘riqnoma)':'⬇ ZIP (.cs + yo‘riqnoma)']);
   p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap;align-items:center'},[pv,el('label',{style:'display:flex;gap:6px;align-items:center'},[nt,el('span',{text:'🌙 Tun (o‘yindagidek qorong‘i)'})]),dl,zp]));
   // ---- DFF: kuzovdagi LED tasma ----
   const N=M.strip,done=!!N.on&&S.result&&S.result.kind==='edit'&&S.result.src===it.file;
@@ -7481,7 +7551,8 @@ function paneNeon(p,it){
   card.appendChild(el('div',{class:'row'},[el('button',{class:done?'btn':'btn pri',type:'button',id:'btnNeonStrip',disabled:!sc.isCar&&!done,title:sc.isCar?'':'Faqat 4 g‘ildirakli mashina uchun',onclick:async()=>{N.on=!done;await editPipeline('neon');renderPane();}},[done?'↩ LED tasmani olib tashlash':'💡 LED tasmani qo‘shish'])]));
   if(!sc.isCar)card.appendChild(el('div',{class:'note',style:'color:#fbbf24',text:'Bu model oddiy 4 g‘ildirakli mashina emas — LED tasma qo‘yilmaydi (yuqoridagi neon skript ishlaydi).'}));
   if(done)card.appendChild(el('div',{class:'note',id:'neonStripNote',html:'✓ LED tasma qo‘shildi. <b>Yangi DFF ni</b> («⬇ ZIP (DFF…)» tugmasi) yuklab o‘rnating. 3D oynada «▶ 3D oynada ko‘rish» + «🌙 Tun» — tasma yonib turgan holda ko‘rinadi.'}));
-  p.appendChild(el('div',{class:'note',style:'border-left:3px solid #f43f5e;padding-left:10px',html:'<b>O‘rnatish:</b> o‘yinda <b>CLEO 4/5</b> bo‘lishi kerak. <code>.cs</code> faylni o‘yin papkasidagi <code>CLEO</code> papkasiga tashlang. LED tasma qo‘shgan bo‘lsangiz — yangi <code>.dff</code> ni ham o‘rnating (IMG ga yoki modloader orqali).'}));
+  if(isAnd())p.appendChild(el('div',{class:'note',id:'neonInstAnd',style:'border-left:3px solid #f43f5e;padding-left:10px',html:'<b>O‘rnatish (telefon):</b> o‘yinda <b>CLEO</b> bo‘lishi kerak — AML + CLEOMod (GTA SA 2.00 / 2.10 64-bit) yoki CLEO Android 2.0.1. <code>.csa</code> faylni CLEO papkasiga tashlang: AML da <code>Android/data/com.rockstargames.gtasa/cleo/</code>, CLEO Android da <code>/cleo/sa/</code>. Batafsil — ZIP ichidagi yo‘riqnomada.'}));
+  else p.appendChild(el('div',{class:'note',style:'border-left:3px solid #f43f5e;padding-left:10px',html:'<b>O‘rnatish:</b> o‘yinda <b>CLEO 4/5</b> bo‘lishi kerak. <code>.cs</code> faylni o‘yin papkasidagi <code>CLEO</code> papkasiga tashlang. LED tasma qo‘shgan bo‘lsangiz — yangi <code>.dff</code> ni ham o‘rnating (IMG ga yoki modloader orqali).'}));
   if(M.preview)neonPreview(true);
 }
 
@@ -7516,6 +7587,8 @@ function animPreview(on){
 function paneAnim(p,it){
   const M=S.anim;
   p.appendChild(el('h3',{text:'🪟 Dvornik va yon oynalar (CLEO skript)'}));
+  platRow(p);
+  if(isAnd())p.appendChild(el('div',{class:'note',id:'anAndNote',style:'border-left:3px solid #fbbf24;padding-left:10px',html:'📱 <b>Telefon (Android) uchun dvornik / oyna skripti hozircha yo‘q.</b> Stroboskop va neon telefonda bor, lekin bu skript boshqacha: dvornik va oynani burish uchun u o‘yin xotirasidagi mashina qismlarining (freymlarining) manzili va funksiyalari bilan to‘g‘ridan-to‘g‘ri ishlaydi. Telefondagi o‘yinda bu manzillar butunlay boshqa, 32-bit (2.00) va 64-bit (2.10) versiyada ham bir-biridan farq qiladi, 64-bit da esa CLEO o‘zgaruvchisiga manzil sig‘maydi. Ularni telefonda sinab ko‘rmasdan berish xavfli — noto‘g‘ri manzil o‘yinni yopib yuboradi. Shuning uchun quyidagi tugmalar <b>faqat kompyuter</b> uchun (.cs) skript yasaydi. Tayyorlangan <b>DFF</b> telefonda ham ishlatilsa bo‘ladi, lekin skriptsiz dvornik va oynalar qimirlamaydi.'}));
   const sc=animScanOf(it);
   if(sc.err){p.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Modelni o‘qib bo‘lmadi: '+sc.err}));return;}
   const done=!!M.on&&S.result&&S.result.kind==='edit'&&S.result.src===it.file&&!!S.result.anim;
@@ -7578,7 +7651,7 @@ function paneAnim(p,it){
   const pv=el('button',{class:'btn'+(M.preview?' pri':''),type:'button',id:'btnAnPrev',onclick:()=>{animPreview(!M.preview);if(M.preview&&viewer&&viewer.ok){viewer.cam.yaw=Math.PI*0.42;viewer.cam.pitch=0.32;viewer.fit();}renderPane();}},[M.preview?'⏸ 3D ko‘rishni to‘xtatish':'▶ 3D da ko‘rish']);
   const base='dvornik_oyna_'+nm;
   const getCs=()=>{const meta=animMeta(it);if(!done||!meta)throw new Error('Avval «⚙ DFF ni tayyorlash» ni bosing');return G.DFF.animBuild(meta,animCfg(it));};
-  const dl=el('button',{class:'btn pri',type:'button',id:'btnAnCs',disabled:!done,onclick:()=>{try{const r=getCs();save(base+'.cs',r.cs);log('Dvornik/oynalar: '+base+'.cs ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},['⬇ CLEO skript (.cs)']);
+  const dl=el('button',{class:'btn pri',type:'button',id:'btnAnCs',disabled:!done,onclick:()=>{try{const r=getCs();save(base+'.cs',r.cs);log('Dvornik/oynalar: '+base+'.cs ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},[isAnd()?'⬇ CLEO skript (.cs) — faqat kompyuter':'⬇ CLEO skript (.cs)']);
   const zp=el('button',{class:'btn',type:'button',id:'btnAnZip',disabled:!done,onclick:()=>{try{const r=getCs(),cfg=animCfg(it),kn=v=>(AN_KEYS_UI.find(x=>x[0]===String(v))||['',''])[1],R=S.result,dn=(R.name||nm)+'.dff';
       const txt=['GTA San Andreas — Dvornik va yon oynalar (IT SHAKH, shakhtashkentski66.uz)','',
         '1) Ikkala fayl KERAK: yangi '+dn+' (dvornik va oynalar alohida qismlarga ajratilgan) va '+base+'.cs (ularni harakatlantiradi). Faqat .cs ni qo‘ysangiz hech narsa bo‘lmaydi.',
