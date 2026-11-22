@@ -2341,7 +2341,7 @@ function scmAsm(){
   const u8=v=>b.push(v&255),u16=v=>{u8(v);u8(v>>8);},i32=v=>{u8(v);u8(v>>8);u8(v>>16);u8(v>>24);};
   const f32=v=>{const d=new DataView(new ArrayBuffer(4));d.setFloat32(0,v,true);for(let i=0;i<4;i++)u8(d.getUint8(i));};
   const prm={i:v=>{v=Math.round(v);if(v>=-128&&v<=127){u8(4);u8(v);}else if(v>=-32768&&v<=32767){u8(5);u16(v);}else{u8(1);i32(v);}},
-    f:v=>{u8(6);f32(v);},l:n=>{u8(3);u16(n);},g:n=>{u8(2);u16(n*4);},j:nm=>{u8(1);fix.push([b.length,nm]);i32(0);},e:()=>u8(0)};   // e: o'zgaruvchan sonli parametrlar oxiri (0AA6)
+    f:v=>{u8(6);f32(v);},s:v=>{u8(0x0E);u8(v.length);for(const ch of v)u8(ch.charCodeAt(0)&127);},l:n=>{u8(3);u16(n);},g:n=>{u8(2);u16(n*4);},j:nm=>{u8(1);fix.push([b.length,nm]);i32(0);},e:()=>u8(0)};   // e: o'zgaruvchan sonli parametrlar oxiri (0AA6)
   return{
     op(code,txt,...ps){u16(code);for(const [k,v] of ps)prm[k](v);src.push((code>>>0).toString(16).toUpperCase().padStart(4,'0')+': '+txt);},
     label(nm){if(lab.has(nm))throw new Error('label '+nm);lab.set(nm,b.length);src.push(':'+nm);},
@@ -4134,7 +4134,130 @@ function cqBuild(cfg){
   return{cs:r.bytes,src:'{$CLEO .'+(AND?'csa':'cs')+'}\n'+r.src+'\n',codeEnd,andAt,ext:AND?'csa':'cs',loff:LOFF,blink,rainbow:RB,pulse:PT};
 }
 
-root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS,lampRecolor,lampClassify,lampRetexDff,LAMP_SKIP,lampFixScan,lampFixApply,LF_ROLES,LF_CODES,LF_ATLAS,LF_IVF,neonScan,neonElems,neonTimeline,neonAt,neonCull,neonVisible,neonLightK,neonBuild,neonStripApply,neonHex,NEON_COLS,NEON_MODES,NEON_STRIP_COL,NEON_LIM,NEON_POOL_I,NEON_CULL,animScan,animApply,animBuild,animHasFrames,anWiperAt,anAngle,AN_WIPE,AN_KEYS,AN_FN,AND_SYM,AND_OFF,TOUCH_ZONES,WIDGET_CTL,HORN_WIDGET,cqApply,cqBuild,cqScan,cqFrontCount,cqTexture,cqRainbow,CQ_MARK,CQ_KINDS,CQ_TURN,CQ_TURN_RGB,CQ_GLOW_SPEC,CQ_GLOW_BITS,lampBlock,LF_TURN_KEY};
+/* ---------- EGZOZ OLOVI: gaz bosilganda, gazni qo'yib yuborganda va joyida g'ildirak aylantirganda (burnout) egzozdan olov ----------
+ * Universal CLEO skript (DFF o'zgarmaydi, BARCHA mashina va mototsiklda): olov o'yinning o'zi tutun chiqaradigan nuqtadan chiqadi.
+ * O'yin kodidan (libGTASA, armeabi-v7a debug ma'lumoti; CVehicle::AddExhaustParticles va CAutomobile::DoNitroEffect bilan bir xil):
+ *  - egzoz nuqtasi: CModelInfo::ms_modelInfoPtrs[model] -> CVehicleModelInfo + 0x74 (PC 0x5C) m_pStructure -> + 0x48 m_positions[6] (x, y, z mashina fazosida);
+ *  - ikki egzoz: CVehicle + 0x388 (PC 0x384) pHandling -> + 0xCD bayt, bit5 (handling DOUBLE_EXHAUST 0x2000; CVehicle::GetHasDualExhausts), ikkinchisi x = -x;
+ *    bit4 (NO_EXHAUST 0x1000) -- egzozi yo'q mashina, olov chiqmaydi;
+ *  - pedallar: CVehicle + 0x4A0 gaz, + 0x4A4 tormoz (PC 0x49C, 0x4A0) -- float 0..1; turi: + 0x5A0 (PC 0x590) m_baseVehicleType (0 avtomobil, 1 monster truck, 2 kvadrotsikl, 9 mototsikl).
+ *  - effekt: 066C CREATE_FX_SYSTEM_ON_CAR_WITH_DIRECTION (mashinaga biriktiriladi, yo'nalish -- orqaga), keyin darhol 064F PLAY_AND_KILL_FX_SYSTEM:
+ *    o'yin kodida 064F FxSystem_c::PlayAndKill ni chaqirib skript effekt uyasini (32 ta) DARHOL bo'shatadi -- uya to'lib qolmaydi (o'yinda to'lsa xotira buziladi).
+ *    Effekt nomi 0x0E (uzunligi + harflar) satr turida -- o'yin nol bilan tugatadi (8 baytli 0x09 turi "gunflash" ni nolsiz qoldirardi).
+ * Kompyuter: ms_modelInfoPtrs = 0xA9B0C8 -- faqat GTA SA 1.0 US (skript 0AA9 bilan tekshiradi). Telefon: nomi bo'yicha (dlsym), faqat 32-bit GTA SA 2.00. */
+const EX_FX=[['gunflash','🔥 Olov chaqnashi — to‘q sariq (tavsiya)'],['explosion_tiny','💥 Kichik portlash — kattaroq olov va tutun'],['nitro','💙 Nitro olovi — ko‘k']];
+const EX_FREQ={low:[420,900],mid:[230,600],high:[120,320]};
+if(typeof AND_SYM==='object'&&!AND_SYM.mi)AND_SYM.mi='_ZN10CModelInfo16ms_modelInfoPtrsE';
+/* cfg: {plat, fx, gas:bool (gaz bosilganda), lift:bool (gazni qo'yib yuborganda), burn:bool (burnout), glow:bool, freq:'low'|'mid'|'high', col:[r,g,b] (nur)}
+ * O'zgaruvchilar: 0@ mashina, 1@ ko'rsatkich, 2@ model, 3@ 4@ vaqtinchalik, 5@-7@ egzoz (x, y, z), 8@ ikki egzoz, 9@ oxirgi mashina, 10@ gaz, 11@ tormoz, 12@ tezlik,
+ *  13@ keyingi olovgacha (ms), 14@ gaz to'liq bosilgan edi, 15@ qolgan "pop" lar, 16@ egzoz bor (1/0), 17@ effekt, 18@-20@ dunyo nuqtasi, 21@ -x, 25@ tur,
+ *  26@ tasodifiy, 22@-24@ telefon vaqtinchalik, 32@ oxirgi olovdan beri (ms), 33@ nur taymeri. */
+function exBuild(cfg){
+  cfg=cfg||{};const AND=cfg.plat==='android',A=scmAsm();
+  const fx=EX_FX.some(x=>x[0]===cfg.fx)?cfg.fx:'gunflash',F=EX_FREQ[cfg.freq]||EX_FREQ.mid,col=(cfg.col||[255,120,20]).map(v=>Math.max(0,Math.min(255,v|0)));
+  const on={gas:cfg.gas!==false,lift:cfg.lift!==false,burn:cfg.burn!==false,glow:cfg.glow!==false};
+  if(!on.gas&&!on.lift&&!on.burn)throw new Error('Hech bo‘lmasa bitta holatni yoqing (gaz / gazni qo‘yib yuborish / burnout)');
+  const OFF=AND?{st:0x74,h:0x388,gas:0x4A0,brk:0x4A4,base:0x5A0}:{st:0x5C,h:0x384,gas:0x49C,brk:0x4A0,base:0x590};
+  const AM=AND?andOps(A,'EX_FN','EX_AND'):null,ASY=['veh','mi'];
+  const rd=(dst,av,size)=>AND?AM.rd(dst,av,size):A.op(0x0A8D,dst+'@ = read_memory '+av+'@ size '+size+' virtual_protect 0',['l',av],['i',size],['i',0],['l',dst]);
+  const IF=(op,txt,...ps)=>{A.op(0x00D6,'if',['i',0]);A.op(op,'  '+txt,...ps);};
+  const JF=l=>A.op(0x004D,'jump_if_false @'+l,['j',l]);
+  const J=l=>A.op(0x0002,'jump @'+l,['j',l]);
+  const SET=(v,x)=>A.op(0x0006,v+'@ = '+x,['l',v],['i',x]);
+  const MOV=(v,s)=>A.op(0x0085,v+'@ = '+s+'@',['l',v],['l',s]);
+  const ADD=(v,x,t)=>A.op(0x000A,v+'@ += '+x+(t?'  // '+t:''),['l',v],['i',x]);
+  const ifEq=(v,x,l)=>{IF(0x0039,v+'@ == '+x,['l',v],['i',x]);JF(l);};
+  const ifNe=(v,x,l)=>{IF(0x8039,'not '+v+'@ == '+x,['l',v],['i',x]);JF(l);};
+  const ifGe=(v,x,l)=>{IF(0x0029,v+'@ >= '+x,['l',v],['i',x]);JF(l);};
+  const ifGt=(v,x,l)=>{IF(0x0021,v+'@ > '+fF(x)+'  // (float)',['l',v],['f',x]);JF(l);};   // float
+  const ifLtF=(v,x,l)=>{IF(0x0023,fF(x)+' > '+v+'@  // (float)',['f',x],['l',v]);JF(l);};
+  const rnd=(v,a,b)=>A.op(0x0209,v+'@ = random_int_in_ranges '+a+' '+b,['i',a],['i',b],['l',v]);
+  A.note('IT SHAKH — GTA SA egzoz olovi ('+(AND?'TELEFON: CLEO Android / AML CLEOMod, .csa, faqat 32-bit GTA SA 2.00':'CLEO 4/5, faqat GTA SA 1.0 US')+'). Effekt: '+fx+'. '+
+    [on.gas?'gaz bosilganda':'',on.lift?'gazni qo‘yib yuborganda':'',on.burn?'burnout (gaz + tormoz, joyida)':''].filter(Boolean).join(', ')+(on.glow?', yorug‘lik bilan':''));
+  A.note('Egzoz nuqtasi o‘yinning o‘zidan: ms_modelInfoPtrs[model] + 0x'+OFF.st.toString(16).toUpperCase()+' (m_pStructure) + 0x48 (m_positions[6]); ikki egzoz -- handling + 0xCD bit5; gaz/tormoz -- mashina + 0x'+OFF.gas.toString(16).toUpperCase()+' / 0x'+OFF.brk.toString(16).toUpperCase()+'. Model raqami yo‘q -- barcha mashinada.');
+  A.op(0x0000,'');
+  for(const [v,x] of [[9,-1],[14,0],[15,0],[16,0],[13,300],[33,1000]])SET(v,x);
+  if(AM)AM.init(ASY,22,23,24);
+  A.label('EX_MAIN');
+  A.op(0x0001,'wait 0',['i',0]);
+  IF(0x0256,'player $PLAYER_CHAR defined',['g',2]);JF('EX_MAIN');
+  if(AM)AM.okCheck(22,24,'EX_MAIN');
+  else{A.op(0x00D6,'if',['i',0]);A.op(0x0AA9,'  is_game_version_original');JF('EX_MAIN');}
+  IF(0x0449,'is_char_sitting_in_any_car $PLAYER_ACTOR',['g',3]);JF('EX_OUT');
+  A.op(0x03C0,'store_car_char_is_in_no_save $PLAYER_ACTOR store_to 0@',['g',3],['l',0]);
+  A.op(0x00D6,'if',['i',0]);A.op(0x003B,'  0@ == 9@',['l',0],['l',9]);JF('EX_NEW');J('EX_HAVE');
+  A.label('EX_OUT');SET(9,-1);SET(14,0);SET(15,0);J('EX_MAIN');
+  // ---- yangi mashina: egzoz nuqtasi va turi (bir marta) ----
+  A.label('EX_NEW');
+  MOV(9,0);SET(16,0);SET(14,0);SET(15,0);SET(33,1000);
+  if(AM){AM.fn(24,1,23);AM.reg(0,'l',0,'mashina');AM.call(24,'CPools::GetVehicle');AM.res(1);}
+  else A.op(0x0A97,'get_car_pointer 0@ store_to 1@',['l',0],['l',1]);
+  ifNe(1,0,'EX_MAIN');
+  MOV(3,1);ADD(3,OFF.base,'m_baseVehicleType');rd(25,3,4);
+  A.op(0x00D6,'if or',['i',23]);for(const t of [0,1,2,9])A.op(0x0039,'  25@ == '+t,['l',25],['i',t]);JF('EX_MAIN');   // avtomobil, monster truck, kvadrotsikl, mototsikl
+  A.op(0x0441,'get_car_model 0@ store_to 2@',['l',0],['l',2]);
+  ifGe(2,400,'EX_MAIN');IF(0x8029,'not 2@ >= 20000',['l',2],['i',20000]);JF('EX_MAIN');
+  if(AM){AM.fn(3,2,23,'CModelInfo::ms_modelInfoPtrs');}
+  else A.op(0x0006,'3@ = 0xA9B0C8  // CModelInfo::ms_modelInfoPtrs (1.0 US)',['l',3],['i',0xA9B0C8]);
+  MOV(4,2);A.op(0x0012,'4@ *= 4',['l',4],['i',4]);A.op(0x005A,'3@ += 4@',['l',3],['l',4]);rd(4,3,4);   // CVehicleModelInfo*
+  ifNe(4,0,'EX_MAIN');
+  MOV(3,4);ADD(3,OFF.st,'m_pStructure');rd(4,3,4);ifNe(4,0,'EX_MAIN');
+  MOV(3,4);ADD(3,0x48,'m_positions[6] -- egzoz');rd(5,3,4);ADD(3,4);rd(6,3,4);ADD(3,4);rd(7,3,4);
+  A.op(0x00D6,'if and',['i',2]);A.op(0x0039,'  5@ == 0',['l',5],['i',0]);A.op(0x0039,'  6@ == 0',['l',6],['i',0]);A.op(0x0039,'  7@ == 0',['l',7],['i',0]);JF('EX_HS');J('EX_MAIN');   // egzoz nuqtasi yo'q
+  A.label('EX_HS');
+  SET(8,0);MOV(3,1);ADD(3,OFF.h,'pHandling');rd(4,3,4);ifNe(4,0,'EX_OK');
+  MOV(3,4);ADD(3,0xCD,'model bayroqlari (2-bayt)');rd(4,3,1);
+  const bit=(dst,div,txt)=>{MOV(dst,4);A.op(0x0016,dst+'@ /= '+div,['l',dst],['i',div]);MOV(25,dst);A.op(0x0016,'25@ /= 2',['l',25],['i',2]);A.op(0x0012,'25@ *= 2',['l',25],['i',2]);A.op(0x0062,dst+'@ -= 25@  // '+txt,['l',dst],['l',25]);};
+  bit(8,32,'bit5: DOUBLE_EXHAUST -- ikki egzoz');bit(3,16,'bit4: NO_EXHAUST');
+  ifEq(3,0,'EX_MAIN');   // egzozi yo'q (NO_EXHAUST) -- olov ham yo'q
+  A.label('EX_OK');
+  SET(16,1);
+  A.op(0x0087,'21@ = 5@ // (float)',['l',21],['l',5]);A.op(0x0013,'21@ *= -1.0 // (float) ikkinchi egzoz',['l',21],['f',-1]);
+  J('EX_HAVE');
+  // ---- har kadr ----
+  A.label('EX_HAVE');
+  ifEq(16,1,'EX_MAIN');
+  MOV(3,1);ADD(3,OFF.gas,'gaz');rd(10,3,4);ADD(3,OFF.brk-OFF.gas,'tormoz');rd(11,3,4);
+  A.op(0x02E3,'12@ = car 0@ speed',['l',0],['l',12]);
+  // burnout: gaz va tormoz birga, deyarli joyida
+  if(on.burn){ifGt(10,0.5,'EX_NB');ifGt(11,0.5,'EX_NB');ifLtF(12,3.0,'EX_NB');
+    A.op(0x00D6,'if',['i',0]);A.op(0x002D,'  32@ >= 13@',['l',32],['l',13]);JF('EX_GLW');
+    rnd(13,60,130);J('EX_FIRE');
+    A.label('EX_NB');}
+  // gazni qo'yib yuborish: tez ketayotib gaz to'liq bosilgan edi -> qo'yib yuborildi -> 3-5 ta "pop"
+  if(on.lift){
+    ifGt(10,0.8,'EX_L1');ifGt(12,6.0,'EX_L1');SET(14,1);J('EX_L2');
+    A.label('EX_L1');ifEq(14,1,'EX_L2');ifLtF(10,0.2,'EX_L2');SET(14,0);rnd(15,3,6);SET(13,0);
+    A.label('EX_L2');
+    ifGe(15,1,'EX_LX');A.op(0x00D6,'if',['i',0]);A.op(0x002D,'  32@ >= 13@',['l',32],['l',13]);JF('EX_GLW');
+    A.op(0x000E,'15@ -= 1',['l',15],['i',1]);rnd(13,70,150);J('EX_FIRE');
+    A.label('EX_LX');}
+  // gaz bosilganda: to'liq gazda tasodifiy "pop" lar
+  if(on.gas){ifGt(10,0.9,'EX_GLW');ifGt(12,1.0,'EX_GLW');
+    A.op(0x00D6,'if',['i',0]);A.op(0x002D,'  32@ >= 13@',['l',32],['l',13]);JF('EX_GLW');
+    rnd(13,F[0],F[1]);J('EX_FIRE');}
+  J('EX_GLW');
+  // ---- olov: effekt mashinaga biriktiriladi (yo'nalish -- orqaga), darhol "o'ynab o'chir" -- uyasi bo'shaydi ----
+  A.label('EX_FIRE');
+  SET(32,0);SET(33,0);
+  A.op(0x066C,'create_fx_system_on_car_with_direction "'+fx+'" car 0@ offset 5@ 6@ 7@ direction 0.0 -1.0 0.0 type 1 store_to 17@',['s',fx],['l',0],['l',5],['l',6],['l',7],['f',0],['f',-1],['f',0],['i',1],['l',17]);
+  A.op(0x064F,'play_and_kill_fx_system 17@',['l',17]);
+  ifEq(8,1,'EX_GLW');
+  A.op(0x066C,'create_fx_system_on_car_with_direction "'+fx+'" car 0@ offset 21@ 6@ 7@ direction 0.0 -1.0 0.0 type 1 store_to 17@',['s',fx],['l',0],['l',21],['l',6],['l',7],['f',0],['f',-1],['f',0],['i',1],['l',17]);
+  A.op(0x064F,'play_and_kill_fx_system 17@',['l',17]);
+  // ---- yorug'lik: olovdan keyin 0,1 s egzoz ustida korona va yerga nur ----
+  A.label('EX_GLW');
+  if(on.glow){ifGe(33,100,'EX_GL1');J('EX_MAIN');A.label('EX_GL1');
+    const glow=(xv,L)=>{A.op(0x0407,'get_offset_from_car 0@ in_world_coords '+xv+'@ 6@ 7@ store_to 18@ 19@ 20@',['l',0],['l',xv],['l',6],['l',7],['l',18],['l',19],['l',20]);
+      A.op(0x024F,'draw_corona 18@ 19@ 20@ radius 0.45 type 0 lensflare 0 colour '+col.join(' '),['l',18],['l',19],['l',20],['f',0.45],['i',0],['i',0],['i',col[0]],['i',col[1]],['i',col[2]]);
+      A.op(0x09E5,'draw_light_with_range 18@ 19@ 20@ rgb '+col.join(' ')+' radius 3.0',['l',18],['l',19],['l',20],['i',col[0]],['i',col[1]],['i',col[2]],['f',3]);};
+    glow(5,'a');ifEq(8,1,'EX_MAIN');glow(21,'b');}
+  J('EX_MAIN');
+  const codeEnd=A.size();const andAt=AM?AM.data(ASY):null;const r=A.done();
+  return{cs:r.bytes,src:'{$CLEO .'+(AND?'csa':'cs')+'}\n'+r.src+'\n',codeEnd,andAt,ext:AND?'csa':'cs',off:OFF,fx,freq:F};
+}
+
+root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS,lampRecolor,lampClassify,lampRetexDff,LAMP_SKIP,lampFixScan,lampFixApply,LF_ROLES,LF_CODES,LF_ATLAS,LF_IVF,neonScan,neonElems,neonTimeline,neonAt,neonCull,neonVisible,neonLightK,neonBuild,neonStripApply,neonHex,NEON_COLS,NEON_MODES,NEON_STRIP_COL,NEON_LIM,NEON_POOL_I,NEON_CULL,animScan,animApply,animBuild,animHasFrames,anWiperAt,anAngle,AN_WIPE,AN_KEYS,AN_FN,AND_SYM,AND_OFF,TOUCH_ZONES,WIDGET_CTL,HORN_WIDGET,cqApply,cqBuild,cqScan,cqFrontCount,cqTexture,cqRainbow,CQ_MARK,CQ_KINDS,CQ_TURN,CQ_TURN_RGB,CQ_GLOW_SPEC,CQ_GLOW_BITS,lampBlock,LF_TURN_KEY,exBuild,EX_FX,EX_FREQ};
 })(GV);
 /* ---- extension: DFF materials with textures list helper, RW 3.6 version constants ---- */
 (function(G){
@@ -7564,6 +7687,7 @@ function paneEdit(p){
   paneLampCol(p,it);   // o'z fayl tanlagichi bor -- rasm/logo tanlagichlaridan keyin turadi
   paneLampFix(p,it);
   paneChiroq(p,it);
+  paneEgzoz(p,it);
   paneNeon(p,it);
   paneAnim(p,it);
   let doors=null;try{doors=G.DFF.scanDoors(it.raw);}catch(e){p.appendChild(el('div',{class:'note',style:'color:#fb7185',text:'Eshiklarni o‘qib bo‘lmadi: '+e.message}));}
@@ -8452,6 +8576,50 @@ function paneChiroq(p,it){
   p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap'},[zp,dl,pv]));
   p.appendChild(el('div',{class:'note',html:'Skript o‘yinchi o‘tirgan (yoki oxirgi) mashinadagi nusxalarni o‘zi topadi. Fara/orqa chiroq nusxasi mashinaning «chiroq yondi» bayroqlariga qarab ko‘rsatiladi (telefon: mashina + 0x594, o‘yin kodidan tekshirilgan; kompyuter: + 0x584). Haqiqiy o‘yinda sinalmagan — xato bo‘lsa yozing.'}));
   if(M.preview)chiroqPreview(true);
+}
+
+/* ---------- SA tahrir: EGZOZ OLOVI (gaz / gazni qo'yib yuborish / burnout) -- universal skript, DFF o'zgarmaydi ---------- */
+S.egzoz={fx:'gunflash',gas:true,lift:true,burn:true,glow:true,freq:'mid',col:'#ff7814'};
+const EX_FREQ_UI=[['low','Kam (0,4–0,9 s da bir)'],['mid','O‘rtacha (0,2–0,6 s da bir)'],['high','Tez-tez (0,1–0,3 s da bir)']];
+function exCfg(){const M=S.egzoz;return{plat:isAnd()?'android':'pc',fx:M.fx,gas:!!M.gas,lift:!!M.lift,burn:!!M.burn,glow:!!M.glow,freq:M.freq,col:hexRGB(M.col||'#ff7814')};}
+function paneEgzoz(p,it){
+  const M=S.egzoz,AND=isAnd();
+  p.appendChild(el('h3',{text:'🔥 Egzoz olovi — gaz bosilganda va burnout da'}));
+  p.appendChild(el('div',{class:'note',html:'Mashinaning <b>tutun chiqadigan joyidan</b> (o‘yinning o‘z egzoz nuqtasi; ikki egzozli mashinada — ikkalasidan) olov chiqadi: '+
+    '<b>gaz to‘liq bosilganda</b> — vaqti-vaqti bilan «pop», <b>tez ketayotib gazni qo‘yib yuborganda</b> — ketma-ket 3–5 ta «pop», <b>joyida turib g‘ildirakni aylantirganda (burnout: gaz + tormoz birga)</b> — to‘xtovsiz olov. '+
+    'Bitta skript <b>barcha mashina va mototsiklda</b> ishlaydi (shu sayt tayyorlamagan mashinada ham) — DFF o‘zgarmaydi, faqat skriptni yuklab olasiz.'}));
+  platRow(p,()=>{});
+  const row=(label,ctl)=>el('div',{class:'row'},[el('label',{text:label}),ctl]);
+  const cb=(id,prop,label)=>{const c=el('input',{type:'checkbox',id,checked:!!M[prop]});c.addEventListener('change',()=>{M[prop]=c.checked;renderPane();});return el('div',{class:'row'},[el('label',{text:label}),c]);};
+  p.appendChild(cb('exGas','gas','Gaz to‘liq bosilganda — «pop» lar'));
+  p.appendChild(cb('exLift','lift','Tez ketayotib gazni qo‘yib yuborganda — ketma-ket «pop»'));
+  p.appendChild(cb('exBurn','burn','Joyida g‘ildirak aylantirganda (burnout: gaz + tormoz) — to‘xtovsiz olov'));
+  const fs=el('select',{id:'exFx'},G.DFF.EX_FX.map(([v,t])=>el('option',{value:v,text:t,selected:M.fx===v})));fs.addEventListener('change',()=>{M.fx=fs.value;});
+  p.appendChild(row('Olov turi (o‘yinning o‘z effekti)',fs));
+  const qs=el('select',{id:'exFreq'},EX_FREQ_UI.map(([v,t])=>el('option',{value:v,text:t,selected:M.freq===v})));qs.addEventListener('change',()=>{M.freq=qs.value;});
+  p.appendChild(row('Gaz bosilganda qanchalik tez-tez',qs));
+  const gc=el('input',{type:'checkbox',id:'exGlow',checked:!!M.glow}),ci=el('input',{type:'color',id:'exCol',value:M.col||'#ff7814',style:'width:46px;height:30px;padding:0;border:none;background:none'});
+  gc.addEventListener('change',()=>{M.glow=gc.checked;});ci.addEventListener('input',()=>{M.col=ci.value;});
+  p.appendChild(el('div',{class:'row'},[el('label',{text:'Olov yonida yorug‘lik (egzoz ustida korona va yerga nur)'}),el('div',{style:'display:flex;gap:10px;align-items:center'},[gc,ci])]));
+  const base='egzoz_olovi',inf=el('div',{class:'note',id:'exInfo'});
+  const mk=()=>G.DFF.exBuild(exCfg());
+  try{const r=mk();inf.innerHTML='Skript: <b>'+r.cs.length.toLocaleString()+' bayt</b>, effekt «'+esc(r.fx)+'». '+(AND?'Fayl: <b>.csa</b> (telefon, 32-bit GTA SA 2.00).':'Fayl: <b>.cs</b> (CLEO 4/5, GTA SA 1.0 US).');}catch(e){inf.style.color='#fb7185';inf.textContent='Xato: '+e.message;}
+  const txtOf=(r,cfg)=>{const AND=cfg.plat==='android';return [(AND?'GTA San Andreas (TELEFON, Android)':'GTA San Andreas (kompyuter)')+' — Egzoz olovi (IT SHAKH, shakhtashkentski66.uz)','',
+    'Olov mashinaning tutun chiqadigan joyidan (o‘yinning o‘z egzoz nuqtasidan) chiqadi; ikki egzozli mashinada — ikkalasidan. Bitta skript BARCHA mashina va mototsiklda ishlaydi, DFF ni almashtirish shart emas.','',
+    ...(AND?['1) Skript:',...ANDROID_HOWTO(base+'.csa'),'   Telefon skripti faqat 32-bit GTA SA 2.00 da ishlaydi; boshqa versiyada o‘zi tekshirib, hech narsa qilmaydi.']:['1) O‘yinda CLEO 4 yoki CLEO 5 bo‘lishi kerak (https://cleo.li). '+base+'.cs ni o‘yin papkasidagi CLEO papkasiga nusxalang.','   Faqat GTA SA 1.0 US (asl exe) da ishlaydi; boshqa versiyada skript hech narsa qilmaydi.']),
+    '2) Mashinada:',
+    ...(cfg.gas?['   • gazni to‘liq bosing — egzozdan vaqti-vaqti bilan olov chiqadi;']:[]),
+    ...(cfg.lift?['   • tez ketayotib gazni qo‘yib yuboring — ketma-ket 3–5 marta olov «otadi»;']:[]),
+    ...(cfg.burn?['   • joyida turib gaz va tormozni BIRGA bosing (burnout) — g‘ildirak aylanadi, egzozdan to‘xtovsiz olov chiqadi'+(AND?' (telefonda gaz va tormoz tugmalarini birga bosing).':'.')]:[]),
+    '3) Olov turi: «'+cfg.fx+'» — o‘yinning o‘z effekti (effects.fxp). Effekt modlari (Effect Loader va h.k.) o‘rnatilgan bo‘lsa, ko‘rinishi o‘zgarishi mumkin.',
+    '4) Egzozi yo‘q deb belgilangan mashinada (handling: NO_EXHAUST), qayiq, samolyot, vertolyotda olov chiqmaydi.',
+    '5) O‘chirish: CLEO papkasidan '+base+'.'+r.ext+' ni o‘chiring.','',base+'_manba.txt — skriptning Sanny Builder matni.'].join('\r\n');};
+  const zp=el('button',{class:'btn pri',type:'button',id:'btnExZip',onclick:()=>{try{const r=mk(),cfg=exCfg();
+      save(base+(cfg.plat==='android'?'_telefon':'')+'.zip',G.zipStore([{name:base+'.'+r.ext,data:r.cs},{name:base+'_manba.txt',data:new TextEncoder().encode(r.src.replace(/\n/g,'\r\n'))},{name:'OQING_egzoz_olovi.txt',data:new TextEncoder().encode(txtOf(r,cfg))}]),'application/zip');
+      log('Egzoz olovi: '+base+'.'+r.ext+' ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},[AND?'⬇ Skript (.csa) — ZIP, yo‘riqnoma bilan':'⬇ Skript (.cs) — ZIP, yo‘riqnoma bilan']);
+  const dl=el('button',{class:'btn',type:'button',id:'btnExCs',onclick:()=>{try{const r=mk();save(base+'.'+r.ext,r.cs);log('Egzoz olovi: '+base+'.'+r.ext+' yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},[AND?'⬇ Faqat .csa':'⬇ Faqat .cs']);
+  p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap'},[zp,dl]));p.appendChild(inf);
+  p.appendChild(el('div',{class:'note',html:'Egzoz nuqtasi, ikki egzoz belgisi va gaz/tormoz pedallari o‘yin xotirasidan o‘qiladi (telefon: o‘yin kodidan tekshirilgan manzillar). Skript o‘yin xotirasiga hech narsa YOZMAYDI — faqat o‘qiydi va o‘yinning o‘z olov effektini chaqiradi. Haqiqiy o‘yinda sinalmagan — ko‘rinishi yoqmasa «Olov turi» ni almashtirib ko‘ring.'}));
 }
 
 function paneExport(p,it){
