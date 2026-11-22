@@ -1286,14 +1286,15 @@ function editDoors(bytes,opt){
       F.splice(F.indexOf(D),0,pre);D.par=pre;rep.newFrame=true;
     }
     pre.r=Lpre.r.slice();pre.p=Lpre.p.slice();pre.dirty=true;D.r=LD.r.slice();D.p=LD.p.slice();D.dirty=true;
-    // 2) D ning to'g'ridan-to'g'ri bolalari: bargsiz (leaf) va atomicli -- geometriya BAKE qilinadi, freymi identity; boshqalari -- freym matritsasi ko'chiriladi
-    const baked=[];
-    for(const C of kidsOf(D)){
-      if(C===pre||keepW.some(k=>k[0]===C))continue;
-      const ca=A.filter(a=>a.frame===C),leaf=!F.some(x=>x.par===C);
-      if(leaf&&ca.length){for(const a of ca)baked.push({a,chain:fLocal(C)});C.r=ID3.slice();C.p=[0,0,0];C.dirty=true;}
-      else{const t=TF.mul(fLocal(C),Rel);if(rigidErr(t.r)>1e-3){rep.status='bola freym matritsasi qattiq emas';}C.r=t.r;C.p=t.p;C.dirty=true;}
-    }
+    // 2) D ning BUTUN pastki daraxti. O'yin (CVehicleModelInfo::PreprocessHierarchy: eshik tugunlari bayrog'i 0x2 -> CollapseFramesCB) eshik dummy si
+    //    ichidagi BARCHA avlod freymlarni o'chirib, atomiclarni to'g'ridan-to'g'ri dummy ga ulaydi (MoveObjectsCB -- matritsasiz): ichki freym
+    //    matritsalari o'yinda HISOBGA OLINMAYDI. Shuning uchun har bir avlod freymdagi geometriya (freymdan D gacha zanjir) * Rel bilan BAKE qilinadi,
+    //    avlod freymlar identity bo'ladi. (Avval faqat to'g'ridan-to'g'ri barg bolalar bake qilinardi -- ichma-ich door_xx_ok freymli modellarda
+    //    (masalan BMW 1M) eshik o'yinda noto'g'ri burilib chiqardi.)
+    const baked=[],desc=[];{let lvl=kidsOf(D).filter(C=>C!==pre&&!keepW.some(k=>k[0]===C));while(lvl.length){desc.push(...lvl);lvl=lvl.flatMap(f=>kidsOf(f));}}
+    const chainToD=X=>{let t=fLocal(X),a=X.par,n=0;while(a&&a!==D&&n++<64){t=TF.mul(t,fLocal(a));a=a.par;}return t;};
+    for(const X of desc){const ch=chainToD(X);for(const a of A.filter(a=>a.frame===X))baked.push({a,chain:ch});}
+    for(const X of desc){X.r=ID3.slice();X.p=[0,0,0];X.dirty=true;}
     for(const a of A.filter(a=>a.frame===D))baked.push({a,chain:TF.id()});
     for(const [x,Wx] of keepW){const L=TF.mul(Wx,TF.inv(fWorld(x.par)));x.r=L.r.slice();x.p=L.p.slice();x.dirty=true;}
     // geometriyani guruhlash: (geom, chain) -- bir geometriyani boshqa atomic (yoki boshqa matritsa) ham ishlatsa, nusxa olinadi
@@ -2729,24 +2730,46 @@ function lampFixScan(bytes){
     g.materials.forEach((m,mi)=>{const s=st[mi];if(!s.n)return;
       const col=(m.color||[255,255,255,255]).slice(0,4),code=LF_CODE2ROLE[col.slice(0,3).join(',')],tex=slot[mi]?lfMatTex(slot[mi]):'',atlas=lfIsAtlas(tex);
       const zone=s.f>=s.rr&&s.f>=s.m?'f':s.rr>=s.m?'r':'m',nm=(tex+' '+frames.join(' ')).toLowerCase();
-      const it={key:gi+':'+mi,gi,mi,atoms,frames,tex,col,n:s.n,ctr:[s.cx/s.n,s.cy/s.n,s.cz/s.n],mn:s.mn,mx:s.mx,zone,side:s.l&&s.r?'LR':s.l?'L':'R',code:code?code[0]:null,atlas,sugg:'keep',why:'',cand:false};
-      const frontish=zone==='f',rearish=zone==='r',[R,Gc,B]=col,red=R>140&&Gc<90&&B<90,amber=R>180&&Gc>70&&Gc<200&&B<90,whiteish=Math.min(R,Gc,B)>150;
-      if(/(turn|indic|flash|blink|signal|povor|migal|repeat|sein)/.test(nm)&&!/^bonnet|^boot/.test(frames.join(' '))){it.sugg='amb';it.why='burilish chirog‘i (sariq)';it.cand=true;}
-      else if(code){it.cand=true;
-        if((code[0]==='rev'||code[0]==='brake'||code[0]==='tail')&&frontish&&!atlas){it.sugg=amber?'amb':'head';it.why='rangi '+(LF_IVF.has(code[0])?'IVF':'orqa chiroq')+' kodiga to‘g‘ri kelib qolgan, lekin old tomonda — '+(amber?'sariq: burilish chirog‘i':'old chiroq');}
-        else if(code[0]==='head'&&rearish&&hasRedTail&&!/^boot/.test(frames[0]||'')){it.sugg='none';it.why='orqa chiroq ichida, lekin fara kodida — ko‘pincha tashqi qoplama (hoshiya)';}
-        else if(!atlas&&zone!=='m'&&!/^(bonnet|boot|door|windscreen)/i.test(frames[0]||'')){it.sugg=code[0];it.why='chiroq kodi bor, lekin chiroq teksturasi yo‘q — o‘yinda yonmaydi';}
-        else{it.sugg='keep';it.why=atlas?'to‘g‘ri sozlangan':'mashina o‘rtasida — tegilmaydi';}}
-      else if(lfLampName(nm)&&zone!=='m'){it.cand=true;
-        if(/(brake|stop)/.test(nm)&&rearish){it.sugg='brake';it.why='nomi stop-signalga o‘xshaydi';}
-        else if(/(revers|backup)/.test(nm)&&rearish){it.sugg='rev';it.why='nomi orqaga yurish chirog‘iga o‘xshaydi';}
-        else if(/(fog|tuman)/.test(nm)&&frontish){it.sugg='head';it.why='tuman chirog‘i (faralar bilan yonadi)';}
-        else if(amber){it.sugg='amb';it.why='sariq rangli chiroq qismi';}
-        else if(rearish&&(red||!whiteish)){it.sugg='tail';it.why='orqa chiroq qismi (qizil)';}
-        else if(frontish){it.sugg='head';it.why='old chiroq qismi';}
-        else{it.sugg='keep';it.why='aniqlab bo‘lmadi';}}
-      items.push(it);});
+      items.push({key:gi+':'+mi,gi,mi,atoms,frames,tex,col,n:s.n,nl:s.l,nr:s.r,ctr:[s.cx/s.n,s.cy/s.n,s.cz/s.n],mn:s.mn,mx:s.mx,zone,side:s.l&&s.r?'LR':s.l?'L':'R',code:code?code[0]:null,atlas,sugg:'keep',why:'',cand:false,_nm:nm,_hrt:hasRedTail});});
   }
+  // 1-o'tish: rang kodi bor qismlar (modelchi chiroq deb belgilagan) -- shu kod bo'yicha; 2-o'tish: kodsiz qismlar faqat shu zona/tomonda
+  // yonadigan chiroq UMUMAN bo'lmasa taxmin qilinadi. Aks holda kodsiz qism (xrom/plastik korpus, shaffof qoplama, qizil linza tanasi) yonib
+  // qolardi (BMW 1M: butun fara va orqa chiroq korpusi yongan).
+  const turnRe=/(turn|indic|flash|blink|signal|povor|migal|repeat|sein)/,inRe=/^(interior|salon|dash|panel|steer|int_|seat|dial)/i;
+  const houseRe=/(chrome|xrom|hrom|plastic|metal|black|carbon|rubber|grill|body|paint|interior|matte|gloss|dirt|shadow|generic|grunge|logo|badge|emblem|plate|tyre|tire|rim|disc|seat|leather|korpus|chassis|bumper|mirror)/i;
+  const live={f:{l:0,r:0},r:{l:0,r:0}};
+  for(const it of items){const {col,code,atlas,zone,frames}=it,nm=it._nm,frontish=zone==='f',rearish=zone==='r',[R,Gc,B]=col,amber=R>180&&Gc>70&&Gc<200&&B<90;
+    if(turnRe.test(nm)&&!/^bonnet|^boot/.test(frames.join(' '))){it.cand=true;
+      if(inRe.test(frames[0]||'')){it.sugg='keep';it.why='salon ichida (asboblar paneli) — tegilmaydi';}
+      else{it.sugg='amb';it.why='burilish chirog‘i (sariq)';}}
+    else if(code){it.cand=true;
+      if((code==='rev'||code==='brake'||code==='tail')&&frontish&&!atlas){it.sugg=amber?'amb':'head';it.why='rangi '+(LF_IVF.has(code)?'IVF':'orqa chiroq')+' kodiga to‘g‘ri kelib qolgan, lekin old tomonda — '+(amber?'sariq: burilish chirog‘i':'old chiroq');}
+      else if(code==='head'&&rearish&&it._hrt&&!/^boot/.test(frames[0]||'')){it.sugg='none';it.why='orqa chiroq ichida, lekin fara kodida — ko‘pincha tashqi qoplama (hoshiya)';}
+      else if(!atlas&&zone!=='m'&&!/^(bonnet|boot|door|windscreen)/i.test(frames[0]||'')){it.sugg=code;it.why='chiroq kodi bor, lekin chiroq teksturasi yo‘q — o‘yinda yonmaydi';}
+      else{it.sugg='keep';it.why=atlas?'to‘g‘ri sozlangan':'mashina o‘rtasida — tegilmaydi';}}
+    // zonada (old / orqa) yonadigan chiroq bormi: fara yoki orqa chiroq kodi + chiroq teksturasi (yoki shu tahrirda tuzatiladigan)
+    const lit=(it.sugg==='head'||it.sugg==='tail'||(it.sugg==='keep'&&atlas&&(code==='head'||code==='tail')))&&(zone==='f'||zone==='r');
+    if(lit){if(it.nl>=2)live[zone].l+=it.nl;if(it.nr>=2)live[zone].r+=it.nr;}}
+  const lightOk=it=>{const L=live[it.zone];if(!L)return false;return (it.side!=='R'?L.l>=4:true)&&(it.side!=='L'?L.r>=4:true);};
+  // kodsiz chiroqqa o'xshash qismlar: zonada chiroq yo'q bo'lsa -- eng yaxshilari (tiniq, korpus emas, to'q emas) taklif qilinadi
+  const pend=[];
+  for(const it of items){if(it.cand||it.code)continue;const {col,zone,frames,tex}=it,nm=it._nm;if(!(lfLampName(nm)&&zone!=='m'))continue;it.cand=true;
+    const [R,Gc,B,Al]=col,red=R>140&&Gc<90&&B<90,dark=Math.max(R,Gc,B)<70&&!(R>=50&&Gc<20&&B<20),clear=Al>=250;
+    if(lightOk(it)){it.sugg='keep';it.why=zone==='f'?'bu farada yonadigan qism allaqachon bor — korpus/qoplama yonmasin':'bu orqa chiroqda yonadigan qism allaqachon bor — korpus/qoplama yonmasin';continue;}
+    if(houseRe.test(tex)||inRe.test(frames[0]||'')){it.sugg='keep';it.why='korpus / hoshiya materiali — chiroq emas';continue;}
+    if(dark){it.sugg='keep';it.why='to‘q rangli korpus qismi — chiroq emas';continue;}
+    pend.push(it);}
+  for(const it of pend){const {col,zone}=it,nm=it._nm,frontish=zone==='f',rearish=zone==='r',[R,Gc,B,Al]=col,red=R>140&&Gc<90&&B<90,amber=R>180&&Gc>70&&Gc<200&&B<90,whiteish=Math.min(R,Gc,B)>150;
+    // shaffof qoplama: shu zona/tomonda tiniq (shaffof emas) nomzod bo'lsa -- qoplama yonmaydi
+    if(Al<250&&pend.some(o=>o!==it&&o.zone===zone&&o.col[3]>=250&&(o.side===it.side||o.side==='LR'||it.side==='LR'))){it.sugg='keep';it.why='shaffof qoplama (chiroq oynasi) — ichidagi chiroq qismi yonadi';continue;}
+    if(/(brake|stop)/.test(nm)&&rearish){it.sugg='tail';it.why='stop-signal (o‘yinda orqa chiroq kabi: faralar bilan, tormozda kuchliroq; IVF bo‘lsa «Stop-signal — IVF»)';}
+    else if(/(revers|backup)/.test(nm)&&rearish){it.sugg='keep';it.why='orqaga yurish chirog‘i — faqat IVF bilan yonadi («Orqaga yurish — IVF»)';}
+    else if(/(fog|tuman)/.test(nm)&&frontish){it.sugg='head';it.why='tuman chirog‘i (faralar bilan yonadi)';}
+    else if(amber){it.sugg='amb';it.why='sariq rangli chiroq qismi';}
+    else if(rearish&&(red||!whiteish)){it.sugg='tail';it.why='orqa chiroq qismi (qizil)';}
+    else if(frontish){it.sugg='head';it.why='old chiroq qismi';}
+    else{it.sugg='keep';it.why='aniqlab bo‘lmadi';}}
+  for(const it of items){delete it._nm;delete it._hrt;}
   items.sort((a,b)=>(b.cand-a.cand)||(a.zone<b.zone?-1:a.zone>b.zone?1:0)||b.n-a.n);
   return{items,mn,mx};
 }
@@ -7694,7 +7717,7 @@ function paneNeon(p,it){
 }
 
 /* ---------- SA tahrir: DVORNIK VA YON OYNALAR (DFF tayyorlash + CLEO skript) ---------- */
-S.anim={on:false,wMode:null,assign:null,flip:{},angle:95,keyW:'79',keyO:'80',ctlW:'hleft',ctlO:'hright',zoneW:'2',zoneO:'8',hold:500,front:'all',frac:1,doors:null,modelMode:'auto',modelId:'',preview:false,hl:null,scan:null,scanFor:null};
+S.anim={on:false,wMode:null,assign:null,flip:{},angle:95,keyW:'79',keyO:'80',ctlW:'hleft',ctlO:'hright',zoneW:'2',zoneO:'8',hold:500,front:'all',frac:1,doors:null,modelMode:'any',modelId:'',preview:false,hl:null,scan:null,scanFor:null};
 function animSrc(it){const LM=S.limo;return LM&&LM.on&&LM.cache&&LM.cache.raw===it.raw&&LM.cache.res?LM.cache.res.dff:it.raw;}   // limuzin bo'lsa -- cho'zilgan model (quvurda ham shu tartib)
 function animScanOf(it){const b=animSrc(it),M=S.anim;if(M.scan&&M.scanFor===b)return M.scan;let sc=null;try{sc=G.DFF.animScan(b);}catch(e){sc={err:e.message};}M.scan=sc;M.scanFor=b;
   if(!sc.err){if(!M.assign||M.assignFor!==b){M.assign=Object.fromEntries(sc.wipers.filter(w=>w.sel).map((w,i)=>[w.id,i+1]));M.assignFor=b;M.flip={};}
@@ -7795,28 +7818,28 @@ function paneAnim(p,it){
   p.appendChild(row('Oyna tugmasi',ks('anKeyO',M.keyO,v=>{M.keyO=v;})));andHint(p,'anToAnd');}
   const gid=strobeGuessId(it),nm=strobeModelName(it);
   const idI=el('input',{type:'number',id:'anId',min:400,max:65535,value:M.modelId||gid||'',style:'width:110px;display:'+(M.modelMode==='id'?'':'none')});idI.addEventListener('input',()=>{M.modelId=idI.value;info();});
-  const ms=el('select',{id:'anModel'},[['auto',gid?'Faqat shu mashinada: '+nm+' (model ID '+gid+')':'Avtomatik: «'+nm+'» standart nom emas — har qanday mashinada'],['id','Model ID ni o‘zim kiritaman'],['any','Har qanday mashinada (tayyorlangan DFF li)']].map(([v,t])=>el('option',{value:v,text:t,selected:M.modelMode===v})));
+  const ms=el('select',{id:'anModel'},[['any','Barcha mashinalarda — bitta skript (tavsiya): shu sayt tayyorlagan har bir DFF da ishlaydi'],['auto',gid?'Faqat shu mashinada: '+nm+' (model ID '+gid+')':'Avtomatik: «'+nm+'» standart nom emas — har qanday mashinada'],['id','Model ID ni o‘zim kiritaman']].map(([v,t])=>el('option',{value:v,text:t,selected:M.modelMode===v})));
   ms.addEventListener('change',()=>{M.modelMode=ms.value;idI.style.display=ms.value==='id'?'':'none';if(ms.value==='id'&&!idI.value&&gid)idI.value=M.modelId=String(gid);info();});
   p.appendChild(row('Qaysi mashinada ishlaydi',el('div',{style:'display:flex;gap:8px;align-items:center;flex:1;flex-wrap:wrap'},[ms,idI])));
   const inf=el('div',{class:'note',id:'anInfo'});p.appendChild(inf);
   const info=()=>{const meta=animMeta(it);if(!done||!meta){inf.style.color='';inf.innerHTML='1-qadam: <b>«⚙ DFF ni tayyorlash»</b> ni bosing — tanlangan dvornik va oyna bo‘laklari alohida qismlarga ajratiladi. Keyin 3D da tekshiring va skriptni yuklab oling.';return;}
     let r;try{r=G.DFF.animBuild(meta,animCfg(it));}catch(e){inf.style.color='#fb7185';inf.textContent='Xato: '+e.message;return;}inf.style.color='';const cfg=animCfg(it),kn=v=>(AN_KEYS_UI.find(x=>x[0]===String(v))||['',''])[1];
     const tW=AND?esc(anHow(cfg.ctlW,cfg.zoneW,cfg.hold)):'<b>'+esc(kn(cfg.keyW))+'</b> tugmasi',tO=AND?esc(anHow(cfg.ctlO,cfg.zoneO,cfg.hold)):'<b>'+esc(kn(cfg.keyO))+'</b> tugmasi';
-    inf.innerHTML='Skript: <b>'+r.cs.length.toLocaleString()+' bayt</b> — '+r.wipers+' ta dvornik, '+r.windows+' ta oyna. '+(r.wipers?'Dvornik: '+tW+' (o‘chiq → sekin → tez → o‘chiq). ':'')+(r.windows?'Oynalar: '+tO+' (tushadi / ko‘tariladi). ':'')+(cfg.model==null?'Har qanday mashinada (shu sayt tayyorlagan DFF bo‘lsa) ishlaydi.':'Faqat model ID <b>'+cfg.model+'</b> da ishlaydi.')+(AND?' Fayl: <b>.csa</b> (telefon, 32-bit GTA SA 2.00).':'');};
+    inf.innerHTML='Skript: <b>'+r.cs.length.toLocaleString()+' bayt</b> — '+r.wipers+' ta dvornik, '+r.windows+' ta oyna. '+(r.wipers?'Dvornik: '+tW+' (o‘chiq → sekin → tez → o‘chiq). ':'')+(r.windows?'Oynalar: '+tO+' (tushadi / ko‘tariladi). ':'')+(cfg.model==null?'<b>Barcha mashinalarda</b> ishlaydi (shu sayt tayyorlagan DFF bo‘lsa) — bitta skript yetarli.':'Faqat model ID <b>'+cfg.model+'</b> da ishlaydi.')+(AND?' Fayl: <b>.csa</b> (telefon, 32-bit GTA SA 2.00).':'');};
   info();
   const ap=el('button',{class:done?'btn':'btn pri',type:'button',id:'btnAnApply',disabled:!sc.isCar,onclick:async()=>{M.on=!done;M.hl=null;await editPipeline('anim');if(M.on&&animMeta(it)&&!M.preview)animPreview(true);renderPane();}},[done?'↩ Asl holiga qaytarish':sc.has?'⚙ DFF ni tayyorlash (tuzatish)':'⚙ DFF ni tayyorlash']);
   const pv=el('button',{class:'btn'+(M.preview?' pri':''),type:'button',id:'btnAnPrev',onclick:()=>{animPreview(!M.preview);if(M.preview&&viewer&&viewer.ok){viewer.cam.yaw=Math.PI*0.42;viewer.cam.pitch=0.32;viewer.fit();}renderPane();}},[M.preview?'⏸ 3D ko‘rishni to‘xtatish':'▶ 3D da ko‘rish']);
-  const base='dvornik_oyna_'+nm;
+  const baseOf=()=>animModel(it)==null?'dvornik_oyna':'dvornik_oyna_'+nm;   // barcha mashinalar uchun -- bitta nom (yangisi eskisining o'rniga yoziladi)
   const getCs=()=>{const meta=animMeta(it);if(!done||!meta)throw new Error('Avval «⚙ DFF ni tayyorlash» ni bosing');return G.DFF.animBuild(meta,animCfg(it));};
-  const dl=el('button',{class:'btn pri',type:'button',id:'btnAnCs',disabled:!done,onclick:()=>{try{const r=getCs();save(base+'.'+r.ext,r.cs);if(AND)ctlGot(M,['ctlW','ctlO']);log('Dvornik/oynalar: '+base+'.'+r.ext+' ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},[AND?'⬇ CLEO skript (.csa) — telefon':'⬇ CLEO skript (.cs)']);
-  const zp=el('button',{class:'btn',type:'button',id:'btnAnZip',disabled:!done,onclick:()=>{try{const r=getCs(),cfg=animCfg(it),kn=v=>(AN_KEYS_UI.find(x=>x[0]===String(v))||['',''])[1],R=S.result,dn=(R.name||nm)+'.dff';
+  const dl=el('button',{class:'btn pri',type:'button',id:'btnAnCs',disabled:!done,onclick:()=>{try{const r=getCs(),base=baseOf();save(base+'.'+r.ext,r.cs);if(AND)ctlGot(M,['ctlW','ctlO']);log('Dvornik/oynalar: '+base+'.'+r.ext+' ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},[AND?'⬇ CLEO skript (.csa) — telefon':'⬇ CLEO skript (.cs)']);
+  const zp=el('button',{class:'btn',type:'button',id:'btnAnZip',disabled:!done,onclick:()=>{try{const r=getCs(),base=baseOf(),cfg=animCfg(it),kn=v=>(AN_KEYS_UI.find(x=>x[0]===String(v))||['',''])[1],R=S.result,dn=(R.name||nm)+'.dff';
       const txt=AND?['GTA San Andreas (TELEFON, Android) — Dvornik va yon oynalar (IT SHAKH, shakhtashkentski66.uz)','',
         'A) Ikkala fayl KERAK: yangi '+dn+' (dvornik va oynalar alohida qismlarga ajratilgan) va '+base+'.csa (ularni harakatlantiradi). Faqat .csa ni qo‘ysangiz hech narsa bo‘lmaydi.',
         'B) '+dn+' ni o‘yinga o‘rnating — avvalgi '+dn+' o‘rniga: gta3.img ichiga (telefondagi IMG muharriri bilan, Android/data/com.rockstargames.gtasa/files/texdb/ yoki o‘yin papkasidagi IMG) yoki AML modloader orqali. TXD o‘zgarmagan.',
         'C) Skript:',...ANDROID_HOWTO(base+'.csa'),
         'D) Telefon skripti faqat 32-bit GTA SA 2.00 da ishlaydi: mashina qismlarini o‘yinning o‘z funksiyalari (CClumpModelInfo::GetFrameFromName, RwFrameUpdateObjects) bilan topadi va buradi. O‘yin boshida skript tekshiradi — o‘yin versiyasi boshqa, o‘yin 64-bit yoki kerakli funksiya topilmasa, hech narsaga tegmaydi (o‘yin buzilmaydi, dvornik/oyna shunchaki qimirlamaydi).',
         'E) O‘yinda mashinaga o‘tiring: '+(r.wipers?anHow(cfg.ctlW,cfg.zoneW,cfg.hold)+' — dvornik (birinchi marta — sekin, ikkinchi — tez, uchinchi — o‘chadi, dvornik joyiga qaytib to‘xtaydi). ':'')+(r.windows?anHow(cfg.ctlO,cfg.zoneO,cfg.hold)+' — yon oynalar tushadi, yana shunday qiling — ko‘tariladi'+(cfg.front==='front'?' (faqat old eshiklar).':'.'):'')+(cfg.ctlW==='zone'||cfg.ctlO==='zone'?ZONE_HELP:' Signal tugmasi — mashinada ekranda turadigan gudok tugmasi (o‘yinning o‘zida bor).'),
-        'F) '+(cfg.model==null?'Skript har qanday mashinada ishlaydi, lekin faqat shu sayt tayyorlagan DFF li mashinalarda (boshqalarida bu qismlar yo‘q — hech narsa qilmaydi).':'Skript faqat model ID '+cfg.model+' da ishlaydi ('+nm+').'),
+        'F) '+(cfg.model==null?'Bitta skript BARCHA mashinalarda ishlaydi — shu sayt tayyorlagan har bir DFF da (Lacetti, BMW va h.k. uchun alohida skript kerak emas). Boshqa mashinalarda bu qismlar yo‘q — skript ularga tegmaydi. CLEO papkasida eski dvornik_oyna_*.csa fayllari bo‘lsa — o‘chiring (bir mashinani ikki skript boshqarmasin).':'Skript faqat model ID '+cfg.model+' da ishlaydi ('+nm+'). Boshqa mashina uchun «Barcha mashinalarda» ni tanlab, skriptni qayta yuklab oling.'),
         'G) Oyna eshik ichiga tushadi. Siz o‘tirgan, o‘tirayotgan va oxirgi tushgan mashinangizda eshik ochilsa oyna eshik bilan birga buriladi. Eshik urilib uzilib tushsa, oyna ham yashiriladi.',
         'H) Skriptda modelga xos son yo‘q: oyna va dvornik ma’lumotini o‘yinda DFF ning o‘zidan o‘qiydi. Eshik uslubini keyin saytda o‘zgartirsangiz, faqat yangi DFF ni qo‘yish kifoya.',
         'I) O‘chirish: CLEO papkasidan '+base+'.csa ni o‘chiring.','',
@@ -7826,7 +7849,7 @@ function paneAnim(p,it){
         '3) O‘yinda CLEO 4 yoki CLEO 5 bo‘lishi kerak (https://cleo.li). '+base+'.cs ni o‘yin papkasidagi CLEO papkasiga nusxalang.',
         '4) Skript faqat GTA San Andreas 1.0 US (asl exe) da ishlaydi. Boshqa versiyada (Steam, 1.01, 2.0) hech narsa qilmaydi — o‘yin buzilmaydi.',
         '5) O‘yinda mashinaga o‘tiring: '+(r.wipers?kn(cfg.keyW)+' — dvornik (birinchi bosish — sekin, ikkinchi — tez, uchinchi — o‘chadi, dvornik joyiga qaytib to‘xtaydi). ':'')+(r.windows?kn(cfg.keyO)+' — yon oynalar tushadi, yana bosing — ko‘tariladi'+(cfg.front==='front'?' (faqat old eshiklar).':'.'):''),
-        '6) '+(cfg.model==null?'Skript har qanday mashinada ishlaydi, lekin faqat shu sayt tayyorlagan DFF li mashinalarda (boshqalarida bu qismlar yo‘q — hech narsa qilmaydi).':'Skript faqat model ID '+cfg.model+' da ishlaydi ('+nm+').'),
+        '6) '+(cfg.model==null?'Bitta skript BARCHA mashinalarda ishlaydi — shu sayt tayyorlagan har bir DFF da (Lacetti, BMW va h.k. uchun alohida skript kerak emas). Boshqa mashinalarda bu qismlar yo‘q — skript ularga tegmaydi. CLEO papkasida eski dvornik_oyna_*.cs fayllari bo‘lsa — o‘chiring (bir mashinani ikki skript boshqarmasin).':'Skript faqat model ID '+cfg.model+' da ishlaydi ('+nm+'). Boshqa mashina uchun «Barcha mashinalarda» ni tanlab, skriptni qayta yuklab oling.'),
         '7) Oyna eshik ichiga tushadi. Siz o‘tirgan, o‘tirayotgan va oxirgi tushgan mashinangizda eshik ochilsa oyna eshik bilan birga buriladi (skript har kadrda eshik holatini o‘qiydi). Ko‘chadagi boshqa (siz minmagan) shu modeldagi mashinalarda oyna joyida turadi, lekin ular eshigini ochganda oyna eshikka ergashmaydi. Eshik urilib uzilib tushsa, oyna ham yashiriladi.',
         '8) Avvalgi versiyadagi DFF ni ishlatmang (unda oyna eshik pastida qora dog‘ bo‘lib ko‘rinadi va ochilmaydi) — shu ZIP dagi yangi '+dn+' bilan almashtiring.',
         '9) Skriptda modelga xos son yo‘q: oyna va dvornik ma’lumotini o‘yinda DFF ning o‘zidan o‘qiydi. Shuning uchun eshik uslubini (tepaga / kapalak / qanot / oddiy) keyin saytda o‘zgartirsangiz, faqat yangi DFF ni qo‘yish kifoya — shu skript ishlayveradi.',
