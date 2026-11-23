@@ -1601,21 +1601,30 @@ const LOGO_PLACES={
   door_l:{view:'left',re:/^door_lf_ok$/i,R:[0,-1,0],U:[0,0,1],lbl:'Chap old eshik'},
   door_r:{view:'right',re:/^door_rf_ok$/i,R:[0,1,0],U:[0,0,1],lbl:'O‘ng old eshik'},
   door_lr:{view:'left',re:/^door_lr_ok$/i,R:[0,-1,0],U:[0,0,1],lbl:'Chap orqa eshik'},
-  door_rr:{view:'right',re:/^door_rr_ok$/i,R:[0,1,0],U:[0,0,1],lbl:'O‘ng orqa eshik'}
+  door_rr:{view:'right',re:/^door_rr_ok$/i,R:[0,1,0],U:[0,0,1],lbl:'O‘ng orqa eshik'},
+  // VINIL (uslubli stiker): butun yon (old bamperdan orqagacha, ostonadan oynalar ostigacha) va kapot-tom-bagaj chizig'i.
+  //  Rasmning chap cheti -- mashinaning OLDI (o'ng tomonda ko'zgu bilan; matnli rasm uchun "mirror:false").
+  side_l:{view:'left',vinyl:'side',R:[0,-1,0],U:[0,0,1],lbl:'Chap yon (butun)'},
+  side_r:{view:'right',vinyl:'side',R:[0,-1,0],U:[0,0,1],lbl:'O‘ng yon (butun)'},
+  top_s:{view:'top',vinyl:'top',R:[0,-1,0],U:[1,0,0],lbl:'Kapot — tom — bagaj'}
 };
 const LG_VIEW={top:{k:2,s:1,iu:0,iv:1,ax:[0,0,1]},left:{k:0,s:-1,iu:1,iv:2,ax:[-1,0,0]},right:{k:0,s:1,iu:1,iv:2,ax:[1,0,0]},
   front:{k:1,s:1,iu:0,iv:2,ax:[0,1,0]},back:{k:1,s:-1,iu:0,iv:2,ax:[0,-1,0]}};
 const LG_CACHE=new WeakMap();
+/* vinil tushmaydigan qismlar (lekin yopuvchi sifatida hisobga olinadi): chiroq kodlari / chiroq teksturasi, gupchak, salon, motor ... */
+const LG_LAMPC=new Set(['255,175,0','0,255,200','185,255,0','255,60,0','255,141,7','183,255,0','255,174,0','0,255,199','184,255,0','255,59,0','255,173,0','0,255,198']);
+const LG_NOVINYL=/(hub|brake|disc|caliper|tyre|tire|rim|susp|axle|steer|seat|dash|interior|iceri|salon|eng_?bay|engine|motor|dvigatel|exhaust|light|lamp|fara|farol|headl|taill|mirror|wiper|plate|nomer|grill)/i;
 const lgUnderWheel=f=>{let p=f.par,n=0;while(p&&n++<64){if(/^wheel/i.test(p.name||''))return true;p=p.par;}return false;};
 function lgPart(a,g,extra){
   const W=fWorld(a.frame),nV=g.nV,wp=new Float32Array(nV*3),wn=g.nrm?new Float32Array(nV*3):null;
   for(let i=0;i<nV;i++){const q=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],W);wp[i*3]=q[0];wp[i*3+1]=q[1];wp[i*3+2]=q[2];
     if(wn){const m=v3n(vm3([g.nrm[i*3],g.nrm[i*3+1],g.nrm[i*3+2]],W.r));wn[i*3]=m[0];wn[i*3+1]=m[1];wn[i*3+2]=m[2];}}
-  const tl=[],gls=[],gp=/wind(screen|shield)|window|glass|steklo/i.test(a.frame.name||'');
+  const tl=[],gls=[],nvs=[],gp=/wind(screen|shield)|window|glass|steklo/i.test(a.frame.name||'');
   for(let t=0;t<g.nTri;t++){const m=g.materials[g.tris[t*4+3]];if(!m)continue;const al=m.color?m.color[3]:255;if(al<16)continue;
-    tl.push(g.tris[t*4],g.tris[t*4+1],g.tris[t*4+2]);gls.push(al<250||gp?1:0);}
+    tl.push(g.tris[t*4],g.tris[t*4+1],g.tris[t*4+2]);gls.push(al<250||gp?1:0);
+    const ck=m.color?m.color[0]+','+m.color[1]+','+m.color[2]:'';nvs.push(LG_LAMPC.has(ck)||/vehiclelights|lights?on/i.test(m.tex||'')||(m.color&&m.color[0]===255&&m.color[1]===255&&m.color[2]>=243&&m.color[2]<=250)?1:0);}
   const bmn=[1e30,1e30,1e30],bmx=[-1e30,-1e30,-1e30];for(let i=0;i<nV*3;i+=3)for(let c=0;c<3;c++){const x=wp[i+c];if(x<bmn[c])bmn[c]=x;if(x>bmx[c])bmx[c]=x;}
-  return Object.assign({fn:a.frame.name||'',W,wp,wn,tl:Uint32Array.from(tl),gl:Uint8Array.from(gls),bmn,bmx},extra||{});
+  return Object.assign({fn:a.frame.name||'',W,wp,wn,tl:Uint32Array.from(tl),gl:Uint8Array.from(gls),nv:Uint8Array.from(nvs),bmn,bmx},extra||{});
 }
 /* butun mashina (dunyo koordinatalarida) -- bir xil baytlar uchun keshlanadi */
 function lgScene(bytes,ctx){
@@ -1706,8 +1715,24 @@ function lgFaceRegion(sc,view){
   return{view,u:xc,v:M.v0+(jc+.5)*M.cs,W:Math.max(sp?sp[1]-sp[0]:0,0.45*cw),H:Hh};
 }
 /* joyni topish: {view,u,v (xarita o'qlarida markaz), W (R bo'yicha eni), H (U bo'yicha bo'yi), R,U (standart)} yoki {err} */
+/* vinil: oynalar pastki chegarasi (yon ko'rinishda, mashina uzunligi bo'yicha bir nechta ustunda -- eng pasti) */
+function lgBelt(sc,M){
+  const mn=sc.mn,mx=sc.mx,H=mx[2]-mn[2],L=mx[1]-mn[1];let belt=1e9;
+  for(const f of [0.3,0.4,0.5,0.6,0.7]){const um=mn[1]+f*L,ic=Math.floor((um-M.u0)/M.cs);let gl=-1;
+    for(let j=M.nv-1;j>=0;j--){const z=M.v0+(j+.5)*M.cs;if(z<mn[2]+0.35*H)break;let g=0,n2=0;for(let i=ic-2;i<=ic+2;i++){if(i<0||i>=M.nu)continue;const c=j*M.nu+i;if(lgOk(M,c)){n2++;if(M.GL[c])g++;}}if(n2&&g*2>=n2)gl=j;}
+    if(gl>=0)belt=Math.min(belt,M.v0+gl*M.cs);}
+  return belt<1e8?belt:null;
+}
+function lgVinylRegion(sc,P){
+  const mn=sc.mn,mx=sc.mx,H=mx[2]-mn[2],L=mx[1]-mn[1],xc=(mn[0]+mx[0])/2,Wc=mx[0]-mn[0];
+  if(P.vinyl==='side'){const M=lgMap(sc,P.view),belt=lgBelt(sc,M);
+    const vHi=belt!=null?belt-0.02:mn[2]+0.62*H,vLo=mn[2]+0.1*H;if(!(vHi-vLo>0.12))return{err:'yon yuzasi topilmadi'};
+    const u0=mn[1]+0.015*L,u1=mx[1]-0.015*L;return{view:P.view,u:(u0+u1)/2,v:(vLo+vHi)/2,W:u1-u0,H:vHi-vLo,R:P.R,U:P.U,belt};}
+  const y0=mn[1]+0.01*L,y1=mx[1]-0.01*L;return{view:'top',u:xc,v:(y0+y1)/2,W:y1-y0,H:Math.min(0.9*Wc,1.2),R:P.R,U:P.U,top:mx[2]};
+}
 function lgRegion(sc,place){
   const P=LOGO_PLACES[place],mn=sc.mn,mx=sc.mx,H=mx[2]-mn[2],L=mx[1]-mn[1],xc=(mn[0]+mx[0])/2;
+  if(P.vinyl)return lgVinylRegion(sc,P);
   if(P.view==='top'){
     const M=lgMap(sc,'top'),rows=lgProfile(M,xc),zLo=mn[2]+0.33*H,yOf=j=>M.v0+(j+.5)*M.cs;
     const good=r=>r&&!r.gl&&r.na>0.5&&r.d>zLo,soft=r=>r&&!r.gl&&r.na>0.4&&r.d>zLo;
@@ -1775,7 +1800,8 @@ function lgRegion(sc,place){
 /* decal: C markaz (yuzada), n proyeksiya yo'nalishi (tashqariga), R/U tekislik o'qlari, hw/hh yarim o'lcham.
  * Natija: parts indeksi -> {pos,nrm,uv,tris} (dunyo koordinatalarida) va o'rtacha yuza normali */
 const LG_OFF=0.005;
-function lgDecal(sc,C,n,R,U,hw,hh,extra){
+function lgDecal(sc,C,n,R,U,hw,hh,extra,o){
+  o=o||{};const dIn=o.dIn!=null?o.dIn:0.2,dOut=o.dOut!=null?o.dOut:0.45,hole=o.hole!=null?o.hole:0.1,noGlass=!!o.noGlass;
   const gs=Math.max(hw,hh)*2/128,ga=Math.max(1,Math.ceil(2*hw/gs)),gb=Math.max(1,Math.ceil(2*hh/gs)),Dg=new Float32Array(ga*gb).fill(-1e30);
   const cand=[],list=sc.parts.map((P,pi)=>({P,pi})).concat((extra||[]).map(P=>({P,pi:-1})));
   const projAll=P=>{const nV=P.wp.length/3,pa=new Float32Array(nV*3);for(let i=0;i<nV;i++){const x=P.wp[i*3]-C[0],y=P.wp[i*3+1]-C[1],z=P.wp[i*3+2]-C[2];
@@ -1783,23 +1809,29 @@ function lgDecal(sc,C,n,R,U,hw,hh,extra){
   const rad=Math.hypot(hw,hh)+0.5;
   for(const it of list){const P=it.P;let dd=0;for(let c=0;c<3;c++){const e=Math.max(P.bmn[c]-C[c],0,C[c]-P.bmx[c]);dd+=e*e;}if(dd>rad*rad){it.pa=null;continue;}  // uzoq qismlar
     const pa=projAll(P),tl=P.tl;it.pa=pa;
-    for(let t=0;t<tl.length;t+=3){const a=tl[t]*3,b=tl[t+1]*3,c=tl[t+2]*3;
+    const skipPart=noGlass&&LG_NOVINYL.test(P.fn);
+    for(let t=0;t<tl.length;t+=3){const a=tl[t]*3,b=tl[t+1]*3,c=tl[t+2]*3,isG=noGlass&&(skipPart||(P.gl&&P.gl[t/3])||(P.nv&&P.nv[t/3]));
       if(Math.max(pa[a],pa[b],pa[c])<-hw||Math.min(pa[a],pa[b],pa[c])>hw||Math.max(pa[a+1],pa[b+1],pa[c+1])<-hh||Math.min(pa[a+1],pa[b+1],pa[c+1])>hh)continue;
-      const hmx=Math.max(pa[a+2],pa[b+2],pa[c+2]),hmn=Math.min(pa[a+2],pa[b+2],pa[c+2]);if(hmx<-0.2||hmn>0.45)continue;  // faqat tashqi qobiq qatlami (chuqur ichki qismlar emas)
+      const hmx=Math.max(pa[a+2],pa[b+2],pa[c+2]),hmn=Math.min(pa[a+2],pa[b+2],pa[c+2]);if(hmx<-dIn||hmn>dOut)continue;  // faqat tashqi qobiq qatlami (chuqur ichki qismlar emas)
       const w=P.wp,e1=[w[b]-w[a],w[b+1]-w[a+1],w[b+2]-w[a+2]],e2=[w[c]-w[a],w[c+1]-w[a+1],w[c+2]-w[a+2]],fx=v3x(e1,e2),fl=Math.hypot(fx[0],fx[1],fx[2]);if(fl<1e-14)continue;
       const fnn=[fx[0]/fl,fx[1]/fl,fx[2]/fl],dn=v3d(fnn,n);if(Math.abs(dn)<0.12)continue;
       const g=[(pa[a]+hw)/gs,(pa[a+1]+hh)/gs,pa[a+2],(pa[b]+hw)/gs,(pa[b+1]+hh)/gs,pa[b+2],(pa[c]+hw)/gs,(pa[c+1]+hh)/gs,pa[c+2]];
-      cand.push({it,t,g,fn:dn<0?[-fnn[0],-fnn[1],-fnn[2]]:fnn,area:fl/2,match:it.pi<0});
+      if(!isG)cand.push({it,t,g,fn:dn<0?[-fnn[0],-fnn[1],-fnn[2]]:fnn,area:fl/2,match:it.pi<0});   // oyna: yopadi (Dg), lekin vinil tushmaydi
       if(it.pi>=0)lgRast(g[0],g[1],g[2],g[3],g[4],g[5],g[6],g[7],g[8],ga,gb,(cell,d)=>{if(d>Dg[cell])Dg[cell]=d;});
     }}
   const EPS=0.012,keep=[];let nS=[0,0,0];
+  // vinil: ustun bo'yicha eng tashqi sath (atrofdagi 2 ustun) -- undan colTol dan chuqur joylar (g'ildirak arkasi, gupchak, tirqishdan ko'rinadigan salon) olinmaydi
+  let CM=null;if(o.colTol){const cm=new Float32Array(ga).fill(-1e30);for(let i=0;i<ga;i++)for(let j=0;j<gb;j++){const d=Dg[j*ga+i];if(d>cm[i])cm[i]=d;}
+    CM=new Float32Array(ga).fill(-1e30);for(let i=0;i<ga;i++)for(let k=Math.max(0,i-2);k<=Math.min(ga-1,i+2);k++)if(cm[k]>CM[i])CM[i]=cm[k];}
   // teshik/ochiq joylar (oynasiz deraza, panjara orqasi): yuzaning odatiy sathidan ancha chuqur uchburchaklar olinmaydi
   const dv=[];for(let i=0;i<Dg.length;i++)if(Dg[i]>-1e29)dv.push(Dg[i]);dv.sort((a,b)=>a-b);const dMed=dv.length?dv[Math.floor(dv.length*0.5)]:0;
-  for(const c of cand){const g=c.g;let hit=0,tot=0;if(!c.match&&dv.length&&Math.max(g[2],g[5],g[8])<dMed-0.1)continue;
+  for(const c of cand){const g=c.g;let hit=0,tot=0;if(!c.match&&dv.length&&hole>0&&Math.max(g[2],g[5],g[8])<dMed-hole)continue;
     // uchburchakning qancha qismi eng tashqi (ko'rinadigan) -- kichik tirqishdan ko'rinadigan motor/salon bo'laklari o'tmaydi
     if(!c.match)lgRast(g[0],g[1],g[2],g[3],g[4],g[5],g[6],g[7],g[8],ga,gb,(cell,d)=>{tot++;if(d>=Dg[cell]-EPS)hit++;});
     else lgRast(g[0],g[1],g[2],g[3],g[4],g[5],g[6],g[7],g[8],ga,gb,(cell,d)=>{tot++;if(Dg[cell]>-1e29&&Math.abs(d-Dg[cell])<0.05)hit++;}); // _dam: ok qism yuzasiga yaqin
-    if(!tot||hit/tot<0.34)continue;keep.push(c);
+    if(!tot||hit/tot<0.34)continue;
+    if(CM&&!c.match){let ok2=0,n2=0;lgRast(g[0],g[1],g[2],g[3],g[4],g[5],g[6],g[7],g[8],ga,gb,(cell,d)=>{n2++;if(d>=CM[cell%ga]-o.colTol)ok2++;});if(!n2||ok2/n2<0.5)continue;}
+    keep.push(c);
     if(!c.match){const cu=(g[0]+g[3]+g[6])/3*gs-hw,cv=(g[1]+g[4]+g[7])/3*gs-hh;if(Math.abs(cu)<hw*0.8&&Math.abs(cv)<hh*0.8){const wgt=c.area;nS[0]+=c.fn[0]*wgt;nS[1]+=c.fn[1]*wgt;nS[2]+=c.fn[2]*wgt;}}}
   const out=new Map();
   const clip=(pl,idx,lim,sgn)=>{const o=[];for(let k=0;k<pl.length;k++){const A1=pl[k],B1=pl[(k+1)%pl.length],da=sgn*(lim-A1[idx]),db=sgn*(lim-B1[idx]);
@@ -1856,6 +1888,9 @@ function dropGroups(bytes,list){
   }
   return{dff:serialize(ctx.roots),dropped};
 }
+/* vinil uchun joy o'lchamlari (tekstura proporsiyasi shu bo'yicha chiziladi): {side:{W,H,belt}, top:{W,H}} */
+function vinylRegions(bytes){const ctx=dffCtx(bytes),sc=lgScene(bytes,ctx),out={};if(!sc.parts.length)return out;
+  for(const [k,pl] of [['side','side_l'],['top','top_s']]){const r=lgRegion(sc,pl);if(r&&!r.err)out[k]={W:r.W,H:r.H};}return out;}
 /* opt: {logos:[{tex,place,size(0..1 joy eni ulushi),offX,offY(-0.5..0.5),rot(gradus),aspect(h/w)}], fx}  (surfKeys -- endi kerak emas)
  * Qaytaradi {dff, report:[{tex,place,pieces,tris,frames:[...],status}]} */
 function applyLogos(bytes,opt){
@@ -1875,16 +1910,18 @@ function applyLogos(bytes,opt){
     const ofx=(+L.offX||0)*rg.W,ofy=(+L.offY||0)*rg.H,b3=[0,0,0];b3[V.iu]=rg.u;b3[V.iv]=rg.v;
     const cp=[b3[0]+Rd[0]*ofx+Ud[0]*ofy,b3[1]+Rd[1]*ofx+Ud[1]*ofy,b3[2]+Rd[2]*ofx+Ud[2]*ofy];
     const C=(+L.offX||+L.offY)?lgSurf(M,cp[V.iu],cp[V.iv])||lgSurfRegion(M,cp[V.iu],cp[V.iv],rg.W,rg.H,rg.pis):lgSurfRegion(M,cp[V.iu],cp[V.iv],rg.W,rg.H,rg.pis);if(!C){rep.status='logo «'+P.lbl+'» yuzasidan chiqib ketdi (siljitishni kamaytiring)';continue;}
-    const asp=Math.max(0.05,+L.aspect||1),w=Math.max(0.02,(+L.size||0.5)*Math.min(rg.W,rg.H/asp)),h=w*asp,th=(+L.rot||0)*Math.PI/180,cs=Math.cos(th),sn=Math.sin(th);
+    const VN=!!P.vinyl,VW=VN&&L.w!=null,asp=Math.max(0.05,+L.aspect||1),w=VW?Math.max(0.05,(+L.w||1)*rg.W):Math.max(0.02,(+L.size||0.5)*Math.min(rg.W,rg.H/asp)),h=VW?Math.max(0.03,(+L.h||1)*rg.H):w*asp,th=(+L.rot||0)*Math.PI/180,cs=Math.cos(th),sn=Math.sin(th);
+    // vinil: yon -- X bo'ylab (egilgan old/orqa uchlarigacha), oynalarga tushmaydi; tepa -- Z bo'ylab, kapot / tom / bagaj (oynalar o'tkazib yuboriladi)
+    const DO=VN?(P.vinyl==='side'?{dIn:0.45,dOut:0.6,hole:0.35,noGlass:true,colTol:0.1}:{dIn:(sc.mx[2]-sc.mn[2]),dOut:0.6,hole:0,noGlass:true,colTol:0.15}):undefined;
     const axes=nn=>{let u=[Ud[0]-nn[0]*v3d(Ud,nn),Ud[1]-nn[1]*v3d(Ud,nn),Ud[2]-nn[2]*v3d(Ud,nn)];
       if(Math.hypot(u[0],u[1],u[2])<1e-3){const r0=[Rd[0]-nn[0]*v3d(Rd,nn),Rd[1]-nn[1]*v3d(Rd,nn),Rd[2]-nn[2]*v3d(Rd,nn)];u=v3x(nn,v3n(r0));}
       u=v3n(u);const r=v3x(u,nn);
       return[[r[0]*cs+u[0]*sn,r[1]*cs+u[1]*sn,r[2]*cs+u[2]*sn],[u[0]*cs-r[0]*sn,u[1]*cs-r[1]*sn,u[2]*cs-r[2]*sn]];};
-    const ax=V.ax;let n=ax,RU=axes(n),res=lgDecal(sc,C,n,RU[0],RU[1],w/2,h/2);
-    if(res.nAvg&&v3d(res.nAvg,ax)>0.3&&v3d(res.nAvg,n)<0.996){n=res.nAvg;RU=axes(n);res=lgDecal(sc,C,n,RU[0],RU[1],w/2,h/2);}   // qiya yuza: yuza normali bo'yicha
+    const ax=V.ax;let n=ax,RU=VN?(()=>{const r0=(L.mirror===false&&L.place==='side_r')?[0,1,0]:Rd,u0=Ud;return[[r0[0]*cs+u0[0]*sn,r0[1]*cs+u0[1]*sn,r0[2]*cs+u0[2]*sn],[u0[0]*cs-r0[0]*sn,u0[1]*cs-r0[1]*sn,u0[2]*cs-r0[2]*sn]];})():axes(n),res=lgDecal(sc,C,n,RU[0],RU[1],w/2,h/2,null,DO);
+    if(!VN&&res.nAvg&&v3d(res.nAvg,ax)>0.3&&v3d(res.nAvg,n)<0.996){n=res.nAvg;RU=axes(n);res=lgDecal(sc,C,n,RU[0],RU[1],w/2,h/2);}   // qiya yuza: yuza normali bo'yicha
     // yakuniy: _dam juftlariga ham (ok yuzaga yaqin uchburchaklar)
     const anyOk=[...res.out.keys()].some(it=>/_ok$/i.test(it.P.fn));
-    if(anyOk&&damParts().length)res=lgDecal(sc,C,n,RU[0],RU[1],w/2,h/2,damParts());
+    if(anyOk&&damParts().length)res=lgDecal(sc,C,n,RU[0],RU[1],w/2,h/2,damParts(),DO);
     if(!res.out.size){rep.status='logo «'+P.lbl+'» yuzasiga tushmadi (joyini/o‘lchamini o‘zgartiring)';continue;}
     for(const [it,B] of res.out){
       const a=A[it.P.ai];if(!a)continue;const Wf=it.P.W;
@@ -4435,7 +4472,7 @@ function txdPutRaw(txdBytes,adds){
   return whCat([hd,body]);
 }
 
-root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS,lampRecolor,lampClassify,lampRetexDff,LAMP_SKIP,lampFixScan,lampFixApply,LF_ROLES,LF_CODES,LF_ATLAS,LF_IVF,neonScan,neonElems,neonTimeline,neonAt,neonCull,neonVisible,neonLightK,neonBuild,neonStripApply,neonHex,NEON_COLS,NEON_MODES,NEON_STRIP_COL,NEON_LIM,NEON_POOL_I,NEON_CULL,animScan,animApply,animBuild,animHasFrames,anWiperAt,anAngle,AN_WIPE,AN_KEYS,AN_FN,AND_SYM,AND_OFF,TOUCH_ZONES,WIDGET_CTL,HORN_WIDGET,cqApply,cqBuild,cqScan,cqFrontCount,cqTexture,cqRainbow,CQ_MARK,CQ_KINDS,CQ_TURN,CQ_TURN_RGB,CQ_GLOW_SPEC,CQ_GLOW_BITS,lampBlock,LF_TURN_KEY,exBuild,EX_FX,EX_FREQ,wheelScan,wheelTarget,wheelApply,wheelTexPlan,txdRawList,txdPutRaw};
+root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS,lampRecolor,lampClassify,lampRetexDff,LAMP_SKIP,lampFixScan,lampFixApply,LF_ROLES,LF_CODES,LF_ATLAS,LF_IVF,neonScan,neonElems,neonTimeline,neonAt,neonCull,neonVisible,neonLightK,neonBuild,neonStripApply,neonHex,NEON_COLS,NEON_MODES,NEON_STRIP_COL,NEON_LIM,NEON_POOL_I,NEON_CULL,animScan,animApply,animBuild,animHasFrames,anWiperAt,anAngle,AN_WIPE,AN_KEYS,AN_FN,AND_SYM,AND_OFF,TOUCH_ZONES,WIDGET_CTL,HORN_WIDGET,cqApply,cqBuild,cqScan,cqFrontCount,cqTexture,cqRainbow,CQ_MARK,CQ_KINDS,CQ_TURN,CQ_TURN_RGB,CQ_GLOW_SPEC,CQ_GLOW_BITS,lampBlock,LF_TURN_KEY,exBuild,EX_FX,EX_FREQ,wheelScan,wheelTarget,wheelApply,wheelTexPlan,txdRawList,txdPutRaw,vinylRegions};
 })(GV);
 /* ---- extension: DFF materials with textures list helper, RW 3.6 version constants ---- */
 (function(G){
@@ -7669,10 +7706,16 @@ async function editPipeline(why){
     if(LGs.dropFor===it.file&&LGs.drop.size){const list=[...LGs.drop].map(k=>{const q=k.split(':').map(Number);return{atomic:q[0],mat:q[1]};});const dr=G.DFF.dropGroups(dff,list);dff=dr.dff;changed=changed||dr.dropped>0;
       info.push('Eski rasm/stiker olib tashlandi: '+LGs.drop.size+' ta guruh, '+dr.dropped.toLocaleString()+' poligon.');}
     const shineFx=L.shine==='keep'||L.shine==='off'?(L.shine==='off'?null:G.DFF.LIV_FX.high):G.DFF.LIV_FX[L.shine]||G.DFF.LIV_FX.ultra;
-    if(LGs.items.length){
-      const lr=G.DFF.applyLogos(dff,{logos:LGs.items.map(lg=>({tex:lg.tex,place:lg.place,size:lg.size,offX:lg.offX,offY:lg.offY,rot:lg.rot,aspect:logoAspect(lg)})),surfKeys:livKeys(it),fx:shineFx});
-      dff=lr.dff;logoRep=lr.report;changed=true;
-      lr.report.forEach((r,i)=>{const P=G.DFF.LOGO_PLACES[r.place];if(r.status==='ok')info.push((i+1)+'-logo «'+LGs.items[i].img.name+'» → '+(P?P.lbl:r.place)+(r.note?' ('+r.note+')':'')+': '+r.tris.toLocaleString()+' poligon, '+[...new Set(r.frames)].join(', ')+' ga biriktirildi (tekstura «'+r.tex+'»).');else warn.push((i+1)+'-logo: '+r.status);});
+    // vinil uslublari (yon / kapot-tom): logo va matndan OLDIN -- ular vinil ustida turadi
+    const VIN=vinylDecals(dff);for(const w of VIN.warn)warn.push(w);
+    if(VIN.list.length){const vr=G.DFF.applyLogos(dff,{logos:VIN.list,fx:shineFx});dff=vr.dff;changed=true;
+      vr.report.forEach((r,i)=>{const P=G.DFF.LOGO_PLACES[r.place];if(r.status==='ok')info.push(VIN.names[i]+' → '+(P?P.lbl:r.place)+': '+r.tris.toLocaleString()+' poligon, '+[...new Set(r.frames)].length+' ta qismga ('+[...new Set(r.frames)].slice(0,6).join(', ')+([...new Set(r.frames)].length>6?'…':'')+') biriktirildi.');else warn.push(VIN.names[i]+': '+r.status);});}
+    const TXI=textDecals();
+    if(LGs.items.length||TXI.list.length){
+      const LGL=LGs.items.map(lg=>({tex:lg.tex,place:lg.place,size:lg.size,offX:lg.offX,offY:lg.offY,rot:lg.rot,aspect:logoAspect(lg)})),NM=LGs.items.map((lg,i)=>(i+1)+'-logo «'+lg.img.name+'»').concat(TXI.names);
+      const lr=G.DFF.applyLogos(dff,{logos:LGL.concat(TXI.list),surfKeys:livKeys(it),fx:shineFx});
+      dff=lr.dff;logoRep=lr.report.slice(0,LGL.length);changed=true;
+      lr.report.forEach((r,i)=>{const P=G.DFF.LOGO_PLACES[r.place];if(r.status==='ok')info.push(NM[i]+' → '+(P?P.lbl:r.place)+(r.note?' ('+r.note+')':'')+': '+r.tris.toLocaleString()+' poligon, '+[...new Set(r.frames)].join(', ')+' ga biriktirildi (tekstura «'+r.tex+'»).');else warn.push(NM[i]+': '+r.status);});
     }
     let liv=null,txd=null,txdName='';const tp=editPickTxd(it);
     if(L.on&&L.img){
@@ -7692,6 +7735,9 @@ async function editPipeline(why){
       if(!tp)warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da FAQAT «'+L.tex+'» teksturasi bor. Mashinaning o‘z TXD sini «Fayllar» ga qo‘shib, qayta bosing (aks holda boshqa teksturalar yo‘qoladi).');
     }else if(tp){txd=tp.raw;txdName=tp.file;}
     if(LGs.items.length){for(const lg of LGs.items)txd=G.txdPutTexture(txd,logoTex(lg),true);if(!tp&&!(L.on&&L.img))warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da faqat logo teksturalari bor. Mashinaning o‘z TXD sini qo‘shing.');}
+    const vtTex=VIN.texs.concat(TXI.texs),vtSeen=new Set();
+    if(vtTex.length){for(const x of vtTex){if(vtSeen.has(x.name))continue;vtSeen.add(x.name);txd=G.txdPutTexture(txd,x.t,true);}
+      if(!tp&&!(L.on&&L.img)&&!LGs.items.length)warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da faqat vinil / matn teksturalari bor. Mashinaning o‘z TXD sini qo‘shing.');}
     let wheelRep=null,whTex=false;
     if(S.wheel&&S.wheel.on&&S.wheel.src){ // g'ildirak (balon) almashtirish: "wheel" geometriyasi yangi g'ildirak bilan, teksturalari TXD ga (xom, siqilishi o'zgarmaydi)
       const WM=S.wheel;
@@ -7732,7 +7778,7 @@ async function editPipeline(why){
     // IT SHAKH chiroqlar skripti (chiroq_dff.js): burilish nusxalari (lampfix "turn"), rangli faralar (shu mashina, skript), tungi nur (rasm / logo)
     const cqTurn=!!(S.lampfix&&S.lampfix.on&&S.lampfix.assign&&Object.values(S.lampfix.assign).includes('turn'));
     const cqLamps=LC&&LC.carOn&&LC.mode==='script'&&(LC.front||LC.rear||LC.bright)?{front:LC.front?hexRGB(LC.front):LC.bright?LAMP_BRIGHT.front:null,rear:LC.rear?hexRGB(LC.rear):LC.bright?LAMP_BRIGHT.rear:null}:null;
-    const cqGlow=[];if(L.on&&L.img&&L.glow&&L.tex)cqGlow.push(L.tex);if(LGs.glow)for(const lg of LGs.items)cqGlow.push(lg.tex);
+    const cqGlow=[];if(L.on&&L.img&&L.glow&&L.tex)cqGlow.push(L.tex);if(LGs.glow)for(const lg of LGs.items)cqGlow.push(lg.tex);for(const nmg of VIN.glow.concat(TXI.glow))if(!cqGlow.includes(nmg))cqGlow.push(nmg);
     let cqTex=false,cqLinks=null,cqPlat=null;
     if(cqTurn||cqLamps||cqGlow.length){const cqA=isAnd(),cr=G.DFF.cqApply(dff,{turn:cqTurn,lamps:cqLamps,glow:cqGlow,plat:cqA?'android':'pc'}),R=cr.report,K=R.kinds,n=x=>K[x]||0;cqPlat=R.plat;
       const PL=cqA?'📱 telefon uchun':'🖥 kompyuter uchun';
@@ -7759,7 +7805,7 @@ async function editPipeline(why){
       dff0=dff;stats0=dffTotals(dff0);const dX=new Set(drop);if(cqLinks)for(const [c,s0] of cqLinks)if(drop.has(s0))dX.add(c);const o=G.DFF.removeAtomics(dff0,dX);dff=o.dff;keep=o.keep;}
     const st=dffTotals(dff);
     if(!changed&&!warn.length)info.push('Hech narsa o‘zgarmadi — fayl asl holicha qaytadi.');
-    const r={kind:'edit',src:it.file,name:it.model.name,dff,txd,txdName,txdChanged:!!liv||LGs.items.length>0||lcApplied||cqTex||whTex,wheel:wheelRep,anim:animMeta,logos:LGs.items.length,liv:liv?{tex:L.tex,stats:liv.stats}:null,doors:E.doorsDone,limo:limo&&limo.stats?limo.stats:null,
+    const r={kind:'edit',src:it.file,name:it.model.name,dff,txd,txdName,txdChanged:!!liv||LGs.items.length>0||lcApplied||cqTex||whTex||vtTex.length>0,vinyl:VIN.list.length,texts:TXI.list.length,wheel:wheelRep,anim:animMeta,logos:LGs.items.length,liv:liv?{tex:L.tex,stats:liv.stats}:null,doors:E.doorsDone,limo:limo&&limo.stats?limo.stats:null,
       model:G.modelFromDff(dff,it.model.name+'.dff',{doorAngle:E.angle}),report:{stats:{geoms:st.geoms,tris:st.tris,verts:st.verts,frames:st.frames,textures:0},info,warnings:warn},changed,edits:doorRep};
     r.gwFront=gwF;r.cqLink=cqLinks;r.cqPlat=cqPlat;
     if(drop.size){r.dff0=dff0;r.stats0={geoms:stats0.geoms,tris:stats0.tris,verts:stats0.verts};r.removedOrig=drop;r.removedInfo=removedInfo;r.cur2orig=keep;}
@@ -7778,6 +7824,8 @@ async function editPipeline(why){
     if(why==='lamps')toast(S.strobe.splitOn||(S.lampfix&&S.lampfix.on)?'Tayyor! Chiroqlar tuzatildi — yangi DFF ni ham yuklab o‘rnating':'Chiroqlar asl holiga qaytdi');
     if(why==='anim')toast(S.anim.on?(animMeta?'Tayyor! Dvornik va oynalar ajratildi — 3D da tekshirib, ZIP ni yuklab oling':'Dvornik/oynalar: hech narsa qo‘llanmadi'):'Dvornik va oynalar asl holiga qaytdi');
     if(why==='neon')toast(S.neon.strip.on?'Tayyor! LED tasma qo‘shildi — yangi DFF ni yuklab o‘rnating':'LED tasma olib tashlandi');
+    if(why==='vinyl')toast(S.vinyl.items.length?'Tayyor! Vinil qo‘yildi — 3D da aylantirib ko‘ring':'Vinil olib tashlandi');
+    if(why==='text')toast(S.text.items.length?'Tayyor! Matn qo‘yildi — 3D da ko‘ring':'Matn olib tashlandi');
     if(why==='logo')toast(LGs.items.length?'Tayyor! Logo qo‘yildi — sichqoncha bilan aylantirib ko‘ring':'Logo olib tashlandi');
   }catch(e){console.error(e);log('SA tahrir xatosi: '+e.message,'e');toast('Xato: '+e.message);}
   setBusy(false);
@@ -7880,6 +7928,8 @@ function paneEdit(p){
   paneStrobe(p,it);
   paneLivery(p,it);
   paneLogo(p,it);
+  paneVinyl(p,it);
+  paneText(p,it);
   paneWheel(p,it);
   paneLampCol(p,it);   // o'z fayl tanlagichi bor -- rasm/logo tanlagichlaridan keyin turadi
   paneLampFix(p,it);
@@ -7952,7 +8002,7 @@ function logoTex(lg){const k=lg.ver+'|'+S.logo.size;if(lg.texCache&&lg.texCache.
   const t=G.makeTxdTexture(lg.tex,lg.proc.rgba,lg.proc.w,lg.proc.h,{maxSize:S.logo.size,compress:'auto',mips:true});lg.texCache={k,t};return t;}
 function logoAspect(lg){return lg.img.h/lg.img.w;}
 let logoT=0;function logoPreviewSoon(){clearTimeout(logoT);logoT=setTimeout(()=>editPipeline('preview'),220);}
-function logoPlacesFor(it){const names=(it.model.frames||[]).map(f=>f.name||'');return Object.entries(G.DFF.LOGO_PLACES).filter(([k,P])=>!P.re||names.some(n=>P.re.test(n)));} // kapot/tom/bagaj -- har doim (geometriyadan topiladi), eshik -- qismi bo'lsa
+function logoPlacesFor(it){const names=(it.model.frames||[]).map(f=>f.name||'');return Object.entries(G.DFF.LOGO_PLACES).filter(([k,P])=>!P.vinyl&&(!P.re||names.some(n=>P.re.test(n))));} // kapot/tom/bagaj -- har doim (geometriyadan topiladi), eshik -- qismi bo'lsa
 async function logoAdd(file){
   try{
     const bmp=await createImageBitmap(file);const k=Math.min(1,1024/Math.max(bmp.width,bmp.height)),w=Math.max(1,Math.round(bmp.width*k)),h=Math.max(1,Math.round(bmp.height*k));
@@ -8772,6 +8822,293 @@ function paneWheel(p,it){
   c.appendChild(br);
   if(done){const R=S.result.wheel;c.appendChild(el('div',{class:'note',id:'whDone',style:'border-left:3px solid #34d399;padding-left:10px',html:'✓ Almashtirildi: '+R.tris.toLocaleString()+' poligon, diametri '+R.newDiam.toFixed(2)+' m, kengligi '+R.newWidth.toFixed(2)+' m'+'. Endi DFF'+(R.txd?' va TXD':'')+' ni yuklab oling (pastda).'}));}
 }
+
+/* ---------- VINIL USLUBLARI: protsedura bilan chiziladigan stiker teksturalari (canvas 2D) ----------
+ * Chizish fizik birliklarda (metr): x -- 0 (mashina OLDI) dan Wm (orqa) gacha, y -- 0 (yuqori) dan Hm (past) gacha.
+ * Canvas o'lchami 2 darajasi (tekstura), transform x va y ni alohida masshtablaydi -- mashinaga UV bilan qaytib cho'zilganda shakllar to'g'ri chiqadi. */
+const VS_STYLES=[
+  // yon tomon
+  {id:'swoosh',lbl:'Svush — kuzov bo‘ylab oqim',where:'side',cols:['#141414','#6b6f76','#d9d9d9'],n:3,len:0.92,hgt:0.95},
+  {id:'checker',lbl:'Shashka bayroq (finish)',where:'side',cols:['#ffffff','',''],n:2,len:0.7,hgt:0.95,off:0.15},
+  {id:'flames',lbl:'Olov (alanga)',where:'side',cols:['#ffe14a','#ff7a00','#d10f0f'],n:3,len:0.62,hgt:0.9,off:-0.19},
+  {id:'stripes',lbl:'Poyga chiziqlari',where:'side',cols:['#111111','#e0e0e0',''],n:2,len:0.95,hgt:0.6,voff:0.15},
+  {id:'speed',lbl:'Tezlik chiziqlari',where:'side',cols:['#ffffff','#2ec5ff',''],n:2,len:0.85,hgt:0.8},
+  {id:'tribal',lbl:'Tribal — o‘tkir tig‘lar',where:'side',cols:['#101010','#ffffff',''],n:2,len:0.8,hgt:0.9},
+  {id:'claw',lbl:'Tirnoq izi (yirtilgan)',where:'side',cols:['#121212','#7a1010',''],n:2,len:0.45,hgt:0.9,off:0.2},
+  {id:'splash',lbl:'Bo‘yoq sachrashi',where:'side',cols:['#ff2bb4','#29d3ff',''],n:2,len:0.6,hgt:0.95,off:0.1},
+  {id:'pixels',lbl:'Piksel tarqalishi',where:'side',cols:['#111111','#00e676',''],n:2,len:0.75,hgt:0.95,off:0.12},
+  // kapot - tom - bagaj
+  {id:'rally',lbl:'Ikki chiziq (kapot–tom–bagaj)',where:'top',cols:['#ffffff','#111111',''],n:2,len:1,hgt:0.42},
+  {id:'center',lbl:'Bitta keng chiziq',where:'top',cols:['#111111','#ff3b30',''],n:2,len:1,hgt:0.42},
+  {id:'topcheck',lbl:'Shashka chiziq (tepadan)',where:'top',cols:['#ffffff','#111111',''],n:2,len:1,hgt:0.32}
+];
+const VS_BY=Object.fromEntries(VS_STYLES.map(s=>[s.id,s]));
+function vsRng(seed){let a=(seed*2654435761)>>>0||1;return()=>{a^=a<<13;a>>>=0;a^=a>>17;a^=a<<5;a>>>=0;return a/4294967296;};}
+const vsP2=v=>{let p=1;while(p<v)p*=2;return(p-v)>(v-p/2)&&p>2?p/2:p;};
+/* kubik Bezier nuqtasi va hosilasi */
+function vsBez(P,t){const u=1-t;return[u*u*u*P[0][0]+3*u*u*t*P[1][0]+3*u*t*t*P[2][0]+t*t*t*P[3][0],u*u*u*P[0][1]+3*u*u*t*P[1][1]+3*u*t*t*P[2][1]+t*t*t*P[3][1]];}
+function vsBezD(P,t){const u=1-t;return[3*u*u*(P[1][0]-P[0][0])+6*u*t*(P[2][0]-P[1][0])+3*t*t*(P[3][0]-P[2][0]),3*u*u*(P[1][1]-P[0][1])+6*u*t*(P[2][1]-P[1][1])+3*t*t*(P[3][1]-P[2][1])];}
+/* egri chiziq bo'ylab qalinligi o'zgaruvchi lenta (uchlari ingichka) */
+function vsBand(c,P,th,s0,s1,col,off){const L=[],R=[],N=120;off=off||0;
+  for(let i=0;i<=N;i++){const s=s0+(s1-s0)*i/N,p=vsBez(P,s),d=vsBezD(P,s),l=Math.hypot(d[0],d[1])||1,nx=-d[1]/l,ny=d[0]/l,w=th(i/N)/2;
+    L.push([p[0]+nx*(off+w),p[1]+ny*(off+w)]);R.push([p[0]+nx*(off-w),p[1]+ny*(off-w)]);}
+  c.beginPath();c.moveTo(L[0][0],L[0][1]);for(const q of L)c.lineTo(q[0],q[1]);for(let i=R.length-1;i>=0;i--)c.lineTo(R[i][0],R[i][1]);c.closePath();c.fillStyle=col;c.fill();}
+const vsTaper=(mx,a,b)=>t=>mx*Math.pow(Math.max(0,Math.sin(Math.PI*Math.min(1,Math.max(0,t)))),a||0.6)*(b?1-0.55*t:1);
+const VS_DRAW={
+  swoosh(c,W,H,C,r){const P=[[0.02*W,0.3*H],[0.3*W,0.02*H],[0.28*W,1.05*H],[0.98*W,0.48*H]];
+    if(C[2])vsBand(c,P,vsTaper(0.05*H,0.8),0.1,0.97,C[2],-0.24*H);
+    vsBand(c,P,vsTaper(0.3*H,0.5,true),0,1,C[0]);
+    if(C[1])vsBand(c,P,vsTaper(0.12*H,0.65,true),0.06,1,C[1],0.27*H);
+    const P2=[[0.1*W,0.85*H],[0.38*W,0.6*H],[0.52*W,1.02*H],[0.93*W,0.8*H]];vsBand(c,P2,vsTaper(0.09*H,0.65,true),0,1,C[1]||C[0]);
+    const P3=[[0.2*W,0.98*H],[0.45*W,0.86*H],[0.6*W,1.0*H],[0.86*W,0.93*H]];vsBand(c,P3,vsTaper(0.04*H,0.7),0,1,C[0]);},
+  checker(c,W,H,C,r){const q=Math.min(0.13,0.2*H),cols=Math.ceil(W/q)+1,rows=Math.ceil(H/q)+2,x0=0.0;
+    for(let i=0;i<cols;i++)for(let j=-1;j<rows;j++){const x=W-(i+0.5)*q,f=Math.min(1,Math.max(0,(x-x0)/(0.55*W)));if(f<=0.02)continue;
+      if(r()>Math.pow(f,0.6)*1.15)continue;   // oldi tomon -- tarqalib ketadi
+      const wav=Math.sin(x/W*Math.PI*2.2)*0.09*H,y=(j+0.5)*q+wav,sl=Math.cos(x/W*Math.PI*2.2)*0.09*H*Math.PI*2.2/W,ang=Math.atan(sl),s=q*(0.35+0.65*f)*(f<0.6?0.8+0.2*r():1);
+      const col=(i+j)%2===0?C[0]:C[1];if(!col)continue;c.save();c.translate(x,y);c.rotate(ang+(f<0.5?(r()-0.5)*0.6*(1-f):0));c.fillStyle=col;c.fillRect(-s/2,-s/2,s,s);c.restore();}},
+  flames(c,W,H,C,r){   // hot-rod alangalari: old tomondagi yaxlit "manba" dan orqaga egilib, uchi qayrilgan tillar
+    const T=[];const n=7;for(let k=0;k<n;k++){const y=(0.16+0.7*k/(n-1))*H+(r()-0.5)*0.05*H;T.push({y,len:(0.38+0.52*r())*W,amp:(0.07+0.1*r())*H,f:0.9+0.9*r(),ph:r()*6,w0:(0.09+0.05*r())*H,curl:r()<0.5?-1:1});}
+    T.sort((a,b)=>b.len-a.len);
+    for(const t of T){const top=[],bot=[],N=90;
+      for(let i=0;i<=N;i++){const s=i/N,x=s*t.len,ctr=t.y+Math.sin(s*Math.PI*t.f+t.ph)*t.amp*Math.pow(s,0.8)+t.curl*Math.pow(Math.max(0,s-0.75)/0.25,2)*0.12*H,
+        w=t.w0*Math.pow(1-s,0.75)*(1+0.3*Math.sin(s*Math.PI*3+t.ph));top.push([x,ctr-w]);bot.push([x,ctr+w]);}
+      const g=c.createLinearGradient(0,0,t.len,0);g.addColorStop(0,C[0]);g.addColorStop(0.42,C[1]||C[0]);g.addColorStop(1,C[2]||C[1]||C[0]);
+      c.beginPath();c.moveTo(0,top[0][1]);for(const q of top)c.lineTo(q[0],q[1]);for(let i=bot.length-1;i>=0;i--)c.lineTo(bot[i][0],bot[i][1]);c.closePath();
+      c.fillStyle=g;c.fill();c.lineJoin='round';c.lineWidth=0.014;c.strokeStyle='rgba(25,8,0,0.95)';c.stroke();}
+    const g0=c.createLinearGradient(0,0,0.12*W,0);g0.addColorStop(0,C[0]);g0.addColorStop(1,C[1]||C[0]);   // manba (old qism)
+    c.beginPath();c.moveTo(0,0.1*H);c.quadraticCurveTo(0.1*W,0.2*H,0.07*W,0.5*H);c.quadraticCurveTo(0.1*W,0.82*H,0,0.95*H);c.closePath();c.fillStyle=g0;c.fill();},
+  stripes(c,W,H,C,r){const sk=0.25*H,band=(y0,h,col)=>{if(!col)return;c.beginPath();c.moveTo(0.02*W+sk,y0);c.lineTo(0.985*W,y0);c.lineTo(0.985*W,y0+h);c.lineTo(0.02*W,y0+h);c.closePath();c.fillStyle=col;c.fill();};
+    band(0.18*H,0.42*H,C[0]);band(0.7*H,0.14*H,C[1]);},
+  speed(c,W,H,C,r){for(let k=0;k<14;k++){const y=(0.08+0.84*r())*H,len=(0.25+0.6*r())*W,x0=(0.02+0.3*r())*W,t=(0.012+0.03*r());
+      const col=k%3===2&&C[1]?C[1]:C[0],g=c.createLinearGradient(x0,0,x0+len,0);g.addColorStop(0,col);g.addColorStop(1,'rgba(0,0,0,0)');
+      c.beginPath();c.moveTo(x0,y-t/2);c.lineTo(x0+len,y-t*0.1);c.lineTo(x0+len,y+t*0.1);c.lineTo(x0,y+t/2);c.closePath();c.fillStyle=g;c.fill();}},
+  tribal(c,W,H,C,r){const sp=[[0.03*W,0.6*H],[0.32*W,0.3*H],[0.62*W,0.78*H],[0.97*W,0.42*H]];
+    const blade=(p,d,len,wid,up,col)=>{const nx=-d[1]*up,ny=d[0]*up,b0=[p[0]-d[0]*wid,p[1]-d[1]*wid],b1=[p[0]+d[0]*wid,p[1]+d[1]*wid],
+        tip=[p[0]+d[0]*len*0.85+nx*len,p[1]+d[1]*len*0.85+ny*len];
+      c.beginPath();c.moveTo(b0[0],b0[1]);
+      c.bezierCurveTo(p[0]-d[0]*wid*0.3+nx*len*0.55,p[1]-d[1]*wid*0.3+ny*len*0.55,tip[0]-d[0]*len*0.45,tip[1]-d[1]*len*0.45,tip[0],tip[1]);
+      c.bezierCurveTo(tip[0]-d[0]*len*0.05-nx*len*0.25,tip[1]-d[1]*len*0.05-ny*len*0.25,p[0]+d[0]*wid*1.6+nx*len*0.25,p[1]+d[1]*wid*1.6+ny*len*0.25,b1[0],b1[1]);
+      c.closePath();c.fillStyle=col;c.fill();};
+    const draw=(col,g)=>{vsBand(c,sp,vsTaper(0.17*H*g,0.45,true),0,1,col);
+      for(let k=1;k<9;k++){const s=k/9.2,p=vsBez(sp,s),d0=vsBezD(sp,s),l=Math.hypot(d0[0],d0[1])||1,d=[d0[0]/l,d0[1]/l],sz=(0.48-0.3*s)*H*g;
+        blade(p,d,sz,0.075*H*g*(1-0.45*s),k%2?1:-1,col);}
+      const p0=vsBez(sp,0.02),d1=vsBezD(sp,0.02),l1=Math.hypot(d1[0],d1[1])||1;blade(p0,[-d1[0]/l1,-d1[1]/l1],0.3*H*g,0.06*H*g,1,col);};
+    if(C[1])draw(C[1],1.12);draw(C[0],1);},
+  claw(c,W,H,C,r){for(let k=0;k<3;k++){const x0=(0.18+k*0.22)*W,y0=0.1*H,x1=x0+0.28*W,y1=0.92*H,N=40,L=[],R=[];
+      for(let i=0;i<=N;i++){const s=i/N,x=x0+(x1-x0)*s,y=y0+(y1-y0)*s,w=0.07*H*Math.pow(Math.sin(Math.PI*s),0.7)*(0.75+0.5*r()),j=(r()-0.5)*0.025*H;
+        const dx=x1-x0,dy=y1-y0,l=Math.hypot(dx,dy),nx=-dy/l,ny=dx/l;L.push([x+nx*(w+j),y+ny*(w+j)]);R.push([x-nx*(w-j),y-ny*(w-j)]);}
+      const poly=(A,B,sc,col)=>{c.beginPath();A.forEach((q,i)=>{const m=[(A[i][0]+B[i][0])/2,(A[i][1]+B[i][1])/2],p2=[m[0]+(q[0]-m[0])*sc,m[1]+(q[1]-m[1])*sc];i?c.lineTo(p2[0],p2[1]):c.moveTo(p2[0],p2[1]);});
+        for(let i=B.length-1;i>=0;i--){const m=[(A[i][0]+B[i][0])/2,(A[i][1]+B[i][1])/2],q=B[i];c.lineTo(m[0]+(q[0]-m[0])*sc,m[1]+(q[1]-m[1])*sc);}c.closePath();c.fillStyle=col;c.fill();};
+      poly(L,R,1,C[0]);if(C[1])poly(L,R,0.45,C[1]);}},
+  splash(c,W,H,C,r){const blob=(cx,cy,rad,col,n)=>{c.beginPath();const K=48;for(let i=0;i<=K;i++){const a=i/K*Math.PI*2,rr=rad*(0.75+0.35*Math.sin(a*5+cx)*Math.cos(a*3)+0.15*r());const x=cx+Math.cos(a)*rr*1.25,y=cy+Math.sin(a)*rr;i?c.lineTo(x,y):c.moveTo(x,y);}c.closePath();c.fillStyle=col;c.fill();
+      for(let k=0;k<n;k++){const a=r()*Math.PI*2,d=rad*(1.1+r()*2.4),s=rad*(0.05+0.16*r())*(1-d/(rad*4));if(s<=0)continue;const x=cx+Math.cos(a)*d*1.5,y=cy+Math.sin(a)*d;c.beginPath();c.ellipse(x,y,s*1.4,s,a,0,Math.PI*2);c.fill();
+        if(r()<0.4){c.lineWidth=s*0.6;c.strokeStyle=col;c.beginPath();c.moveTo(cx+Math.cos(a)*rad*1.1,cy+Math.sin(a)*rad*0.8);c.lineTo(x,y);c.stroke();}}};
+    blob(0.55*W,0.5*H,0.3*H,C[0],36);if(C[1])blob(0.3*W,0.62*H,0.17*H,C[1],22);},
+  pixels(c,W,H,C,r){const q=Math.min(0.09,0.14*H);for(let x=W-q/2;x>0;x-=q)for(let y=q/2;y<H;y+=q){const f=x/W;if(r()>Math.pow(f,1.4)*1.1)continue;
+      const s=q*(f>0.7?0.92:0.35+0.55*r());c.fillStyle=r()<0.7||!C[1]?C[0]:C[1];c.fillRect(x-s/2+(f<0.7?(r()-0.5)*q*0.5:0),y-s/2,s,s);}},
+  rally(c,W,H,C,r){const sw=Math.min(0.22,0.3*H),gap=sw*0.45,pin=Math.max(0.012,sw*0.09),yc=H/2;
+    for(const sg of [-1,1]){const y0=yc+sg*(gap/2)+(sg<0?-sw:0);if(C[1]){c.fillStyle=C[1];c.fillRect(0,y0-pin*2.2,W,sw+pin*4.4);}c.fillStyle=C[0];c.fillRect(0,y0,W,sw);}},
+  center(c,W,H,C,r){const sw=Math.min(0.45,0.7*H),pin=Math.max(0.015,sw*0.06),yc=H/2;c.fillStyle=C[0];c.fillRect(0,yc-sw/2,W,sw);
+    if(C[1]){c.fillStyle=C[1];c.fillRect(0,yc-sw/2-pin*3,W,pin);c.fillRect(0,yc+sw/2+pin*2,W,pin);}},
+  topcheck(c,W,H,C,r){const q=Math.min(0.11,H/3),rows=Math.max(2,Math.floor(H/q)),y0=(H-rows*q)/2;
+    for(let i=0;i*q<W;i++)for(let j=0;j<rows;j++){const col=(i+j)%2?C[1]:C[0];if(!col)continue;c.fillStyle=col;c.fillRect(i*q,y0+j*q,q+0.0005,q+0.0005);}}
+};
+/* uslub teksturasini chizish: {rgba,w,h}. o: {style,cols,seed,Wm,Hm,flip,max,img(custom: {rgba,w,h}),fit} */
+function vinylRender(o){
+  const Wm=Math.max(0.1,o.Wm),Hm=Math.max(0.05,o.Hm),TW=o.max||2048,TH=Math.max(64,Math.min(TW,vsP2(TW*Hm/Wm)));
+  const cv=document.createElement('canvas');cv.width=TW;cv.height=TH;const c=cv.getContext('2d',{willReadFrequently:true});
+  c.clearRect(0,0,TW,TH);c.save();
+  if(o.style==='image'&&o.img){   // o'z rasmingiz: proporsiya saqlanadi (fizik o'lchamda), markazda
+    const ic=document.createElement('canvas');ic.width=o.img.w;ic.height=o.img.h;const ix=ic.getContext('2d');const id=ix.createImageData(o.img.w,o.img.h);id.data.set(o.img.rgba);ix.putImageData(id,0,0);
+    const ar=o.img.h/o.img.w,wm=Math.min(Wm,Hm/ar),hm=wm*ar;c.setTransform((o.flip?-1:1)*TW/Wm,0,0,TH/Hm,o.flip?TW:0,0);c.imageSmoothingQuality='high';c.drawImage(ic,(Wm-wm)/2,(Hm-hm)/2,wm,hm);}
+  else{c.setTransform((o.flip?-1:1)*TW/Wm,0,0,TH/Hm,o.flip?TW:0,0);const f=VS_DRAW[o.style];if(f)f(c,Wm,Hm,o.cols,vsRng(o.seed||1));}
+  c.restore();
+  const d=c.getImageData(0,0,TW,TH);return{rgba:new Uint8Array(d.data.buffer.slice(0)),w:TW,h:TH};
+}
+/* galereya uchun kichik rasm (fonda mashina rangiga o'xshash) */
+function vinylThumb(st,cols,w,h,bg){const cv=document.createElement('canvas');cv.width=w;cv.height=h;const c=cv.getContext('2d');c.fillStyle=bg||'#7d8590';c.fillRect(0,0,w,h);
+  const Wm=st.where==='top'?4.6:4.6,Hm=st.where==='top'?1.0:0.75;c.save();c.setTransform(w/Wm,0,0,h/Hm,0,0);try{VS_DRAW[st.id](c,Wm,Hm,cols,vsRng(7));}catch(e){}c.restore();return cv.toDataURL('image/png');}
+/* ---------- MATN (yozuv) ---------- */
+const TX_FONTS=[['Impact','Impact (qalin, sport)'],['Arial Black','Arial Black'],['Arial','Arial'],['Verdana','Verdana'],['Trebuchet MS','Trebuchet'],['Georgia','Georgia (serif)'],['Times New Roman','Times'],['Courier New','Courier (mashinka)'],['Comic Sans MS','Comic Sans'],['Brush Script MT','Brush Script (qo‘lyozma)'],['Segoe Script','Segoe Script'],['fantasy','Fantasy']];
+const TX_FX=[['outline','Konturli (tavsiya)'],['plain','Oddiy'],['shadow','Soyali'],['grad','Gradient (2 rang)'],['neon','Neon (nur)']];
+function textRender(t){
+  const lines=String(t.text||'').replace(/\r/g,'').split('\n').map(s=>s.trimEnd()).filter((s,i,a)=>s||a.length===1);if(!lines.length||!lines.join('').trim())return null;
+  const fs=160,font=(t.italic?'italic ':'')+(t.bold?'bold ':'')+fs+'px "'+(t.font||'Impact')+'", '+(/script|brush/i.test(t.font||'')?'cursive':'sans-serif');
+  const m=document.createElement('canvas').getContext('2d');m.font=font;const sp=+t.spacing||0;
+  const lw=lines.map(s=>{let w=m.measureText(s).width;if(sp)w+=sp*fs*0.01*Math.max(0,[...s].length-1);return w;}),Wt=Math.max(...lw,1);
+  const ow=t.fx==='outline'?Math.max(2,(+t.ow||8)*fs/100):0,pad=Math.ceil(ow+(t.fx==='neon'?fs*0.35:t.fx==='shadow'?fs*0.12:fs*0.06))+4,lh=fs*1.12;
+  const W=Math.ceil(Wt+pad*2),H=Math.ceil(lines.length*lh+pad*2);const k=Math.min(1,2048/W,1024/H);
+  const cv=document.createElement('canvas');cv.width=Math.max(8,Math.round(W*k));cv.height=Math.max(8,Math.round(H*k));const c=cv.getContext('2d',{willReadFrequently:true});
+  c.scale(k,k);c.font=font;c.textBaseline='middle';c.lineJoin='round';c.miterLimit=2;
+  const drawL=(fn)=>lines.forEach((s,i)=>{const y=pad+lh*(i+0.5),x0=pad+(Wt-lw[i])/2;if(!sp){fn(s,x0,y);return;}let x=x0;for(const ch of s){fn(ch,x,y);x+=m.measureText(ch).width+sp*fs*0.01;}});
+  const col=t.color||'#ffffff',c2=t.color2||'#ff3b30',oc=t.outline||'#000000';
+  if(t.fx==='shadow'){c.fillStyle='rgba(0,0,0,0.75)';drawL((s,x,y)=>c.fillText(s,x+fs*0.06,y+fs*0.06));}
+  if(t.fx==='neon'){c.shadowColor=col;c.shadowBlur=fs*0.3;c.fillStyle=col;drawL((s,x,y)=>c.fillText(s,x,y));drawL((s,x,y)=>c.fillText(s,x,y));c.shadowBlur=0;c.fillStyle='#ffffff';c.globalAlpha=0.85;drawL((s,x,y)=>c.fillText(s,x,y));c.globalAlpha=1;}
+  else{
+    if(ow){c.strokeStyle=oc;c.lineWidth=ow*2;drawL((s,x,y)=>c.strokeText(s,x,y));}
+    if(t.fx==='grad'){const g=c.createLinearGradient(0,pad,0,H-pad);g.addColorStop(0,col);g.addColorStop(1,c2);c.fillStyle=g;}else c.fillStyle=col;
+    drawL((s,x,y)=>c.fillText(s,x,y));}
+  const d=c.getImageData(0,0,cv.width,cv.height);return{rgba:new Uint8Array(d.data.buffer.slice(0)),w:cv.width,h:cv.height,thumb:(()=>{const tc=document.createElement('canvas'),s=Math.min(1,120/cv.width,48/cv.height);tc.width=Math.max(1,Math.round(cv.width*s));tc.height=Math.max(1,Math.round(cv.height*s));const x=tc.getContext('2d');x.fillStyle='#596273';x.fillRect(0,0,tc.width,tc.height);x.drawImage(cv,0,0,tc.width,tc.height);return tc.toDataURL('image/png');})()};
+}
+
+/* ---------- SA tahrir: VINIL USLUBLARI (yon tomon / kapot-tom chiziqlari) va MATN (yozuv) ----------
+ * Ikkalasi ham logo tizimining decal ini ishlatadi (lgDecal): faqat tashqi yuzaga yopishadi, har bo'lak o'z qismiga (eshik, bamper, kapot ...)
+ * biriktiriladi -- eshik ochilsa birga harakatlanadi, _dam juftiga ham qo'yiladi. Vinil -- logolardan OLDIN (logo va matn vinil ustida turadi). */
+S.vinyl={items:[],sel:-1,uid:0,size:2048};
+S.text={items:[],sel:-1,uid:0,size:1024};
+const VS_SIDES=[['both','Ikkala yon tomonga'],['left','Faqat chap yonga'],['right','Faqat o‘ng yonga']];
+let vsT=0;function vinylSoon(){clearTimeout(vsT);vsT=setTimeout(()=>editPipeline('preview').then(()=>renderPane()),260);}
+/* tekstura (keshlanadi): item + joy o'lchami (metr) */
+function vinylTexOf(v,R){
+  const st=VS_BY[v.style]||{n:1},Wm=R.W*v.len,Hm=R.H*v.hgt,cols=v.cols.slice(0,st.n||3).map((c,i)=>c||(i===0?'#ffffff':''));
+  const k=[v.style,cols.join(','),v.seed,Wm.toFixed(2),Hm.toFixed(2),v.flip?1:0,S.vinyl.size,v.imgVer||0].join('|');
+  if(v._tex&&v._tex.k===k)return v._tex;
+  const r=vinylRender({style:v.style,cols,seed:v.seed,Wm,Hm,flip:v.flip,max:S.vinyl.size,img:v.style==='image'?v.proc:null});
+  const t=G.makeTxdTexture(v.tex,r.rgba,r.w,r.h,{maxSize:S.vinyl.size,compress:'auto',mips:true});
+  G.poolAdd({name:v.tex,w:r.w,h:r.h,rgba:r.rgba,src:null,fmtName:'Vinil',levels:1,origin:'vinyl:'+v.tex});if(viewer&&viewer.ok)viewer.invalidateTextures();
+  const tc=document.createElement('canvas'),s=Math.min(1,120/r.w,40/r.h);tc.width=Math.max(1,Math.round(r.w*s));tc.height=Math.max(1,Math.round(r.h*s));
+  {const big=document.createElement('canvas');big.width=r.w;big.height=r.h;const bx=big.getContext('2d'),id=bx.createImageData(r.w,r.h);id.data.set(r.rgba);bx.putImageData(id,0,0);
+    const x=tc.getContext('2d');x.fillStyle='#7d8590';x.fillRect(0,0,tc.width,tc.height);x.drawImage(big,0,0,tc.width,tc.height);}
+  v._tex={k,t,w:r.w,h:r.h,thumb:tc.toDataURL('image/png')};return v._tex;
+}
+/* quvur (editPipeline): joriy DFF uchun decal ro'yxati va teksturalar */
+function vinylDecals(dff){
+  const M=S.vinyl,out={list:[],texs:[],glow:[],names:[],warn:[]};if(!M.items.length)return out;
+  let R={};try{R=G.DFF.vinylRegions(dff);}catch(e){out.warn.push('Vinil: mashina yuzasini o‘lchab bo‘lmadi — '+e.message);return out;}
+  M.items.forEach((v,i)=>{const st=VS_BY[v.style],top=st?st.where==='top':v.side==='top',RG=top?R.top:R.side;
+    const nm=(i+1)+'-vinil «'+(st?st.lbl:'o‘z rasmingiz'+(v.imgName?' — '+v.imgName:''))+'»';
+    if(!RG){out.warn.push(nm+': '+(top?'kapot / tom':'yon')+' yuzasi topilmadi');return;}
+    let T;try{T=vinylTexOf(v,RG);}catch(e){out.warn.push(nm+': tekstura chizilmadi — '+e.message);return;}
+    out.texs.push({name:v.tex,t:T.t});if(v.glow)out.glow.push(v.tex);
+    const base={tex:v.tex,w:v.len,h:v.hgt,offX:v.off||0,offY:v.voff||0};
+    if(top){out.list.push(Object.assign({place:'top_s'},base));out.names.push(nm);return;}
+    const mir=v.style==='image'?!!v.mirror:true;
+    if(v.side!=='right'){out.list.push(Object.assign({place:'side_l',mirror:mir},base));out.names.push(nm+' (chap yon)');}
+    if(v.side!=='left'){out.list.push(Object.assign({place:'side_r',mirror:mir},base));out.names.push(nm+' (o‘ng yon)');}});
+  return out;
+}
+function vinylAdd(id){const M=S.vinyl,st=VS_BY[id];if(!st)return;const n=++M.uid;
+  M.items.push({id:n,tex:'itvin'+n,style:id,cols:st.cols.slice(),side:st.where==='top'?'top':'both',len:st.len,hgt:st.hgt,off:st.off||0,voff:st.voff||0,flip:false,seed:n*7+3,glow:false});
+  M.sel=M.items.length-1;editPipeline('vinyl').then(()=>renderPane());}
+async function vinylAddImage(file){
+  try{const bmp=await createImageBitmap(file),k=Math.min(1,1600/Math.max(bmp.width,bmp.height)),w=Math.max(1,Math.round(bmp.width*k)),h=Math.max(1,Math.round(bmp.height*k));
+    const cv=document.createElement('canvas');cv.width=w;cv.height=h;const cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(bmp,0,0,w,h);const id=cx.getImageData(0,0,w,h);
+    let hasA=false;for(let i=3;i<id.data.length;i+=16)if(id.data[i]<200){hasA=true;break;}
+    const M=S.vinyl,n=++M.uid,v={id:n,tex:'itvin'+n,style:'image',cols:[],side:'both',len:0.6,hgt:0.9,off:0,voff:0,flip:false,seed:1,glow:false,mirror:false,imgName:file.name,
+      raw:{name:file.name,w,h,rgba:new Uint8Array(id.data.buffer.slice(0))},key:hasA?'none':'auto',keyT:30,imgVer:1};
+    vinylProc(v);M.items.push(v);M.sel=M.items.length-1;log('Vinil: '+file.name+' ('+bmp.width+'×'+bmp.height+')','o');await editPipeline('vinyl');renderPane();}
+  catch(e){toast('Rasmni o‘qib bo‘lmadi: '+e.message);}
+}
+function vinylProc(v){const tmp={img:v.raw,key:v.key,keyT:v.keyT,tex:'itvintmp'};logoProcess(tmp);v.proc=tmp.proc;v.imgVer=(v.imgVer||0)+1;}
+/* ---- UI: vinil ---- */
+function paneVinyl(p,it){
+  const M=S.vinyl;
+  p.appendChild(el('h3',{text:'🏁 Vinil uslublari — yon tomon va kapot–tom chiziqlari'}));
+  const c=el('div',{class:'card'});p.appendChild(c);
+  c.appendChild(el('div',{class:'note',html:'Tayyor uslubni bosing — u mashinaning <b>butun yoniga</b> (old bamperdan orqagacha, ostonadan oynalar ostigacha) yoki <b>kapot–tom–bagaj</b> bo‘ylab yopishtiriladi. '+
+    'Eshik, bamper, kapot — har biriga o‘z bo‘lagi (eshik ochilsa birga harakatlanadi), oyna va chiroqlarga tushmaydi. Ranglar, uzunligi, balandligi va joyi sozlanadi. O‘z rasmingizni ham shu tarzda yon tomonga qo‘yish mumkin. Barcha mashinada — joy mashina shaklidan topiladi.'}));
+  const gal=el('div',{id:'vsGal',style:'display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:6px 0'});
+  for(const st of VS_STYLES){if(!st._th)st._th=vinylThumb(st,st.cols,150,st.where==='top'?36:30);
+    gal.appendChild(el('button',{type:'button',class:'btn',id:'vs_'+st.id,title:st.lbl,style:'display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:5px',onclick:()=>vinylAdd(st.id)},[el('img',{src:st._th,style:'width:100%;border-radius:4px'}),el('span',{style:'font-size:11px;line-height:1.2',text:st.lbl})]));}
+  c.appendChild(gal);
+  const fi=el('input',{type:'file',id:'vsImg',accept:'image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp',style:'display:none'});
+  fi.addEventListener('change',()=>{const f=fi.files&&fi.files[0];fi.value='';if(f)vinylAddImage(f);});c.appendChild(fi);
+  c.appendChild(el('div',{class:'row',style:'flex-wrap:wrap'},[el('button',{class:'btn',type:'button',id:'btnVsImg',onclick:()=>fi.click()},['🖼 O‘z rasmingizni yon tomonga'])]));
+  if(!M.items.length)return;
+  const list=el('div',{class:'lglist',id:'vsList'});
+  M.items.forEach((v,k)=>{const st=VS_BY[v.style];list.appendChild(el('div',{class:'lgc'+(k===M.sel?' on':''),title:st?st.lbl:v.imgName,onclick:()=>{M.sel=k;renderPane();}},[
+    v._tex?el('img',{src:v._tex.thumb}):el('span',{text:'…'}),el('span',{text:(k+1)+'. '+(st?st.lbl.split(' —')[0].split(' (')[0]:'Rasm')}),
+    el('button',{class:'x',type:'button',title:'Nusxa',onclick:e=>{e.stopPropagation();const n=++M.uid;const cp=Object.assign({},v,{id:n,tex:'itvin'+n,cols:v.cols.slice(),_tex:null,seed:v.seed+11});M.items.splice(k+1,0,cp);M.sel=k+1;editPipeline('vinyl').then(()=>renderPane());}},['⧉']),
+    el('button',{class:'x',type:'button',title:'O‘chirish',onclick:e=>{e.stopPropagation();M.items.splice(k,1);M.sel=Math.min(M.sel,M.items.length-1);editPipeline('vinyl').then(()=>renderPane());}},['✕'])]));});
+  c.appendChild(list);
+  const v=M.items[M.sel];if(!v)return;const st=VS_BY[v.style];
+  const row=(label,ctl)=>el('div',{class:'row'},[el('label',{text:label}),ctl]);
+  const rng=(label,key,min,max,step,fmt,id)=>{const r=el('input',{type:'range',id,min,max,step,value:v[key],style:'flex:1'}),o=el('span',{class:'note',style:'min-width:46px;text-align:right',text:fmt(v[key])});
+    r.addEventListener('input',()=>{v[key]=+r.value;o.textContent=fmt(v[key]);vinylSoon();});return el('div',{class:'row'},[el('label',{text:label}),r,o]);};
+  c.appendChild(el('div',{class:'note',style:'margin-top:6px',html:'<b>'+(M.sel+1)+'-vinil:</b> '+esc(st?st.lbl:'O‘z rasmingiz — '+v.imgName)}));
+  if(st){const box=el('div',{style:'display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:1'});
+    for(let i=0;i<st.n;i++){const opt=i>0,cur=v.cols[i]||'',ci=el('input',{type:'color',id:'vsC'+i,value:cur||'#ffffff',style:'width:44px;height:28px;padding:0;border:none;background:none'+(cur?'':';opacity:.35')});
+      ci.addEventListener('input',()=>{v.cols[i]=ci.value;ci.style.opacity=1;vinylSoon();});
+      const parts=[el('span',{class:'note',style:'margin:0',text:(i+1)+'-rang'}),ci];
+      if(opt){const nb=el('input',{type:'checkbox',id:'vsN'+i,checked:!cur,title:'Bu rang ishlatilmasin (shaffof)'});nb.addEventListener('change',()=>{v.cols[i]=nb.checked?'':ci.value;ci.style.opacity=nb.checked?.35:1;vinylSoon();});parts.push(el('label',{class:'note',style:'margin:0;display:flex;gap:3px;align-items:center'},[nb,'yo‘q']));}
+      box.appendChild(el('div',{style:'display:flex;gap:5px;align-items:center'},parts));}
+    c.appendChild(row('Ranglar',box));}
+  else{const kk=el('select',{id:'vsKey'},LOGO_KEYS.map(([a,b])=>el('option',{value:a,text:b,selected:v.key===a})));kk.addEventListener('change',()=>{v.key=kk.value;vinylProc(v);vinylSoon();});c.appendChild(row('Rasm fonini olib tashlash',kk));
+    const mr=el('select',{id:'vsMir'},[['0','Aynan o‘zi (matn o‘qiladi)'],['1','Ko‘zgu aksi (rasm oldga qaraydi)']].map(([a,b])=>el('option',{value:a,text:b,selected:(v.mirror?'1':'0')===a})));mr.addEventListener('change',()=>{v.mirror=mr.value==='1';vinylSoon();});c.appendChild(row('O‘ng tomonda',mr));}
+  if(!st||st.where!=='top'){const sd=el('select',{id:'vsSide'},VS_SIDES.map(([a,b])=>el('option',{value:a,text:b,selected:v.side===a})));sd.addEventListener('change',()=>{v.side=sd.value;vinylSoon();});c.appendChild(row('Qaysi tomonga',sd));}
+  c.appendChild(rng('Uzunligi','len',0.15,1,0.01,x=>Math.round(x*100)+'%','vsLen'));
+  c.appendChild(rng(st&&st.where==='top'?'Eni':'Balandligi','hgt',0.15,1,0.01,x=>Math.round(x*100)+'%','vsHgt'));
+  c.appendChild(rng(st&&st.where==='top'?'Oldga ↔ orqaga':'Oldga ↔ orqaga','off',-0.5,0.5,0.005,x=>(x>0?'+':'')+Math.round(x*100)+'%','vsOff'));
+  c.appendChild(rng(st&&st.where==='top'?'Chapga ↔ o‘ngga':'Pastga ↔ yuqoriga','voff',-0.5,0.5,0.005,x=>(x>0?'+':'')+Math.round(x*100)+'%','vsVoff'));
+  const fl=el('input',{type:'checkbox',id:'vsFlip',checked:!!v.flip});fl.addEventListener('change',()=>{v.flip=fl.checked;vinylSoon();});
+  const gl=el('input',{type:'checkbox',id:'vsGlow',checked:!!v.glow});gl.addEventListener('change',()=>{v.glow=gl.checked;vinylSoon();});
+  c.appendChild(el('div',{class:'row',style:'gap:14px;flex-wrap:wrap'},[el('label',{style:'display:flex;gap:6px;align-items:center;cursor:pointer'},[fl,'Yo‘nalishini teskari (orqadan oldga)']),
+    el('label',{style:'display:flex;gap:6px;align-items:center;cursor:pointer'},[gl,'🌙 Kechasi yonsin («💡 Chiroqlar skripti»)']),
+    st&&['checker','flames','speed','claw','splash','pixels'].includes(v.style)?el('button',{class:'btn sm',type:'button',id:'vsSeed',onclick:()=>{v.seed+=17;vinylSoon();}},['🎲 Boshqa variant']):null]));
+  const ts=el('select',{id:'vsSize'},[['1024','1024'],['2048','2048 (tavsiya, eng aniq)']].map(([a,b])=>el('option',{value:a,text:b,selected:String(M.size)===a})));ts.addEventListener('change',()=>{M.size=+ts.value;vinylSoon();});
+  c.appendChild(row('Tekstura sifati',ts));
+}
+/* ---- MATN ---- */
+let txT=0;function textSoon(t){clearTimeout(txT);txT=setTimeout(()=>{if(t)textProc(t);editPipeline('preview').then(()=>renderPane());},300);}
+function textProc(t){const r=textRender(t);t.proc=r;t._tt=null;if(r){G.poolAdd({name:t.tex,w:r.w,h:r.h,rgba:r.rgba,src:null,fmtName:'Matn',levels:1,origin:'text:'+t.tex});if(viewer&&viewer.ok)viewer.invalidateTextures();}return r;}
+function textTex(t){if(!t.proc)textProc(t);if(!t.proc)return null;if(t._tt)return t._tt;t._tt=G.makeTxdTexture(t.tex,t.proc.rgba,t.proc.w,t.proc.h,{maxSize:S.text.size,compress:'auto',mips:true});return t._tt;}
+const TX_PLACES_EXTRA=[['side_both','Ikkala yon (butun yon)'],['side_l','Chap yon (butun)'],['side_r','O‘ng yon (butun)'],['top_s','Kapot–tom–bagaj (uzun)']];
+function textPlacesFor(it){return(it?logoPlacesFor(it).map(([k,P])=>[k,P.lbl]):[['hood','Kapot']]).concat(TX_PLACES_EXTRA);}
+function textDecals(){const out={list:[],texs:[],glow:[],names:[]};
+  S.text.items.forEach((t,i)=>{const tt=textTex(t);if(!tt)return;out.texs.push({name:t.tex,t:tt});if(t.glow)out.glow.push(t.tex);
+    const b={tex:t.tex,size:t.size,offX:t.offX,offY:t.offY,rot:t.rot,aspect:t.proc.h/t.proc.w,mirror:false},nm=(i+1)+'-matn «'+String(t.text).replace(/\n/g,' ').slice(0,24)+'»';
+    if(t.place==='side_both'){out.list.push(Object.assign({},b,{place:'side_l'}),Object.assign({},b,{place:'side_r'}));out.names.push(nm+' (chap yon)',nm+' (o‘ng yon)');}
+    else{out.list.push(Object.assign({},b,{place:t.place}));out.names.push(nm);}});
+  return out;}
+function textAdd(it){const T=S.text,n=++T.uid,pl=textPlacesFor(it).map(x=>x[0]);
+  const t={id:n,tex:'ittxt'+n,text:'IT SHAKH',font:'Impact',bold:false,italic:false,fx:'outline',color:'#ffffff',color2:'#ff3b30',outline:'#000000',ow:8,spacing:0,
+    place:pl.includes('door_l')?'door_l':pl.includes('side_l')?'side_both':pl[0],size:0.7,offX:0,offY:0,rot:0,glow:false};
+  textProc(t);T.items.push(t);T.sel=T.items.length-1;editPipeline('text').then(()=>renderPane());}
+function paneText(p,it){
+  const T=S.text;
+  p.appendChild(el('h3',{text:'✍ Matn (yozuv) — xohlagan joyga'}));
+  const c=el('div',{class:'card'});p.appendChild(c);
+  c.appendChild(el('div',{class:'note',html:'O‘zingiz yozgan matnni mashinaga yopishtiradi: <b>kapot, tom, bagaj, eshiklar, butun yon</b> yoki kapot–tom–bagaj bo‘ylab. Shrift, rang, kontur, soya, gradient yoki neon uslubi; kattaligi, joyi va burilishi sozlanadi. '+
+    'Bir nechta matn qo‘yish mumkin. Matn vinil ustida turadi.'}));
+  c.appendChild(el('div',{class:'row',style:'flex-wrap:wrap'},[el('button',{class:'btn pri',type:'button',id:'btnTxAdd',onclick:()=>textAdd(it)},[T.items.length?'➕ Yana matn qo‘shish':'✍ MATN QO‘SHISH'])]));
+  if(!T.items.length)return;
+  const list=el('div',{class:'lglist',id:'txList'});
+  T.items.forEach((t,k)=>{list.appendChild(el('div',{class:'lgc'+(k===T.sel?' on':''),title:t.text,onclick:()=>{T.sel=k;renderPane();}},[
+    t.proc?el('img',{src:t.proc.thumb}):el('span',{text:'—'}),el('span',{text:(k+1)+'. '+String(t.text).replace(/\n/g,' ').slice(0,14)}),
+    el('button',{class:'x',type:'button',title:'Nusxa (masalan boshqa joyga)',onclick:e=>{e.stopPropagation();const n=++T.uid;const cp=Object.assign({},t,{id:n,tex:'ittxt'+n,proc:null,_tt:null});
+      const opp={door_l:'door_r',door_r:'door_l',door_lr:'door_rr',door_rr:'door_lr',side_l:'side_r',side_r:'side_l'}[t.place];if(opp)cp.place=opp;textProc(cp);T.items.splice(k+1,0,cp);T.sel=k+1;editPipeline('text').then(()=>renderPane());}},['⧉']),
+    el('button',{class:'x',type:'button',title:'O‘chirish',onclick:e=>{e.stopPropagation();T.items.splice(k,1);T.sel=Math.min(T.sel,T.items.length-1);editPipeline('text').then(()=>renderPane());}},['✕'])]));});
+  c.appendChild(list);
+  const t=T.items[T.sel];if(!t)return;
+  const row=(label,ctl)=>el('div',{class:'row'},[el('label',{text:label}),ctl]);
+  const sel=(id,key,opts,re)=>{const s=el('select',{id},opts.map(([a,b])=>el('option',{value:a,text:b,selected:String(t[key])===String(a)})));s.addEventListener('change',()=>{t[key]=s.value;textSoon(re?t:null);if(re)setTimeout(renderPane,350);});return s;};
+  const rng=(label,key,min,max,step,fmt,id,re)=>{const r=el('input',{type:'range',id,min,max,step,value:t[key],style:'flex:1'}),o=el('span',{class:'note',style:'min-width:46px;text-align:right',text:fmt(t[key])});
+    r.addEventListener('input',()=>{t[key]=+r.value;o.textContent=fmt(t[key]);textSoon(re?t:null);});return el('div',{class:'row'},[el('label',{text:label}),r,o]);};
+  const ta=el('textarea',{id:'txText',rows:2,placeholder:'Matnni yozing (yangi qator — Enter)',style:'flex:1;min-height:44px;font-size:15px;background:#0b1220;color:#e8eef7;border:1px solid #334155;border-radius:6px;padding:6px'});ta.value=t.text;
+  ta.addEventListener('input',()=>{t.text=ta.value;textSoon(t);});
+  c.appendChild(row('Matn',ta));
+  c.appendChild(row('Shrift',sel('txFont','font',TX_FONTS,true)));
+  const bi=el('div',{style:'display:flex;gap:12px;flex-wrap:wrap'},[['bold','Qalin'],['italic','Qiya']].map(([k,l])=>{const cb=el('input',{type:'checkbox',id:'tx_'+k,checked:!!t[k]});cb.addEventListener('change',()=>{t[k]=cb.checked;textSoon(t);});return el('label',{style:'display:flex;gap:5px;align-items:center;cursor:pointer'},[cb,l]);}));
+  c.appendChild(row('',bi));
+  c.appendChild(row('Uslubi',sel('txFx','fx',TX_FX,true)));
+  const ci=(id,key)=>{const x=el('input',{type:'color',id,value:t[key],style:'width:44px;height:28px;padding:0;border:none;background:none'});x.addEventListener('input',()=>{t[key]=x.value;textSoon(t);});return x;};
+  const cols=[el('span',{class:'note',style:'margin:0',text:t.fx==='grad'?'yuqori':'rang'}),ci('txCol','color')];
+  if(t.fx==='grad')cols.push(el('span',{class:'note',style:'margin:0',text:'past'}),ci('txCol2','color2'));
+  if(t.fx==='outline')cols.push(el('span',{class:'note',style:'margin:0',text:'kontur'}),ci('txOut','outline'));
+  c.appendChild(row('Ranglar',el('div',{style:'display:flex;gap:6px;align-items:center;flex-wrap:wrap'},cols)));
+  if(t.fx==='outline')c.appendChild(rng('Kontur qalinligi','ow',2,20,1,x=>Math.round(x)+'%','txOw',true));
+  c.appendChild(rng('Harflar orasi','spacing',-5,40,1,x=>Math.round(x)+'%','txSp',true));
+  c.appendChild(row('Joyi',sel('txPlace','place',textPlacesFor(it),false)));
+  c.appendChild(rng('Kattalik','size',0.05,1,0.01,x=>Math.round(x*100)+'%','txSize'));
+  c.appendChild(rng('Chapga / o‘ngga','offX',-0.5,0.5,0.005,x=>(x>0?'+':'')+Math.round(x*100)+'%','txOffX'));
+  c.appendChild(rng('Yuqoriga / pastga','offY',-0.5,0.5,0.005,x=>(x>0?'+':'')+Math.round(x*100)+'%','txOffY'));
+  c.appendChild(rng('Burilish','rot',-180,180,1,x=>Math.round(x)+'°','txRot'));
+  const gl=el('input',{type:'checkbox',id:'txGlow',checked:!!t.glow});gl.addEventListener('change',()=>{t.glow=gl.checked;textSoon(null);});
+  c.appendChild(el('label',{class:'row',style:'gap:8px;align-items:center;cursor:pointer'},[gl,'🌙 Kechasi yonsin («💡 Chiroqlar skripti» bilan)']));
+  c.appendChild(el('div',{class:'note',text:'Joy mashina shaklidan avtomatik topiladi. Matn yuqorisi: eshik va yonda — tepaga, kapotda — oyna tomon, tomda va bagajda — oldinga. Butun yonda «Chapga / o‘ngga» — mashina bo‘ylab siljitadi.'}));
+}
+/* sinov / tekshiruv uchun (sahifa tashqarisidan) */
+setTimeout(()=>{try{if(G.APP)Object.assign(G.APP,{vinylRender,textRender,VS_STYLES});}catch(e){}},0);
 
 function paneExport(p,it){
   p.appendChild(el('h3',{text:'Boshqa eksport'}));
