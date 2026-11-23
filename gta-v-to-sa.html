@@ -2364,8 +2364,9 @@ function strobeScan(bytes){
 /* sozlamalar -> chiroqlar ro'yxati: {g, ch:'L'|'R'|'C', p:[x,y,z], c:[r,g,b], s} */
 function strobeLights(scan,cfg){
   const out=[],sz=+cfg.size||0.7;
-  for(const [g,,base] of STROBE_GROUPS){const G2=cfg.groups&&cfg.groups[g];if(!G2||!G2.on)continue;if(cfg.glow===false&&g!=='head'&&g!=='rear')continue;/* tashqi nursiz: faqat haqiqiy chiroqlar */const col=G2.color||'white',s=Math.round(base*sz*(cfg.lamps&&(g==='head'||g==='rear')?0.6:1)*100)/100;
+  for(const [g,,base] of STROBE_GROUPS){const G2=cfg.groups&&cfg.groups[g];if(!G2||!G2.on)continue;const bar=g==='roof'&&cfg.bar&&cfg.bar.length?cfg.bar:null;if(cfg.glow===false&&g!=='head'&&g!=='rear'&&!bar)continue;/* tashqi nursiz: faqat haqiqiy chiroqlar */const col=G2.color||'white',s=Math.round(base*sz*(cfg.lamps&&(g==='head'||g==='rear')?0.6:1)*100)/100;
     const cL=col==='rb'?STROBE_COL.red:col==='br'?STROBE_COL.blue:STROBE_COL[col]||STROBE_COL.white,cR=col==='rb'?STROBE_COL.blue:col==='br'?STROBE_COL.red:cL;
+    if(g==='roof'&&bar){for(const b of bar)out.push({g,ch:b.ch,p:b.p.slice(),c:b.c.slice(),s,bar:b.k});continue;}   // migalka modeli: har guruh (tomoni + rangi) -- o'z joyida, o'z rangida
     if(g==='roof'){const p=(G2.pos==='center'?scan.roofC:scan.roofL).slice();
       if(col==='rb'||col==='br'){if(G2.pos==='center'){const w=Math.max(0.25,Math.min(0.5,Math.abs(scan.roofL[0])*1.2));out.push({g,ch:'L',p:[-w,p[1],p[2]],c:cL,s},{g,ch:'R',p:[w,p[1],p[2]],c:cR,s});}   // tomdagi "lyustra" (lightbar): chapi va o'ngi
         else out.push({g,ch:'L',p,c:cL,s},{g,ch:'R',p:p.slice(),c:cR,s});}else out.push({g,ch:'C',p,c:cL,s});continue;}
@@ -2474,6 +2475,76 @@ function andOps(A,FN,P){   // FN -- bufer yorlig'i: [tekshiruv (1 -- hammasi joy
     data(syms){const at={};syms.forEach((s,k)=>{at[s]=A.size();A.label(P+'_S'+k);A.raw([...AND_SYM[s]].map(c=>c.charCodeAt(0)&127).concat([0]),'"'+AND_SYM[s]+'"');});
       at.fn=A.size();A.label(FN);A.raw(new Array(4*(syms.length+1)).fill(0),'telefon: [tekshiruv, '+syms.join(', ')+'] -- skript ishga tushganda to‘ldiriladi');return at;}
   };return o;}
+/* ---- tomdagi migalka nusxalari (skript qismi): 3@-5@, 7@-15@ -- vaqtinchalik (koronalar ulardan keyin qayta to'ldiriladi) ----
+ * Bufer SB_BUF (skriptning o'zida): +0 mashina, +4 ko'rsatkich, +8 nusxalar soni, +16 guruh holatlari (4 x 4 bayt: 4 -- ko'rinadi, 0 -- yo'q), +32 (atomic, guruh) x 16.
+ * Yangi mashina: avvalgisining nusxalari yashiriladi (mashina hali bor va ko'rsatkichi o'sha bo'lsa), keyin RpClump+8 ro'yxatidan belgili nusxalar topiladi.
+ * Tuzilma (chiroqlar skripti bilan bir xil, kompyuter RW 3.6 va telefon debug ma'lumotidan): CEntity+0x18 clump (tur bayti 2), RpClump+8 atomiclar ro'yxati boshi,
+ * RpAtomic+0x40 ro'yxat bog'i, +0x18 geometriya, +2 bayroq; RpGeometry+0x20 materiallar massivi, +0x24 soni; RpMaterial+4 rang. */
+const SB_BUFSZ=32+8*16,SB_NMAX=16;
+function strobeBarOps(A,AM,AND){
+  const o={
+    rd:(dst,av,size)=>AND?AM.rd(dst,av,size):A.op(0x0A8D,dst+'@ = read_memory '+av+'@ size '+size+' virtual_protect 0',['l',av],['i',size],['i',0],['l',dst]),
+    wr:(av,k,v,size,txt)=>AND?AM.wr(av,k,v,size,txt):A.op(0x0A8C,'write_memory '+av+'@ size '+size+' value '+(k==='l'?v+'@':v)+' virtual_protect 0'+(txt?'  // '+txt:''),['l',av],['i',size],[k,v],['i',0]),
+    lbl:(v,l)=>AND?AM.lbl(v,l):A.op(0x0AC6,v+'@ = label @'+l+' offset',['j',l],['l',v]),
+    ptr:(dst,hv,ft)=>{if(AND){AM.fn(ft,1,dst);AM.reg(0,'l',hv,'mashina');AM.call(ft,'CPools::GetVehicle');AM.res(dst);}else A.op(0x0A97,'get_car_pointer '+hv+'@ store_to '+dst+'@',['l',hv],['l',dst]);},
+    J:l=>A.op(0x0002,'jump @'+l,['j',l]),
+    JF:l=>A.op(0x004D,'jump_if_false @'+l,['j',l]),
+    IF:(op,txt,...ps)=>{A.op(0x00D6,'if',['i',0]);A.op(op,'  '+txt,...ps);},
+    SET:(v,x)=>A.op(0x0006,v+'@ = '+x,['l',v],['i',x]),
+    MOV:(v,w)=>A.op(0x0085,v+'@ = '+w+'@',['l',v],['l',w]),
+    ADD:(v,x,t)=>A.op(0x000A,v+'@ += '+x+(t?'  // '+t:''),['l',v],['i',x]),
+    ent:(dst,iv,base,sz,off)=>{A.op(0x0085,dst+'@ = '+iv+'@',['l',dst],['l',iv]);A.op(0x0012,dst+'@ *= '+sz,['l',dst],['i',sz]);A.op(0x005A,dst+'@ += '+base+'@',['l',dst],['l',base]);A.op(0x000A,dst+'@ += '+off,['l',dst],['i',off]);}
+  };return o;}
+/* yashirish: oxirgi mashina (bufer) hali bor va ko'rsatkichi o'sha bo'lsa -- nusxalari bayrog'i 0; keyin bufer tozalanadi. 7@ -- bufer manzili (shu yerda olinadi) */
+function strobeBarHide(A,AM,AND,P){const o=strobeBarOps(A,AM,AND);
+  if(AND)AM.okCheck(9,5,P+'_X');
+  o.lbl(7,'SB_BUF');o.rd(8,7,4);o.IF(0x0039,'8@ == 0  // eslab qolingan mashina yo‘q',['l',8],['i',0]);A.op(0x004D,'jump_if_false @'+P+'_A',['j',P+'_A']);o.J(P+'_X');
+  A.label(P+'_A');
+  o.MOV(9,7);o.ADD(9,4);o.rd(10,9,4);o.MOV(9,7);o.ADD(9,8);o.rd(13,9,4);
+  o.IF(0x056E,'does_vehicle_exist 8@',['l',8]);o.JF(P+'_F');
+  o.ptr(4,8,5);o.IF(0x003B,'4@ == 10@  // o‘sha mashina (raqami boshqa mashinaga berilmagan)',['l',4],['l',10]);o.JF(P+'_F');
+  o.SET(12,0);A.label(P+'_L');o.IF(0x802D,'not 12@ >= 13@',['l',12],['l',13]);o.JF(P+'_F');
+  o.ent(9,12,7,8,32);o.rd(14,9,4);o.MOV(9,14);o.ADD(9,2,'RpAtomic bayrog‘i');o.wr(9,'i',0,1,'nusxa yashirin');o.ADD(12,1);o.J(P+'_L');
+  A.label(P+'_F');o.wr(7,'i',0,4,'mashina');o.MOV(9,7);o.ADD(9,4);o.wr(9,'i',0,4,'ko‘rsatkich');o.MOV(9,7);o.ADD(9,8);o.wr(9,'i',0,4,'soni');
+  A.label(P+'_X');}
+/* har kadr (o'yinchi mashinada, stroboskop yoqiq, 1@ -- mashina): nusxalarni topish (yangi mashina) va naqsh bo'yicha ko'rsatish */
+function strobeBarCode(A,AM,AND,lights,FL){const o=strobeBarOps(A,AM,AND),BAR=lights.map((l,j)=>({l,j})).filter(x=>x.l.bar!=null);
+  A.note('---- tomdagi migalka nusxalari ----');
+  if(AND)AM.okCheck(9,5,'SB_X');
+  o.ptr(3,1,5);o.IF(0x8039,'not 3@ == 0',['l',3],['i',0]);o.JF('SB_X');
+  o.lbl(7,'SB_BUF');o.rd(8,7,4);o.MOV(9,7);o.ADD(9,4);o.rd(10,9,4);
+  A.op(0x00D6,'if and',['i',1]);A.op(0x003B,'  8@ == 1@',['l',8],['l',1]);A.op(0x003B,'  10@ == 3@',['l',10],['l',3]);o.JF('SB_NEW');o.J('SB_HAVE');
+  A.label('SB_NEW');
+  strobeBarHide(A,AM,AND,'SB_NH');
+  o.lbl(7,'SB_BUF');o.wr(7,'l',1,4,'mashina');o.MOV(9,7);o.ADD(9,4);o.wr(9,'l',3,4,'ko‘rsatkich');o.MOV(9,7);o.ADD(9,8);o.wr(9,'i',0,4,'soni');
+  o.MOV(9,3);o.ADD(9,0x18,'RwObject (clump)');o.rd(10,9,4);o.IF(0x8039,'not 10@ == 0',['l',10],['i',0]);o.JF('SB_HAVE');
+  o.rd(11,10,1);o.IF(0x0039,'11@ == 2  // rpCLUMP',['l',11],['i',2]);o.JF('SB_HAVE');
+  o.ADD(10,8,'RpClump.atomicList (bosh)');o.rd(11,10,4);o.SET(12,0);o.SET(13,0);
+  A.label('SB_WL');
+  o.IF(0x803B,'not 11@ == 10@  // ro‘yxat oxiri emas',['l',11],['l',10]);o.JF('SB_WE');
+  o.IF(0x8029,'not 12@ >= 600',['l',12],['i',600]);o.JF('SB_WE');o.ADD(12,1);
+  o.MOV(14,11);A.op(0x000E,'14@ -= 0x40  // RpAtomic (inClumpLink)',['l',14],['i',0x40]);
+  o.MOV(9,14);o.ADD(9,0x18,'geometriya');o.rd(15,9,4);o.IF(0x8039,'not 15@ == 0',['l',15],['i',0]);o.JF('SB_WN');
+  o.MOV(9,15);o.ADD(9,0x24,'materiallar soni');o.rd(5,9,4);o.IF(0x0029,'5@ >= 1',['l',5],['i',1]);o.JF('SB_WN');
+  o.MOV(9,15);o.ADD(9,0x20,'materiallar massivi');o.rd(5,9,4);o.IF(0x8039,'not 5@ == 0',['l',5],['i',0]);o.JF('SB_WN');
+  o.rd(4,5,4);o.IF(0x8039,'not 4@ == 0',['l',4],['i',0]);o.JF('SB_WN');
+  o.MOV(9,4);o.ADD(9,4,'1-material rangi');o.rd(5,9,4);
+  const ks=[...new Set(BAR.map(x=>x.l.bar))];
+  ks.forEach(k=>{const L='SB_WK'+k;o.IF(0x0039,'5@ == '+SB_MARK_INT(k)+'  // migalka nusxasi, guruh '+k,['l',5],['i',SB_MARK_INT(k)]);o.JF(L);
+    o.IF(0x8029,'not 13@ >= '+SB_NMAX,['l',13],['i',SB_NMAX]);o.JF('SB_WN');
+    o.ent(9,13,7,8,32);o.wr(9,'l',14,4,'atomic');o.ADD(9,4);o.wr(9,'i',k,4,'guruh');o.ADD(13,1);o.J('SB_WN');A.label(L);});
+  A.label('SB_WN');o.rd(11,11,4);o.J('SB_WL');
+  A.label('SB_WE');o.MOV(9,7);o.ADD(9,8);o.wr(9,'l',13,4,'soni');
+  A.label('SB_HAVE');
+  // guruh holatlari: shu kadrda yonadimi (naqsh bayroqlari)
+  ks.forEach(k=>{const x=BAR.find(y=>y.l.bar===k),L='SB_ST'+k;o.SET(5,0);o.IF(0x0039,(FL+x.j)+'@ == 1',['l',FL+x.j],['i',1]);o.JF(L);o.SET(5,4);A.label(L);
+    o.MOV(9,7);o.ADD(9,16+4*k,'guruh '+k+' holati');o.wr(9,'l',5,4);});
+  o.MOV(9,7);o.ADD(9,8);o.rd(13,9,4);o.SET(12,0);
+  A.label('SB_AL');o.IF(0x802D,'not 12@ >= 13@',['l',12],['l',13]);o.JF('SB_X');
+  o.ent(9,12,7,8,32);o.rd(14,9,4);o.ADD(9,4);o.rd(15,9,4);
+  A.op(0x0085,'9@ = 15@',['l',9],['l',15]);A.op(0x0012,'9@ *= 4',['l',9],['i',4]);A.op(0x005A,'9@ += 7@',['l',9],['l',7]);o.ADD(9,16);o.rd(5,9,4);
+  o.MOV(9,14);o.ADD(9,2,'RpAtomic bayrog‘i');o.wr(9,'l',5,1,'4 -- ko‘rinadi, 0 -- yashirin');o.ADD(12,1);o.J('SB_AL');
+  A.label('SB_X');}
 function strobeBuild(scan,cfg){
   const AND=cfg.plat==='android';
   const lights=strobeLights(scan,cfg);if(!lights.length)throw new Error('Hech bo‘lmasa bitta chiroq guruhini yoqing');
@@ -2484,13 +2555,15 @@ function strobeBuild(scan,cfg){
   // haqiqiy chiroqlar: o'yinning o'z faralari/orqa chiroqlari (FORCE_CAR_LIGHTS + CDamageManager::SetLightStatus) -- faqat oddiy mashina (CAutomobile)
   const LMP=[['head','L',0],['head','R',1],['rear','R',2],['rear','L',3]].map(([g,ch,k])=>({k,j:lights.findIndex(l=>l.g===g&&l.ch===ch)}));
   const lamps=!!cfg.lamps&&LMP.some(x=>x.j>=0)&&scan.isCar!==false&&!(model!=null&&STROBE_NONAUTO.includes(model));
-  const REST=lamps?'STRB_REST':'STRB_MAIN',glow=cfg.glow!==false;
-  if(!glow&&!lamps)throw new Error(cfg.lamps?'Bu mashinada haqiqiy chiroqlarni boshqarib bo‘lmaydi (oddiy 4 g‘ildirakli mashina emas) — tashqi nurlarni yoqing':'Tashqi nurlar ham, haqiqiy chiroqlar ham o‘chiq — hech narsa yonmaydi');
+  const BAR=lights.filter(l=>l.bar!=null),barOn=BAR.length>0;
+  const REST0=lamps?'STRB_REST':'STRB_MAIN',REST=barOn?'SB_REST':REST0,glow=cfg.glow!==false;
+  if(!glow&&!lamps&&!barOn)throw new Error(cfg.lamps?'Bu mashinada haqiqiy chiroqlarni boshqarib bo‘lmaydi (oddiy 4 g‘ildirakli mashina emas) — tashqi nurlarni yoqing':'Tashqi nurlar ham, haqiqiy chiroqlar ham o‘chiq — hech narsa yonmaydi');
   A.note('IT SHAKH — GTA SA stroboskop ('+(AND?'telefon: CLEO Android / AML CLEOMod, .csa':'CLEO 4/5')+'). '+(glow?'':'Faqat mashinaning o‘z chiroqlari (tashqi nur yo‘q). ')+'Model: '+(model==null?'har qanday mashina':model)+', '+(AND?'yoqish: '+ctlNote(cfg,key):'tugma: '+(key==null?'yo‘q (doim yoqiq)':key))+', naqsh: '+(cfg.pattern||'gta5'));
   if(AND)A.note(lamps?'Telefon: koronalar -- o‘yinning standart buyruqlari; haqiqiy chiroqlar -- o‘yin funksiyasi (CDamageManager::SetLightStatus) nomi bo‘yicha, faqat 32-bit GTA SA 2.00 da (skript boshida tekshiriladi). 31@ -- ekran bo‘lagi holati':'Telefon versiyasi faqat o‘yinning standart buyruqlari + 0DE0 (ekran bosilishi) dan foydalanadi: xotira manzillari yo‘q. 31@ -- ekran bo‘lagi holati');
   A.note('0@ yoqilgan, 1@ mashina, 2@ model, 3@-5@ nuqta, 6@ tugma, 7@-9@ nur rangi, 10@-12@ o‘zak rangi, 13@-15@ yo‘l nuqtasi, '+FL+'@.. chiroq bayroqlari, 33@ taymer');
   if(lamps)A.note(AND?'Haqiqiy chiroqlar (telefon): 28@ boshqarilayotgan mashina, 29@ SetLightStatus manzili (0 -- bu mashinada mumkin emas), 30@ CDamageManager (mashina + 0x5B4), 31@ chiroq holati':'Haqiqiy chiroqlar: 28@ boshqarilayotgan mashina, 29@ mos mashinami, 30@ CDamageManager manzili (mashina + 0x5A0), 31@ chiroq holati. 0x6C2100 = CDamageManager::SetLightStatus (GTA SA 1.0 US)');
-  const AM=AND&&lamps?andOps(A,'STRB_FN','STRB_AND'):null,ASY=['veh','light'];
+  const AM=AND&&(lamps||barOn)?andOps(A,'STRB_FN','STRB_AND'):null,ASY=lamps?['veh','light']:['veh'];
+  if(barOn)A.note('Tomdagi migalka modeli: yonadigan nusxalar (DFF da, material rang belgisi '+BAR.map(l=>'255,255,'+(239-l.bar)).join(' / ')+') o‘yinchi mashinasining atomiclari ro‘yxatidan topiladi (RpClump+8) va naqsh bo‘yicha ko‘rsatiladi (RpAtomic+2 bayroq = 4 / 0). Bufer SB_BUF: [mashina, ko‘rsatkich, soni, -, 4 ta holat, (atomic, guruh) x 16]');
   A.op(0x0000,'');                                                   // 0-ofsetda yorliq bo'lmasligi uchun (CLEO qoidasi)
   A.op(0x0006,'0@ = '+(key==null?1:0),['l',0],['i',key==null?1:0]);
   A.op(0x0006,'33@ = 0',['l',33],['i',0]);A.op(0x0006,'6@ = 0',['l',6],['i',0]);
@@ -2514,7 +2587,7 @@ function strobeBuild(scan,cfg){
     // boshqa mashinaga o'tilgan bo'lsa -- avvalgisining chiroqlarini joyiga qaytaramiz
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  28@ == 0',['l',28],['i',0]);A.op(0x004D,'jump_if_false @STRB_CC',['j','STRB_CC']);A.op(0x0002,'jump @STRB_CK',['j','STRB_CK']);
     A.label('STRB_CC');
-    A.op(0x00D6,'if',['i',0]);A.op(0x003B,'  28@ == 1@',['l',28],['l',1]);A.op(0x004D,'jump_if_false @STRB_REST',['j','STRB_REST']);
+    A.op(0x00D6,'if',['i',0]);A.op(0x003B,'  28@ == 1@',['l',28],['l',1]);A.op(0x004D,'jump_if_false @'+REST,['j',REST]);   // boshqa mashina: (migalka nusxalari yashiriladi,) chiroqlar qaytariladi
     A.label('STRB_CK');
     // 29@ = 1 -- shu mashinaning chiroqlarini boshqarish xavfsiz: o'yin 1.0 US va oddiy mashina (mototsikl/qayiq/poyezd emas)
     A.op(0x0006,'29@ = 0',['l',29],['i',0]);
@@ -2590,6 +2663,7 @@ function strobeBuild(scan,cfg){
     }
     A.label('STRB_LX');
   }
+  if(barOn)strobeBarCode(A,AM,AND,lights,FL);
   // har bir chiroq HAR KADRDA chiziladi (o'chiq -- qora): korona doim "yonib turgan" holatda -> miltillash bir zumda ko'rinadi
   if(glow)lights.forEach((l,i)=>{
     const dual=!!l.d,h=dual?strobeHalo(l.c):l.c,c=strobeCore(l.c),pool=strobePools(scan,l),sz=l.s;
@@ -2611,6 +2685,7 @@ function strobeBuild(scan,cfg){
     if(dual)A.op(0x024F,'draw_corona 3@ 4@ 5@ radius '+fF(sz*STROBE_CORE)+' type 0 lensflare 0 colour 10@ 11@ 12@',['l',3],['l',4],['l',5],['f',sz*STROBE_CORE],['i',0],['i',0],['l',10],['l',11],['l',12]);
   });
   A.op(0x0002,'jump @STRB_MAIN',['j','STRB_MAIN']);
+  if(barOn){A.label('SB_REST');strobeBarHide(A,AM,AND,'SB_RH');A.op(0x0002,'jump @'+REST0,['j',REST0]);}   // mashinadan tushildi / o'chirildi: migalka nusxalari yashiriladi
   if(lamps){ // chiroqlarni joyiga qaytarish: majburiy yoqish bekor, 4 ta chiroq butun
     A.label('STRB_REST');
     A.op(0x00D6,'if',['i',0]);A.op(0x0039,'  28@ == 0',['l',28],['i',0]);A.op(0x004D,'jump_if_false @STRB_R1',['j','STRB_R1']);A.op(0x0002,'jump @STRB_MAIN',['j','STRB_MAIN']);
@@ -2627,9 +2702,10 @@ function strobeBuild(scan,cfg){
     A.op(0x0006,'28@ = 0',['l',28],['i',0]);
     A.op(0x0002,'jump @STRB_MAIN',['j','STRB_MAIN']);
   }
-  const codeEnd=A.size(),andAt=AM?AM.data(ASY):null;
+  const codeEnd=A.size();let barAt=-1;if(barOn){barAt=A.size();A.label('SB_BUF');A.raw(new Array(SB_BUFSZ).fill(0),'migalka buferi');}
+  const andAt=AM?AM.data(ASY):null;
   const r=A.done();
-  return{cs:r.bytes,src:'{$CLEO .'+(AND?'csa':'cs')+'}\n'+r.src+'\n',lights,tl,lamps,lampMap:LMP,ext:AND?'csa':'cs',codeEnd,andAt};
+  return{cs:r.bytes,src:'{$CLEO .'+(AND?'csa':'cs')+'}\n'+r.src+'\n',lights,tl,lamps,lampMap:LMP,ext:AND?'csa':'cs',codeEnd,andAt,barAt,bar:BAR.map(l=>({k:l.bar,j:lights.indexOf(l),ch:l.ch}))};
 }
 /* ---------- HAQIQIY CHIROQ OYNALARINI CHAP / O'NGGA AJRATISH (DFF) ----------
  * SA chiroq oynasini material rang kodi bo'yicha yoqadi: 255,175,0 -- chap fara, 0,255,200 -- o'ng fara, 185,255,0 -- chap orqa, 255,60,0 -- o'ng orqa.
@@ -5162,7 +5238,145 @@ function hdBuild(cfg){
   return{cs:r.bytes,src:'{$CLEO .'+(AND?'csa':'cs')+'}\n'+r.src+'\n',codeEnd,names:strs.slice(),bufAt,andAt,ext:AND?'csa':'cs',ph:PH};
 }
 
-root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS,lampRecolor,lampClassify,lampRetexDff,LAMP_SKIP,lampFixScan,lampFixApply,LF_ROLES,LF_CODES,LF_ATLAS,LF_IVF,neonScan,neonElems,neonTimeline,neonAt,neonCull,neonVisible,neonLightK,neonBuild,neonStripApply,neonHex,NEON_COLS,NEON_MODES,NEON_STRIP_COL,NEON_LIM,NEON_POOL_I,NEON_CULL,animScan,animApply,animBuild,animHasFrames,anWiperAt,anAngle,AN_WIPE,AN_KEYS,AN_FN,AND_SYM,AND_OFF,TOUCH_ZONES,WIDGET_CTL,HORN_WIDGET,cqApply,cqBuild,cqScan,cqFrontCount,cqTexture,cqRainbow,CQ_MARK,CQ_KINDS,CQ_TURN,CQ_TURN_RGB,CQ_GLOW_SPEC,CQ_GLOW_BITS,lampBlock,LF_TURN_KEY,exBuild,EX_FX,EX_FREQ,wheelScan,wheelTarget,wheelApply,wheelTexPlan,txdRawList,txdPutRaw,vinylRegions,_t:{dffCtx,anCommit,anNewFrame,fWorld,TF,decodeGeometry},lyukScan,lyukApply,lyukBuild,lyukMeta,lyukHas,hdScan,hdPlan,hdApply,hdBuild,hdDescribe,HD_F,HD_OFF,HD_PH,HD_CP,HD_MARK,lyukPoseRel,LK_TINT,LK_SPEED,LK_PANEL,LK_K};
+/* ---------- TOMDAGI MIGALKA MODELI (lightbar) -- GTA 5 dagidek qismlarining o'zi yonadi ----------
+ * SA mashina modelidagi migalkani hech qachon o'zi yoqmaydi (faqat 4 ta fara / orqa chiroq kodini). Yechim (chiroqlar skriptidagi o'yinda sinalgan usul):
+ *  - tomdagi QIZIL / KO'K qismlar (ichki linza + rangli qopqoq) topiladi -- material rangi x tekstura o'rtacha rangi, joyi (tomdan yuqorida, ixcham);
+ *  - har guruh (tomoni + rangi) uchun YONADIGAN NUSXA qo'shiladi: 2 mm tashqarida, yorqin tekstura (o'rtasi oqroq), material rang belgisi
+ *    SB_MARK[k] (255,255,239-k) -- skript shu belgi bo'yicha topadi; atomic bayrog'i 0 (o'yin chizmaydi), o'z freymi itsb_k_j (manba freymning bolasi);
+ *  - yorqinlik platformaga qarab (chiroqlar skripti bilan bir xil): kompyuter -- ambient 20, vertex ranglarisiz; telefon -- oq vertex ranglari, ambient 5;
+ *  - stroboskop skripti o'yinchi mashinasining atomiclari ro'yxatidan (RpClump+8) nusxalarni topib, naqsh bo'yicha bayrog'ini 4 / 0 qiladi.
+ * Prefiks itsb_ (itsh_ emas): itsh_* freymlari dvornik/oyna moduliga tegishli. */
+const SB_MARK=[[255,255,239],[255,255,238],[255,255,237],[255,255,236]],SB_MAX=4;
+const SB_MARK_INT=k=>{const c=SB_MARK[k];return (0xFF000000|(c[2]<<16)|(c[1]<<8)|c[0])|0;};
+const sbMarkOf=c=>{if(!c||c[0]!==255||c[1]!==255)return -1;const k=239-c[2];return k>=0&&k<SB_MAX?k:-1;};
+const SB_COL={red:[255,25,25],blue:[20,80,255]};             // korona (stroboskop ranglari bilan bir xil)
+const SB_LIT={red:[255,34,22],blue:[26,92,255]};             // yonadigan nusxa teksturasi
+const SB_HINT=/strob|siren|light.?bar|migal|^mig|_mig|beacon|lyustr|police|polic|emerg|flash|blink|vspysh|majak|mayak/i;
+const SB_OFF=0.002;
+/* yonadigan nusxa teksturasi: bitta LED moduli (fara kabi) -- to'q rangli korpus, qirrali reflektor halqalari, rangli nur, oq-qaynoq markaz;
+ * modullar orasida ingichka qora ajratgich. UV bo'yicha segment uzunligi bo'ylab takrorlanadi (~8.5 sm da bitta modul). 64x64. */
+const SB_CELL=0.085;
+function sbLedTexture(rgb){const W=64,o=new Uint8Array(W*W*4),cl=v=>Math.max(0,Math.min(255,Math.round(v)));
+  for(let y=0;y<W;y++)for(let x=0;x<W;x++){const u=(x+0.5)/W,v=(y+0.5)/W,dx=(u-0.5)/0.5,dy=(v-0.5)/0.5,r=Math.hypot(dx,dy),i=(y*W+x)*4;
+    let k=0.5,w=0;
+    if(r<0.96){k=0.8+0.2*Math.pow(Math.cos(r*Math.PI*3.2),2);}                         // reflektor (yumshoq qirralar, to'yingan rang)
+    w=Math.max(0,0.95*Math.pow(Math.max(0,1-r/0.58),1.35));                            // rangli nur -> oq-qaynoq markaz (fara kabi)
+    if(r<0.2)w=Math.max(w,0.98);
+    let c=rgb.map(q=>q*k);c=c.map(q=>q+(255-q)*w);
+    if(u<0.045||u>0.955)c=rgb.map(q=>q*0.22);else if(v<0.07||v>0.93)c=c.map(q=>q*0.55);   // modullar orasidagi ajratgich, qirralar
+    o[i]=cl(c[0]);o[i+1]=cl(c[1]);o[i+2]=cl(c[2]);o[i+3]=255;}
+  return{name:'itsb_led'+cqHex(rgb),rgba:o,w:W,h:W};}
+/* rang sinfi: [r,g,b] (0..255) -> 'red' | 'blue' | null */
+function sbClass(c){const [r,g,b]=c;
+  if(r>=110&&r>=1.8*Math.max(g,b))return'red';
+  if(b>=100&&b>=1.4*r&&b>=1.15*g)return'blue';
+  return null;}
+/* nomdan (tekstura yoki freym nomi migalkaga o'xshasa): _r_ / red -> qizil, _b_ / blue -> ko'k */
+function sbNameClass(s){s=String(s||'').toLowerCase();if(!SB_HINT.test(s))return null;
+  if(/(^|[^a-z])(r|red|kras\w*|qizil)([^a-z]|$)/.test(s))return'red';if(/(^|[^a-z])(b|blu|blue|sin\w*|kok)([^a-z]|$)/.test(s))return'blue';return null;}
+/* materialning ko'rinadigan rangi: material rangi x teksturaning o'rtacha rangi (TXD bo'lsa) */
+function sbMatClass(m,texAvg,frameName){const mc=(m.color||[255,255,255]).slice(0,3);if(sbMarkOf(mc)>=0)return null;
+  const t=m.tex?texAvg&&texAvg.get(String(m.tex).toLowerCase()):null;
+  if(t){const e=[0,1,2].map(i=>mc[i]*t[i]/255),c=sbClass(e);if(c)return c;return null;}
+  const c0=m.tex?null:sbClass(mc);if(c0)return c0;                 // teksturasiz -- material rangi
+  if(mc.join(',')!=='255,255,255'){const c1=sbClass(mc);if(c1&&(SB_HINT.test(m.tex||'')||SB_HINT.test(frameName||'')))return c1;}
+  return sbNameClass(m.tex)||(SB_HINT.test(frameName||'')?sbNameClass(m.tex):null);}
+const SB_SKIP=f=>{let a=f,n=0;while(a&&n++<64){const nm=a.name||'';if(/^wheel|_dam$|_vlo$|^door_|^bonnet|^boot|^windscreen|^bump_|^wing_/i.test(nm))return true;a=a.par;}return false;};
+/* opt: {texAvg: Map(tekstura nomi kichik harfda -> [r,g,b])} */
+function sbScan(bytes,opt){
+  opt=opt||{};const ctx=dffCtx(bytes),{F,A,G,rwv}=ctx,texAvg=opt.texAvg||null;
+  const out={groups:[],has:0,roofZ:null,warn:[]};
+  const dec=[],seen=new Set();
+  A.forEach((a,ai)=>{const mk=(()=>{try{const ml=child(G[a.geom],T.MATLIST),m=ml&&childs(ml,T.MATERIAL)[0];if(!m)return -1;const d=child(m,T.STRUCT).data;return sbMarkOf([d[4],d[5],d[6]]);}catch(e){return -1;}})();
+    if(mk>=0){out.has++;return;}
+    if(/^wheel/i.test(a.frame.name||''))return;let g;try{g=decodeGeometry(G[a.geom],rwv);}catch(e){return;}if(!g||g.native||!g.pos||!g.nTri||g.skin)return;
+    dec.push({a,ai,g,W:fWorld(a.frame),skip:SB_SKIP(a.frame)||seen.has(a.geom)});seen.add(a.geom);});
+  if(!dec.length)return out;
+  const mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+  for(const d of dec){if(/_vlo$|_dam$/i.test(d.a.frame.name||''))continue;const wp=new Float32Array(d.g.nV*3);
+    for(let i=0;i<d.g.nV;i++){const q=TF.pt([d.g.pos[i*3],d.g.pos[i*3+1],d.g.pos[i*3+2]],d.W);wp[i*3]=q[0];wp[i*3+1]=q[1];wp[i*3+2]=q[2];for(let c=0;c<3;c++){if(q[c]<mn[c])mn[c]=q[c];if(q[c]>mx[c])mx[c]=q[c];}}d.wp=wp;}
+  const Wd=mx[0]-mn[0],L=mx[1]-mn[1];
+  // nomzod uchburchaklar (qizil / ko'k material) va tom balandligi (qolgan geometriya: kabina ustidagi kataklar -- eng baland nuqta, mediana)
+  const cand=[],cell=new Map(),CS=0.06;
+  for(const d of dec){if(!d.wp)continue;const cls=d.g.materials.map(m=>sbMatClass(m||{},texAvg,d.a.frame.name));
+    for(let t=0;t<d.g.nTri;t++){const mi=d.g.tris[t*4+3],c=cls[mi];let cx=0,cy=0,cz=0,zt=-1e9;
+      for(let k=0;k<3;k++){const v=d.g.tris[t*4+k];cx+=d.wp[v*3]/3;cy+=d.wp[v*3+1]/3;cz+=d.wp[v*3+2]/3;if(d.wp[v*3+2]>zt)zt=d.wp[v*3+2];}
+      if(c&&!d.skip){cand.push({d,t,c,cx,cy,cz});continue;}
+      if(Math.abs(cx)<0.3*Wd&&cy>mn[1]+0.2*L&&cy<mx[1]-0.2*L){const key=Math.round(cx/CS)+','+Math.round(cy/CS),o=cell.get(key);if(o===undefined||zt>o)cell.set(key,zt);}}}
+  const zs=[...cell.values()].sort((a,b)=>a-b);const roofZ=zs.length?zs[Math.floor(zs.length*0.5)]:mx[2];
+  // tomning o'zi: kataklarning yuqori qismi (70-persentil) -- kabina ustidagi eng baland sirt
+  const roofTop=zs.length?zs[Math.floor((zs.length-1)*0.8)]:mx[2];out.roofZ=roofTop;
+  // guruhlar: tomoni (L / C / R) + rangi; faqat tomdan yuqorida, kabina ustida
+  const grp=new Map();
+  for(const q of cand){if(q.cz<roofTop-0.05||Math.abs(q.cx)>0.46*Wd||q.cy<mn[1]+0.12*L||q.cy>mx[1]-0.12*L)continue;
+    const ch=q.cx<-0.04?'L':q.cx>0.04?'R':'C',key=ch+'|'+q.c;let g2=grp.get(key);if(!g2){g2={ch,cls:q.c,tri:[],mn:[1e9,1e9,1e9],mx:[-1e9,-1e9,-1e9]};grp.set(key,g2);}
+    g2.tri.push(q);for(let k=0;k<3;k++){const v=q.d.g.tris[q.t*4+k];for(let c=0;c<3;c++){const w=q.d.wp[v*3+c];if(w<g2.mn[c])g2.mn[c]=w;if(w>g2.mx[c])g2.mx[c]=w;}}}
+  let G2=[...grp.values()].filter(g2=>{const ey=g2.mx[1]-g2.mn[1],ex=g2.mx[0]-g2.mn[0];
+    if(ey>0.8||ex>Math.max(1.0,0.6*Wd)){out.warn.push('tomdagi '+(g2.cls==='red'?'qizil':'ko‘k')+' qism juda katta ('+ex.toFixed(2)+' × '+ey.toFixed(2)+' m) — migalka emas (bo‘yoq yoki tom), olinmadi');return false;}
+    if(g2.mx[2]<roofTop+0.012)return false;                     // tomdan chiqib turmaydi -- tom yuzasidagi naqsh
+    return g2.tri.length>=2;});
+  G2.sort((p,q)=>q.tri.length-p.tri.length);if(G2.length>SB_MAX){out.warn.push('migalkada '+G2.length+' ta rangli guruh — eng kattasi '+SB_MAX+' tasi olindi');G2=G2.slice(0,SB_MAX);}
+  const CHO={L:0,C:1,R:2};G2.sort((p,q)=>(CHO[p.ch]-CHO[q.ch])||(p.cls<q.cls?-1:1));
+  out.groups=G2.map((g2,k)=>{const parts=new Map();for(const q of g2.tri){let p=parts.get(q.d.ai);if(!p){p={ai:q.d.ai,frame:q.d.a.frame.name||'',tris:[]};parts.set(q.d.ai,p);}p.tris.push(q.t);}
+    const ctr=[0,1,2].map(c=>(g2.mn[c]+g2.mx[c])/2);
+    return{k,ch:g2.ch,cls:g2.cls,c:SB_COL[g2.cls],lit:SB_LIT[g2.cls],tris:g2.tri.length,mn:g2.mn,mx:g2.mx,ctr,p:[ctr[0],ctr[1],g2.mx[2]+0.03],parts:[...parts.values()]};});
+  return out;
+}
+/* yonadigan nusxalar. opt: {plat:'pc'|'android', texAvg}. Avvalgi nusxalar (belgi bo'yicha) olib tashlanadi, itsb_ freymlari qayta ishlatiladi. */
+function sbApply(bytes,opt){
+  opt=opt||{};const AND=opt.plat==='android',SURF=AND?CQ_SURF_AND:CQ_SURF_PC,rep={plat:AND?'android':'pc',groups:[],copies:0,tris:0,stripped:0,warn:[]};
+  {const ctx0=dffCtx(bytes),del=new Set();ctx0.A.forEach((a,i)=>{try{const ml=child(ctx0.G[a.geom],T.MATLIST),m=ml&&childs(ml,T.MATERIAL)[0];if(!m)return;const d=child(m,T.STRUCT).data;if(sbMarkOf([d[4],d[5],d[6]])>=0)del.add(i);}catch(e){}});
+    if(del.size){bytes=removeAtomics(bytes,del).dff;rep.stripped=del.size;}}
+  const sc=sbScan(bytes,{texAvg:opt.texAvg});rep.warn.push(...sc.warn);
+  if(!sc.groups.length)return{dff:bytes,tex:[],report:Object.assign(rep,{err:'Tomda migalka (qizil / ko‘k qism) topilmadi'})};
+  const ctx=dffCtx(bytes),{F,A,G,rwv,ver}=ctx,texs=new Map(),back=[],tail=[];
+  for(const gp of sc.groups){const R={k:gp.k,ch:gp.ch,cls:gp.cls,tris:0,parts:0};
+    const cw=gp.ctr;
+    for(const pt of gp.parts){const a=A[pt.ai];let g;try{g=decodeGeometry(G[a.geom],rwv);}catch(e){continue;}
+      const W=fWorld(a.frame),iW=TF.inv(W),cl=TF.pt(cw,iW);   // guruh markazi -- atomic fazosida
+      const fn=new Map();for(const t of pt.tris){const i=[0,1,2].map(k=>g.tris[t*4+k]),P=i.map(v=>[g.pos[v*3],g.pos[v*3+1],g.pos[v*3+2]]);
+        const n=v3x([P[1][0]-P[0][0],P[1][1]-P[0][1],P[1][2]-P[0][2]],[P[2][0]-P[0][0],P[2][1]-P[0][1],P[2][2]-P[0][2]]);for(const v of i){const q=fn.get(v)||[0,0,0];q[0]+=n[0];q[1]+=n[1];q[2]+=n[2];fn.set(v,q);}}
+      // vertexlar (2 mm tashqariga) -- avval hammasi, keyin quti proyeksiyasi bo'yicha UV (har yuz turi o'z vertexlari bilan)
+      const P0=new Map(),N0=new Map();
+      for(const t of pt.tris)for(let k=0;k<3;k++){const v=g.tris[t*4+k];if(P0.has(v))continue;
+        const p=[g.pos[v*3],g.pos[v*3+1],g.pos[v*3+2]],n=v3n(g.nrm?[g.nrm[v*3],g.nrm[v*3+1],g.nrm[v*3+2]]:fn.get(v));
+        // siljitish yo'nalishi: normal, guruh markazidan TASHQARIGA (normallari teskari modelda ham)
+        const d=[p[0]-cl[0],p[1]-cl[1],p[2]-cl[2]],s=(n[0]*d[0]+n[1]*d[1]+n[2]*d[2])<0?-1:1;
+        P0.set(v,[p[0]+n[0]*SB_OFF*s,p[1]+n[1]*SB_OFF*s,p[2]+n[2]*SB_OFF*s]);N0.set(v,n);}
+      if(!P0.size)continue;
+      const lo=[1e9,1e9,1e9],hi=[-1e9,-1e9,-1e9];for(const q of P0.values())for(let c=0;c<3;c++){if(q[c]<lo[c])lo[c]=q[c];if(q[c]>hi[c])hi[c]=q[c];}
+      const ex=[0,1,2].map(c=>Math.max(hi[c]-lo[c],1e-6)),ax=[0,1,2].sort((p,q)=>ex[q]-ex[p]),LA=ax[0],nc=Math.max(1,Math.round(ex[LA]/SB_CELL)),cell=ex[LA]/nc;
+      const vm=new Map(),pos=[],nrm=[],uvs=[],tris=[];
+      for(const t of pt.tris){const ii=[0,1,2].map(k=>g.tris[t*4+k]),Q=ii.map(v=>P0.get(v)),fnr=v3x([Q[1][0]-Q[0][0],Q[1][1]-Q[0][1],Q[1][2]-Q[0][2]],[Q[2][0]-Q[0][0],Q[2][1]-Q[0][1],Q[2][2]-Q[0][2]]);
+        const dm=[0,1,2].reduce((b,c)=>Math.abs(fnr[c])>Math.abs(fnr[b])?c:b,0);
+        let ua,va;if(dm===LA){ua=ax[1]===dm?ax[2]:ax[1];va=[0,1,2].find(c=>c!==dm&&c!==ua);}else{ua=LA;va=[0,1,2].find(c=>c!==dm&&c!==LA);}
+        const o=[];for(const v of ii){const key=v+'|'+dm;let ni=vm.get(key);
+          if(ni===undefined){ni=pos.length/3;vm.set(key,ni);const q=P0.get(v),n=N0.get(v);pos.push(q[0],q[1],q[2]);nrm.push(n[0],n[1],n[2]);
+            const cu=ua===LA?cell:ex[ua]/Math.max(1,Math.round(ex[ua]/SB_CELL)),cv=ex[va]/Math.max(1,Math.round(ex[va]/SB_CELL));   // har yuzda modullar matritsasi (~8.5 sm)
+            uvs.push((q[ua]-lo[ua])/cu,(q[va]-lo[va])/cv);}
+          o.push(ni);}
+        tris.push(o[0],o[1],o[2],0);}
+      const nV=pos.length/3;if(nV>65535){rep.warn.push((a.frame.name||'?')+': nusxa juda katta');continue;}
+      const tx=sbLedTexture(gp.lit),tn=tx.name;if(!texs.has(tn))texs.set(tn,tx);
+      const day=AND?new Uint8Array(nV*4).fill(255):null;
+      const gch=buildGeometry({pos:new Float32Array(pos),nrm:new Float32Array(nrm),uv:new Float32Array(uvs),day,night:null,tris,materials:[{color:[...SB_MARK[gp.k],255],tex:tn,mask:''}],fx2d:null},ver);
+      cqMatSurf(childs(child(gch,T.MATLIST),T.MATERIAL)[0],SURF[0],SURF[1],SURF[2],null);
+      const nm='itsb_'+gp.k+'_'+R.parts;let fc=F.find(f=>(f.name||'').toLowerCase()===nm&&f.par===a.frame);
+      if(fc){fc.r=[1,0,0,0,1,0,0,0,1];fc.p=[0,0,0];fc.dirty=true;}
+      else{let nn=nm,j=0;while(F.some(f=>(f.name||'').toLowerCase()===nn))nn=nm+'x'+(++j);fc=anNewFrame(nn,a.frame,[1,0,0,0,1,0,0,0,1],[0,0,0],ver);tail.push(fc);F.push(fc);}
+      back.push({f:fc,g:gch,fx:false,hide:true});R.tris+=pt.tris.length;R.parts++;rep.copies++;}
+    rep.tris+=R.tris;rep.groups.push(R);}
+  if(!rep.copies)return{dff:bytes,tex:[],report:Object.assign(rep,{err:'Migalka nusxasini yasab bo‘lmadi'})};
+  F.splice(ctx.nF);
+  anCommit(ctx,null,tail,[],back);
+  return{dff:serialize(ctx.roots),tex:[...texs.values()],report:rep};
+}
+/* TXD -> o'rtacha ranglar (sbScan uchun) */
+function sbTexAvg(list){const m=new Map();for(const t of list||[]){if(!t||!t.rgba||!t.name)continue;const n=t.w*t.h,st=Math.max(1,Math.floor(n/4096));let s=[0,0,0],c=0;
+  for(let i=0;i<n;i+=st){const a=t.rgba[i*4+3];if(a<8)continue;s[0]+=t.rgba[i*4];s[1]+=t.rgba[i*4+1];s[2]+=t.rgba[i*4+2];c++;}
+  if(c)m.set(String(t.name).toLowerCase(),s.map(v=>v/c));}return m;}
+
+root.DFF={T,parseChunks,serialize,parseDff,decodeGeometry,buildGeometry,build2dfx,buildClump,buildCol3,addDecalAtomic,removeAtomics,editDoors,scanDoors,doorStyleParams,frontEdgeAxis,topEdgeAxis,rwVersion,BW,sizeOf,child,childs,liveryScan,liveryBounds,applyLivery,LIV_FX,decalGroups,dropGroups,applyLogos,LOGO_PLACES,limoScan,applyLimo,strobeScan,strobeBuild,strobeAt,strobePools,strobeCore,strobeHalo,strobeLampPt,strobeLampSplit,strobeLampSplitScan,STROBE_NONAUTO,STROBE_MAXCOR,STROBE_DUAL_ORDER,STROBE_HALO,STROBE_CORE,STROBE_PAT,STROBE_COL,STROBE_GROUPS,SA_VEH_IDS,lampRecolor,lampClassify,lampRetexDff,LAMP_SKIP,lampFixScan,lampFixApply,LF_ROLES,LF_CODES,LF_ATLAS,LF_IVF,neonScan,neonElems,neonTimeline,neonAt,neonCull,neonVisible,neonLightK,neonBuild,neonStripApply,neonHex,NEON_COLS,NEON_MODES,NEON_STRIP_COL,NEON_LIM,NEON_POOL_I,NEON_CULL,animScan,animApply,animBuild,animHasFrames,anWiperAt,anAngle,AN_WIPE,AN_KEYS,AN_FN,AND_SYM,AND_OFF,TOUCH_ZONES,WIDGET_CTL,HORN_WIDGET,cqApply,cqBuild,cqScan,cqFrontCount,cqTexture,cqRainbow,CQ_MARK,CQ_KINDS,CQ_TURN,CQ_TURN_RGB,CQ_GLOW_SPEC,CQ_GLOW_BITS,lampBlock,LF_TURN_KEY,exBuild,EX_FX,EX_FREQ,wheelScan,wheelTarget,wheelApply,wheelTexPlan,txdRawList,txdPutRaw,vinylRegions,_t:{dffCtx,anCommit,anNewFrame,fWorld,TF,decodeGeometry},lyukScan,lyukApply,lyukBuild,lyukMeta,lyukHas,sbScan,sbApply,sbTexAvg,SB_BUFSZ,sbClass,SB_MARK,SB_MARK_INT,SB_COL,SB_MAX,sbMarkOf,hdScan,hdPlan,hdApply,hdBuild,hdDescribe,HD_F,HD_OFF,HD_PH,HD_CP,HD_MARK,lyukPoseRel,LK_TINT,LK_SPEED,LK_PANEL,LK_K};
 })(GV);
 /* ---- extension: DFF materials with textures list helper, RW 3.6 version constants ---- */
 (function(G){
@@ -7503,7 +7717,7 @@ class Viewer{
         if(!o.mesh.mat.tex&&(o.mesh.mat.shaderName||'').indexOf('vehicle_paint')===0){cr=0.65;cg=0.1;cb=0.1;} // paint preview
         if(tex&&(o.mesh.mat.shaderName||'').indexOf('vehicle_paint')===0){cr=cg=cb=1;}
         gl.uniform4f(L.uCol,cr,cg,cb,o.alpha);gl.uniform1f(L.uLit,o.noN?0:1);gl.uniform1f(L.uShine,o.shine&&this.opt.shine!==false?0.75:0);if(hlM){gl.uniform1f(L.uUseTex,0);gl.uniform4f(L.uCol,1.0,0.42,0.02,1);gl.uniform1f(L.uShine,0);}gl.uniform3f(L.uTint,hlM?0.25:hl?0.18:0,hlM?0.08:hl?0.12:0,0);
-        if(CQV&&!this.opt.wire){if(col[0]===255&&col[1]===255&&col[2]>=245&&col[2]<=250){gl.uniform1f(L.uLit,0);gl.uniform1f(L.uShine,0);gl.uniform3f(L.uTint,0.06,0.06,0.06);}   // chiroq nusxasi: o'z rangida yonadi
+        if(CQV&&!this.opt.wire){if(col[0]===255&&col[1]===255&&((col[2]>=245&&col[2]<=250)||(col[2]>=236&&col[2]<=239))){gl.uniform1f(L.uLit,0);gl.uniform1f(L.uShine,0);gl.uniform3f(L.uTint,0.06,0.06,0.06);}   // chiroq nusxasi: o'z rangida yonadi
           else if(o.mesh.mat.glow&&CQV.glow){const g=CQV.glow;gl.uniform1f(L.uLit,0);gl.uniform1f(L.uShine,0);gl.uniform4f(L.uCol,g[0]/255,g[1]/255,g[2]/255,o.alpha);gl.uniform3f(L.uTint,0.1*g[0]/255,0.1*g[1]/255,0.1*g[2]/255);}}   // tungi nur
         if(LS&&!this.opt.wire){const lk0=LK[(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)];if(lk0){const lk=lk0[0],kd=lk0[1],rear=kd==='r';gl.uniform1f(L.uUseTex,0);gl.uniform1f(L.uShine,0);
           const isLT=/^vehiclelights(128)?$/i.test(o.mesh.mat.tex||'');
@@ -8499,6 +8713,17 @@ async function editPipeline(why){
       if(R.copies.length||R.glow)info.push('Chiroqlar DFF '+PL+' tayyorlandi — «Skript qaysi o‘yin uchun» o‘zgartirilsa, DFF o‘zi qayta tayyorlanadi; o‘yinga shu DFF + TXD + skriptni birga o‘rnating.');
       for(const w of R.warn)warn.push('Chiroqlar: '+w);
       if(cqTex&&!tp&&!(L.on&&L.img)&&!LGs.items.length)warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da faqat chiroq nusxalari teksturalari bor. Mashinaning o‘z TXD sini qo‘shing.');}
+    let sbRep=null,sbTex=false;
+    if(S.strobe&&S.strobe.barOn){ // tomdagi migalka modeli (sbar_dff.js): qizil / ko'k qismlarning yonadigan nusxalari -- stroboskop skripti naqsh bo'yicha ko'rsatadi
+      const sa=isAnd(),sr=G.DFF.sbApply(dff,{plat:sa?'android':'pc',texAvg:sbTexAvgOf(it)}),R=sr.report;
+      if(R.err)warn.push('Migalka: '+R.err+'.');
+      else{dff=sr.dff;changed=true;sbRep=R;
+        for(const t of sr.tex){txd=G.txdPutTexture(txd,G.makeTxdTexture(t.name,t.rgba,t.w,t.h,{compress:'none',mips:true}));sbTex=true;
+          G.poolAdd({name:t.name,w:t.w,h:t.h,rgba:t.rgba,src:null,fmtName:'Migalka nusxasi (rang)',levels:1,origin:'sb:'+t.name});}
+        if(sr.tex.length&&viewer&&viewer.ok)viewer.invalidateTextures();
+        info.push('🚨 Tomdagi migalka: '+R.groups.map(g=>({L:'chapda',R:'o‘ngda',C:'o‘rtada'})[g.ch]+' '+(g.cls==='red'?'qizil':'ko‘k')+' '+g.tris.toLocaleString()+' poligon').join(', ')+' — yonadigan nusxa qo‘shildi ('+(sa?'📱 telefon':'🖥 kompyuter')+' uchun). O‘yin ularni o‘zi chizmaydi — «🚨 Stroboskop» skripti naqsh bo‘yicha yoqadi. DFF + TXD + skriptni birga o‘rnating.');
+        if(!tp&&!(L.on&&L.img)&&!LGs.items.length&&!cqTex)warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da faqat migalka teksturalari bor. Mashinaning o‘z TXD sini qo‘shing.');}
+      for(const w of R.warn||[])warn.push('Migalka: '+w+'.');}
     const prev=S.result&&S.result.kind==='edit'&&S.result.src===it.file?S.result:null;
     let dff0=null,keep=null,drop=new Set(),removedInfo=null,stats0=null;
     // qo'lda o'chirilgan qismlar (atomic raqamlari): oyna nusxalari (itsh_gw_*) atomic ro'yxati BOSHIGA qo'yiladi -- ularning soni o'zgarsa
@@ -8509,9 +8734,9 @@ async function editPipeline(why){
       dff0=dff;stats0=dffTotals(dff0);const dX=new Set(drop);if(cqLinks)for(const [c,s0] of cqLinks)if(drop.has(s0))dX.add(c);const o=G.DFF.removeAtomics(dff0,dX);dff=o.dff;keep=o.keep;}
     const st=dffTotals(dff);
     if(!changed&&!warn.length)info.push('Hech narsa o‘zgarmadi — fayl asl holicha qaytadi.');
-    const r={kind:'edit',src:it.file,name:it.model.name,dff,txd,txdName,txdChanged:!!liv||LGs.items.length>0||lcApplied||cqTex||whTex||vtTex.length>0,vinyl:VIN.list.length,texts:TXI.list.length,wheel:wheelRep,anim:animMeta,lyuk:lyukMeta,lyukRep,hd:hdVals,logos:LGs.items.length,liv:liv?{tex:L.tex,stats:liv.stats}:null,doors:E.doorsDone,limo:limo&&limo.stats?limo.stats:null,
+    const r={kind:'edit',src:it.file,name:it.model.name,dff,txd,txdName,txdChanged:!!liv||LGs.items.length>0||lcApplied||cqTex||whTex||sbTex||vtTex.length>0,vinyl:VIN.list.length,texts:TXI.list.length,wheel:wheelRep,anim:animMeta,lyuk:lyukMeta,lyukRep,hd:hdVals,logos:LGs.items.length,liv:liv?{tex:L.tex,stats:liv.stats}:null,doors:E.doorsDone,limo:limo&&limo.stats?limo.stats:null,
       model:G.modelFromDff(dff,it.model.name+'.dff',{doorAngle:E.angle}),report:{stats:{geoms:st.geoms,tris:st.tris,verts:st.verts,frames:st.frames,textures:0},info,warnings:warn},changed,edits:doorRep};
-    r.gwFront=gwF;r.cqLink=cqLinks;r.cqPlat=cqPlat;
+    r.gwFront=gwF;r.cqLink=cqLinks;r.cqPlat=cqPlat;r.sb=sbRep;r.sbPlat=sbRep?sbRep.plat:null;
     if(drop.size){r.dff0=dff0;r.stats0={geoms:stats0.geoms,tris:stats0.tris,verts:stats0.verts};r.removedOrig=drop;r.removedInfo=removedInfo;r.cur2orig=keep;}
     const keepHid=prev&&why==='preview'?S.hiddenSa:new Set();
     S.result=r;S.view='sa';S.hiddenSa=keepHid;S.hl=null;
@@ -8853,6 +9078,11 @@ const STROBE_KEYS=[['221',']  (yopiq kvadrat qavs — videodagi moddagidek)'],['
 const STROBE_COLS=[['white','Oq'],['blue','Ko‘k'],['red','Qizil'],['amber','To‘q sariq'],['green','Yashil'],['purple','Binafsha'],['rb','Chapi qizil / o‘ngi ko‘k'],['br','Chapi ko‘k / o‘ngi qizil']];
 function strobeSrcBytes(it){return S.result&&S.result.kind==='edit'&&S.result.src===it.file?S.result.dff:it.raw;}   // limuzin bo'lsa -- cho'zilgan modeldan
 function strobeScanOf(it){const b=strobeSrcBytes(it),M=S.strobe;if(M.scan&&M.scanFor===b)return M.scan;M.scan=G.DFF.strobeScan(b);M.scanFor=b;M.cache=null;return M.scan;}
+/* tomdagi migalka modeli (sbar_dff.js): mashina TXD si o'rtacha ranglari + aniqlash (keshlangan) */
+const SB_TA=new WeakMap();
+function sbTexAvgOf(it){let tp=null;try{tp=editPickTxd(it);}catch(e){}if(!tp||!tp.raw)return null;if(SB_TA.has(tp.raw))return SB_TA.get(tp.raw);let m=null;try{m=G.DFF.sbTexAvg(G.parseTXD(tp.raw));}catch(e){m=null;}SB_TA.set(tp.raw,m);return m;}
+function sbScanOf(it){const b=strobeSrcBytes(it),ta=sbTexAvgOf(it),M=S.strobe;if(M.sb&&M.sb.b===b&&M.sb.ta===ta)return M.sb.r;let r;try{r=G.DFF.sbScan(b,{texAvg:ta});}catch(e){r={groups:[],has:0,warn:[e.message]};}M.sb={b,ta,r};M.cache=null;return r;}
+const sbDesc=sb=>sb.groups.map(g=>({L:'chapda',R:'o‘ngda',C:'o‘rtada'})[g.ch]+' '+(g.cls==='red'?'qizil':'ko‘k')).join(', ');
 function strobeModelName(it){const raw=String(it.model&&it.model.name||it.file||'car').toLowerCase().replace(/^.*[\\/]/,'').replace(/\.dff$/,'');
   const tok=raw.split(/[^a-z0-9]+/).filter(Boolean);for(let i=tok.length-1;i>=0;i--)if(G.DFF.SA_VEH_IDS[tok[i]])return tok[i];   // "infernus (1)", "06ab-infernus" -> infernus
   return raw.replace(/[^a-z0-9_]/g,'')||'car';}
@@ -8920,7 +9150,9 @@ const ANDROID_HOWTO=f=>['1) Telefondagi o‘yinda CLEO bo‘lishi kerak — ikki
 const strobeGlowOn=()=>isAnd()?S.strobe.glowAnd!==false:!!S.strobe.glow;   // telefonda tashqi nurlar standart -- yoqiq (haqiqiy chiroqlar faqat 32-bit 2.00 da ishlaydi)
 // telefon: key -- 7 (signal tugmasi) yoki ekran bo'lagi; ctl -- qanday yoqiladi (CTL_UI); 'none' -- tugmasiz
 const andKey=(M,defZone)=>{const c=M.ctl||'hdbl';if(c==='none')return null;if(c==='zone'){if(M.zone==null||M.zone==='-')M.zone=String(defZone);return +M.zone;}return G.DFF.HORN_WIDGET;};
-function strobeCfg(it){const M=S.strobe,A=isAnd();if(A&&M.ctl==null)M.ctl='hdbl';if(A&&M.zone==null)M.zone='4';if(M.hold==null)M.hold=500;const c={plat:A?'android':'pc',model:strobeModel(it),key:A?andKey(M,4):(M.key==='-'?null:+M.key),hold:+M.hold,pattern:M.pattern,speed:M.speed,size:M.size,ground:M.ground,lamps:!!M.lamps,glow:strobeGlowOn(),groups:M.groups};if(A)c.ctl=M.ctl;return c;}
+function strobeCfg(it){const M=S.strobe,A=isAnd();if(A&&M.ctl==null)M.ctl='hdbl';if(A&&M.zone==null)M.zone='4';if(M.hold==null)M.hold=500;const c={plat:A?'android':'pc',model:strobeModel(it),key:A?andKey(M,4):(M.key==='-'?null:+M.key),hold:+M.hold,pattern:M.pattern,speed:M.speed,size:M.size,ground:M.ground,lamps:!!M.lamps,glow:strobeGlowOn(),groups:M.groups};if(A)c.ctl=M.ctl;
+  if(M.groups.roof&&M.groups.roof.on&&M.barUse!==false){const sb=sbScanOf(it);if(sb.groups.length)c.bar=sb.groups.map(g=>({k:g.k,ch:g.ch,c:g.c,p:g.p}));}
+  return c;}
 function strobeMake(it){const sc=strobeScanOf(it),cfg=strobeCfg(it),k=JSON.stringify(cfg),M=S.strobe;if(M.cache&&M.cache.k===k&&M.cache.sc===sc)return M.cache.r;const r=G.DFF.strobeBuild(sc,cfg);M.cache={k,sc,r};return r;}
 /* 3D oynada animatsiya: skript bilan aynan bir xil vaqt jadvali */
 function strobePreview(on){
@@ -8932,6 +9164,10 @@ function strobePreview(on){
     for(const l of on2){const H=G.DFF.STROBE_HALO,Cr=G.DFF.STROBE_CORE;if(l.d)out.push({p:l.p,c:G.DFF.strobeHalo(l.c),s:l.s*H*0.75},{p:l.p,c:G.DFF.strobeCore(l.c),s:l.s*Cr*0.75});else out.push({p:l.p,c:l.c,s:l.s*H*0.75});
       if(S.strobe.ground){const pl=G.DFF.strobePools(sc,l);out.push({ground:true,p:[pl.p[0],pl.p[1],sc.groundZ+0.02],c:l.c.map(v=>v*pl.int/255),s:pl.size});}}
     return out;},
+    pm:(pt,t)=>{const c=pt.meshes&&pt.meshes[0]&&pt.meshes[0].mat.color,k=c?G.DFF.sbMarkOf(c):-1;if(k<0)return null;
+      const it=curItem();if(!it||!it.raw)return false;let r;try{r=strobeMake(it);}catch(e){return false;}const on=new Set(G.DFF.strobeAt(r.lights,r.tl,t));
+      return r.lights.some(l=>l.bar===k&&on.has(l))?pt.matrix:false;},
+    cq:()=>({}),
     // haqiqiy chiroq oynalari (SA rang kodli materiallar): skriptdagidek -- yonishi kerak bo'lgani yonadi, qolgani o'chiq
     lamps:t=>{const it=curItem();if(!it||!it.raw||!S.strobe.preview||S.tab!=='edit')return null;let r;try{r=strobeMake(it);}catch(e){return null;}
       const L={fl:false,fr:false,rl:false,rr:false,ctl:!!r.lamps};if(!r.lamps)return L;const on=new Set(G.DFF.strobeAt(r.lights,r.tl,t));
@@ -8959,15 +9195,25 @@ function paneStrobe(p,it){
   szI.addEventListener('input',()=>{M.size=+szI.value;szL.textContent=M.size.toFixed(2);upd();});
   if(GL)p.appendChild(row('Chiroq kattaligi',el('div',{style:'display:flex;gap:8px;align-items:center;flex:1'},[szI,szL])));
   // chiroq guruhlari
+  const sb=sbScanOf(it),sbHas=sb.groups.length>0&&M.barUse!==false;
   const box=el('div',{class:'card',style:'padding:8px'});
-  for(const [g,lbl0] of G.DFF.STROBE_GROUPS){const st=M.groups[g];if(!GL&&g!=='head'&&g!=='rear')continue;   // tashqi nursiz: faqat haqiqiy chiroqlar
+  for(const [g,lbl0] of G.DFF.STROBE_GROUPS){const st=M.groups[g];if(!GL&&g!=='head'&&g!=='rear'&&!(g==='roof'&&sbHas))continue;   // tashqi nursiz: faqat haqiqiy chiroqlar (va migalka modeli)
     const lbl=GL?lbl0:g==='head'?'Faralar (chap / o‘ng fara oynasi)':'Orqa chiroqlar (chap / o‘ng)';
     const cb=el('input',{type:'checkbox',id:'strbG_'+g,checked:!!st.on});cb.addEventListener('change',()=>{st.on=cb.checked;upd();});
     const cs=el('select',{id:'strbC_'+g},STROBE_COLS.map(([v,t])=>el('option',{value:v,text:t,selected:st.color===v})));cs.addEventListener('change',()=>{st.color=cs.value;upd();});
     const kids=GL?[cb,el('span',{text:lbl,style:'flex:1'}),cs]:[cb,el('span',{text:lbl,style:'flex:1'})];
-    if(g==='roof'){const ps=el('select',{id:'strbRoofPos'},[['left','Chap tomonda (haydovchi ustida)'],['center','O‘rtada']].map(([v,t])=>el('option',{value:v,text:t,selected:st.pos===v})));ps.addEventListener('change',()=>{st.pos=ps.value;upd();});kids.push(ps);}
+    if(g==='roof'&&sbHas){kids.length=0;kids.push(cb,el('span',{text:'Tomdagi migalka — modelning o‘zi ('+sbDesc(sb)+')',style:'flex:1'}),el('span',{class:'note',id:'strbRoofModel',text:'rangi va joyi — modeldagidek'}));}
+    else if(g==='roof'){const ps=el('select',{id:'strbRoofPos'},[['left','Chap tomonda (haydovchi ustida)'],['center','O‘rtada']].map(([v,t])=>el('option',{value:v,text:t,selected:st.pos===v})));ps.addEventListener('change',()=>{st.pos=ps.value;upd();});kids.push(ps);}
     box.appendChild(el('div',{style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:3px 0'},kids));}
   p.appendChild(box);
+  if(sb.groups.length||sb.has){const R0=S.result&&S.result.kind==='edit'&&S.result.src===it.file?S.result:null,done=!!M.barOn&&!!(R0&&R0.sb&&R0.sb.copies);
+    const ro=M.groups.roof&&M.groups.roof.on;
+    p.appendChild(el('div',{class:'note',id:'strbBarNote',style:'border-left:3px solid #f43f5e;padding-left:10px',html:'🚨 <b>Tomdagi migalka modeli topildi</b>'+(sb.groups.length?': '+esc(sbDesc(sb))+' ('+sb.groups.map(g=>g.tris).reduce((a,b)=>a+b,0).toLocaleString()+' poligon)':'')+'. '+
+      'O‘yin migalkani o‘zi hech qachon yoqmaydi. <b>GTA 5 dagidek</b> yonishi uchun sayt migalka qismlarining yonadigan nusxasini DFF ga qo‘shadi: stroboskop yoqilganda ular naqsh bo‘yicha yonib-o‘chadi (chapi va o‘ngi navbat bilan), korona va yorug‘lik ham aynan migalka joyidan chiqadi.'+
+      (sb.has&&!done?'<br>✓ Bu DFF da yonadigan nusxalar <b>allaqachon bor</b> — skript ularni o‘zi topadi.':'')+
+      (done?'<br>✓ <b>Qo‘shildi</b> ('+(R0.sbPlat==='android'?'📱 telefon':'🖥 kompyuter')+' uchun). Endi pastdagi <b>ZIP</b> ni (skript + DFF + TXD) yuklab, uchalasini birga o‘rnating.':'')+
+      (ro?'':'<br>⚠ «Tomdagi migalka» guruhi o‘chiq — skriptda migalka yonmaydi, uni yoqing.')}));
+    if(sb.groups.length)p.appendChild(el('div',{class:'row'},[el('button',{class:done?'btn':'btn pri',type:'button',id:'btnStrbBar',onclick:async()=>{M.barOn=!done;M.cache=null;await editPipeline('strobebar');renderPane();if(M.barOn&&!M.preview)strobePreview(true);}},[done?'↩ Migalkani asl holiga qaytarish':'🚨 Migalkani yonadigan qilish (DFF)'])]));}
   const gr=el('input',{type:'checkbox',id:'strbGround',checked:!!M.ground});gr.addEventListener('change',()=>{M.ground=gr.checked;upd();});
   if(GL)p.appendChild(row('Yo‘lga va atrofga yorug‘lik tushsin (GTA 5 dagidek)',gr));
   {
@@ -9022,7 +9268,13 @@ function paneStrobe(p,it){
         '6) O‘chirish: CLEO papkasidan '+base+'.cs ni o‘chiring. DFF/TXD ga tegilmaydi.','',
         'Eslatma: bu effekt faqat sizning o‘yiningizda ko‘rinadi — SA-MP serverlarida boshqa o‘yinchilar uni ko‘rmaydi.',
         base+'_manba.txt — skriptning Sanny Builder matni (xohlasangiz o‘zgartirib, Sanny Builder bilan qayta kompilyatsiya qilishingiz mumkin).'].join('\r\n');
-      if(AND)ctlGot(M,['ctl']);save(base+(AND?'_telefon':'')+'.zip',G.zipStore([{name:base+'.'+r.ext,data:r.cs},{name:base+'_manba.txt',data:new TextEncoder().encode(r.src.replace(/\n/g,'\r\n'))},{name:'OQING_stroboskop.txt',data:new TextEncoder().encode(txt)}]),'application/zip');}catch(e){toast('Xato: '+e.message);}}},[AND?'⬇ ZIP (.csa + yo‘riqnoma)':'⬇ ZIP (.cs + yo‘riqnoma)']);
+      const RB=S.result&&S.result.kind==='edit'&&S.result.src===it.file&&S.result.sb&&S.result.sb.copies?S.result:null,files=[{name:base+'.'+r.ext,data:r.cs},{name:base+'_manba.txt',data:new TextEncoder().encode(r.src.replace(/\n/g,'\r\n'))}];
+      let txt2=txt;if(RB){txt2=txt2.replace('DFF/TXD ga tegilmaydi.','Migalkani butunlay olib tashlash uchun mashinaning asl DFF / TXD sini qaytaring.');const dn=(RB.name||nm)+'.dff';files.push({name:dn,data:RB.dff});if(RB.txd&&RB.txdChanged)files.push({name:(RB.name||nm)+'.txd',data:RB.txd});
+        txt2+='\r\n\r\n'+['MIGALKA (tomdagi chiroq modeli): '+dn+(RB.txd&&RB.txdChanged?' va '+(RB.name||nm)+'.txd':'')+' — migalkaning yonadigan nusxalari qo‘shilgan ('+(RB.sbPlat==='android'?'telefon':'kompyuter')+' uchun).',
+          '   Ularni mashinaning eski DFF / TXD si o‘rniga o‘rnating (IMG ichiga yoki modloader orqali) — skript faqat shu DFF dagi nusxalarni yoqadi.',
+          '   O‘yin nusxalarni o‘zi chizmaydi: stroboskop yoqilganda migalka naqsh bo‘yicha yonadi, o‘chirilganda yoki mashinadan tushganda o‘chadi.'].join('\r\n');}
+      files.push({name:'OQING_stroboskop.txt',data:new TextEncoder().encode(txt2)});
+      if(AND)ctlGot(M,['ctl']);save(base+(AND?'_telefon':'')+'.zip',G.zipStore(files),'application/zip');}catch(e){toast('Xato: '+e.message);}}},[(S.result&&S.result.kind==='edit'&&S.result.src===it.file&&S.result.sb&&S.result.sb.copies)?(AND?'⬇ ZIP (.csa + DFF + TXD + yo‘riqnoma)':'⬇ ZIP (.cs + DFF + TXD + yo‘riqnoma)'):(AND?'⬇ ZIP (.csa + yo‘riqnoma)':'⬇ ZIP (.cs + yo‘riqnoma)')]);
   p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap'},[pv,dl,zp]));
   if(AND)p.appendChild(el('div',{class:'note',id:'strbInstAnd',style:'border-left:3px solid #f43f5e;padding-left:10px',html:'<b>O‘rnatish (telefon):</b> o‘yinda <b>CLEO</b> bo‘lishi kerak — AML + CLEOMod (GTA SA 2.00, 32-bit) yoki CLEO Android 2.0.1. <code>.csa</code> faylni CLEO papkasiga tashlang: AML da <code>Android/data/com.rockstargames.gtasa/cleo/</code>, CLEO Android da <code>/cleo/sa/</code>. Batafsil — ZIP ichidagi yo‘riqnomada.'}));
   else p.appendChild(el('div',{class:'note',style:'border-left:3px solid #f43f5e;padding-left:10px',html:'<b>O‘rnatish:</b> o‘yinda <b>CLEO 4/5</b> bo‘lishi kerak. <code>.cs</code> faylni o‘yin papkasidagi <code>CLEO</code> papkasiga tashlang. Avvalgi versiyadagi stroboskop <code>.cs</code> faylini o‘chiring yoki shu yangisi bilan almashtiring. Limuzin qilgan bo‘lsangiz, chiroqlar cho‘zilgan mashinaning nuqtalariga qo‘yiladi (orqa chiroqlar ham).'}));
@@ -9349,7 +9601,7 @@ function cqGlowAt(t){const M=S.chiroq,L=Math.max(20,Math.min(100,+M.lvl||100))/1
   if(M.mode==='pulse'){const k=0.25+0.75*(0.5-0.5*Math.cos(2*Math.PI*((t%1800)/1800)));return sc([255*k,255*k,255*k]);}
   return sc([255,255,255]);}
 /* chiroqlar DFF i platformaga qarab tayyorlanadi (kompyuter: vertex ranglarisiz, telefon: oq vertex ranglari) -- platforma o'zgarsa qayta tayyorlanadi */
-function cqPlatChanged(){const R=S.result;if(!R||R.kind!=='edit'||!R.cqPlat)return;if(R.cqPlat===(isAnd()?'android':'pc'))return;
+function cqPlatChanged(){const R=S.result;if(!R||R.kind!=='edit')return;const want=isAnd()?'android':'pc';if(!((R.cqPlat&&R.cqPlat!==want)||(R.sbPlat&&R.sbPlat!==want)))return;
   setTimeout(()=>{editPipeline('plat').then(()=>{toast('Chiroqlar DFF '+(isAnd()?'telefon':'kompyuter')+' uchun qayta tayyorlandi');}).catch(()=>{});},0);}
 function chiroqPreview(on){
   S.chiroq.preview=!!on;if(!viewer||!viewer.ok)return;
