@@ -3851,7 +3851,14 @@ const CQ_TURN_RGB=[255,122,0];        // burilish nusxasining rangi (to'q sariq)
 const CQ_GLOW_SPEC=0.37109375;        // 0x3EBE0000 -- tungi nur belgisi (material specular)
 const CQ_GLOW_BITS=0x3EBE0000;
 const CQ_OFF=0.003;                   // nusxa chiroq oynasidan 3 mm tashqarida (16-bit chuqurlik buferida ham ustma-ust tushmaydi)
-const CQ_LIT_SURF=[16,0,1];           // ambient 16 (o'yinning yongan chirog'i telefonda 5.0); asosiy yorqinlik -- oq vertex ranglari (prelit): telefon shaderida
+/* Yorqinlik platformaga qarab (ikkalasi ham o'yinda yonadi; tanlov foydalanuvchi videolari va telefon shader kodi bo'yicha):
+ *  KOMPYUTER: vertex ranglarisiz (oddiy geometriya -- birinchi versiyada o'yinda ko'ringan usul), ambient 20 (o'yinning o'z yongan chirog'i 5.0 --
+ *    4 baravar yorqin; tunda ham to'yinadi). Oq vertex ranglari (prelit) bilan nusxalar foydalanuvchining kompyuterida umuman ko'rinmadi
+ *    (faqat o'yin orqa chirog'ini yoqqan kadrlarda chiqdi -- grafika modi / D3D holati bilan bog'liq), shuning uchun kompyuterda ishlatilmaydi.
+ *  TELEFON: oq vertex ranglari (libGTASA shaderi: Out_LightingColor = AmbientLightColor*MaterialAmbient + prelit -- tunda ham to'liq yorqin),
+ *    ambient 5 (o'yinning o'z qiymati). */
+const CQ_LIT_SURF=[16,0,1];
+const CQ_SURF_PC=[20,0,1],CQ_SURF_AND=[5,0,1],CQ_GLOW_AMB_PC=20;           // ambient 16 (o'yinning yongan chirog'i telefonda 5.0); asosiy yorqinlik -- oq vertex ranglari (prelit): telefon shaderida
                                       // Out_LightingColor = Ambient*MaterialAmbient + prelit -> 1 ga qisiladi -- tun qanchalik qorong'i bo'lmasin to'liq yorqin
 const CQ_OFF_GL=0.0015;               // tungi nur nusxasi rasm / logodan 1,5 mm tashqarida
 const CQ_COLLAPSE=/^(door_(lf|rf|lr|rr)_dummy|bump_(front|rear)_dummy|wing_(lf|rf)_dummy|bonnet_dummy|boot_dummy|windscreen_dummy|exhaust_ok)$/i;
@@ -3882,11 +3889,16 @@ function cqApply(bytes,opt){
   // avvalgi yordamchilar (qayta tahrirda) olib tashlanadi -- qo'riqchi freymlari qoladi va qayta ishlatiladi
   {const s=cqScan(bytes);if(s.atoms.length){bytes=removeAtomics(bytes,new Set(s.atoms)).dff;rep.stripped=s.atoms.length;}}
   const ctx=dffCtx(bytes),{F,A,G,rwv,ver}=ctx,L=opt.lamps||{},wantL=!!(L.front||L.rear),texs=new Map();
-  const glowSet=new Set((opt.glow||[]).filter(Boolean).map(s=>String(s).toLowerCase()));
+  const glowSet=new Set((opt.glow||[]).filter(Boolean).map(s=>String(s).toLowerCase())),AND=opt.plat==='android',SURF=AND?CQ_SURF_AND:CQ_SURF_PC;rep.plat=AND?'android':'pc';
   // eski versiya asl materiallarni belgilagan edi (specular belgisi) -- endi faqat nusxalar belgilanadi, asl material odatiy holga qaytadi (RW specular dan foydalanmaydi)
   rep.unmarked=0;for(const gc of G){const ml=child(gc,T.MATLIST);if(!ml)continue;for(const m of childs(ml,T.MATERIAL)){const d=child(m,T.STRUCT).data;if(d.length>=28&&dvOf(d).getUint32(20,true)===CQ_GLOW_BITS){cqMatSurf(m,null,1.0,null,null);rep.unmarked++;}}}
-  // tungi nur: rasm / logo uchburchaklarining NUSXASI (o'z teksturasi, oq vertex ranglari -- tunda to'liq yorqin; skript kechasi ko'rsatadi, rangini o'zgartiradi)
-  if(!wantL&&!opt.turn&&!glowSet.size)return{dff:rep.stripped||rep.unmarked?serialize(ctx.roots):bytes,tex:[],report:rep};
+  // tungi nur. KOMPYUTER: rasm / logo materialining O'ZI belgilanadi (specular belgisi, oq, ambient 1.0) -- skript kechasi ambient ni oshiradi (birinchi versiyadagi,
+  //  o'yinda ko'ringan usul). TELEFON: uchburchaklarning NUSXASI (oq vertex ranglari -- tunda to'liq yorqin; skript kechasi ko'rsatadi, rangini o'zgartiradi).
+  rep.marked=0;
+  if(!AND&&glowSet.size){for(const gc of G){const ml=child(gc,T.MATLIST);if(!ml)continue;for(const m of childs(ml,T.MATERIAL)){const tx=child(m,T.TEXTURE),tn=tx?child(tx,T.STRING):null;
+    const nm=tn?String.fromCharCode(...tn.data).replace(/\0.*$/,''):'';if(!nm||!glowSet.has(nm.toLowerCase()))continue;cqMatSurf(m,1.0,CQ_GLOW_SPEC,null,[255,255,255]);rep.glow++;rep.marked++;}}}
+  const glowCopy=AND&&glowSet.size>0;
+  if(!wantL&&!opt.turn&&!glowCopy)return{dff:rep.stripped||rep.unmarked||rep.marked?serialize(ctx.roots):bytes,tex:[],report:rep};
   const nodeOf=f=>{let a=f,n=0;while(a&&n++<64){if(CQ_COLLAPSE.test(a.name||''))return a;a=a.par;}return null;};
   const under=(f,N)=>{let a=f,n=0;while(a&&n++<64){if(a===N)return true;a=a.par;}return false;};
   // mashina markazi (dunyo) -- nusxa yo'nalishini tekshirish uchun
@@ -3900,14 +3912,14 @@ function cqApply(bytes,opt){
     const {g,W}=D,uv0=g.uvs&&g.uvs[0];
     for(let t=0;t<g.nTri;t++){const mi=g.tris[t*4+3],m=g.materials[mi];if(!m)continue;const c=(m.color||[255,255,255]).slice(0,3),key=c.join(',');
       let kind=null,col=null;
-      if(glowSet.size&&m.tex&&glowSet.has(String(m.tex).toLowerCase()))kind='gl';
+      if(glowCopy&&m.tex&&glowSet.has(String(m.tex).toLowerCase()))kind='gl';
       else if(opt.turn&&key===CQ_TURN.join(',')){let x=0;for(let k=0;k<3;k++){const v=g.tris[t*4+k];x+=TF.pt([g.pos[v*3],g.pos[v*3+1],g.pos[v*3+2]],W)[0];}kind=x<0?'tl':'tr';col=CQ_TURN_RGB;}
       else if(wantL&&CQ_SA_CODE[key]&&/^vehiclelights128$/i.test(m.tex||'')){kind=CQ_SA_CODE[key];col=kind[0]==='f'?L.front:L.rear;if(!col)continue;
         if(uv0){let u=0,v=0;for(let k=0;k<3;k++){const q=g.tris[t*4+k];u+=uv0[q*2];v+=uv0[q*2+1];}u/=3;v/=3;
           if(lfAtlasNear(u,v,LF_ATLAS.amber)||lampBlock(((u%1)+1)%1,((v%1)+1)%1)===3)continue;}}   // sariq / maxsus (politsiya) joylar -- o'z rangida qoladi
       if(!kind)continue;const gk=ai+'|'+kind;let G2=groups.get(gk);if(!G2){G2={ai,kind,col,tris:[],mm:new Map()};groups.set(gk,G2);}G2.tris.push(t);if(kind==='gl'&&!G2.mm.has(mi))G2.mm.set(mi,G2.mm.size+1);}});
-  if(!groups.size){if(opt.turn&&!wantL)rep.warn.push('burilish roli berilgan chiroq qismi topilmadi');if(wantL&&!opt.turn)rep.warn.push('o‘yin yoqadigan fara / orqa chiroq (kod + vehiclelights128) topilmadi');if(glowSet.size)rep.warn.push('rasm / logo materiali topilmadi');
-    return{dff:rep.stripped?serialize(ctx.roots):bytes,tex:[],report:rep};}
+  if(!groups.size){if(opt.turn&&!wantL)rep.warn.push('burilish roli berilgan chiroq qismi topilmadi');if(wantL&&!opt.turn)rep.warn.push('o‘yin yoqadigan fara / orqa chiroq (kod + vehiclelights128) topilmadi');if(glowCopy)rep.warn.push('rasm / logo materiali topilmadi');
+    return{dff:rep.stripped||rep.unmarked||rep.marked?serialize(ctx.roots):bytes,tex:[],report:rep};}
   const back=[],tail=[],after=new Map(),sentOf=new Map();
   const hasOk=N=>A.some(a=>/_ok/i.test(a.frame.name||'')&&!/^itsh_sn/i.test(a.frame.name||'')&&under(a.frame,N));   // o'yin: strstr(nom, "_ok")
   for(const G2 of groups.values()){
@@ -3926,7 +3938,7 @@ function cqApply(bytes,opt){
     // yo'nalish: o'rtacha normal mashina markazidan tashqariga qarashi kerak (aks holda nusxa ichkariga suriladi)
     const aw=v3n(vm3(avg,W.r)),dir=[cw[0]-ctr[0],cw[1]-ctr[1],cw[2]-ctr[2]],sg=G2.kind==='gl'?1:(aw[0]*dir[0]+aw[1]*dir[1]+aw[2]*dir[2])<0?-1:1;   // tungi nur: kuzov normallari (tashqariga)
     for(let i=0;i<nV;i++){const sc=(G2.kind==='gl'?CQ_OFF_GL:CQ_OFF)*sg;pos[i*3]+=nrm[i*3]*sc;pos[i*3+1]+=nrm[i*3+1]*sc;pos[i*3+2]+=nrm[i*3+2]*sc;}
-    const day=new Uint8Array(nV*4).fill(255);   // oq vertex ranglari (prelit) -- tunda ham to'liq yorqin
+    const day=AND?new Uint8Array(nV*4).fill(255):null;   // telefon: oq vertex ranglari (prelit) -- tunda ham to'liq yorqin; kompyuter: yo'q (yuqoriga qarang)
     // UV: o'rtacha normalga tik tekislikka proyeksiya (tekstura markazi -- chiroqning o'rtasi)
     const N=v3n(avg),ax=Math.abs(N[0])<0.9?[1,0,0]:[0,1,0],U=v3n([N[1]*ax[2]-N[2]*ax[1],N[2]*ax[0]-N[0]*ax[2],N[0]*ax[1]-N[1]*ax[0]]),V=[N[1]*U[2]-N[2]*U[1],N[2]*U[0]-N[0]*U[2],N[0]*U[1]-N[1]*U[0]];
     let u0=1e9,u1=-1e9,v0=1e9,v1=-1e9;const pu=[],pv=[];
@@ -3943,7 +3955,7 @@ function cqApply(bytes,opt){
     else{for(let i=0;i<nV;i++)uvs.push(0.06+0.88*(u1>u0?(pu[i]-u0)/(u1-u0):0.5),0.06+0.88*(v1>v0?(pv[i]-v0)/(v1-v0):0.5));
       const tn=cqTexName(G2.col);if(!texs.has(tn))texs.set(tn,cqTexture(G2.col));
       gch=buildGeometry({pos:new Float32Array(pos),nrm:new Float32Array(nrm),uv:new Float32Array(uvs),day,night:null,tris,materials:[{color:[...CQ_MARK[G2.kind],255],tex:tn,mask:''}],fx2d:null},ver);
-      cqMatSurf(childs(child(gch,T.MATLIST),T.MATERIAL)[0],CQ_LIT_SURF[0],CQ_LIT_SURF[1],CQ_LIT_SURF[2],null);}
+      cqMatSurf(childs(child(gch,T.MATLIST),T.MATERIAL)[0],SURF[0],SURF[1],SURF[2],null);}
     // nusxaning O'Z freymi (nomida "_ok" / "_dam" yo'q -- o'yin unga OK/DAM belgisini bermaydi, Fix / shikast uni ko'rsatmaydi):
     //  yig'iladigan tugun ichida -- tugunning bolasi, tugundan keyin darhol (o'yin uni eng oxirida yig'adi -> uchib ketadigan bo'lak sifatida tanlanmaydi),
     //  lokal matritsa = chiroq freymining tugunga nisbatan matritsasi (o'yinda baribir e'tiborsiz -- asl qism bilan bir joyda); aks holda -- chiroq freymining bolasi (birlik)
@@ -3982,7 +3994,9 @@ function cqBuild(cfg){
   cfg=cfg||{};const AND=cfg.plat==='android',A=scmAsm(),LOFF=AND?0x594:0x584,blink=Math.max(200,Math.min(800,+cfg.blink||350)|0);
   const gw=Object.assign({mode:'own',rgb:[80,200,255],k:5,lvl:100,always:false},cfg.glow||{}),K=Math.max(1,Math.min(16,+gw.k||5));
   // tungi nur yorqinligi: nusxalar oq vertex ranglari bilan -- yorqinlikni material rangi belgilaydi (100 = to'liq)
-  const LV=Math.max(20,Math.min(100,+gw.lvl||100))/100,scl=c=>cqSafeRGB(c.map(v=>v*LV));
+  const LV=Math.max(20,Math.min(100,+gw.lvl||100))/100;
+  // telefon: nusxalar oq vertex ranglari bilan -- yorqinlikni material rangi belgilaydi; kompyuter: material ambient (to'yinadi), rang to'liq
+  const scl=c=>cqSafeRGB(AND?c.map(v=>v*LV):c),GA=AND?K:Math.max(4,Math.round(CQ_GLOW_AMB_PC*LV*10)/10);
   const hold=Math.max(0,Math.min(5000,+cfg.hold||400)|0);
   const ctl=AND?[['L',cfg.ctlL||'zone',+cfg.zoneL||2],['R',cfg.ctlR||'zone',+cfg.zoneR||8],['H',cfg.ctlH||'zone',+cfg.zoneH||4]]:[['L',null,+cfg.keyL||90],['R',null,+cfg.keyR||67],['H',null,+cfg.keyH||88]];
   if(AND){const seen=new Set();for(const [,c,z] of ctl){const k=c==='zone'?'z'+z:c;if(c==='zone'&&!(z>=1&&z<=9))throw new Error('Ekran bo‘lagi 1–9 bo‘lishi kerak');
@@ -4056,7 +4070,7 @@ function cqBuild(cfg){
   rd(28,26,4);ifNe(28,0,'LT_DN');MOV(3,28);ADD(3,4,'1-material rangi');rd(29,3,4);
   CQ_KINDS.forEach((k,ki)=>{const L='LT_DK'+ki;IF(0x0039,'29@ == '+CQ_MARK_INT(k)+'  // '+k+' nusxa belgisi',['l',29],['i',CQ_MARK_INT(k)]);JF(L);
     ifLt(11,CQ_MAX,'LT_DN');entAddr(25,11,12,'LT_BUF');wr(25,'l',27,4,'atomic');ADD(25,4);wr(25,'i',ki,4,'turi');ADD(25,4);wr(25,'i',0,4,'qo\'riqchi');ADD(11,1);J(k==='gl'?'LT_DG0':'LT_DN');A.label(L);});   // tungi nur nusxasi: materiallari ham (rang / ambient)
-  IF(0x0039,'29@ == '+CQ_MARK_INT('sn')+'  // qo\'riqchi',['l',29],['i',CQ_MARK_INT('sn')]);JF('LT_DN');   // belgisiz atomic (asl qism) -- tegilmaydi
+  IF(0x0039,'29@ == '+CQ_MARK_INT('sn')+'  // qo\'riqchi',['l',29],['i',CQ_MARK_INT('sn')]);JF('LT_DG0');   // belgisiz atomic (asl qism): faqat tungi nur belgisi (specular) bor materiallari -- kompyuterda rasm / logo materialining o'zi
   ifLt(15,CQ_SMAX,'LT_DN');entAddr(25,15,8,'LT_SN');wr(25,'l',27,4);MOV(3,27);ADD(3,4,'freym');rd(21,3,4);ADD(25,4);wr(25,'l',21,4);ADD(15,1);J('LT_DN');
   // tungi nur: shu geometriyaning barcha materiallari (specular belgisi)
   A.label('LT_DG0');SET(17,0);
@@ -4126,14 +4140,14 @@ function cqBuild(cfg){
   ifEq(4,1,'LT_GOFF');
   // rang (15@, 30@, 31@ -- R, G, B) va ambient (3@)
   // nafas: yorqinlik RANG bilan (oq vertex ranglari tufayli ambient o'zgarishi ko'rinmaydi) -- 255 * (0.25..1.0)
-  const RB=cqRainbow(36).map(scl),PT=Array.from({length:20},(_,i)=>cqSafeRGB([0,0,0].map(()=>255*LV*(0.25+0.75*(0.5-0.5*Math.cos(2*Math.PI*i/20)))))[0]);
+  const RB=cqRainbow(36).map(scl),PT=Array.from({length:20},(_,i)=>cqSafeRGB([0,0,0].map(()=>255*(AND?LV:1)*(0.25+0.75*(0.5-0.5*Math.cos(2*Math.PI*i/20)))))[0]);
   if(gw.mode==='rainbow'){ifGe(33,RB.length*110,'LT_RB');SET(33,0);A.label('LT_RB');
     MOV(25,33);A.op(0x0016,'25@ /= 110  // har 0.11 s keyingi rang',['l',25],['i',110]);A.op(0x0012,'25@ *= 12',['l',25],['i',12]);lbl(21,'LT_RBT');A.op(0x005A,'25@ += 21@',['l',25],['l',21]);
-    rd(15,25,4);ADD(25,4);rd(30,25,4);ADD(25,4);rd(31,25,4);A.op(0x0007,'3@ = '+fF(K),['l',3],['f',K]);}
+    rd(15,25,4);ADD(25,4);rd(30,25,4);ADD(25,4);rd(31,25,4);A.op(0x0007,'3@ = '+fF(GA),['l',3],['f',GA]);}
   else if(gw.mode==='pulse'){ifGe(33,PT.length*90,'LT_PT0');SET(33,0);A.label('LT_PT0');
     MOV(25,33);A.op(0x0016,'25@ /= 90',['l',25],['i',90]);A.op(0x0012,'25@ *= 4',['l',25],['i',4]);lbl(21,'LT_PTT');A.op(0x005A,'25@ += 21@',['l',25],['l',21]);rd(15,25,4);
-    MOV(30,15);MOV(31,15);A.op(0x0007,'3@ = '+fF(K),['l',3],['f',K]);}
-  else{const c=scl(gw.mode==='color'?livSafeRGB(gw.rgb||[255,255,255]):[255,255,255]);SET(15,c[0]);SET(30,c[1]);SET(31,c[2]);A.op(0x0007,'3@ = '+fF(K),['l',3],['f',K]);}
+    MOV(30,15);MOV(31,15);A.op(0x0007,'3@ = '+fF(GA),['l',3],['f',GA]);}
+  else{const c=scl(gw.mode==='color'?livSafeRGB(gw.rgb||[255,255,255]):[255,255,255]);SET(15,c[0]);SET(30,c[1]);SET(31,c[2]);A.op(0x0007,'3@ = '+fF(GA),['l',3],['f',GA]);}
   SET(16,0);
   A.label('LT_GWL');ifLtV(16,12,'LT_GWX');entAddr(25,16,4,'LT_GL');rd(27,25,4);
   MOV(26,27);ADD(26,4,'R');wr(26,'l',15,1);ADD(26,1,'G');wr(26,'l',30,1);ADD(26,1,'B');wr(26,'l',31,1);
@@ -7559,18 +7573,20 @@ async function editPipeline(why){
     const cqTurn=!!(S.lampfix&&S.lampfix.on&&S.lampfix.assign&&Object.values(S.lampfix.assign).includes('turn'));
     const cqLamps=LC&&LC.carOn&&LC.mode==='script'&&(LC.front||LC.rear||LC.bright)?{front:LC.front?hexRGB(LC.front):LC.bright?LAMP_BRIGHT.front:null,rear:LC.rear?hexRGB(LC.rear):LC.bright?LAMP_BRIGHT.rear:null}:null;
     const cqGlow=[];if(L.on&&L.img&&L.glow&&L.tex)cqGlow.push(L.tex);if(LGs.glow)for(const lg of LGs.items)cqGlow.push(lg.tex);
-    let cqTex=false,cqLinks=null;
-    if(cqTurn||cqLamps||cqGlow.length){const cr=G.DFF.cqApply(dff,{turn:cqTurn,lamps:cqLamps,glow:cqGlow}),R=cr.report,K=R.kinds,n=x=>K[x]||0;
-      if(R.copies.length||R.glow||R.stripped){dff=cr.dff;changed=true;cqLinks=R.links&&R.links.length?R.links:null;}
+    let cqTex=false,cqLinks=null,cqPlat=null;
+    if(cqTurn||cqLamps||cqGlow.length){const cqA=isAnd(),cr=G.DFF.cqApply(dff,{turn:cqTurn,lamps:cqLamps,glow:cqGlow,plat:cqA?'android':'pc'}),R=cr.report,K=R.kinds,n=x=>K[x]||0;cqPlat=R.plat;
+      const PL=cqA?'📱 telefon uchun':'🖥 kompyuter uchun';
+      if(R.copies.length||R.glow||R.stripped||R.unmarked){dff=cr.dff;changed=true;cqLinks=R.links&&R.links.length?R.links:null;}
       for(const t of cr.tex){txd=G.txdPutTexture(txd,G.makeTxdTexture(t.name,t.rgba,t.w,t.h,{compress:'none',mips:true}));cqTex=true;
         G.poolAdd({name:t.name,w:t.w,h:t.h,rgba:t.rgba,src:null,fmtName:'Chiroq nusxasi (rang)',levels:1,origin:'cq:'+t.name});}
       if(cr.tex.length&&viewer&&viewer.ok)viewer.invalidateTextures();
       if(cqTurn){if(n('tl')+n('tr'))info.push('Burilish chiroqlari: chap '+n('tl').toLocaleString()+', o‘ng '+n('tr').toLocaleString()+' poligon — yonib-o‘chuvchi nusxa qo‘shildi (o‘yin chizmaydi; «💡 Chiroqlar skripti» Z / C / X bilan miltillatadi).');
         else warn.push('Burilish chiroqlari: «Burilish chirog‘i» roli berilgan qism topilmadi (yoki skin / breakable geometriyada).');}
-      if(cqLamps){const t=n('fl')+n('fr')+n('rl')+n('rr');if(t)info.push('Fara rangi (shu mashina, skript): old '+(n('fl')+n('fr')).toLocaleString()+', orqa '+(n('rl')+n('rr')).toLocaleString()+' poligon — rangli nusxa qo‘shildi (old: '+(LC.front||(LC.bright?'asl rang, yorqin':'asl'))+', orqa: '+(LC.rear||(LC.bright?'asl rang, yorqin':'asl'))+'; oq vertex ranglari — tunda to‘liq yorqin). O‘yin chirog‘i yonganda «💡 Chiroqlar skripti» ko‘rsatadi.');
+      if(cqLamps){const t=n('fl')+n('fr')+n('rl')+n('rr');if(t)info.push('Fara rangi (shu mashina, skript): old '+(n('fl')+n('fr')).toLocaleString()+', orqa '+(n('rl')+n('rr')).toLocaleString()+' poligon — rangli nusxa qo‘shildi (old: '+(LC.front||(LC.bright?'asl rang, yorqin':'asl'))+', orqa: '+(LC.rear||(LC.bright?'asl rang, yorqin':'asl'))+'; '+PL+': '+(cqA?'oq vertex ranglari':'yorqinlik o‘yin chirog‘idan 4 baravar')+'). O‘yin chirog‘i yonganda «💡 Chiroqlar skripti» ko‘rsatadi.');
         else warn.push('Fara rangi: o‘yin yoqadigan fara / orqa chiroq (rang kodi + vehiclelights128) topilmadi — avval «🔦 Chiroqlar» bo‘limida rollarni qo‘llang.');}
       if(R.sent)info.push('Shikastlanadigan qismlarda ('+R.copies.filter(c=>c.node).map(c=>c.node).filter((v,i,a)=>a.indexOf(v)===i).join(', ')+') '+R.sent+' ta qo‘riqchi qo‘shildi — qism shikastlansa / uzilsa undagi rangli chiroq ham o‘chadi.');
-      if(cqGlow.length){if(R.glow)info.push('🌙 Tungi nur: '+R.glow+' ta material (rasm / logo), '+n('gl').toLocaleString()+' poligon — yonadigan nusxa qo‘shildi (oq vertex ranglari: tun qanchalik qorong‘i bo‘lmasin to‘liq yorqin). Kechasi «💡 Chiroqlar skripti» ko‘rsatadi.');else warn.push('Tungi nur: rasm / logo materiali topilmadi.');}
+      if(cqGlow.length){if(R.glow)info.push('🌙 Tungi nur: '+R.glow+' ta material (rasm / logo) — '+(cqA?n('gl').toLocaleString()+' poligon, yonadigan nusxa qo‘shildi ('+PL+': oq vertex ranglari, tun qanchalik qorong‘i bo‘lmasin to‘liq yorqin). Kechasi «💡 Chiroqlar skripti» ko‘rsatadi.':'material belgilandi ('+PL+'): kechasi «💡 Chiroqlar skripti» uni o‘zi yoritadi (o‘yin chirog‘idan 4 baravar).'));else warn.push('Tungi nur: rasm / logo materiali topilmadi.');}
+      if(R.copies.length||R.glow)info.push('Chiroqlar DFF '+PL+' tayyorlandi — «Skript qaysi o‘yin uchun» o‘zgartirilsa, DFF o‘zi qayta tayyorlanadi; o‘yinga shu DFF + TXD + skriptni birga o‘rnating.');
       for(const w of R.warn)warn.push('Chiroqlar: '+w);
       if(cqTex&&!tp&&!(L.on&&L.img)&&!LGs.items.length)warn.push('Mashinaning TXD fayli yuklanmagan — yuklab olinadigan TXD da faqat chiroq nusxalari teksturalari bor. Mashinaning o‘z TXD sini qo‘shing.');}
     const prev=S.result&&S.result.kind==='edit'&&S.result.src===it.file?S.result:null;
@@ -7585,7 +7601,7 @@ async function editPipeline(why){
     if(!changed&&!warn.length)info.push('Hech narsa o‘zgarmadi — fayl asl holicha qaytadi.');
     const r={kind:'edit',src:it.file,name:it.model.name,dff,txd,txdName,txdChanged:!!liv||LGs.items.length>0||lcApplied||cqTex,anim:animMeta,logos:LGs.items.length,liv:liv?{tex:L.tex,stats:liv.stats}:null,doors:E.doorsDone,limo:limo&&limo.stats?limo.stats:null,
       model:G.modelFromDff(dff,it.model.name+'.dff',{doorAngle:E.angle}),report:{stats:{geoms:st.geoms,tris:st.tris,verts:st.verts,frames:st.frames,textures:0},info,warnings:warn},changed,edits:doorRep};
-    r.gwFront=gwF;r.cqLink=cqLinks;
+    r.gwFront=gwF;r.cqLink=cqLinks;r.cqPlat=cqPlat;
     if(drop.size){r.dff0=dff0;r.stats0={geoms:stats0.geoms,tris:stats0.tris,verts:stats0.verts};r.removedOrig=drop;r.removedInfo=removedInfo;r.cur2orig=keep;}
     const keepHid=prev&&why==='preview'?S.hiddenSa:new Set();
     S.result=r;S.view='sa';S.hiddenSa=keepHid;S.hl=null;
@@ -7931,12 +7947,12 @@ S.cleoPlat=(()=>{try{const v=localStorage.getItem('itshakh_gvsa_plat');if(v==='a
 const isAnd=()=>S.cleoPlat==='android';
 (()=>{try{const st=document.createElement('style');st.textContent='.tzgrid{display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(3,30px);gap:3px;padding:5px;border:2px solid var(--line2);border-radius:12px;background:var(--bg1);width:max-content}.tzgrid .tz{padding:0;border:1px solid var(--line2);border-radius:6px;background:var(--bg2);color:var(--mute);font-weight:700;cursor:pointer}.tzgrid .tz.on{background:var(--amber);color:#111;border-color:var(--amber)}.tzgrid .tz:hover{border-color:var(--amber)}';document.head.appendChild(st);}catch(e){}})();
 function platRow(p,onChange){
-  const b=(v,t)=>el('button',{class:'btn'+(S.cleoPlat===v?' pri':''),type:'button',id:'plat_'+v,onclick:()=>{if(S.cleoPlat===v)return;S.cleoPlat=v;try{localStorage.setItem('itshakh_gvsa_plat',v);}catch(e){}if(onChange)onChange();renderPane();}},[t]);
+  const b=(v,t)=>el('button',{class:'btn'+(S.cleoPlat===v?' pri':''),type:'button',id:'plat_'+v,onclick:()=>{if(S.cleoPlat===v)return;S.cleoPlat=v;try{localStorage.setItem('itshakh_gvsa_plat',v);}catch(e){}if(onChange)onChange();if(typeof cqPlatChanged==='function')cqPlatChanged();renderPane();}},[t]);
   p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap;align-items:center'},[el('label',{text:'Skript qaysi o‘yin uchun'}),el('div',{style:'display:flex;gap:6px;flex-wrap:wrap'},[b('pc','🖥 Kompyuter (CLEO 4/5, .cs)'),b('android','📱 Telefon — Android (.csa)')])]));
 }
 // kompyuter rejimidagi klaviatura tugmasi yonida: telefonda bunday tugma yo'q -- bir bosishda telefon versiyasiga o'tish
 function andHint(p,id){p.appendChild(el('div',{class:'note',id,style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-left:3px solid #38bdf8;padding-left:10px'},[el('span',{html:'⌨ Bu — <b>kompyuter klaviaturasi</b> tugmalari. Telefonda klaviatura yo‘q: telefon versiyasi o‘yinning o‘z <b>signal (gudok) tugmasi</b> bilan yoqiladi.'}),
-  el('button',{class:'btn pri',type:'button',id:id+'Btn',onclick:()=>{S.cleoPlat='android';try{localStorage.setItem('itshakh_gvsa_plat','android');}catch(e){}renderPane();}},['📱 Telefon versiyasiga o‘tish'])]));}
+  el('button',{class:'btn pri',type:'button',id:id+'Btn',onclick:()=>{S.cleoPlat='android';try{localStorage.setItem('itshakh_gvsa_plat','android');}catch(e){}if(typeof cqPlatChanged==='function')cqPlatChanged();renderPane();}},['📱 Telefon versiyasiga o‘tish'])]));}
 // CLEO Android ekranni 3x3 bo'lakka bo'ladi: chap ustun 1-3 (yuqoridan pastga), o'rta 4-6, o'ng 7-9
 const TOUCH_UI={1:'chap yuqori (radar)',2:'chap o‘rta',3:'chap pastki (rul tugmalari)',4:'o‘rta yuqori',5:'ekran o‘rtasi',6:'o‘rta pastki',7:'o‘ng yuqori (qurol)',8:'o‘ng o‘rta',9:'o‘ng pastki (gaz / tormoz)'};
 function touchRow(p,M,def,upd,idp,noOff){
@@ -8531,6 +8547,9 @@ function cqGlowAt(t){const M=S.chiroq,L=Math.max(20,Math.min(100,+M.lvl||100))/1
   if(M.mode==='color')return sc(hexRGB(M.rgb||'#3cc8ff'));
   if(M.mode==='pulse'){const k=0.25+0.75*(0.5-0.5*Math.cos(2*Math.PI*((t%1800)/1800)));return sc([255*k,255*k,255*k]);}
   return sc([255,255,255]);}
+/* chiroqlar DFF i platformaga qarab tayyorlanadi (kompyuter: vertex ranglarisiz, telefon: oq vertex ranglari) -- platforma o'zgarsa qayta tayyorlanadi */
+function cqPlatChanged(){const R=S.result;if(!R||R.kind!=='edit'||!R.cqPlat)return;if(R.cqPlat===(isAnd()?'android':'pc'))return;
+  setTimeout(()=>{editPipeline('plat').then(()=>{toast('Chiroqlar DFF '+(isAnd()?'telefon':'kompyuter')+' uchun qayta tayyorlandi');}).catch(()=>{});},0);}
 function chiroqPreview(on){
   S.chiroq.preview=!!on;if(!viewer||!viewer.ok)return;
   if(on){for(const k of ['strobe','lampcol','lampfix','neon','anim'])if(S[k])S[k].preview=false;}
@@ -8552,7 +8571,7 @@ function paneChiroq(p,it){
     'Telefonda ham, kompyuterda ham ishlaydi, IVF shart emas.'}));
   const st=el('div',{class:'note',id:'cqState',style:'border-left:3px solid '+(hasAny?'#34d399':'#fbbf24')+';padding-left:10px'});
   if(sc&&hasAny){const k=sc.kinds||{},n=a=>(k[a]||0);
-    st.innerHTML='✓ Shu DFF da: '+[n('tl')+n('tr')?'burilish nusxalari — chap '+n('tl')+', o‘ng '+n('tr'):'',n('fl')+n('fr')+n('rl')+n('rr')?'rangli fara / orqa chiroq nusxalari — '+(n('fl')+n('fr')+n('rl')+n('rr')):'',sc.sent?'qo‘riqchi (shikast uchun) — '+sc.sent:'',sc.glow?'kechasi yonadigan rasm / logo nusxalari — '+((sc.kinds||{}).gl||0)+' ('+sc.glow+' material)':''].filter(Boolean).join(', ')+'. Endi skriptni yuklab oling.';}
+    st.innerHTML='✓ Shu DFF da: '+[n('tl')+n('tr')?'burilish nusxalari — chap '+n('tl')+', o‘ng '+n('tr'):'',n('fl')+n('fr')+n('rl')+n('rr')?'rangli fara / orqa chiroq nusxalari — '+(n('fl')+n('fr')+n('rl')+n('rr')):'',sc.sent?'qo‘riqchi (shikast uchun) — '+sc.sent:'',sc.glow?'kechasi yonadigan rasm / logo'+((sc.kinds||{}).gl?' nusxalari — '+(sc.kinds||{}).gl:'')+' ('+sc.glow+' material)':''].filter(Boolean).join(', ')+'.'+(S.result.cqPlat?' DFF <b>'+(S.result.cqPlat==='android'?'📱 telefon':'🖥 kompyuter')+'</b> uchun tayyorlangan'+(S.result.cqPlat!==(AND?'android':'pc')?' — <b>platforma o‘zgardi, DFF qayta tayyorlanmoqda…</b>':'')+'.':'')+' Endi skriptni yuklab oling.';}
   else st.innerHTML='Bu mashinada hali chiroqlar skripti uchun qism yo‘q. Yuqoridagi bo‘limlarda yoqing: <b>🔦 Chiroqlar</b> — sariq chiroqqa «Burilish chirog‘i — Z / C / X» roli va «Qo‘llash»; <b>💡 Fara rangi</b> — «Shu mashinaga — skript bilan»; <b>🎨 Rasm</b> / <b>🛡 Logo</b> — «🌙 Kechasi yonsin». Skriptning o‘zini hozir ham yuklab olsa bo‘ladi (bitta skript barcha mashinaga).';
   p.appendChild(st);
   platRow(p,()=>{});
@@ -8585,13 +8604,15 @@ function paneChiroq(p,it){
       '1) Yangi '+dn+(tn?' va '+tn:'')+' ni o‘yinga o‘rnating (avvalgisi o‘rniga'+(AND?': gta3.img ichiga — telefondagi IMG muharriri bilan, Android/data/com.rockstargames.gtasa/files/texdb/ yoki o‘yin papkasidagi IMG; yoki AML modloader orqali)':': IMG ga yoki modloader orqali)')+'.'+(tn?' TXD da chiroq nusxalarining rang teksturalari (itsh_lt…) bor — TXD ni ham almashtiring.':''),
       ...(AND?['2) Skript:',...ANDROID_HOWTO(base+'.csa'),'   Telefon skripti faqat 32-bit GTA SA 2.00 da ishlaydi; boshqa versiyada skript o‘zi tekshirib, hech narsaga tegmaydi.']:['2) O‘yinda CLEO 4 yoki CLEO 5 bo‘lishi kerak (https://cleo.li). '+base+'.cs ni o‘yin papkasidagi CLEO papkasiga nusxalang.']),
       '3) O‘yinda mashinaga o‘tiring: '+how.join('; ')+'. Yana shunday qilsangiz — o‘chadi.'+(AND&&[cfg.ctlL,cfg.ctlR,cfg.ctlH].includes('zone')?ZONE_HELP:''),
+      'DFF va skript bir platforma uchun: '+(AND?'TELEFON':'KOMPYUTER')+'. Boshqa platformaga saytda «Skript qaysi o‘yin uchun» ni almashtirib, DFF va skriptni qayta yuklab oling.',
       '4) Rangli / yorqin faralar: «💡 Fara rangi» bo‘limida «Shu mashinaga — skript bilan» tanlangan bo‘lsa — o‘yin farani yoqqanda (kechasi) va tormozda chiroqlar siz tanlagan rangda (yoki «Yorqin chiroqlar» belgilangan bo‘lsa — asl oq / qizil rangda) to‘liq yorqin yonadi. Ko‘chadagi boshqa shu mashinalarda (siz o‘tirmagan) o‘yinning oddiy oq / qizil chirog‘i.',
-      '5) Tungi nur: '+(cfg.glow.always?'doim':'kechasi 20:00 dan 06:00 gacha')+' rasm va logo '+({own:'o‘z ranglarida',rainbow:'kamalak ranglarida (almashib turadi)',pulse:'sekin yonib-o‘chib',color:'tanlangan rangda'})[cfg.glow.mode]+' yonadi — rasm / logo ustidagi yorqin nusxa (oq vertex ranglari: tun qanchalik qorong‘i bo‘lmasin, grafika modi bo‘lsa ham to‘liq yorqin). Faqat siz o‘tirgan (yoki oxirgi o‘tirgan) mashinada ko‘rinadi; kunduzi yashiriladi.',
+      '5) Tungi nur: '+(cfg.glow.always?'doim':'kechasi 20:00 dan 06:00 gacha')+' rasm va logo '+({own:'o‘z ranglarida',rainbow:'kamalak ranglarida (almashib turadi)',pulse:'sekin yonib-o‘chib',color:'tanlangan rangda'})[cfg.glow.mode]+' yonadi'+(AND?' — rasm / logo ustidagi yorqin nusxa (oq vertex ranglari: tun qanchalik qorong‘i bo‘lmasin to‘liq yorqin). Faqat siz o‘tirgan (yoki oxirgi o‘tirgan) mashinada ko‘rinadi; kunduzi yashiriladi.':' — rasm / logo materialining o‘zi yoritiladi (o‘yin chirog‘idan 4 baravar). Material modelga tegishli — shu modeldagi mashinalar birga yonadi. Kunduzi asl holiga qaytadi.'),
       '6) Mashina qismi (bamper, bagaj, eshik) shikastlansa yoki uzilib tushsa — undagi rangli / burilish chirog‘i ham o‘chadi (o‘yin bilan birga).',
       '7) Eski IVF burilish kodlari bilan tayyorlangan DFF bo‘lsa — saytda «Burilish chirog‘i — Z / C / X» roli bilan qayta tayyorlang. Bitta skript yetarli; eski chiroqlar_*.cs(a) fayllari bo‘lsa o‘chiring.',
       '8) O‘chirish: CLEO papkasidan '+base+'.'+r.ext+' ni o‘chiring.','',base+'_manba.txt — skriptning Sanny Builder matni.'].join('\r\n');};
   const dl=el('button',{class:'btn',type:'button',id:'btnCqCs',onclick:()=>{try{const r=mk();save(base+'.'+r.ext,r.cs);if(AND)ctlGot(M,['ctlL','ctlR','ctlH']);log('Chiroqlar skripti: '+base+'.'+r.ext+' ('+r.cs.length+' bayt) yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},[AND?'⬇ Skript (.csa) — telefon':'⬇ Skript (.cs)']);
   const zp=el('button',{class:'btn pri',type:'button',id:'btnCqZip',onclick:()=>{try{const r=mk(),cfg=cqCfg(),R=S.result&&S.result.kind==='edit'&&S.result.src===it.file?S.result:null;
+      if(R&&R.cqPlat&&R.cqPlat!==(AND?'android':'pc')){toast('DFF hali '+(AND?'telefon':'kompyuter')+' uchun qayta tayyorlanmoqda — bir soniyadan keyin yana bosing');cqPlatChanged();return;}
       const files=[{name:base+'.'+r.ext,data:r.cs},{name:base+'_manba.txt',data:new TextEncoder().encode(r.src.replace(/\n/g,'\r\n'))},{name:'OQING_chiroqlar.txt',data:new TextEncoder().encode(txtOf(r,cfg))}];
       if(R&&hasAny){files.push({name:(R.name||it.model.name)+'.dff',data:R.dff});if(R.txd)files.push({name:(R.name||it.model.name)+'.txd',data:R.txd});}
       if(AND)ctlGot(M,['ctlL','ctlR','ctlH']);save(base+(AND?'_telefon':'')+'.zip',G.zipStore(files),'application/zip');log('Chiroqlar skripti (ZIP'+(R&&hasAny?', DFF'+(R.txd?' + TXD':''):'')+') yuklab olindi','o');}catch(e){toast('Xato: '+e.message);}}},
