@@ -2017,7 +2017,7 @@ function limoCol(data,yc,S,warn){
     const offS=dv.getUint32(h+12,true),offB=dv.getUint32(h+16,true),offL=dv.getUint32(h+20,true),offV=dv.getUint32(h+24,true),offF=dv.getUint32(h+28,true),offP=dv.getUint32(h+32,true);
     const nSh=c3?dv.getUint32(h+36,true):0,offSV=c3?dv.getUint32(h+40,true):0,offSF=c3?dv.getUint32(h+44,true):0;
     const f32=p=>dv.getFloat32(p,true);
-    const mv=y=>y<yc?y-S:y;
+    const Sf=S/2,Sr=S-Sf,mv=y=>y<yc?y-Sr:y+Sf;
     // sferalar
     const sph=[];for(let i=0;i<nS;i++){const p=R(offS)+i*20;sph.push({c:[f32(p),f32(p+4),f32(p+8)],r:f32(p+12),s:data.slice(p+16,p+20)});}
     // cho'zilgan qism uchun sferalar: kesim yaqinidagi "ko'ndalang qator" sferalari (bo'lmasa -- eng yaqinlari) butun uzunlik bo'ylab takrorlanadi
@@ -2025,12 +2025,12 @@ function limoCol(data,yc,S,warn){
     if(!cand.length&&sph.length){const m0=Math.min(...sph.map(dist));cand=sph.filter(s=>dist(s)<=m0+0.3);}
     {const byXZ=new Map();for(const s of cand){const k=Math.round(s.c[0]/0.06)+','+Math.round(s.c[2]/0.06);const e=byXZ.get(k);if(!e||s.r>e.r)byXZ.set(k,s);}cand=[...byXZ.values()];}  // bir xil ko'ndalang joydagi takrorlar
     let sf=1;const cnt=()=>cand.reduce((n,s)=>n+Math.ceil(S/Math.max(0.2,s.r*0.9*sf)),0);while(cnt()>160&&sf<64)sf*=1.25;
-    const add=[];for(const s of cand){const st=Math.max(0.2,s.r*0.9*sf),n=Math.ceil(S/st);for(let k=1;k<=n;k++)add.push({c:[s.c[0],yc-k*S/n,s.c[2]],r:s.r,s:s.s});}
+    const add=[];for(const s of cand){const st=Math.max(0.2,s.r*0.9*sf),n=Math.ceil(S/st);for(let k=1;k<=n;k++)add.push({c:[s.c[0],yc+Sf-(k-0.5)*S/n,s.c[2]],r:s.r,s:s.s});}
     for(const s of sph)s.c[1]=mv(s.c[1]);const sph2=sph.concat(add);
     if(sph2.length>65535)throw new Error('COL: sfera juda ko‘p');
     // qutilar
     const box=[];for(let i=0;i<nB;i++){const p=R(offB)+i*28;const b={mn:[f32(p),f32(p+4),f32(p+8)],mx:[f32(p+12),f32(p+16),f32(p+20)],s:data.slice(p+24,p+28)};
-      if(b.mx[1]<yc){b.mn[1]-=S;b.mx[1]-=S;}else if(b.mn[1]<yc)b.mn[1]-=S;box.push(b);}
+      if(b.mx[1]<yc){b.mn[1]-=Sr;b.mx[1]-=Sr;}else if(b.mn[1]>=yc){b.mn[1]+=Sf;b.mx[1]+=Sf;}else{b.mn[1]-=Sr;b.mx[1]+=Sf;}box.push(b);}
     const lines=nL?data.slice(R(offL),R(offL)+nL*24):new Uint8Array(0);if(nL)warn.push('COL ichidagi '+nL+' ta chiziq (line) o‘zgartirilmadi.');
     // mesh
     const rdF=(off,cnt)=>{const a=[];let mxI=-1;for(let i=0;i<cnt;i++){const p=R(off)+i*8;const t=[dv.getUint16(p,true),dv.getUint16(p+2,true),dv.getUint16(p+4,true)];a.push({t,m:data.slice(p+6,p+8)});mxI=Math.max(mxI,t[0],t[1],t[2]);}return{a,nv:mxI+1};};
@@ -2042,9 +2042,9 @@ function limoCol(data,yc,S,warn){
       for(const g of groups){g.mn=[1e30,1e30,1e30];g.mx=[-1e30,-1e30,-1e30];for(let fi=g.a;fi<=g.b&&fi<faces.a.length;fi++)for(const vi of faces.a[fi].t){const v=verts[vi];for(let c=0;c<3;c++){g.mn[c]=Math.min(g.mn[c],v[c]);g.mx[c]=Math.max(g.mx[c],v[c]);}}}}
     // chegaralar
     const bmn=[f32(o+32),f32(o+36),f32(o+40)],bmx=[f32(o+44),f32(o+48),f32(o+52)],bc=[f32(o+56),f32(o+60),f32(o+64)],br=f32(o+68);
-    if(bmn[1]<yc)bmn[1]-=S;if(bmx[1]<yc)bmx[1]-=S;
+    bmn[1]=mv(bmn[1]);bmx[1]=mv(bmx[1]);
     for(const s of add){for(let c=0;c<3;c++){bmn[c]=Math.min(bmn[c],s.c[c]-s.r);bmx[c]=Math.max(bmx[c],s.c[c]+s.r);}}   // faqat yangi sferalar bilan kengaytiramiz
-    const nc=[bc[0],bc[1]-S/2,bc[2]],nr=br+S/2;
+    const nc=[bc[0],bc[1]+Sf-S/2,bc[2]],nr=br+S/2;
     // yozish
     const w=new BW();const padTo=()=>{while((w.n-4)%4)w.u8(0);};   // ofsetlar size maydonidan (o+4) boshlab
     w.bytes(data.slice(o,o+4));w.u32(0);w.bytes(data.slice(o+8,o+32));
@@ -2137,9 +2137,10 @@ function limoPanelPrep(df,dr,A,G,rwv,W0,yc,rigidF,isWheel){
 function applyLimo(bytes,opt){
   const S=Math.max(0,Math.min(12,+opt.len||0)),yc=+opt.cut;
   if(!(S>0.001)||!isFinite(yc))return{dff:bytes,changed:false,stats:null,warnings:[]};
+  const Sf=S/2,Sr=S-Sf;
   const ctx=dffCtx(bytes),{F,A,G,rwv}=ctx,warn=[];
   const W0=new Map();F.forEach(f=>W0.set(f,fWorld(f)));
-  const Dof=new Map();F.forEach(f=>Dof.set(f,f.par&&W0.get(f).p[1]<yc?-S:0));   // ildiz freym hech qachon ko'chmaydi
+  const Dof=new Map();F.forEach(f=>Dof.set(f,(!f.par||/^chassis(_dummy|_vlo)?$/i.test(f.name||''))?0:(W0.get(f).p[1]<yc?-Sr:Sf)));   // ildiz va chassis joyida qoladi; oldi +S/2, orqasi -S/2 (massa markazi o'rtada qoladi)
   // Eshiklar: kesim bir yondagi OLD va ORQA eshikni birga kesib o'tsa (B ustun) -- eshiklar cho'zilmaydi, butunligicha
   // joyida qoladi (old) yoki orqaga suriladi (orqa); oradagi bo'shliqni kuzov (B ustun) profili to'ldiradi -> ikki eshik ustma-ust chiqmaydi.
   const rigid=new Set(),rigidNames=[],panels=[],noPanel=[];
@@ -2150,7 +2151,7 @@ function applyLimo(bytes,opt){
      if(y1>y0)dm[m[1].toLowerCase()+m[2].toLowerCase()]={f,fr,y0,y1};}
    const rigidAll=new Set();for(const k in dm)for(const g of dm[k].fr)rigidAll.add(g);
    for(const sd of ['l','r']){const df=dm[sd+'f'],dr=dm[sd+'r'];if(!df||!dr)continue;const inn=d=>yc>d.y0+1e-3&&yc<d.y1-1e-3;
-     if(inn(df)&&inn(dr)){for(const d of [df,dr]){const mv=(d.y0+d.y1)/2<yc?-S:0;for(const g of d.fr){rigid.add(g);Dof.set(g,mv);}rigidNames.push(d.f.name.replace(/_dummy$/i,''));}
+     if(inn(df)&&inn(dr)){for(const d of [df,dr]){const mv=(d.y0+d.y1)/2<yc?-Sr:Sf;for(const g of d.fr){rigid.add(g);Dof.set(g,mv);}rigidNames.push(d.f.name.replace(/_dummy$/i,''));}
        if(opt.panel!==false){let pn=null;try{pn=limoPanelPrep(df,dr,A,G,rwv,W0,yc,rigidAll,LIMO_WHEEL);}catch(e){pn=null;}
          if(pn&&!pn.reject)panels.push(pn);else noPanel.push(df.f.name.replace(/_dummy$/i,''));}}}}
   // panel qaysi geometriyaga qo'shiladi: kuzov (chassis); bo'lmasa -- eng katta (eshik/g'ildirak emas) geometriya
@@ -2174,7 +2175,7 @@ function applyLimo(bytes,opt){
     const nV=g.nV,nT=g.nTri,wy=new Float64Array(nV);for(let i=0;i<nV;i++)wy[i]=TF.pt([g.pos[i*3],g.pos[i*3+1],g.pos[i*3+2]],Wf)[1]-yc;
     let anyF=false,anyR=false,crossHere=0;
     for(let t=0;t<nT;t++){let f=0;for(let k=0;k<3;k++)if(wy[g.tris[t*4+k]]>=0)f++;if(f===3)anyF=true;else if(f===0)anyR=true;else{crossHere++;anyF=anyR=true;}}
-    const locF=vm3([0,-Df,0],m3t(Wf.r)),locR=vm3([0,-S-Df,0],m3t(Wf.r)),needF=Df!==0,needR=Df!==-S;
+    const locF=vm3([0,Sf-Df,0],m3t(Wf.r)),locR=vm3([0,-Sr-Df,0],m3t(Wf.r)),needF=Df!==Sf,needR=Df!==-Sr;
     const fx=child(child(gc,T.EXT)||{children:[]},T.FX2D);
     const isPanel=gi===panelGi;
     if(!isPanel&&(!nT||(!crossHere&&!(anyF&&needF)&&!(anyR&&needR)))){if(fx)limoFx(fx,Wf,yc,locF,locR);continue;}   // geometriya freym bilan birga ko'chdi -- tegmaymiz
@@ -2210,7 +2211,7 @@ function applyLimo(bytes,opt){
         const uf=sv(U,'F',qn),vf=sv(V2,'F',qn),vr=sv(V2,'R',qn),ur=sv(U,'R',qn);outT.push(uf,vf,vr,m,uf,vr,ur,m);stripTris+=2;
       }
     }
-    if(isPanel)for(const pn of panels)panelTris+=limoPanelBuild(pn,{gc,g,Wf,Df,S,outW,outReg,outT,remap,xAt,matCache});
+    if(isPanel)for(const pn of panels)panelTris+=limoPanelBuild(pn,{gc,g,Wf,Df,S,Sf,Sr,outW,outReg,outT,remap,xAt,matCache});
     const nV2=outW.length,nT2=outT.length/4;
     if(nV2>65535)throw new Error('«'+(a.frame.name||gi)+'»: vertex juda ko‘p ('+nV2+') — kesish joyini o‘zgartiring');
     // ---- struct ----
@@ -2266,7 +2267,7 @@ function limoFx(fx,Wf,yc,locF,locR){
 
 /* B ustun paneli: eshik profilidan (eshik bilan bir tekis) qo'zg'almas qism -- kuzov geometriyasiga qo'shiladi */
 function limoPanelBuild(pn,c){
-  const {gc,g,Wf,Df,S,outW,outReg,outT,remap,xAt,matCache}=c,Rt=m3t(Wf.r),org=[Wf.p[0],Wf.p[1]+Df,Wf.p[2]];
+  const {gc,g,Wf,Df,S,Sf,Sr,outW,outReg,outT,remap,xAt,matCache}=c,Rt=m3t(Wf.r),org=[Wf.p[0],Wf.p[1]+Df,Wf.p[2]];
   const toL=w=>vm3([w[0]-org[0],w[1]-org[1],w[2]-org[2]],Rt);
   const tMats=(()=>{const ml=child(gc,T.MATLIST),mats=childs(ml,T.MATERIAL),mdv=dvOf(child(ml,T.STRUCT).data),cnt=mdv.getUint32(0,true),slot=[];let k=0;
     for(let i=0;i<cnt;i++){const idx=mdv.getInt32(4+i*4,true);slot.push(idx<0?mats[k++]:slot[idx]);}return slot;})();
@@ -2288,7 +2289,7 @@ function limoPanelBuild(pn,c){
   for(const sg of pn.segs){
     let U=sg.U,V=sg.V;const wu=U.w,wv=V.w,nq=v3x([wv[0]-wu[0],wv[1]-wu[1],wv[2]-wu[2]],[0,-1,0]);
     if(v3d(nq,sg.n0)<0){U=sg.V;V=sg.U;}
-    const a=U.w,b=V.w,fa=pn.yF(a[2]),fb=pn.yF(b[2]),ra=pn.yR(a[2])-S,rb=pn.yR(b[2])-S;
+    const a=U.w,b=V.w,fa=pn.yF(a[2])+Sf,fb=pn.yF(b[2])+Sf,ra=pn.yR(a[2])-Sr,rb=pn.yR(b[2])-Sr;
     if(fa-ra<0.03||fb-rb<0.03)continue;
     const qn0=v3n(v3d(nq,sg.n0)<0?[-nq[0],-nq[1],-nq[2]]:nq),side='P'+pn.side+':';
     const uf=add(side+U.k+'|f',sg.P,U,[a[0],fa,a[2]],qn0),vf=add(side+V.k+'|f',sg.P,V,[b[0],fb,b[2]],qn0),vr=add(side+V.k+'|r',sg.P,V,[b[0],rb,b[2]],qn0),ur=add(side+U.k+'|r',sg.P,U,[a[0],ra,a[2]],qn0);
