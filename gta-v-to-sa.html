@@ -11647,6 +11647,489 @@ function textRender(t){
   const d=c.getImageData(0,0,cv.width,cv.height);return{rgba:new Uint8Array(d.data.buffer.slice(0)),w:cv.width,h:cv.height,thumb:(()=>{const tc=document.createElement('canvas'),s=Math.min(1,120/cv.width,48/cv.height);tc.width=Math.max(1,Math.round(cv.width*s));tc.height=Math.max(1,Math.round(cv.height*s));const x=tc.getContext('2d');x.fillStyle='#596273';x.fillRect(0,0,tc.width,tc.height);x.drawImage(cv,0,0,tc.width,tc.height);return tc.toDataURL('image/png');})()};
 }
 
+/* ---------- VINIL: QO'SHIMCHA USLUBLAR (jami 200) ----------
+ * Har uslub -- "oila" chizuvchisi + o'z parametrlari (p). Chizish vinyl_gen.js dagidek metrlarda: x 0 (OLDI) .. W (orqa), y 0 (tepa) .. H (past).
+ * Rastr oilalar (kamuflyaj, hayvon terisi, karbon, topografiya) har pikselni canvas o'lchamida hisoblaydi (keyin yumshoq emas, aniq chegarali). */
+(function(){
+const TAU=Math.PI*2;
+const hx=s=>{s=String(s||'').replace('#','');if(s.length===3)s=s.split('').map(x=>x+x).join('');const n=parseInt(s||'0',16)||0;return[(n>>16)&255,(n>>8)&255,n&255];};
+const P=(c,pts,col)=>{if(!col||!pts||pts.length<3)return;c.beginPath();c.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)c.lineTo(pts[i][0],pts[i][1]);c.closePath();c.fillStyle=col;c.fill();};
+const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+const sm=t=>t*t*(3-2*t);
+/* qiymatli shovqin (seed bilan), fbm */
+function noise2(r,gw,gh){const g=new Float32Array((gw+1)*(gh+1));for(let i=0;i<g.length;i++)g[i]=r();
+  return(x,y)=>{x=cl(x,0,0.99999)*gw;y=cl(y,0,0.99999)*gh;const i=Math.floor(x),j=Math.floor(y),u=sm(x-i),v=sm(y-j),k=j*(gw+1)+i,a=g[k],b=g[k+1],c=g[k+gw+1],d=g[k+gw+2];return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;};}
+function fbm(r,gw,gh,oct){const L=[];let w=1,t=0;for(let o=0;o<(oct||3);o++){L.push([noise2(r,gw<<o,gh<<o),w]);t+=w;w*=0.5;}return(x,y)=>{let s=0;for(const[f,w]of L)s+=f(x,y)*w;return s/t;};}
+/* har piksel: fn(mx,my) -> [r,g,b,a] | null ; joriy transform bo'yicha, canvas o'lchamida */
+function raster(c,fn){const T=c.getTransform(),cw=c.canvas.width,ch=c.canvas.height,oc=document.createElement('canvas');oc.width=cw;oc.height=ch;
+  const ox=oc.getContext('2d'),id=ox.createImageData(cw,ch),d=id.data;
+  for(let py=0;py<ch;py++){const my=(py+0.5-T.f)/T.d;for(let px=0;px<cw;px++){const v=fn((px+0.5-T.e)/T.a,my);if(!v)continue;const o=(py*cw+px)*4;d[o]=v[0];d[o+1]=v[1];d[o+2]=v[2];d[o+3]=v[3]==null?255:v[3];}}
+  ox.putImageData(id,0,0);c.save();c.setTransform(1,0,0,1,0,0);c.drawImage(oc,0,0);c.restore();}
+/* egri chiziq bo'ylab lenta: pt(s)->[x,y], th(s) -> qalinlik (metr), off -- o'q chiziqdan siljish */
+function ribbon(c,pt,th,col,N,off,stroke){if(!col)return;N=N||96;off=off||0;const L=[],R=[];
+  for(let i=0;i<=N;i++){const s=i/N,p=pt(s),q=pt(Math.min(1,s+1e-3)),q0=pt(Math.max(0,s-1e-3)),dx=q[0]-q0[0],dy=q[1]-q0[1],l=Math.hypot(dx,dy)||1,nx=-dy/l,ny=dx/l,w=th(s)/2;
+    L.push([p[0]+nx*(off+w),p[1]+ny*(off+w)]);R.push([p[0]+nx*(off-w),p[1]+ny*(off-w)]);}
+  if(stroke){const Q=L.concat(R.reverse());c.beginPath();Q.forEach((q,i)=>i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]));c.closePath();c.lineJoin='round';c.lineWidth=stroke;c.strokeStyle=col;c.stroke();return;}
+  P(c,L.concat(R.reverse()),col);}
+const bz=(Q)=>s=>vsBez(Q,s);
+function star(c,x,y,R,ri,n,rot,col){const pts=[];for(let i=0;i<n*2;i++){const a=rot+i*Math.PI/n,rr=i%2?ri:R;pts.push([x+Math.cos(a)*rr,y+Math.sin(a)*rr]);}P(c,pts,col);}
+function blob(c,x,y,rx,ry,r,irr,col,K){K=K||28;const ph=r()*9,f1=2+Math.floor(r()*3),f2=3+Math.floor(r()*4),pts=[];
+  for(let i=0;i<K;i++){const a=i/K*TAU,k=1+irr*(0.6*Math.sin(a*f1+ph)+0.4*Math.cos(a*f2+ph*1.7));pts.push([x+Math.cos(a)*rx*k,y+Math.sin(a)*ry*k]);}
+  c.beginPath();for(let i=0;i<=K;i++){const p=pts[i%K],q=pts[(i+1)%K],m=[(p[0]+q[0])/2,(p[1]+q[1])/2];i?c.quadraticCurveTo(p[0],p[1],m[0],m[1]):c.moveTo(m[0],m[1]);}c.closePath();c.fillStyle=col;c.fill();}
+const fadeK=(x,W,dir,pw)=>{const t=x/W;const v=dir==='all'?1:dir==='front'?1-t:dir==='mid'?1-Math.abs(t-0.5)*2:dir==='both'?Math.abs(t-0.5)*2:t;return Math.pow(cl(v,0,1),pw||1);};  // 'rear': orqaga qarab kuchli
+const col3=(C,i)=>C[i]||'';
+const pick=(C,r)=>{const a=C.filter(Boolean);return a[Math.floor(r()*a.length)]||C[0];};
+
+const FAM={
+  /* --- chiziqlar --- */
+  bands(c,W,H,C,r,p){const sk=(p.sk||0)*H;
+    for(const[b0,h,ci,x0,x1,tp]of p.b){const col=col3(C,ci);if(!col)continue;const y0=b0*H,y1=(b0+h)*H,xa=(x0==null?0.02:x0)*W,xb=(x1==null?0.98:x1)*W,t=tp||0,ym=(y0+y1)/2;
+      P(c,[[xa+sk,y0+(ym-y0)*t],[xb,y0],[xb,y1],[xa,y1-(y1-ym)*t]],col);}},
+  spear(c,W,H,C,r,p){const y=p.y*H,h=p.h*H,n=p.n||1;for(let k=0;k<n;k++){const yy=y+k*h*1.5,col=col3(C,k%2&&C[1]?1:0);
+      P(c,[[0.02*W,yy+h*0.5],[0.25*W,yy],[(p.rear?0.98:0.9)*W,yy+h*(p.fork?0:0.1)],[0.98*W,yy+h*0.5],[(p.rear?0.98:0.9)*W,yy+h*(p.fork?1:0.9)],[0.25*W,yy+h]],col);
+      if(p.fork&&C[1])P(c,[[0.6*W,yy+h*0.5],[0.98*W,yy+h*0.3],[0.98*W,yy+h*0.7]],C[1]);}},
+  stepband(c,W,H,C,r,p){const th=p.h*H,lo=p.lo*H,hi=p.hi*H,a=p.a*W,b=p.b*W,s=0.06*W;
+    const path=[[0.02*W,lo],[a,lo],[a+s,hi],[b,hi],[b+s,lo],[0.98*W,lo]];
+    c.lineJoin='miter';c.lineCap='butt';if(C[1]){c.strokeStyle=C[1];c.lineWidth=th*1.5;c.beginPath();path.forEach((q,i)=>i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]));c.stroke();}
+    c.strokeStyle=C[0];c.lineWidth=th;c.beginPath();path.forEach((q,i)=>i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]));c.stroke();},
+  slash(c,W,H,C,r,p){const n=p.n||3,w=p.w*W,g=p.g*W,x0=p.x*W,sl=p.sl*H;for(let k=0;k<n;k++){const x=x0+k*(w+g),col=col3(C,k%2&&C[1]?1:0);P(c,[[x+sl,0],[x+sl+w,0],[x+w,H],[x,H]],col);}},
+  hockey(c,W,H,C,r,p){const th=p.h*H,yb=(p.y||0.72)*H,xk=(p.front?0.12:0.88)*W,R=0.22*H,dir=p.front?1:-1,end=(p.front?0.98:0.02)*W;
+    const draw=(col,lw)=>{c.strokeStyle=col;c.lineWidth=lw;c.lineCap='butt';c.lineJoin='round';c.beginPath();c.moveTo(end,yb);c.lineTo(xk+dir*R,yb);c.quadraticCurveTo(xk,yb,xk,yb-R);c.lineTo(xk,0.04*H);c.stroke();};
+    if(p.out&&C[1])draw(C[1],th*1.6);draw(C[0],th);if(p.dbl&&C[1]){c.save();c.translate(dir*th*1.6,th*1.6);draw(C[1],th*0.45);c.restore();}},
+  /* --- svush va to'lqin --- */
+  wave(c,W,H,C,r,p){const n=p.n||1;for(let k=0;k<n;k++){const y0=(p.y+k*(p.dy||0.18))*H,A=p.A*H,f=p.f,ph=(p.ph||0)+k*(p.dph||0.8),t=p.t*H*(1-k*(p.dt||0));
+      const col=col3(C,k%2&&C[1]?1:(k%3===2&&C[2]?2:0));
+      ribbon(c,s=>[(0.02+0.96*s)*W,y0+Math.sin(s*TAU*f+ph)*A*(p.grow?0.3+0.7*s:1)],s=>t*Math.pow(Math.sin(Math.PI*cl(s,0,1)),p.tp==null?0.35:p.tp)*(p.thin?1-0.6*s:1),col,160);}
+    if(p.fill&&C[1]){c.beginPath();c.moveTo(0,H);for(let i=0;i<=120;i++){const s=i/120;c.lineTo(s*W,(p.y+0.12)*H+Math.sin(s*TAU*p.f+0.5)*p.A*H);}c.lineTo(W,H);c.closePath();c.fillStyle=C[1];c.fill();}},
+  swoosh2(c,W,H,C,r,p){for(const[Q,tw,ci,a,b,off]of p.s){const col=col3(C,ci);if(!col)continue;const QQ=Q.map(q=>[q[0]*W,q[1]*H]);
+      if(p.outline){if(C[1])ribbon(c,bz(QQ),s=>tw*H*Math.pow(Math.sin(Math.PI*s),0.55),C[1],140,(off||0)*H,0.07*H);ribbon(c,bz(QQ),s=>tw*H*Math.pow(Math.sin(Math.PI*s),0.55),col,140,(off||0)*H,0.035*H);continue;}
+      vsBand(c,QQ,vsTaper(tw*H,0.55,true),a==null?0:a,b==null?1:b,col,(off||0)*H);}},
+  /* --- olov --- */
+  flame2(c,W,H,C,r,p){const n=p.n||7,T=[];
+    for(let k=0;k<n;k++){const y=(0.14+0.72*k/(n-1))*H+(r()-0.5)*0.05*H;T.push({y,len:(p.l0+(p.l1-p.l0)*r())*W,amp:(0.05+0.1*r())*H,f:0.8+0.9*r(),ph:r()*6,w0:(p.w||0.11)*H*(0.8+0.4*r()),curl:r()<0.5?-1:1});}
+    T.sort((a,b)=>b.len-a.len);
+    for(const t of T){const top=[],bot=[],N=90;
+      for(let i=0;i<=N;i++){const s=i/N,x=s*t.len,ctr=t.y+Math.sin(s*Math.PI*t.f+t.ph)*t.amp*Math.pow(s,0.8)+t.curl*Math.pow(Math.max(0,s-0.72)/0.28,2)*0.12*H;
+        let w=p.sharp?t.w0*(1-s)*(1+0.5*Math.abs(Math.sin(s*Math.PI*4+t.ph))):t.w0*Math.pow(1-s,0.75)*(1+0.3*Math.sin(s*Math.PI*3+t.ph));top.push([x,ctr-w]);bot.push([x,ctr+w]);}
+      const pts=top.concat(bot.reverse());
+      if(p.ghost){c.beginPath();pts.forEach((q,i)=>i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]));c.closePath();c.lineJoin='round';c.lineWidth=(p.lw||0.018);c.strokeStyle=C[0];c.stroke();continue;}
+      const g=c.createLinearGradient(0,0,t.len,0);g.addColorStop(0,C[0]);g.addColorStop(0.45,C[1]||C[0]);g.addColorStop(1,C[2]||C[1]||C[0]);
+      c.beginPath();pts.forEach((q,i)=>i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]));c.closePath();c.fillStyle=g;c.fill();
+      if(p.pin){c.lineJoin='round';c.lineWidth=p.pin;c.strokeStyle=p.pinCol||'rgba(20,8,0,0.95)';c.stroke();}}
+    if(!p.ghost){const g0=c.createLinearGradient(0,0,0.1*W,0);g0.addColorStop(0,C[0]);g0.addColorStop(1,C[1]||C[0]);c.beginPath();c.moveTo(0,0.1*H);c.quadraticCurveTo(0.09*W,0.2*H,0.06*W,0.5*H);c.quadraticCurveTo(0.09*W,0.82*H,0,0.95*H);c.closePath();c.fillStyle=g0;c.fill();}},
+  realfire(c,W,H,C,r,p){const n=p.n||26;for(let k=0;k<n;k++){const y=(0.95-0.85*r())*H,len=(p.l0+(p.l1-p.l0)*r())*W*(1-0.4*Math.abs(y/H-0.55)),w=(0.06+0.09*r())*H,ph=r()*6,lay=k/n;
+      const col=lay<0.4?C[2]||C[1]||C[0]:lay<0.75?C[1]||C[0]:C[0],top=[],bot=[];
+      for(let i=0;i<=40;i++){const s=i/40,x=s*len,ct=y-s*s*(p.rise||0.35)*H+Math.sin(s*7+ph)*0.03*H*s,ww=w*Math.pow(1-s,1.2)*(1+0.4*Math.sin(s*9+ph));top.push([x,ct-ww]);bot.push([x,ct+ww]);}
+      c.globalAlpha=0.9;P(c,top.concat(bot.reverse()),col);}c.globalAlpha=1;},
+  /* --- tribal --- */
+  tribal2(c,W,H,C,r,p){const sp=p.sp.map(q=>[q[0]*W,q[1]*H]);
+    const blade=(q,d,len,wid,up,col)=>{const nx=-d[1]*up,ny=d[0]*up,b0=[q[0]-d[0]*wid,q[1]-d[1]*wid],b1=[q[0]+d[0]*wid,q[1]+d[1]*wid],tip=[q[0]+d[0]*len*(p.lean||0.85)+nx*len,q[1]+d[1]*len*(p.lean||0.85)+ny*len];
+      c.beginPath();c.moveTo(b0[0],b0[1]);
+      c.bezierCurveTo(q[0]-d[0]*wid*0.3+nx*len*0.55,q[1]-d[1]*wid*0.3+ny*len*0.55,tip[0]-d[0]*len*0.45,tip[1]-d[1]*len*0.45,tip[0],tip[1]);
+      c.bezierCurveTo(tip[0]-d[0]*len*0.05-nx*len*0.25,tip[1]-d[1]*len*0.05-ny*len*0.25,q[0]+d[0]*wid*1.6+nx*len*0.25,q[1]+d[1]*wid*1.6+ny*len*0.25,b1[0],b1[1]);
+      c.closePath();c.fillStyle=col;c.fill();};
+    const draw=(col,g)=>{vsBand(c,sp,vsTaper((p.th||0.15)*H*g,0.45,true),0,1,col);const n=p.n||8;
+      for(let k=1;k<=n;k++){const s=k/(n+1.2),q=vsBez(sp,s),d0=vsBezD(sp,s),l=Math.hypot(d0[0],d0[1])||1,d=[d0[0]/l,d0[1]/l],sz=((p.bs||0.46)-(p.shrink==null?0.3:p.shrink)*s)*H*g;
+        const side=p.both?(k%2?1:-1):(p.up||1);blade(q,d,sz,0.07*H*g*(1-0.45*s),side,col);if(p.both2)blade(q,d,sz*0.7,0.05*H*g,-side,col);}
+      const p0=vsBez(sp,0.02),d1=vsBezD(sp,0.02),l1=Math.hypot(d1[0],d1[1])||1;blade(p0,[-d1[0]/l1,-d1[1]/l1],0.3*H*g,0.06*H*g,1,col);};
+    if(C[1])draw(C[1],1.13);draw(C[0],1);},
+  thorns(c,W,H,C,r,p){const y=p.y*H,n=p.n||12;c.strokeStyle=C[0];c.lineCap='round';c.lineWidth=p.t*H;c.beginPath();for(let i=0;i<=100;i++){const s=i/100,x=(0.03+0.94*s)*W,yy=y+Math.sin(s*TAU*1.3)*0.08*H;i?c.lineTo(x,yy):c.moveTo(x,yy);}c.stroke();
+    for(let k=0;k<n;k++){const s=(k+0.5)/n,x=(0.03+0.94*s)*W,yy=y+Math.sin(s*TAU*1.3)*0.08*H,up=k%2?1:-1,L=(0.18+0.1*r())*H;P(c,[[x-0.03*W,yy],[x+0.012*W,yy],[x+0.05*W,yy+up*L]],col3(C,C[1]&&k%3===0?1:0));}},
+  /* --- geometrik --- */
+  shards(c,W,H,C,r,p){const n=p.n||60;for(let k=0;k<n;k++){const t=Math.pow(r(),p.pw||1.6),x=(p.rear?1-t:t)*W*0.95+0.02*W,y=(0.05+0.9*r())*H,s=(p.s0+(p.s1-p.s0)*(1-t))*H,a=r()*TAU;
+      const m=p.sides||3,pts=[];for(let i=0;i<m;i++){const aa=a+i*TAU/m+(r()-0.5)*0.9,rr=s*(0.6+0.6*r());pts.push([x+Math.cos(aa)*rr*1.3,y+Math.sin(aa)*rr]);}P(c,pts,pick(C,r));}},
+  crack(c,W,H,C,r,p){const cx=p.x*W,cy=p.y*H;c.lineCap='round';c.lineJoin='round';
+    const walk=(x,y,a,len,w0,d)=>{const w=w0*1.8;c.strokeStyle=C[0];c.lineWidth=w;c.beginPath();c.moveTo(x,y);let L=0;while(L<len){a+=(r()-0.5)*0.9;const st=0.03+0.05*r();x+=Math.cos(a)*st*1.4;y+=Math.sin(a)*st;L+=st;c.lineTo(x,y);if(d<3&&r()<0.12)walk(x,y,a+(r()<0.5?-1:1)*(0.5+r()*0.7),len*0.45,w*0.6,d+1);}c.stroke();};
+    for(let k=0;k<(p.n||9);k++)walk(cx,cy,k/(p.n||9)*TAU+r()*0.4,(0.4+r()*0.5)*H*(p.long||2.2),0.012,0);
+    if(C[1]){c.fillStyle=C[1];c.beginPath();c.arc(cx,cy,0.05*H,0,TAU);c.fill();}},
+  chevron(c,W,H,C,r,p){const n=p.n||3;for(let k=0;k<n;k++){const sc=p.grow?1-k*0.18:1,h=p.h*H*sc,x=(p.x+k*p.dx)*W,y=(p.y||0.5)*H,t=p.t*W*sc,d=(p.back?-1:1)*h*0.55,col=col3(C,k%2&&C[1]?1:0);
+      c.globalAlpha=p.fade?1-k/(n+0.5):1;P(c,[[x,y-h/2],[x+t,y-h/2],[x+t+d,y],[x+t,y+h/2],[x,y+h/2],[x+d,y]],col);}c.globalAlpha=1;
+    if(p.line&&C[1]){c.fillStyle=C[1];c.fillRect((p.x+n*p.dx)*W,(p.y||0.5)*H-0.05*H,(0.98-(p.x+n*p.dx))*W,0.1*H);}},
+  zigzag(c,W,H,C,r,p){const n=p.n||1;for(let k=0;k<n;k++){const y=(p.y+k*0.22)*H,A=p.A*H,m=p.m||10,col=col3(C,k%2&&C[1]?1:0);c.strokeStyle=col;c.lineWidth=p.t*H;c.lineJoin=p.round?'round':'miter';c.beginPath();
+      for(let i=0;i<=m;i++){const x=(0.03+0.94*i/m)*W,yy=y+(i%2?A:-A)*(p.grow?0.3+0.7*i/m:1);i?c.lineTo(x,yy):c.moveTo(x,yy);}c.stroke();}},
+  hexgrid(c,W,H,C,r,p){const R=p.R||0.07,h=R*Math.sqrt(3),fill=!p.outline;c.lineWidth=R*0.18;
+    for(let i=0;i*R*1.5<W+R;i++)for(let j=-1;j*h<H+h;j++){const x=i*R*1.5,y=j*h+(i%2?h/2:0);const f=fadeK(x,W,p.dir||'rear',1.3);if(p.band&&Math.abs(y-H/2)>p.band*H)continue;if(r()>f*1.15)continue;
+      const s=p.shrink?R*(0.35+0.6*f):R*0.92,pts=[];for(let k=0;k<6;k++){const a=k*Math.PI/3;pts.push([x+Math.cos(a)*s,y+Math.sin(a)*s]);}
+      const col=C[1]&&r()<(p.mix||0.3)?C[1]:C[0];if(fill)P(c,pts,col);else{c.strokeStyle=col;c.beginPath();pts.forEach((q,k)=>k?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]));c.closePath();c.stroke();}}},
+  lowpoly(c,W,H,C,r,p){const nx=p.nx||22,ny=p.ny||5,pt=[];for(let j=0;j<=ny;j++){pt.push([]);for(let i=0;i<=nx;i++){const jx=(i>0&&i<nx)?(r()-0.5)*0.7:0,jy=(j>0&&j<ny)?(r()-0.5)*0.7:0;pt[j].push([(i+jx)/nx*W,(j+jy)/ny*H]);}}
+    const base=C.filter(Boolean).map(hx);
+    for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const a=pt[j][i],b=pt[j][i+1],cc=pt[j+1][i],d=pt[j+1][i+1];for(const tri of[[a,b,d],[a,d,cc]]){const mx=(tri[0][0]+tri[1][0]+tri[2][0])/3;
+        const f=fadeK(mx,W,p.dir||'rear',1);if(r()>f*1.25)continue;const bc=base[Math.floor(r()*base.length)]||[0,0,0],l=0.75+0.5*r();P(c,tri,'rgb('+bc.map(v=>cl(Math.round(v*l),0,255)).join(',')+')');}}},
+  halftone(c,W,H,C,r,p){const q=p.q||0.055,shape=p.shape||'dot';const row=q*(shape==='hex'?0.87:1);
+    for(let j=0;j*row<H+q;j++)for(let i=0;i*q<W+q;i++){const x=i*q+(j%2&&p.stag!==false?q/2:0),y=j*row;let f=fadeK(x,W,p.dir||'rear',p.pw||1.2);if(p.vert)f*=fadeK(y,H,p.vert,1);
+      const s=q*0.5*f*1.05;if(s<q*0.06)continue;const col=C[1]&&f>(p.split||2)?C[1]:C[0];
+      if(shape==='dot'){c.beginPath();c.arc(x,y,s,0,TAU);c.fillStyle=col;c.fill();}
+      else if(shape==='sq'){c.fillStyle=col;c.fillRect(x-s,y-s,s*2,s*2);}
+      else if(shape==='tri'){P(c,[[x,y-s*1.15],[x+s*1.1,y+s*0.75],[x-s*1.1,y+s*0.75]],col);}
+      else if(shape==='hex'){const pts=[];for(let k=0;k<6;k++){const a=k*Math.PI/3+Math.PI/6;pts.push([x+Math.cos(a)*s,y+Math.sin(a)*s]);}P(c,pts,col);}
+      else if(shape==='star')star(c,x,y,s*1.25,s*0.5,5,-Math.PI/2,col);
+      else if(shape==='line'){c.fillStyle=col;c.fillRect(x-q/2,y-s*0.5,q*1.01,s);}
+      else if(shape==='diamond')P(c,[[x,y-s*1.2],[x+s*1.2,y],[x,y+s*1.2],[x-s*1.2,y]],col);}},
+  mosaic(c,W,H,C,r,p){const q=p.q||0.06;
+    if(p.rain){for(let x=q/2;x<W;x+=q){const L=Math.floor(r()*H/q*0.9),y0=Math.floor(r()*3);for(let k=0;k<L;k++){const y=(y0+k)*q;if(y>H)break;c.globalAlpha=0.25+0.75*(k/L);c.fillStyle=k===L-1&&C[1]?C[1]:C[0];c.fillRect(x-q*0.4,y,q*0.8,q*0.8);}}c.globalAlpha=1;return;}
+    for(let x=q/2;x<W;x+=q)for(let y=q/2;y<H;y+=q){let f=fadeK(x,W,p.dir||'rear',p.pw||1.3);
+      if(p.wave)f=cl(f+0.35*Math.sin(y/H*TAU+x/W*9),0,1);
+      if(p.flame){const top=H*(1-cl((1-x/W*1.3)+0.25*Math.sin(x*9+y),0,1));f=y>top?1:0;}
+      if(r()>f*1.1)continue;const s=q*(f>0.75?0.94:0.4+0.5*r());c.fillStyle=C[1]&&r()<(p.mix||0.3)?(C[2]&&r()<0.4?C[2]:C[1]):C[0];
+      if(p.check&&((Math.round(x/q)+Math.round(y/q))%2))continue;c.fillRect(x-s/2,y-s/2,s,s);}},
+  glitch(c,W,H,C,r,p){const n=p.n||26;for(let k=0;k<n;k++){const y=r()*H,h=(0.015+0.07*r())*H,x=(p.rear?0.3+0.68*r():0.02+0.6*r())*W,w=(0.05+0.35*r())*W;
+      if(C[1]){c.fillStyle=C[1];c.fillRect(x-0.02*W,y-h*0.25,w,h);}if(C[2]){c.fillStyle=C[2];c.fillRect(x+0.02*W,y+h*0.25,w,h);}c.fillStyle=C[0];c.fillRect(x,y,w,h);}},
+  circles(c,W,H,C,r,p){if(p.rings){const cx=p.x*W,cy=0.5*H;c.lineWidth=p.t*H;for(let k=1;k<=p.n;k++){c.strokeStyle=col3(C,k%2&&C[1]?1:0);c.beginPath();c.arc(cx,cy,k*p.dr*H,0,TAU);c.stroke();}return;}
+    for(let k=0;k<(p.n||60);k++){const t=Math.pow(r(),1.4),x=(p.front?t:1-t)*W,y=r()*H,R=(0.02+0.14*r()*(1-t))*H;c.fillStyle=pick(C,r);c.globalAlpha=0.55+0.45*r();c.beginPath();c.arc(x,y,R,0,TAU);c.fill();}c.globalAlpha=1;},
+  grid(c,W,H,C,r,p){c.strokeStyle=C[0];c.lineWidth=p.t*H;
+    if(p.persp){const hz=0.08*H;for(let k=0;k<12;k++){const y=hz+(H-hz)*Math.pow(k/11,1.8);c.globalAlpha=0.3+0.7*k/11;c.beginPath();c.moveTo(0,y);c.lineTo(W,y);c.stroke();}
+      c.globalAlpha=1;for(let k=-14;k<=14;k++){c.beginPath();c.moveTo(W/2+k*0.04*W,hz);c.lineTo(W/2+k*0.3*W,H);c.stroke();}
+      if(C[1]){const g=c.createLinearGradient(0,0,0,hz*3);g.addColorStop(0,C[1]);g.addColorStop(1,'rgba(0,0,0,0)');c.fillStyle=g;c.fillRect(0,0,W,hz*3);}return;}
+    const q=p.q||0.12;for(let x=0;x<W;x+=q){c.globalAlpha=fadeK(x,W,'rear',1);c.beginPath();c.moveTo(x,0);c.lineTo(x,H);c.stroke();}
+    for(let y=0;y<=H;y+=q){const g=c.createLinearGradient(0,0,W,0);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,C[0]);c.globalAlpha=1;c.strokeStyle=g;c.beginPath();c.moveTo(0,y);c.lineTo(W,y);c.stroke();}c.strokeStyle=C[0];},
+  /* --- tezlik --- */
+  streaks(c,W,H,C,r,p){const n=p.n||16;
+    if(p.neon){c.shadowBlur=c.canvas.width/120;}
+    for(let k=0;k<n;k++){const y=(0.06+0.88*r())*H,len=(p.l0+(p.l1-p.l0)*r())*W,x0=(0.02+(0.96-p.l1)*r()*0.6)*W,t=(p.t0+(p.t1-p.t0)*r())*H,col=pick(C,r);
+      if(p.neon)c.shadowColor=col;
+      if(p.dash){c.fillStyle=col;let x=x0;while(x<x0+len){const d=(0.04+0.1*r())*W;c.fillRect(x,y-t/2,d,t);x+=d*(1.5+r());}continue;}
+      if(p.wind){c.strokeStyle=col;c.lineWidth=t;c.lineCap='round';c.beginPath();c.moveTo(x0,y);c.bezierCurveTo(x0+len*0.3,y-0.15*H,x0+len*0.6,y+0.15*H,x0+len,y-(r()-0.5)*0.2*H);c.stroke();continue;}
+      const g=c.createLinearGradient(x0,0,x0+len,0);g.addColorStop(0,col);g.addColorStop(1,'rgba(0,0,0,0)');
+      if(p.comet){c.fillStyle=col;c.beginPath();c.arc(x0,y,t*1.3,0,TAU);c.fill();}
+      P(c,[[x0,y-t/2],[x0+len,y-t*0.08],[x0+len,y+t*0.08],[x0,y+t/2]],g);}
+    c.shadowBlur=0;},
+  neon(c,W,H,C,r,p){c.lineCap='round';c.lineJoin='round';const glow=c.canvas.width/90;
+    const path=()=>{c.beginPath();for(let i=0;i<=200;i++){const s=i/200,x=(0.03+0.94*s)*W;let y;
+        if(p.kind==='zig'){const m=12,k=s*m,f=k-Math.floor(k);y=p.y*H+(Math.floor(k)%2?1-f:f)*p.A*H*2-p.A*H;}
+        else if(p.kind==='wave')y=p.y*H+Math.sin(s*TAU*p.f)*p.A*H;else y=p.y*H+(s>0.6?-(s-0.6)*0.6*H:0);
+        i?c.lineTo(x,y):c.moveTo(x,y);}};
+    for(const[k,col]of[[0,C[0]],[1,C[1]]]){if(!col)continue;c.save();c.translate(0,k*0.12*H);c.shadowColor=col;c.shadowBlur=glow;c.strokeStyle=col;c.lineWidth=p.t*H;path();c.stroke();c.stroke();
+      c.shadowBlur=0;c.strokeStyle='rgba(255,255,255,0.85)';c.lineWidth=p.t*H*0.35;path();c.stroke();c.restore();}},
+  /* --- kamuflyaj va teri (rastr) --- */
+  camo(c,W,H,C,r,p){const cols=C.map(x=>x?hx(x):null),sc=p.sc||1,A=W/sc,B=H/sc,q=p.q||0;
+    const n1=fbm(r,Math.max(2,Math.round(A*2.2)),Math.max(2,Math.round(B*2.2)),p.oct||3),n2=fbm(r,Math.max(2,Math.round(A*2.6)),Math.max(2,Math.round(B*2.6)),p.oct||3),n3=fbm(r,Math.max(2,Math.round(A*3)),Math.max(2,Math.round(B*3)),p.oct||3);
+    const th=p.th||[0.52,0.55,0.58];
+    raster(c,(x,y)=>{if(x<0||y<0||x>W||y>H)return null;if(q){x=Math.floor(x/q)*q;y=Math.floor(y/q)*q;}let u=x/W,v=y/H;if(p.stretch){v=v;}
+      if(p.stretch)u=u*1+0;const a=p.stretch?n1(u,v*0.35+0.3*n2(u,v)):n1(u,v),b=n2(u,v),d=n3(u,v);
+      if(cols[2]&&d>th[2])return cols[2];if(cols[1]&&b>th[1])return cols[1];if(cols[0]&&a>th[0])return cols[0];return null;});},
+  splinter(c,W,H,C,r,p){const n=p.n||70;for(let k=0;k<n;k++){const x=r()*W,y=r()*H,a=(p.ang||-0.35)+(r()-0.5)*0.5,L=(0.25+0.5*r())*W*0.35,w=(0.06+0.12*r())*H,dx=Math.cos(a),dy=Math.sin(a);
+      P(c,[[x-dx*L/2,y-dy*L/2],[x+dx*L/2+w*0.3,y+dy*L/2-w],[x+dx*L/2,y+dy*L/2+w*0.4],[x-dx*L/2-w*0.4,y-dy*L/2+w]],col3(C,k%3===0&&C[1]?1:k%5===0&&C[2]?2:0));}},
+  stripesSkin(c,W,H,C,r,p){const col=hx(C[0]),n=fbm(r,Math.max(2,Math.round(W*2)),Math.max(2,Math.round(H*2)),3),fr=p.f||14;
+    raster(c,(x,y)=>{if(x<0||y<0||x>W||y>H)return null;const u=x/W,v=y/H,w=n(u,v);let t;
+      if(p.kind==='zebra')t=Math.sin((u*fr*W/4.5+v*1.2+w*3.2)*TAU*0.5);
+      else{const m=Math.sin((u*fr*W/4.5+w*2.2+0.12*Math.sin(v*11+u*7))*TAU*0.5),ph=Math.floor(u*fr*W/4.5+w*2.2+0.5),len=0.35+0.55*(((ph*7919)%13)/13),side=((ph*31)%2)?v:1-v;
+        const env=cl(1-side/len,0,1);return m>1-env*0.55?col:null;}
+      return t>0.05?col:null;});},
+  spots(c,W,H,C,r,p){const n=p.n||90;
+    for(let k=0;k<n;k++){const x=r()*W,y=r()*H,s=(p.s0+(p.s1-p.s0)*r())*H;
+      if(p.kind==='leopard'){if(C[1])blob(c,x,y,s*0.7,s*0.55,r,0.25,C[1],18);for(let i=0;i<6;i++){if(r()<0.25)continue;const a=i/6*TAU+r()*0.4,d=s*0.85;blob(c,x+Math.cos(a)*d*1.1,y+Math.sin(a)*d*0.85,s*0.32,s*0.24,r,0.35,C[0],12);}}
+      else blob(c,x,y,s*(1+0.3*r()),s*(0.8+0.3*r()),r,0.3,C[0],20);}},
+  giraffe(c,W,H,C,r,p){const pts=[];const n=Math.round((p.d||14)*W/4.5*H/0.7);for(let k=0;k<n;k++)pts.push([r()*W,r()*H]);const col=hx(C[0]),gap=(p.gap||0.025);
+    raster(c,(x,y)=>{if(x<0||y<0||x>W||y>H)return null;let d1=1e9,d2=1e9;for(const q of pts){const d=(q[0]-x)*(q[0]-x)+(q[1]-y)*(q[1]-y);if(d<d1){d2=d1;d1=d;}else if(d<d2)d2=d;}return Math.sqrt(d2)-Math.sqrt(d1)>gap?col:null;});},
+  scales(c,W,H,C,r,p){const s=p.s||0.07;c.lineWidth=s*0.12;for(let j=-1;j*s*0.55<H+s;j++)for(let i=-1;i*s<W+s;i++){const x=i*s+(j%2?s/2:0),y=j*s*0.55,f=fadeK(x,W,p.dir||'mid',0.7);if(r()>f*1.3)continue;
+      c.beginPath();c.moveTo(x-s/2,y);c.quadraticCurveTo(x-s/2,y+s*0.75,x,y+s*0.85);c.quadraticCurveTo(x+s/2,y+s*0.75,x+s/2,y);c.closePath();c.fillStyle=(i+j)%3===0&&C[1]?C[1]:C[0];c.fill();if(C[2]){c.strokeStyle=C[2];c.stroke();}}},
+  carbon(c,W,H,C,r,p){const a=hx(C[0]||'#1a1a1a'),b=hx(C[1]||'#3a3a3a'),T=c.getTransform(),q=Math.max(p.q||0.012,3/Math.abs(T.a||1)),band=p.band;  // kichik rasmda katak 3 pikseldan kichik bo'lmasin
+    raster(c,(x,y)=>{if(x<0||y<0||x>W||y>H)return null;if(band&&(y<band[0]*H||y>band[1]*H))return null;const u=Math.floor(x/q),v=Math.floor(y/q),fx=x/q-u,fy=y/q-v,tw=((u+v)>>1)%2===0;
+      const sh=tw?0.35+0.65*Math.sin(Math.PI*fx):0.35+0.65*Math.sin(Math.PI*fy),k=cl(sh,0,1);return[a[0]+(b[0]-a[0])*k|0,a[1]+(b[1]-a[1])*k|0,a[2]+(b[2]-a[2])*k|0,255];});},
+  topo(c,W,H,C,r,p){const col=hx(C[0]),n=fbm(r,Math.max(2,Math.round(W*0.8)),Math.max(2,Math.round(H*1.2)),2),L=p.L||6,lw=p.lw||0.1;
+    raster(c,(x,y)=>{if(x<0||y<0||x>W||y>H)return null;const v=n(x/W,y/H)*L,f=v-Math.floor(v);if(p.fade&&r()>fadeK(x,W,p.fade,1)*1.2)return null;return f<lw?col:null;});},
+  /* --- bo'yoq --- */
+  splat(c,W,H,C,r,p){const n=p.n||5;for(let k=0;k<n;k++){const cx=(0.15+0.75*r())*W,cy=(0.25+0.5*r())*H,rad=(0.1+0.18*r())*H,col=pick(C,r);
+      blob(c,cx,cy,rad*1.25,rad,r,0.35,col,40);for(let i=0;i<(p.d||24);i++){const a=r()*TAU,d=rad*(1.2+r()*2.5),s=rad*(0.04+0.14*r());c.beginPath();c.ellipse(cx+Math.cos(a)*d*1.4,cy+Math.sin(a)*d,s*1.4,s,a,0,TAU);c.fillStyle=col;c.fill();}}},
+  drip(c,W,H,C,r,p){const col=C[0];c.fillStyle=col;c.fillRect(0,0,W,(p.top||0.12)*H);
+    for(let k=0;k<(p.n||34);k++){const x=r()*W,w=(0.012+0.035*r())*W*0.25,L=(0.15+0.75*Math.pow(r(),1.5))*H;c.fillStyle=C[1]&&r()<0.25?C[1]:col;
+      c.beginPath();c.moveTo(x-w,(p.top||0.12)*H-0.01);c.lineTo(x-w*0.8,L);c.arc(x,L,w*0.9,Math.PI,0,true);c.lineTo(x+w,(p.top||0.12)*H-0.01);c.closePath();c.fill();
+      c.beginPath();c.arc(x,(p.top||0.12)*H,w*1.6,0,Math.PI);c.fill();}},
+  spray(c,W,H,C,r,p){const n=p.n||5000;for(let k=0;k<n;k++){const cx=(p.x||0.5)*W,cy=0.5*H,a=r()*TAU,g=Math.sqrt(-2*Math.log(r()+1e-9))*(r()<0.5?1:0.6),x=cx+Math.cos(a)*g*W*0.18,y=cy+Math.sin(a)*g*H*0.3;
+      if(x<0||x>W||y<0||y>H)continue;c.fillStyle=pick(C,r);c.fillRect(x,y,0.006+0.01*r(),0.006+0.01*r());}},
+  inkblot(c,W,H,C,r,p){const cx=0.5*W,cy=0.5*H;c.save();for(const sg of[1,-1]){c.save();c.translate(cx,0);c.scale(sg,1);const rr=vsRng(Math.floor((p.s||5)*97));
+      for(let k=0;k<9;k++){blob(c,0.03*W+rr()*0.28*W,cy+(rr()-0.5)*0.7*H,(0.04+0.1*rr())*W,(0.08+0.2*rr())*H,rr,0.35,C[0],30);}
+      if(C[1])for(let k=0;k<4;k++)blob(c,0.05*W+rr()*0.2*W,cy+(rr()-0.5)*0.5*H,(0.02+0.04*rr())*W,(0.04+0.1*rr())*H,rr,0.3,C[1],24);c.restore();}c.restore();},
+  brush(c,W,H,C,r,p){const n=p.n||2;for(let k=0;k<n;k++){const y=(0.3+0.4*k/(Math.max(1,n-1)||1))*H*(n>1?1:1),th=(p.t||0.3)*H,col=col3(C,k%2&&C[1]?1:0);
+      for(let b=0;b<90;b++){const yy=y+(r()-0.5)*th,x0=(0.02+0.12*r())*W,x1=(0.75+0.23*r())*W,w=0.004+0.012*r();c.strokeStyle=col;c.globalAlpha=0.55+0.45*r();c.lineWidth=w;c.beginPath();c.moveTo(x0,yy);c.bezierCurveTo(x0+(x1-x0)*0.3,yy+(r()-0.5)*0.05*H,x0+(x1-x0)*0.7,yy+(r()-0.5)*0.05*H,x1,yy+(r()-0.5)*0.08*H);c.stroke();}}c.globalAlpha=1;},
+  /* --- tabiat va boshqalar --- */
+  bolt(c,W,H,C,r,p){const n=p.n||1;c.lineJoin='miter';
+    for(let k=0;k<n;k++){const pts=[[0.03*W,(0.25+0.5*r())*H]];let x=pts[0][0];while(x<0.95*W){x+=(0.05+0.1*r())*W;pts.push([Math.min(x,0.97*W),cl(pts[pts.length-1][1]+(r()-0.5)*0.55*H,0.06*H,0.94*H)]);}
+      const draw=(col,w)=>{c.strokeStyle=col;c.lineWidth=w;c.beginPath();pts.forEach((q,i)=>i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]));c.stroke();
+        if(p.branch)for(let i=1;i<pts.length-1;i+=2){c.lineWidth=w*0.45;c.beginPath();c.moveTo(pts[i][0],pts[i][1]);c.lineTo(pts[i][0]+0.08*W,pts[i][1]+(r()-0.5)*0.5*H);c.stroke();}};
+      if(p.glow){c.shadowColor=C[1]||C[0];c.shadowBlur=c.canvas.width/80;}
+      if(C[1])draw(C[1],p.t*H*2.2);draw(C[0],p.t*H);c.shadowBlur=0;}},
+  circuit(c,W,H,C,r,p){const q=p.q||0.06;c.lineCap='round';c.lineJoin='round';c.lineWidth=q*0.22;
+    for(let k=0;k<(p.n||40);k++){let x=Math.floor(r()*W/q)*q,y=Math.floor(r()*H/q)*q;if(r()>fadeK(x,W,p.dir||'rear',1.2))continue;const col=C[1]&&r()<0.3?C[1]:C[0];c.strokeStyle=col;c.fillStyle=col;
+      c.beginPath();c.arc(x,y,q*0.28,0,TAU);c.fill();c.beginPath();c.moveTo(x,y);let d=Math.floor(r()*4);
+      for(let s=0;s<6+r()*10;s++){if(r()<0.35)d=(d+(r()<0.5?1:7))%8;const a=d*Math.PI/4;x+=Math.round(Math.cos(a))*q;y+=Math.round(Math.sin(a))*q;y=cl(y,0,H);c.lineTo(x,y);}c.stroke();
+      c.beginPath();c.arc(x,y,q*0.3,0,TAU);c.lineWidth=q*0.12;c.stroke();c.lineWidth=q*0.22;}},
+  stars(c,W,H,C,r,p){if(p.big){star(c,p.x*W,0.5*H,0.42*H,0.17*H,5,-Math.PI/2,C[0]);if(C[1])for(let k=0;k<3;k++){const y=(0.3+k*0.2)*H;c.fillStyle=k%2?C[1]:C[0];c.fillRect(p.x*W+0.42*H,y-0.04*H,(0.95-p.x)*W-0.42*H,0.08*H);}return;}
+    for(let k=0;k<(p.n||40);k++){const t=Math.pow(r(),p.pw||1.3),x=(p.front?t:1-t)*W*0.96+0.02*W,y=(0.05+0.9*r())*H,R=(0.02+0.07*r()*(1-t*0.7))*H;star(c,x,y,R,R*0.45,p.pts||5,r()*TAU,pick(C,r));}
+    if(p.trail){const g=c.createLinearGradient(0,0,W,0);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,C[0]);P(c,[[0.05*W,0.48*H],[0.85*W,0.4*H],[0.85*W,0.6*H],[0.05*W,0.52*H]],g);star(c,0.88*W,0.5*H,0.22*H,0.09*H,5,-Math.PI/2,C[0]);}},
+  sakura(c,W,H,C,r,p){const flower=(x,y,R,col,rot)=>{for(let i=0;i<5;i++){const a=rot+i*TAU/5;c.save();c.translate(x+Math.cos(a)*R*0.55,y+Math.sin(a)*R*0.55);c.rotate(a);c.beginPath();c.ellipse(0,0,R*0.55,R*0.36,0,0,TAU);c.fillStyle=col;c.fill();c.restore();}
+      if(C[1]){c.beginPath();c.arc(x,y,R*0.2,0,TAU);c.fillStyle=C[1];c.fill();}};
+    for(let k=0;k<(p.n||30);k++){const t=Math.pow(r(),1.3),x=(1-t)*W*0.95,y=r()*H,R=(0.06+0.1*r())*H*(1-0.5*t);if(r()<0.5)flower(x,y,R,C[0],r()*TAU);else{c.save();c.translate(x,y);c.rotate(r()*TAU);c.beginPath();c.ellipse(0,0,R*0.5,R*0.28,0,0,TAU);c.fillStyle=C[0];c.fill();c.restore();}}
+    if(p.branch&&C[2]){c.strokeStyle=C[2];c.lineWidth=0.025*H;c.lineCap='round';c.beginPath();c.moveTo(W,0.05*H);c.bezierCurveTo(0.8*W,0.2*H,0.7*W,0.1*H,0.55*W,0.3*H);c.stroke();}},
+  seigaiha(c,W,H,C,r,p){const R=p.R||0.09;c.lineWidth=R*0.09;for(let j=0;j*R*0.5<H+R;j++)for(let i=-1;i*R*2<W+R;i++){const x=i*R*2+(j%2?R:0),y=j*R*0.5+R*0.5;if(r()>fadeK(x,W,p.dir||'rear',0.8)*1.3)continue;
+      for(let k=4;k>=1;k--){c.beginPath();c.arc(x,y,R*k/4,Math.PI,0);c.closePath();c.fillStyle=k%2?C[0]:(C[1]||'rgba(0,0,0,0)');c.fill();}}},
+  sunburst(c,W,H,C,r,p){const cx=p.x*W,cy=(p.y||0.5)*H,n=p.n||18;for(let k=0;k<n;k++){const a0=k*TAU/n,a1=a0+TAU/n*0.5;if(k%1)continue;const R=W*1.2;
+      c.globalAlpha=1;P(c,[[cx,cy],[cx+Math.cos(a0)*R,cy+Math.sin(a0)*R*0.6],[cx+Math.cos(a1)*R,cy+Math.sin(a1)*R*0.6]],col3(C,k%2&&C[1]?1:0));}
+    if(C[2]){c.beginPath();c.arc(cx,cy,0.2*H,0,TAU);c.fillStyle=C[2];c.fill();}},
+  scallop(c,W,H,C,r,p){if(p.pin){c.strokeStyle=C[0];c.lineWidth=0.012;c.lineCap='round';const cx=0.5*W,cy=0.5*H;
+      for(const sg of[1,-1]){c.beginPath();c.moveTo(cx,cy);c.bezierCurveTo(cx+sg*0.12*W,cy-0.45*H,cx+sg*0.3*W,cy+0.4*H,cx+sg*0.42*W,cy-0.05*H);c.bezierCurveTo(cx+sg*0.46*W,cy-0.3*H,cx+sg*0.36*W,cy-0.3*H,cx+sg*0.38*W,cy-0.1*H);c.stroke();
+        c.beginPath();c.moveTo(cx,cy);c.bezierCurveTo(cx+sg*0.1*W,cy+0.4*H,cx+sg*0.22*W,cy-0.2*H,cx+sg*0.3*W,cy+0.25*H);c.stroke();
+        if(C[1]){c.strokeStyle=C[1];c.beginPath();c.arc(cx+sg*0.2*W,cy+0.05*H,0.06*H,0,TAU);c.stroke();c.strokeStyle=C[0];}}return;}
+    const n=p.n||4;for(let k=0;k<n;k++){const y=(0.2+0.6*k/Math.max(1,n-1))*H,h=(0.11-0.015*k)*H,L=(0.75-0.1*k)*W;const pts=[[0.03*W,y-h/2],[0.03*W+L*0.85,y-h*0.2],[0.03*W+L,y],[0.03*W+L*0.85,y+h*0.2],[0.03*W,y+h/2]];
+      if(C[1]){c.lineJoin='round';c.strokeStyle=C[1];c.lineWidth=0.02;c.beginPath();pts.forEach((q,i)=>i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]));c.closePath();c.stroke();}P(c,pts,C[0]);}},
+  twotone(c,W,H,C,r,p){const col=C[0];if(p.kind==='grad'){const g=c.createLinearGradient(0,p.up?H:0,0,p.up?0:H);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(0.35,'rgba(0,0,0,0)');g.addColorStop(1,col);c.fillStyle=g;c.fillRect(0,0,W,H);return;}
+    if(p.kind==='diag'){P(c,[[0.25*W,H],[0.75*W,0],[W,0],[W,H]],col);if(C[1])P(c,[[0.25*W-0.03*W,H],[0.75*W-0.03*W,0],[0.75*W,0],[0.25*W,H]],C[1]);return;}
+    const y=p.y*H,top=p.kind==='top';c.beginPath();c.moveTo(0,top?0:H);c.lineTo(0,y+0.05*H);c.bezierCurveTo(0.3*W,y-0.06*H,0.7*W,y+0.08*H,W,y-0.02*H);c.lineTo(W,top?0:H);c.closePath();c.fillStyle=col;c.fill();
+    if(C[1]){c.strokeStyle=C[1];c.lineWidth=0.02;c.beginPath();c.moveTo(0,y+0.05*H);c.bezierCurveTo(0.3*W,y-0.06*H,0.7*W,y+0.08*H,W,y-0.02*H);c.stroke();}},
+  wings(c,W,H,C,r,p){const x0=p.x*W,y0=0.55*H,n=p.n||9;for(let k=n-1;k>=0;k--){const a=-0.15-k*0.07,L=(0.25+0.035*k)*W*(p.s||1),w=(0.06+0.005*k)*H,col=col3(C,k%3===0&&C[1]?1:0);
+      c.save();c.translate(x0,y0);c.rotate(a);c.beginPath();c.moveTo(0,0);c.quadraticCurveTo(L*0.5,-w*1.3,L,-w*0.2);c.quadraticCurveTo(L*0.55,w*0.6,0,w*0.6);c.closePath();c.fillStyle=col;c.fill();c.restore();}},
+  hazard(c,W,H,C,r,p){if(p.barcode){let x=(p.x||0.6)*W;const e=x+0.3*W,y0=0.2*H,y1=0.8*H;while(x<e){const w=(0.004+0.018*r())*W*0.25;c.fillStyle=C[0];c.fillRect(x,y0,w,y1-y0);x+=w+(0.004+0.012*r())*W*0.25;}
+      if(C[1]){c.fillStyle=C[1];c.fillRect((p.x||0.6)*W,y1+0.03*H,0.3*W,0.05*H);}return;}
+    const y0=p.y*H,y1=(p.y+p.h)*H,q=p.q||0.12;c.save();c.beginPath();c.rect(0.02*W,y0,0.96*W,y1-y0);c.clip();if(C[1]){c.fillStyle=C[1];c.fillRect(0,y0,W,y1-y0);}
+    for(let x=-H;x<W+H;x+=q*2){c.fillStyle=C[0];P(c,[[x,y1],[x+q,y1],[x+q+(y1-y0),y0],[x+(y1-y0),y0]],C[0]);}c.restore();},
+  equalizer(c,W,H,C,r,p){const n=p.n||48,bw=W*0.9/n,nz=noise2(r,8,2);
+    for(let i=0;i<n;i++){const x=0.05*W+i*bw,h=(0.1+0.85*nz(i/n,0.5))*H*(p.wave?1:0.9);
+      if(p.wave){c.fillStyle=C[0];c.fillRect(x,0.5*H-h/2,bw*0.6,h);continue;}
+      const seg=0.05*H;for(let y=H-seg;y>H-h;y-=seg*1.4){c.fillStyle=C[2]&&y<H*0.35?C[2]:C[1]&&y<H*0.6?C[1]:C[0];c.fillRect(x,y,bw*0.75,seg);}}},
+  roundel(c,W,H,C,r,p){const x=p.x*W,y=0.5*H,R=(p.R||0.36)*H;
+    if(p.sq){c.fillStyle=C[0];c.fillRect(x-R,y-R,R*2,R*2);if(C[2]){c.lineWidth=R*0.08;c.strokeStyle=C[2];c.strokeRect(x-R*0.9,y-R*0.9,R*1.8,R*1.8);}}
+    else{c.beginPath();c.ellipse(x,y,R*(p.oval?1.3:1),R,0,0,TAU);c.fillStyle=C[0];c.fill();if(C[2]){c.lineWidth=R*0.08;c.strokeStyle=C[2];c.beginPath();c.ellipse(x,y,R*(p.oval?1.3:1)*0.9,R*0.9,0,0,TAU);c.stroke();}}
+    c.save();c.translate(x,y);c.scale(0.01,0.01);c.font='bold '+Math.round(R*150)+'px Impact, "Arial Black", sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillStyle=C[1]||'#000';c.fillText(String(p.num),0,R*8);c.restore();},
+  /* --- kapot-tom-bagaj --- */
+  tstripe(c,W,H,C,r,p){const yc=H/2;for(const[o,w,ci]of p.s){const col=col3(C,ci);if(!col)continue;const y=yc+o*H,h=w*H;
+      if(p.dash){let x=0.01*W;c.fillStyle=col;while(x<W){c.fillRect(x,y-h/2,p.dash*W,h);x+=p.dash*W*1.6;}continue;}
+      if(p.taper){P(c,[[0,y-h*0.15],[W,y-h/2],[W,y+h/2],[0,y+h*0.15]],col);continue;}
+      if(p.grad){const g=c.createLinearGradient(0,0,W,0);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(0.35,col);g.addColorStop(1,col);c.fillStyle=g;c.fillRect(0,y-h/2,W,h);continue;}
+      c.fillStyle=col;c.fillRect(0,y-h/2,W,h);}},
+  tpattern(c,W,H,C,r,p){const w=p.w*H,y0=H/2-w/2;c.save();c.beginPath();c.rect(0,y0,W,w);c.clip();
+    const sub=Object.assign({},p.sub||{});FAM[p.f](c,W,H,C,r,sub);c.restore();
+    if(p.edge&&C[2]){c.fillStyle=C[2];c.fillRect(0,y0-0.025*H,W,0.02*H);c.fillRect(0,y0+w+0.005*H,W,0.02*H);}},
+  thood(c,W,H,C,r,p){const Lh=(p.L||0.32)*W;c.save();c.beginPath();c.rect(0,0,Lh,H);c.clip();c.save();
+    if(p.f==='flame'){  // olov -- old chetdan orqaga (kapot bo'ylab)
+      const T=[];for(let k=0;k<9;k++){const y=(0.08+0.84*k/8)*H,len=(0.45+0.5*r())*Lh;T.push({y,len,amp:0.04*H*(0.5+r()),ph:r()*6,w0:0.05*H*(0.8+0.5*r())});}
+      for(const t of T){const top=[],bot=[];for(let i=0;i<=60;i++){const s=i/60,x=s*t.len,ct=t.y+Math.sin(s*5+t.ph)*t.amp*s,w=t.w0*Math.pow(1-s,0.8);top.push([x,ct-w]);bot.push([x,ct+w]);}
+        const g=c.createLinearGradient(0,0,t.len,0);g.addColorStop(0,C[0]);g.addColorStop(0.5,C[1]||C[0]);g.addColorStop(1,C[2]||C[1]||C[0]);P(c,top.concat(bot.reverse()),g);}}
+    else if(p.f==='arrows'){for(let k=0;k<4;k++){const x=Lh*(0.15+k*0.2),h=0.5*H*(1-k*0.15),t=0.06*Lh;P(c,[[x+t,H/2-h/2],[x+t*2,H/2-h/2],[x+t,H/2],[x+t*2,H/2+h/2],[x+t,H/2+h/2],[x,H/2]],col3(C,k%2&&C[1]?1:0));}}
+    else if(p.f==='bolt'){const pts=[[0.02*Lh,0.5*H],[0.3*Lh,0.3*H],[0.45*Lh,0.55*H],[0.75*Lh,0.25*H],[0.95*Lh,0.5*H]];c.lineJoin='miter';if(C[1]){c.strokeStyle=C[1];c.lineWidth=0.09*H;c.beginPath();pts.forEach((q,i)=>i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]));c.stroke();}c.strokeStyle=C[0];c.lineWidth=0.045*H;c.beginPath();pts.forEach((q,i)=>i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]));c.stroke();}
+    else if(p.f==='tribal'){c.restore();c.restore();c.save();c.beginPath();c.rect(0,0,Lh,H);c.clip();const S=(sg)=>{const sp=[[0.03*Lh,0.5*H],[0.35*Lh,0.5*H+sg*0.1*H],[0.6*Lh,0.5*H+sg*0.35*H],[0.95*Lh,0.5*H+sg*0.42*H]];vsBand(c,sp,vsTaper(0.07*H,0.5,true),0,1,C[0]);
+        for(let k=1;k<6;k++){const s=k/6.5,q=vsBez(sp,s),d0=vsBezD(sp,s),l=Math.hypot(d0[0],d0[1])||1,d=[d0[0]/l,d0[1]/l],L=(0.22-0.025*k)*H;P(c,[[q[0]-d[0]*0.03*Lh,q[1]-d[1]*0.03*Lh],[q[0]+d[0]*0.03*Lh,q[1]+d[1]*0.03*Lh],[q[0]+d[0]*L*0.9-d[1]*sg*L,q[1]+d[1]*L*0.9+d[0]*sg*L]],C[0]);}};
+      S(1);S(-1);c.restore();return;}
+    else if(p.f==='stars'){for(let k=0;k<16;k++){const t=r();star(c,t*Lh,(0.1+0.8*r())*H,(0.03+0.06*r())*H*(1-0.5*t),0.02*H,5,r()*TAU,pick(C,r));}}
+    else if(p.f==='waves'){for(let k=0;k<5;k++){const y=(0.15+k*0.17)*H;ribbon(c,s=>[s*Lh,y+Math.sin(s*TAU*1.5+k)*0.04*H],s=>0.035*H*Math.sin(Math.PI*s),col3(C,k%2&&C[1]?1:0),80);}}
+    else if(p.f==='lowpoly'){c.restore();c.restore();c.save();c.beginPath();c.rect(0,0,Lh,H);c.clip();FAM.lowpoly(c,Lh,H,C,r,{nx:8,ny:6,dir:'front'});c.restore();return;}
+    c.restore();c.restore();}
+};
+/* ---------- uslublar ro'yxati ---------- */
+const S_=(id,lbl,cat,fam,cols,p,o)=>Object.assign({id,lbl,cat,fam,where:'side',cols:cols.concat(['','','']).slice(0,3),n:Math.max(1,cols.filter((x,i)=>i<3).length),len:0.9,hgt:0.9,p:p||{}},o||{});
+const T_=(id,lbl,fam,cols,p,o)=>S_(id,lbl,'tepa',fam,cols,p,Object.assign({where:'top',len:1,hgt:0.42},o||{}));
+const BK='#111111',WT='#ffffff',RD='#e10600',BL='#1565ff',YL='#ffd400',OR='#ff7a00',GR='#00c853',PK='#ff2bb4',CY='#29d3ff',GY='#9aa0a6',GD='#d4a017',PR='#8e24aa',SL='#c0c4c8';
+const ADD=[
+  // chiziqlar
+  S_('b_single','Keng yon chiziq (qiya old)','chiziq','bands',[BK],{b:[[0.3,0.38,0]],sk:0.3},{hgt:0.8}),
+  S_('b_lemans','Le Mans — ikki teng chiziq','chiziq','bands',[WT,BL],{b:[[0.2,0.2,0],[0.48,0.2,1]],sk:0.2}),
+  S_('b_triple','Uchta ingichka chiziq','chiziq','bands',[WT,RD,WT],{b:[[0.28,0.08,0],[0.42,0.08,1],[0.56,0.08,2]],sk:0.15}),
+  S_('b_wide_pin','Keng chiziq + 2 pinstripe','chiziq','bands',[BK,RD],{b:[[0.16,0.05,1],[0.27,0.32,0],[0.65,0.05,1]],sk:0.25}),
+  S_('b_skirt','Ostona chizig‘i (pastda)','chiziq','bands',[BK,RD],{b:[[0.7,0.18,0],[0.92,0.04,1]]},{hgt:1}),
+  S_('b_belt','Belbog‘ chiziq (oyna ostida)','chiziq','bands',[WT,BK],{b:[[0.04,0.1,0],[0.17,0.03,1]]},{hgt:1}),
+  S_('b_pins','Pinstripe to‘plami (4 ta)','chiziq','bands',[WT,RD],{b:[[0.3,0.03,0],[0.37,0.03,1],[0.44,0.03,0],[0.51,0.03,1]]}),
+  S_('b_stack','Kamayib boruvchi chiziqlar','chiziq','bands',[BK,GY],{b:[[0.15,0.18,0],[0.37,0.12,1],[0.53,0.08,0],[0.65,0.05,1],[0.74,0.03,0]],sk:0.2}),
+  S_('b_spear','Nayza chiziq (old uchli)','chiziq','spear',[RD],{y:0.38,h:0.24}),
+  S_('b_fork','Ayri chiziq (orqada ikkiga)','chiziq','spear',[BK,RD],{y:0.36,h:0.28,fork:true,rear:true}),
+  S_('b_step','Pog‘onali chiziq','chiziq','stepband',[WT,BK],{h:0.14,lo:0.66,hi:0.34,a:0.3,b:0.62}),
+  S_('b_slash','Qiya kesmalar (3 ta)','chiziq','slash',[BK,RD],{n:3,w:0.06,g:0.03,x:0.62,sl:0.45},{len:1,hgt:1}),
+  S_('b_two_tone','Old qismi ikki rangli chiziq','chiziq','bands',[YL,BK],{b:[[0.3,0.2,0,0.02,0.5],[0.3,0.2,1,0.5,0.98],[0.53,0.05,1]],sk:0.15}),
+  S_('h_rear','Xokkey tayoqchasi (orqada)','chiziq','hockey',[WT,BK],{h:0.16,out:true}),
+  S_('h_front','Xokkey tayoqchasi (oldda)','chiziq','hockey',[BK],{h:0.18,front:true}),
+  S_('h_double','Xokkey — qo‘sh chiziq','chiziq','hockey',[WT,RD],{h:0.12,dbl:true}),
+  S_('h_thick','Xokkey — keng, konturli','chiziq','hockey',[YL,BK],{h:0.24,out:true,y:0.66}),
+  S_('zz_one','Zigzag chiziq','chiziq','zigzag',[YL],{y:0.5,A:0.15,t:0.07,m:12}),
+  S_('zz_two','Qo‘sh zigzag','chiziq','zigzag',[WT,RD],{y:0.38,A:0.1,t:0.05,m:16,n:2}),
+  S_('zz_grow','O‘suvchi zigzag','chiziq','zigzag',[CY],{y:0.5,A:0.3,t:0.06,m:14,grow:true}),
+  // svush va to'lqin
+  S_('w_one','Bitta to‘lqin','svush','wave',[BK],{y:0.5,A:0.18,f:1.1,t:0.16}),
+  S_('w_two','Qo‘sh to‘lqin','svush','wave',[BL,CY],{y:0.38,A:0.14,f:1.3,t:0.12,n:2,dy:0.22}),
+  S_('w_three','Uchta ingichka to‘lqin','svush','wave',[WT,RD,WT],{y:0.3,A:0.12,f:1.6,t:0.06,n:3,dy:0.18,dph:0.6}),
+  S_('w_big','Katta to‘lqin','svush','wave',[PR],{y:0.5,A:0.3,f:0.8,t:0.22}),
+  S_('w_grow','Kuchayib boruvchi to‘lqin','svush','wave',[OR,YL],{y:0.5,A:0.3,f:1.8,t:0.12,grow:true,n:2,dy:0.0,dph:Math.PI}),
+  S_('w_ocean','Okean to‘lqini (pastki qism)','svush','wave',[WT,BL],{y:0.42,A:0.08,f:2.2,t:0.06,fill:true},{hgt:1}),
+  S_('w_cross','Kesishgan to‘lqinlar','svush','wave',[BK,RD],{y:0.5,A:0.22,f:1.2,t:0.09,n:2,dy:0,dph:Math.PI}),
+  S_('s_two','Svush — ikki lenta','svush','swoosh2',[BK,RD],{s:[[[[0.02,0.7],[0.35,0.2],[0.6,0.9],[0.98,0.35]],0.3,0],[[[0.05,0.92],[0.4,0.5],[0.62,1.0],[0.98,0.62]],0.12,1]]}),
+  S_('s_rise','Svush — pastdan yuqoriga','svush','swoosh2',[BL,WT],{s:[[[[0.02,0.95],[0.4,0.95],[0.6,0.2],[0.98,0.08]],0.28,0],[[[0.1,0.98],[0.45,0.98],[0.65,0.4],[0.98,0.3]],0.08,1]]}),
+  S_('s_back','Svush — orqadan oldga','svush','swoosh2',[GR,BK],{s:[[[[0.98,0.8],[0.6,0.2],[0.4,0.9],[0.02,0.3]],0.3,0],[[[0.95,0.95],[0.6,0.5],[0.35,1.0],[0.05,0.55]],0.1,1]]}),
+  S_('s_thin3','Svush — uchta ingichka','svush','swoosh2',[WT,CY,WT],{s:[[[[0.02,0.3],[0.3,0.1],[0.5,0.8],[0.98,0.4]],0.08,0],[[[0.02,0.5],[0.3,0.3],[0.5,1.0],[0.98,0.6]],0.08,1],[[[0.02,0.7],[0.3,0.5],[0.5,1.1],[0.98,0.8]],0.08,2]]}),
+  S_('s_s','Svush — S shakl','svush','swoosh2',[PK,BK],{s:[[[[0.02,0.15],[0.6,0.0],[0.4,1.0],[0.98,0.85]],0.26,0],[[[0.08,0.3],[0.62,0.18],[0.42,1.1],[0.98,1.0]],0.06,1]]}),
+  S_('s_drop','Svush — tomchi (oldi yo‘g‘on)','svush','swoosh2',[OR],{s:[[[[0.02,0.5],[0.15,0.1],[0.5,0.3],[0.98,0.45]],0.45,0,0.25,1]]}),
+  S_('s_spear','Svush — egilgan nayza','svush','swoosh2',[BK,YL],{s:[[[[0.02,0.85],[0.4,0.85],[0.7,0.35],[0.98,0.15]],0.2,0],[[[0.2,0.95],[0.5,0.9],[0.75,0.55],[0.98,0.42]],0.07,1]]}),
+  S_('s_cross','Svush — kesishgan','svush','swoosh2',[BL,RD],{s:[[[[0.02,0.2],[0.4,0.2],[0.6,0.8],[0.98,0.8]],0.18,0],[[[0.02,0.8],[0.4,0.8],[0.6,0.2],[0.98,0.2]],0.18,1]]}),
+  S_('s_outline','Svush — ichi bo‘sh kontur','svush','swoosh2',[WT,BK],{outline:true,s:[[[[0.02,0.6],[0.3,0.05],[0.6,1.0],[0.98,0.4]],0.36,0]]}),
+  S_('s_triple','Svush — uch rangli','svush','swoosh2',[RD,WT,BL],{s:[[[[0.02,0.4],[0.35,0.0],[0.6,0.8],[0.98,0.3]],0.2,0],[[[0.02,0.55],[0.35,0.15],[0.6,0.95],[0.98,0.45]],0.12,1],[[[0.02,0.68],[0.35,0.28],[0.6,1.08],[0.98,0.58]],0.12,2]]}),
+  // olov
+  S_('f_real','Haqiqiy olov (gradient)','olov','realfire',['#fff3a0',OR,'#c40000'],{n:30,l0:0.25,l1:0.62,rise:0.4},{off:-0.19,len:0.62}),
+  S_('f_sharp','Tribal olov (o‘tkir)','olov','flame2',[YL,OR,RD],{n:7,l0:0.4,l1:0.85,sharp:true,pin:0.012},{off:-0.15,len:0.65}),
+  S_('f_ghost','Arvoh olov (faqat kontur)','olov','flame2',[WT],{n:7,l0:0.4,l1:0.9,ghost:true,lw:0.02},{off:-0.15,len:0.65}),
+  S_('f_short','Qisqa olov (oldi qismda)','olov','flame2',[YL,OR,RD],{n:6,l0:0.3,l1:0.55,pin:0.012},{off:-0.3,len:0.4}),
+  S_('f_long','Uzun olov (butun yon)','olov','flame2',[YL,OR,RD],{n:8,l0:0.55,l1:0.98,pin:0.012},{len:0.92}),
+  S_('f_blue','Ko‘k olov','olov','flame2',['#e0f7ff',CY,'#0040ff'],{n:7,l0:0.4,l1:0.85,pin:0.012,pinCol:'rgba(0,10,40,0.95)'},{off:-0.15,len:0.65}),
+  S_('f_toxic','Yashil zaharli olov','olov','flame2',['#e8ff70','#3dff00','#007a1f'],{n:7,l0:0.4,l1:0.85,pin:0.012,pinCol:'rgba(0,25,0,0.95)'},{off:-0.15,len:0.65}),
+  S_('f_purple','Binafsha olov','olov','flame2',['#ffd6ff',PK,PR],{n:7,l0:0.4,l1:0.85,sharp:true,pin:0.012,pinCol:'rgba(25,0,25,0.95)'},{off:-0.15,len:0.65}),
+  S_('f_pin','Olov + oq pinstripe','olov','flame2',[YL,OR,RD],{n:7,l0:0.4,l1:0.85,pin:0.02,pinCol:'#ffffff'},{off:-0.15,len:0.65}),
+  S_('f_inferno','Do‘zax olovi (ko‘p til)','olov','realfire',['#fff7c0','#ff9a00','#b00000'],{n:48,l0:0.3,l1:0.8,rise:0.5},{len:0.8,off:-0.1}),
+  // tribal
+  S_('t_wing','Tribal — qanot','tribal','tribal2',[BK,WT],{sp:[[0.03,0.75],[0.35,0.65],[0.65,0.4],[0.97,0.15]],n:8,bs:0.42,up:-1}),
+  S_('t_both','Tribal — ikki tomonlama tig‘','tribal','tribal2',[BK],{sp:[[0.03,0.5],[0.35,0.45],[0.65,0.55],[0.97,0.5]],n:10,both:true,bs:0.36}),
+  S_('t_snake','Tribal — ilon','tribal','tribal2',[GR,BK],{sp:[[0.03,0.4],[0.35,0.95],[0.65,0.05],[0.97,0.6]],n:9,both:true,bs:0.32,th:0.13}),
+  S_('t_flame','Tribal — olovsimon','tribal','tribal2',[RD,BK],{sp:[[0.03,0.6],[0.3,0.55],[0.6,0.6],[0.97,0.5]],n:7,bs:0.5,shrink:0.35,lean:1.2,up:-1}),
+  S_('t_spine','Tribal — umurtqa','tribal','tribal2',[BK,RD],{sp:[[0.03,0.5],[0.35,0.5],[0.65,0.5],[0.97,0.5]],n:12,both:true,both2:true,bs:0.3,shrink:0.1,th:0.1}),
+  S_('t_big','Tribal — katta tig‘lar','tribal','tribal2',[BK],{sp:[[0.03,0.85],[0.3,0.75],[0.6,0.85],[0.97,0.65]],n:5,bs:0.7,shrink:0.3,up:-1,th:0.18}),
+  S_('t_down','Tribal — pastga tig‘lar','tribal','tribal2',[WT,BK],{sp:[[0.03,0.2],[0.35,0.3],[0.65,0.15],[0.97,0.3]],n:8,bs:0.45,up:1}),
+  S_('t_thorn','Tikanli chiziq','tribal','thorns',[BK,RD],{y:0.5,t:0.05,n:14}),
+  // geometrik
+  S_('g_shards','Siniq shisha bo‘laklari','geo','shards',['#e8f4ff',CY,WT],{n:90,s0:0.02,s1:0.12,pw:1.8},{len:0.9}),
+  S_('g_fly','Uchayotgan uchburchaklar','geo','shards',[RD,BK],{n:70,s0:0.03,s1:0.14,pw:2.2}),
+  S_('g_rear','Orqadan tarqalgan bo‘laklar','geo','shards',[YL,BK],{n:70,s0:0.03,s1:0.14,pw:2.2,rear:true}),
+  S_('g_diamond','Olmos bo‘laklar (4 burchak)','geo','shards',[CY,BL],{n:70,s0:0.03,s1:0.12,sides:4}),
+  S_('g_crack','Yorilgan (zarba izi)','geo','crack',[BK,'#333333'],{x:0.35,y:0.5,n:11},{len:0.8}),
+  S_('g_ice','Muz bo‘laklari','geo','shards',[WT,'#bfe9ff','#7fd3ff'],{n:110,s0:0.02,s1:0.08,pw:1.2,sides:5}),
+  S_('g_chev3','Strelka >>> (uchta)','geo','chevron',[RD],{n:3,x:0.55,dx:0.1,h:0.7,t:0.04},{len:0.9}),
+  S_('g_chevrow','Strelkalar qatori','geo','chevron',[WT],{n:9,x:0.1,dx:0.095,h:0.4,t:0.025}),
+  S_('g_chevfade','Kichrayib so‘nuvchi strelkalar','geo','chevron',[YL,BK],{n:6,x:0.45,dx:0.085,h:0.8,t:0.035,grow:true,fade:true}),
+  S_('g_chevline','Strelka + chiziq','geo','chevron',[BK,RD],{n:3,x:0.08,dx:0.07,h:0.6,t:0.03,line:true}),
+  S_('g_chevback','Orqaga strelka <<<','geo','chevron',[CY],{n:4,x:0.62,dx:0.08,h:0.6,t:0.035,back:true}),
+  S_('g_chev2','Qo‘sh rangli strelkalar','geo','chevron',[GR,WT],{n:6,x:0.4,dx:0.09,h:0.65,t:0.035}),
+  S_('g_hex','Asal katagi — tarqalish','geo','hexgrid',[BK,'#444444'],{R:0.07,shrink:true}),
+  S_('g_hexline','Asal katagi — chiziq','geo','hexgrid',[YL,BK],{R:0.06,band:0.18,dir:'mid'}),
+  S_('g_hexout','Asal katagi — kontur','geo','hexgrid',[CY],{R:0.08,outline:true}),
+  S_('g_hex2','Asal katagi — 2 rang','geo','hexgrid',[RD,BK],{R:0.06,mix:0.5,dir:'front'}),
+  S_('g_lp_rear','Low-poly uchburchaklar','geo','lowpoly',['#1e88e5','#00bcd4','#283593'],{nx:22,ny:5}),
+  S_('g_lp_fire','Low-poly — issiq ranglar','geo','lowpoly',[RD,OR,YL],{nx:22,ny:5,dir:'front'}),
+  S_('g_lp_dark','Low-poly — qora/kulrang','geo','lowpoly',[BK,'#555555','#2a2a2a'],{nx:26,ny:6}),
+  S_('g_lp_green','Low-poly — yashil','geo','lowpoly',['#1b5e20','#43a047','#9ccc65'],{nx:20,ny:5,dir:'mid'}),
+  S_('g_lp_full','Low-poly — butun yon','geo','lowpoly',[PR,PK,'#311b92'],{nx:20,ny:5,dir:'all'},{len:1,hgt:1}),
+  S_('g_circles','Doiralar tarqalishi','geo','circles',[PK,CY,YL],{n:70}),
+  S_('g_rings','Nishon halqalari','geo','circles',[RD,WT],{rings:true,x:0.75,n:6,dr:0.09,t:0.06}),
+  S_('g_synth','Retro setka (synthwave)','geo','grid',[PK,PR],{t:0.012,persp:true},{len:1,hgt:1}),
+  S_('g_hazard','Ogohlantirish (sariq-qora)','geo','hazard',[BK,YL],{y:0.62,h:0.22,q:0.1}),
+  S_('g_hazard2','Qizil-oq diagonal','geo','hazard',[WT,RD],{y:0.35,h:0.3,q:0.08}),
+  S_('g_barcode','Shtrix-kod','geo','hazard',[BK,BK],{barcode:true,x:0.62}),
+  // nuqta, piksel
+  S_('d_dot','Nuqta gradient (doira)','nuqta','halftone',[BK],{q:0.055}),
+  S_('d_dotf','Nuqta gradient — oldga','nuqta','halftone',[RD],{q:0.05,dir:'front'}),
+  S_('d_sq','Kvadrat nuqtalar','nuqta','halftone',[WT],{q:0.06,shape:'sq',stag:false}),
+  S_('d_tri','Uchburchak nuqtalar','nuqta','halftone',[YL],{q:0.06,shape:'tri'}),
+  S_('d_hex','Olti burchak nuqtalar','nuqta','halftone',[CY],{q:0.06,shape:'hex'}),
+  S_('d_star','Yulduzcha nuqtalar','nuqta','halftone',[GD],{q:0.07,shape:'star'}),
+  S_('d_line','Chiziqli rastr','nuqta','halftone',[BK],{q:0.05,shape:'line',stag:false}),
+  S_('d_mid','Nuqtalar — o‘rtada','nuqta','halftone',[PK,PR],{q:0.05,dir:'mid',split:0.7}),
+  S_('d_two','Ikki rangli nuqta gradient','nuqta','halftone',[BL,CY],{q:0.05,split:0.55}),
+  S_('p_big','Katta piksellar','nuqta','mosaic',[BK,RD],{q:0.1,mix:0.25}),
+  S_('p_rain','Raqamli yomg‘ir','nuqta','mosaic',['#00e676','#b9f6ca'],{q:0.045,rain:true},{len:1,hgt:1}),
+  S_('p_wave','Piksel to‘lqin','nuqta','mosaic',[CY,BL],{q:0.06,wave:true}),
+  S_('p_check','Shashka tarqalishi','nuqta','mosaic',[WT],{q:0.08,check:true}),
+  S_('p_flame','Piksel olov','nuqta','mosaic',[YL,OR,RD],{q:0.06,flame:true,mix:0.5},{off:-0.15,len:0.65}),
+  S_('p_front','Piksellar — oldga','nuqta','mosaic',[PK,BK],{q:0.07,dir:'front'}),
+  S_('p_glitch','Glitch (RGB siljish)','nuqta','glitch',[WT,'#ff0040','#00e5ff'],{n:28}),
+  S_('p_glitch2','Glitch — orqa qismda','nuqta','glitch',[BK,RD,''],{n:24,rear:true}),
+  // kamuflyaj
+  S_('c_wood','Kamuflyaj — o‘rmon','kamo','camo',['#3b4d2a','#6b5a3a','#1d1f16'],{},{len:1,hgt:1}),
+  S_('c_desert','Kamuflyaj — cho‘l','kamo','camo',['#c8a86b','#8c6d3f','#e6d3a3'],{},{len:1,hgt:1}),
+  S_('c_urban','Kamuflyaj — shahar','kamo','camo',['#5f6368','#2b2d30','#c7c9cc'],{},{len:1,hgt:1}),
+  S_('c_arctic','Kamuflyaj — qor','kamo','camo',[WT,'#b0bec5','#78909c'],{},{len:1,hgt:1}),
+  S_('c_dig_wood','Raqamli kamuflyaj — o‘rmon','kamo','camo',['#4b5d32','#7a6a48','#22261a'],{q:0.035},{len:1,hgt:1}),
+  S_('c_dig_urban','Raqamli kamuflyaj — shahar','kamo','camo',['#6d7278','#2e3135','#c9ccd0'],{q:0.035},{len:1,hgt:1}),
+  S_('c_dig_blue','Raqamli kamuflyaj — ko‘k','kamo','camo',['#1e3a6e','#4f78b5','#9cc3f0'],{q:0.04},{len:1,hgt:1}),
+  S_('c_splinter','Splinter (o‘tkir burchakli)','kamo','splinter',['#4a5a30','#7d6b45','#2b2b20'],{n:80},{len:1,hgt:1}),
+  S_('c_tigercamo','Yo‘lbars kamuflyaj','kamo','camo',['#3a4a28','#1c1f16','#6e6340'],{stretch:true,sc:0.7},{len:1,hgt:1}),
+  S_('c_pink','Kamuflyaj — pushti','kamo','camo',[PK,'#ff8ad8','#7a1050'],{},{len:1,hgt:1}),
+  S_('c_red','Kamuflyaj — qizil/qora','kamo','camo',[RD,BK,'#5a0000'],{},{len:1,hgt:1}),
+  // hayvon terisi
+  S_('a_zebra','Zebra','hayvon','stripesSkin',[BK],{kind:'zebra',f:16},{len:1,hgt:1}),
+  S_('a_tiger','Yo‘lbars chiziqlari','hayvon','stripesSkin',[BK],{kind:'tiger',f:20},{len:1,hgt:1}),
+  S_('a_leopard','Leopard dog‘lari','hayvon','spots',[BK,'#a0522d'],{kind:'leopard',n:70,s0:0.06,s1:0.1},{len:1,hgt:1}),
+  S_('a_giraffe','Jirafa','hayvon','giraffe',['#8b4513'],{d:16,gap:0.025},{len:1,hgt:1}),
+  S_('a_snake','Ilon tangachalari','hayvon','scales',['#2e7d32','#1b5e20','#0d260f'],{s:0.07}),
+  S_('a_dalmatian','Dalmatin dog‘lari','hayvon','spots',[BK],{n:110,s0:0.025,s1:0.06},{len:1,hgt:1}),
+  // bo'yoq
+  S_('k_splat','Bo‘yoq sachratqisi (ko‘p)','boyoq','splat',[PK,CY,YL],{n:6,d:26},{len:0.85}),
+  S_('k_drip','Bo‘yoq oqishi (tomchilar)','boyoq','drip',[RD,'#7a0000'],{n:38,top:0.1},{len:1,hgt:1}),
+  S_('k_ink','Siyoh dog‘i (simmetrik)','boyoq','inkblot',[BK,'#333333'],{s:5},{len:0.6}),
+  S_('k_brush','Mo‘yqalam zarbasi','boyoq','brush',[BK],{n:1,t:0.32}),
+  S_('k_brush2','Ikki mo‘yqalam zarbasi','boyoq','brush',[RD,WT],{n:2,t:0.22}),
+  S_('k_drip2','Oq bo‘yoq oqishi','boyoq','drip',[WT,'#dddddd'],{n:30,top:0.08},{len:1,hgt:1}),
+  // tezlik
+  S_('v_thick','Keng tezlik chiziqlari','tezlik','streaks',[BK,RD],{n:9,l0:0.3,l1:0.75,t0:0.05,t1:0.09}),
+  S_('v_dash','Uzuq-uzuq tezlik','tezlik','streaks',[WT,YL],{n:14,l0:0.3,l1:0.7,t0:0.015,t1:0.035,dash:true}),
+  S_('v_comet','Kometa izlari','tezlik','streaks',[CY,WT],{n:10,l0:0.25,l1:0.55,t0:0.02,t1:0.04,comet:true}),
+  S_('v_neon','Neon tezlik izlari','tezlik','streaks',[PK,CY],{n:12,l0:0.25,l1:0.65,t0:0.012,t1:0.025,neon:true}),
+  S_('v_wind','Shamol chiziqlari','tezlik','streaks',[WT],{n:12,l0:0.25,l1:0.5,t0:0.008,t1:0.018,wind:true}),
+  S_('n_line','Neon chiziq','tezlik','neon',[CY,PK],{kind:'line',y:0.55,t:0.03}),
+  S_('n_wave','Neon to‘lqin','tezlik','neon',[PK,CY],{kind:'wave',y:0.45,A:0.15,f:1.5,t:0.03}),
+  S_('n_zig','Neon zigzag','tezlik','neon',[GR,YL],{kind:'zig',y:0.45,A:0.12,t:0.025}),
+  S_('e_bars','Ekvalayzer ustunlari','tezlik','equalizer',[GR,YL,RD],{n:40},{len:0.8,off:0.1}),
+  S_('e_wave','Ovoz to‘lqini','tezlik','equalizer',[CY],{n:70,wave:true},{len:0.85}),
+  // poyga
+  S_('r_77','Poyga raqami 77 (doira)','poyga','roundel',[WT,BK,BK],{x:0.5,num:77}),
+  S_('r_21','Poyga raqami 21 (kvadrat)','poyga','roundel',[WT,BK,RD],{x:0.5,num:21,sq:true}),
+  S_('r_13','Poyga raqami 13 (oval)','poyga','roundel',[YL,BK,BK],{x:0.5,num:13,oval:true}),
+  S_('r_88','Poyga raqami 88','poyga','roundel',[BK,WT,RD],{x:0.5,num:88}),
+  S_('r_99','Poyga raqami 99 (kvadrat)','poyga','roundel',[WT,RD,''],{x:0.5,num:99,sq:true}),
+  S_('r_7','Poyga raqami 7','poyga','roundel',[WT,BL,BL],{x:0.5,num:7}),
+  S_('r_carbon','Karbon — butun yon','poyga','carbon',['#141414','#3c3c3c'],{q:0.012},{len:1,hgt:1}),
+  S_('r_carbon_low','Karbon — pastki chiziq','poyga','carbon',['#141414','#3c3c3c'],{q:0.01,band:[0.62,0.9]},{len:1,hgt:1}),
+  S_('r_carbon_red','Karbon — qizil (kevlar)','poyga','carbon',['#3a0000','#c62828'],{q:0.012},{len:1,hgt:1}),
+  S_('r_twotone','Ikki rang — pastki yarmi','poyga','twotone',[BK,RD],{y:0.5},{len:1,hgt:1}),
+  S_('r_twotop','Ikki rang — yuqori yarmi','poyga','twotone',[WT,''],{y:0.42,kind:'top'},{len:1,hgt:1}),
+  S_('r_diag','Ikki rang — diagonal bo‘linish','poyga','twotone',[BK,RD],{kind:'diag'},{len:1,hgt:1}),
+  S_('r_grad','Gradient pastdan (fade)','poyga','twotone',[BK],{kind:'grad'},{len:1,hgt:1}),
+  S_('r_gradup','Gradient tepadan (fade)','poyga','twotone',[BL],{kind:'grad',up:true},{len:1,hgt:1}),
+  // tabiat va boshqalar
+  S_('x_bolt','Chaqmoq','tabiat','bolt',[YL,BK],{t:0.03,n:1}),
+  S_('x_bolt2','Shoxlangan chaqmoq','tabiat','bolt',[WT,CY],{t:0.025,n:1,branch:true,glow:true}),
+  S_('x_bolt3','Uchta chaqmoq','tabiat','bolt',[CY,''],{t:0.02,n:3,glow:true}),
+  S_('x_boltred','Qizil chaqmoq + kontur','tabiat','bolt',[RD,WT],{t:0.035,n:1,branch:true}),
+  S_('x_circuit','Mikrosxema','tabiat','circuit',['#00e676','#b9f6ca'],{q:0.06,n:46}),
+  S_('x_circuit2','Mikrosxema — oltin','tabiat','circuit',[GD,'#fff3b0'],{q:0.05,n:60,dir:'front'}),
+  S_('x_circuit3','Mikrosxema — ko‘k','tabiat','circuit',[CY,WT],{q:0.07,n:40,dir:'mid'}),
+  S_('x_topo','Topografik chiziqlar','tabiat','topo',[BK],{L:7,lw:0.12},{len:1,hgt:1}),
+  S_('x_stars','Yulduzlar tarqalishi','tabiat','stars',[WT,YL],{n:45}),
+  S_('x_bigstar','Katta yulduz + chiziqlar','tabiat','stars',[WT,RD],{big:true,x:0.2}),
+  S_('x_comet','Yulduz izi (kometa)','tabiat','stars',[YL,WT],{n:12,trail:true}),
+  S_('x_sakura','Sakura gullari','tabiat','sakura',['#ffb7d5','#ff4f9a',''],{n:34}),
+  S_('x_sakura2','Sakura — shox bilan','tabiat','sakura',['#ffc1e3','#ff6fae','#3e2723'],{n:28,branch:true}),
+  S_('x_seigaiha','Yapon to‘lqin naqshi','tabiat','seigaiha',[BL,WT],{R:0.09}),
+  S_('x_sun','Nur tarqalishi (sunburst)','tabiat','sunburst',[OR,'',YL],{x:0.75,n:22},{len:1,hgt:1}),
+  S_('x_scallop','Retro nayzalar (50-yillar)','tabiat','scallop',[RD,WT],{n:4}),
+  S_('x_pinstripe','Pinstripe naqsh (hot-rod)','tabiat','scallop',[WT,RD],{pin:true},{len:0.5,off:0}),
+  S_('x_wings','Qanot','tabiat','wings',[WT,GY],{x:0.35,n:9}),
+  S_('x_wings2','Katta qanot (oltin)','tabiat','wings',[GD,'#8d6e00'],{x:0.25,n:11,s:1.3}),
+  // kapot-tom-bagaj
+  T_('tp_triple','Uchta chiziq (tepadan)','tstripe',[WT,RD,WT],{s:[[-0.28,0.14,0],[0,0.14,1],[0.28,0.14,2]]},{uni:true,hgt:0.55}),
+  T_('tp_offset','Bitta chiziq — chetga surilgan','tstripe',[BK,RD],{s:[[0.18,0.5,0],[0.48,0.05,1]]},{uni:true,hgt:0.6}),
+  T_('tp_thin2','Ikki ingichka chiziq','tstripe',[WT,''],{s:[[-0.12,0.06,0],[0.12,0.06,0]]},{uni:true,hgt:0.5}),
+  T_('tp_wide_pins','Keng chiziq + konturlar','tstripe',[BK,YL],{s:[[0,0.56,0],[-0.34,0.04,1],[0.34,0.04,1]]},{uni:true,hgt:0.55}),
+  T_('tp_dash','Uzuq-uzuq chiziq','tstripe',[WT,''],{s:[[0,0.3,0]],dash:0.12},{hgt:0.4}),
+  T_('tp_pin','Pinstripe (ingichka)','tstripe',[RD,''],{s:[[-0.04,0.04,0],[0.04,0.04,0]]},{uni:true,hgt:0.4}),
+  T_('tp_grad','Gradient chiziq (oldga so‘nadi)','tstripe',[BK,''],{s:[[0,0.5,0]],grad:true},{hgt:0.45}),
+  T_('tp_taper','Torayuvchi chiziq (nayza)','tstripe',[RD,''],{s:[[0,0.7,0]],taper:true},{hgt:0.5}),
+  T_('tp_rally3','Rally — uchta teng chiziq','tstripe',[BL,WT,RD],{s:[[-0.3,0.18,0],[0,0.18,1],[0.3,0.18,2]]},{uni:true,hgt:0.6}),
+  T_('tp_carbon','Karbon chiziq','tpattern',['#141414','#3c3c3c',''],{w:0.7,f:'carbon',sub:{q:0.012}},{hgt:0.45}),
+  T_('tp_hex','Asal katagi chiziq','tpattern',[BK,'#444444',YL],{w:0.7,f:'hexgrid',sub:{R:0.05,dir:'all'},edge:true},{hgt:0.5}),
+  T_('tp_dots','Nuqtali chiziq (halftone)','tpattern',[BK,'',''],{w:0.8,f:'halftone',sub:{q:0.05,dir:'rear'}},{hgt:0.5}),
+  T_('tp_camo','Kamuflyaj chiziq','tpattern',['#3b4d2a','#6b5a3a','#1d1f16'],{w:0.8,f:'camo',sub:{}},{hgt:0.5}),
+  T_('tp_checkbig','Shashka — katta kvadrat','tpattern',[WT,BK,''],{w:0.8,f:'mosaic',sub:{q:0.12,check:true,dir:'all'}},{hgt:0.4}),
+  T_('tp_zebra','Zebra chiziq','tpattern',[BK,'',''],{w:0.8,f:'stripesSkin',sub:{kind:'zebra',f:16}},{hgt:0.45}),
+  T_('tp_glitch','Glitch chiziq','tpattern',[WT,'#ff0040','#00e5ff'],{w:0.8,f:'glitch',sub:{n:40}},{hgt:0.5}),
+  T_('th_flame','Kapotda olov','thood',[YL,OR,RD],{f:'flame',L:0.33},{hgt:0.95}),
+  T_('th_tribal','Kapotda tribal','thood',[BK,'',''],{f:'tribal',L:0.33},{hgt:0.95}),
+  T_('th_arrows','Kapotda strelkalar','thood',[WT,RD,''],{f:'arrows',L:0.3},{hgt:0.9}),
+  T_('th_bolt','Kapotda chaqmoq','thood',[YL,BK,''],{f:'bolt',L:0.33},{hgt:0.9}),
+  T_('th_stars','Kapotda yulduzlar','thood',[WT,YL,''],{f:'stars',L:0.33},{hgt:0.95}),
+  T_('th_waves','Kapotda to‘lqinlar','thood',[CY,BL,''],{f:'waves',L:0.33},{hgt:0.9}),
+  T_('th_lowpoly','Kapotda low-poly','thood',['#1e88e5','#00bcd4','#283593'],{f:'lowpoly',L:0.33},{hgt:0.95})
+];
+// mavjud 12 uslubga toifa
+const OLD_CAT={swoosh:'svush',checker:'poyga',flames:'olov',stripes:'chiziq',speed:'tezlik',tribal:'tribal',claw:'tribal',splash:'boyoq',pixels:'nuqta',rally:'tepa',center:'tepa',topcheck:'tepa'};
+for(const st of VS_STYLES)if(!st.cat)st.cat=OLD_CAT[st.id]||'chiziq';
+for(const st of ADD){if(VS_BY[st.id])continue;const f=FAM[st.fam],p=st.p;if(!f)continue;
+  VS_DRAW[st.id]=(c,W,H,C,r)=>f(c,W,H,C,r,p);VS_STYLES.push(st);VS_BY[st.id]=st;}
+G.VS_FAM=FAM;
+})();
+const VS_CATS=[['all','Hammasi'],['chiziq','Chiziqlar'],['svush','Svush va to‘lqin'],['olov','Olov'],['tribal','Tribal'],['geo','Geometrik'],['nuqta','Nuqta, piksel, glitch'],['kamo','Kamuflyaj'],['hayvon','Hayvon terisi'],['boyoq','Bo‘yoq va grafiti'],['tezlik','Tezlik va neon'],['poyga','Poyga: raqam, karbon, ikki rang'],['tabiat','Chaqmoq, yulduz, sakura…'],['tepa','Kapot–tom–bagaj']];
+
 /* ---------- SA tahrir: VINIL USLUBLARI (yon tomon / kapot-tom chiziqlari) va MATN (yozuv) ----------
  * Ikkalasi ham logo tizimining decal ini ishlatadi (lgDecal): faqat tashqi yuzaga yopishadi, har bo'lak o'z qismiga (eshik, bamper, kapot ...)
  * biriktiriladi -- eshik ochilsa birga harakatlanadi, _dam juftiga ham qo'yiladi. Vinil -- logolardan OLDIN (logo va matn vinil ustida turadi). */
@@ -11723,10 +12206,26 @@ function paneVinyl(p,it){
   const c=el('div',{class:'card'});p.appendChild(c);
   c.appendChild(el('div',{class:'note',html:'Tayyor uslubni bosing — u mashinaning <b>butun yoniga</b> (old bamperdan orqagacha, ostonadan oynalar ostigacha) yoki <b>kapot–tom–bagaj</b> bo‘ylab yopishtiriladi. '+
     'Eshik, bamper, kapot — har biriga o‘z bo‘lagi (eshik ochilsa birga harakatlanadi), oyna va chiroqlarga tushmaydi. Ranglar, uzunligi, balandligi va joyi sozlanadi. O‘z rasmingizni ham shu tarzda yon tomonga qo‘yish mumkin. Barcha mashinada — joy mashina shaklidan topiladi.'}));
-  const gal=el('div',{id:'vsGal',style:'display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:6px 0'});
-  for(const st of VS_STYLES){if(!st._th)st._th=vinylThumb(st,st.cols,150,st.where==='top'?36:30);
-    gal.appendChild(el('button',{type:'button',class:'btn',id:'vs_'+st.id,title:st.lbl,style:'display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:5px',onclick:()=>vinylAdd(st.id)},[el('img',{src:st._th,style:'width:100%;border-radius:4px'}),el('span',{style:'font-size:11px;line-height:1.2',text:st.lbl})]));}
-  c.appendChild(gal);
+  // toifalar + qidiruv; kichik rasmlar navbat bilan (sahifa qotmasin)
+  M.cat=M.cat||'all';M.q=M.q||'';
+  const chips=el('div',{id:'vsCats',style:'display:flex;flex-wrap:wrap;gap:4px;margin:6px 0'});
+  for(const[k,lbl]of VS_CATS){const n=k==='all'?VS_STYLES.length:VS_STYLES.filter(s=>s.cat===k).length;if(!n)continue;
+    chips.appendChild(el('button',{type:'button',class:'btn'+(M.cat===k?' pri':''),'data-cat':k,style:'padding:3px 8px;font-size:11px',onclick:()=>{M.cat=k;renderPane();}},[lbl+' ('+n+')']));}
+  c.appendChild(chips);
+  const find=el('input',{type:'search',id:'vsFind',placeholder:'Qidirish: olov, karbon, zebra, chaqmoq…',spellcheck:'false',style:'width:100%;box-sizing:border-box;background:var(--bg0);color:inherit;border:1px solid var(--line2);border-radius:7px;padding:6px 8px'});find.value=M.q;
+  const cnt=el('div',{class:'note',id:'vsCnt'}),gal=el('div',{id:'vsGal',style:'display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:6px 0;max-height:470px;overflow-y:auto;padding-right:4px;overscroll-behavior:contain'});
+  const BLANK='data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+  const fillGal=()=>{gal.textContent='';const q=M.q.trim().toLowerCase();
+    const L=VS_STYLES.filter(st=>(M.cat==='all'||st.cat===M.cat)&&(!q||st.lbl.toLowerCase().includes(q)||st.id.toLowerCase().includes(q)));
+    cnt.textContent=L.length?L.length+' ta uslub'+(M.cat==='all'&&!q?' (jami '+VS_STYLES.length+')':''):'Hech narsa topilmadi';
+    const pend=[];
+    for(const st of L){const th=st.where==='top'?36:30,img=el('img',{src:st._th||BLANK,width:150,height:th,style:'width:100%;height:auto;border-radius:4px;background:#7d8590'});if(!st._th)pend.push([st,img]);
+      gal.appendChild(el('button',{type:'button',class:'btn',id:'vs_'+st.id,title:st.lbl,style:'display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:5px',onclick:()=>vinylAdd(st.id)},[img,el('span',{style:'font-size:11px;line-height:1.2',text:st.lbl})]));}
+    const tok=M._galTok=(M._galTok||0)+1;let i=0;
+    const step=()=>{if(M._galTok!==tok)return;const t0=performance.now();while(i<pend.length&&performance.now()-t0<30){const[st,img]=pend[i++];if(!st._th)st._th=vinylThumb(st,st.cols,150,st.where==='top'?36:30);img.src=st._th;}if(i<pend.length)setTimeout(step,0);};
+    step();};
+  find.addEventListener('input',()=>{M.q=find.value;fillGal();});
+  c.appendChild(find);c.appendChild(cnt);c.appendChild(gal);fillGal();
   const fi=el('input',{type:'file',id:'vsImg',accept:'image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp',style:'display:none'});
   fi.addEventListener('change',()=>{const f=fi.files&&fi.files[0];fi.value='';if(f)vinylAddImage(f);});c.appendChild(fi);
   c.appendChild(el('div',{class:'row',style:'flex-wrap:wrap'},[el('button',{class:'btn',type:'button',id:'btnVsImg',onclick:()=>fi.click()},['🖼 O‘z rasmingizni yon tomonga'])]));
