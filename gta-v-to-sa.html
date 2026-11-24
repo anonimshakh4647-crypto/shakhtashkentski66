@@ -9363,7 +9363,298 @@ function rebuildBvh(rb,heap,bvh,cbb,all){
   rb.wp(bvh,nodes);rb.w32(bvh+8,cnt);rb.w32(bvh+12,cnt+2);
   const tr=rb.ptr(bvh+0x70);if(tr){const p=tr;for(let k=0;k<3;k++){rb.wi16(p+k*2,Q(mn[k],k,false));rb.wi16(p+6+k*2,Q(mx[k],k,true));}rb.w16(p+12,0);rb.w16(p+14,cnt);rb.w16(bvh+0x78,1);rb.w16(bvh+0x7A,1);}
 }
-G.SA2V={convert,saScan,donorScan,buildYtd,texEncode,pageList,encFlags,packPages,storeDeflate,RB,_t:{scaleGeomBound,scaleDisc,rebuildBvh,quatRows,geomInfo,modelsOf}};
+/* ---------- RPF7 (GTA V arxivi, "OPEN" — OpenIV / mods uchun shifrsiz) yozuvchi ----------
+ * Sarlavha: 'RPF7', yozuvlar soni, nomlar jadvali uzunligi, shifr turi (OPEN).
+ * Yozuv (16 bayt): papka  — nom, 0x7FFFFF00, birinchi bola indeksi, bolalar soni;
+ *                  fayl   — nom(16 bit), siqilgan hajm(24, 0 = siqilmagan), joy(24, 512 bayt bloklarda), asl hajm, shifr(0);
+ *                  resurs — nom(16 bit), hajm(24, >=16MB bo'lsa 0xFFFFFF + hajm RSC7 sarlavhasida), joy(24 | 0x800000), sys/gfx bayroqlari.
+ * Har papka bolalari ketma-ket va nomi bo'yicha saralangan (o'yin ikkilik qidiruv qiladi), nomlar kichik harfda. */
+const RPF7_MAGIC=0x52504637,RPF_OPEN=0x4E45504F,RPF_BIG=0xFFFFFF;
+async function buildRpf(root,opt){
+  opt=opt||{};const big=opt.bigLimit||RPF_BIG; // sinov uchun kichraytiriladi
+  const E=[root],q=[root];root.name='';
+  while(q.length){const d=q.shift();const kids=(d.kids||[]).map(k=>Object.assign({},k,{name:String(k.name).toLowerCase()}));
+    kids.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
+    for(let i=0;i<kids.length;i++){const k=kids[i];if(!/^[a-z0-9_.\-+]+$/.test(k.name))throw new Error('RPF: nom noto‘g‘ri: '+k.name);if(i&&kids[i-1].name===k.name)throw new Error('RPF: takror nom: '+k.name);}
+    d._first=E.length;d._cnt=kids.length;d._kids=kids;for(const k of kids){E.push(k);if(k.dir)q.push(k);}}
+  // nomlar jadvali
+  const te=new TextEncoder(),nameParts=[];let nlen=0;
+  for(const e of E){e._no=nlen;const b=te.encode(e.name);nameParts.push(b,new Uint8Array(1));nlen+=b.length+1;if(!e.dir&&e._no>0xFFFF)throw new Error('RPF: nomlar jadvali juda katta');}
+  const namesLen=al(nlen,16);
+  // fayl ma'lumotlari: XML siqiladi (agar kichraysa), ichki RPF va resurslar o'z holicha
+  for(const e of E){if(e.dir)continue;
+    if(e.res){const d=e.data,h=dvOf(d);if(d.length<16||h.getUint32(0,true)!==0x37435352)throw new Error('RPF: resurs RSC7 emas: '+e.name);
+      e._sf=h.getUint32(8,true);e._gf=h.getUint32(12,true);e._store=d;e._size=d.length;
+      if(d.length>=big){e._store=d.slice();e._store[7]=d.length&255;e._store[14]=(d.length>>>8)&255;e._store[5]=(d.length>>>16)&255;e._store[2]=(d.length>>>24)&255;}}
+    else{let c=null;if(!e.raw&&e.data.length>64){const z=await deflateRaw(e.data);if(z.length<e.data.length&&z!==e.data)c=z;}
+      e._store=c||e.data;e._csize=c?c.length:0;e._usize=e.data.length;if(e._csize>=0xFFFFFF)throw new Error('RPF: fayl juda katta: '+e.name);}}
+  // joylashuv (512 baytli bloklar)
+  const tocEnd=16+E.length*16+namesLen;let blk=Math.ceil(tocEnd/512);
+  for(const e of E){if(e.dir)continue;e._blk=blk;blk+=Math.max(1,Math.ceil(e._store.length/512));if(blk>=0x7FFFFF)throw new Error('RPF: arxiv juda katta');}
+  const out=new Uint8Array(blk*512),dv=dvOf(out);
+  dv.setUint32(0,RPF7_MAGIC,true);dv.setUint32(4,E.length,true);dv.setUint32(8,namesLen,true);dv.setUint32(12,RPF_OPEN,true);
+  E.forEach((e,i)=>{const o=16+i*16;
+    if(e.dir){dv.setUint32(o,e._no,true);dv.setUint32(o+4,0x7FFFFF00,true);dv.setUint32(o+8,e._first,true);dv.setUint32(o+12,e._cnt,true);return;}
+    dv.setUint16(o,e._no,true);
+    const sz=e.res?(e._size>=big?RPF_BIG:e._size):e._csize,off=e._blk|(e.res?0x800000:0);
+    out[o+2]=sz&255;out[o+3]=(sz>>>8)&255;out[o+4]=(sz>>>16)&255;out[o+5]=off&255;out[o+6]=(off>>>8)&255;out[o+7]=(off>>>16)&255;
+    if(e.res){dv.setUint32(o+8,e._sf,true);dv.setUint32(o+12,e._gf,true);}else{dv.setUint32(o+8,e._usize,true);dv.setUint32(o+12,0,true);}
+    out.set(e._store,e._blk*512);});
+  let p=16+E.length*16;for(const b of nameParts){out.set(b,p);p+=b.length;}
+  return out;
+}
+// GTA 5 da ham bor model nomlari (addon nomi bular bilan bir xil bo'lmasin)
+const V_NAMES=new Set(('adder airtug akuma alpha ambulance asea asterope baller banshee barracks bati benson bfinjection biff bison bjxl blista bmx bobcatxl bodhi2 boxville buccaneer buffalo bulldozer bullet burrito bus buzzard caddy camper carbonizzare cargobob casco cavalcade cheetah coach cogcabrio comet2 coquette cruiser cuban800 dilettante dloader docktug dominator double dubsta dukes dump elegy elegy2 emperor entityxf exemplar f620 faction fbi felon felon2 feltzer2 firetruk flatbed forklift fq2 fugitive furoregt futo gauntlet granger gresley habanero handler hauler hotknife infernus ingot intruder issi2 jackal jb700 jester journey khamelion landstalker mamba manana mesa monroe moonbeam mower mule ninef oracle packer patriot pcj penumbra peyote phantom phoenix picador police police2 police3 police4 pony prairie premier primo radi rancherxl rapidgt ratloader rebel regina rhino riot rocoto romero rumpo ruiner sabregt sadler sanchez sandking schafter2 schwarzer seminole sentinel serrano sheriff slamvan speedo stalion stanier stinger stockade stratum stretch sultan superd surano surfer surge taco tailgater taxi tiptruck tornado tourbus towtruck tractor trash utillitruck vacca vader virgo voltic voodoo2 washington youga zion ztype').split(' '));
+function addonName(s){return String(s||'').toLowerCase().replace(/[^a-z0-9_]/g,'').replace(/^[^a-z]+/,'').slice(0,20);}
+function addonXml(name){
+  const N=name,GN=name.toUpperCase().slice(0,11),dev='dlc_'+N;
+  const xml='<?xml version="1.0" encoding="UTF-8"?>\r\n';
+  const vehicles=xml+
+`<CVehicleModelInfo__InitDataList>
+  <residentTxd>vehshare</residentTxd>
+  <residentAnims />
+  <InitDatas>
+    <Item>
+      <modelName>${N}</modelName>
+      <txdName>${N}</txdName>
+      <handlingId>FELON</handlingId>
+      <gameName>${GN}</gameName>
+      <vehicleMakeName />
+      <expressionDictName>null</expressionDictName>
+      <expressionName>null</expressionName>
+      <animConvRoofDictName>null</animConvRoofDictName>
+      <animConvRoofName>null</animConvRoofName>
+      <animConvRoofWindowsAffected />
+      <ptfxAssetName>null</ptfxAssetName>
+      <audioNameHash>FELON</audioNameHash>
+      <layout>LAYOUT_STANDARD</layout>
+      <coverBoundOffsets>POLICE_COVER_OFFSET_INFO</coverBoundOffsets>
+      <explosionInfo>EXPLOSION_INFO_DEFAULT</explosionInfo>
+      <scenarioLayout />
+      <cameraName>DEFAULT_FOLLOW_VEHICLE_CAMERA</cameraName>
+      <aimCameraName>DEFAULT_THIRD_PERSON_VEHICLE_AIM_CAMERA</aimCameraName>
+      <bonnetCameraName>VEHICLE_BONNET_CAMERA_LOW</bonnetCameraName>
+      <povCameraName>DEFAULT_POV_CAMERA_LOOKAROUND_MID</povCameraName>
+      <FirstPersonDriveByIKOffset x="0.000000" y="-0.060000" z="-0.060000" />
+      <FirstPersonDriveByUnarmedIKOffset x="0.000000" y="-0.100000" z="0.000000" />
+      <FirstPersonProjectileDriveByIKOffset x="0.000000" y="-0.075000" z="-0.045000" />
+      <FirstPersonProjectileDriveByPassengerIKOffset x="0.000000" y="-0.075000" z="-0.045000" />
+      <FirstPersonDriveByRightPassengerIKOffset x="0.000000" y="-0.060000" z="-0.060000" />
+      <FirstPersonDriveByRightPassengerUnarmedIKOffset x="0.000000" y="-0.100000" z="0.000000" />
+      <FirstPersonMobilePhoneOffset x="0.125000" y="0.200000" z="0.520000" />
+      <FirstPersonPassengerMobilePhoneOffset x="0.136000" y="0.223000" z="0.415000" />
+      <PovCameraOffset x="0.000000" y="-0.150000" z="0.650000" />
+      <PovCameraVerticalAdjustmentForRollCage value="0.000000" />
+      <PovPassengerCameraOffset x="0.000000" y="0.000000" z="0.000000" />
+      <PovRearPassengerCameraOffset x="0.000000" y="0.000000" z="0.000000" />
+      <vfxInfoName>VFXVEHICLEINFO_CAR_GENERIC</vfxInfoName>
+      <shouldUseCinematicViewMode value="true" />
+      <shouldCameraTransitionOnClimbUpDown value="false" />
+      <shouldCameraIgnoreExiting value="false" />
+      <AllowPretendOccupants value="true" />
+      <AllowJoyriding value="true" />
+      <AllowSundayDriving value="true" />
+      <AllowBodyColorMapping value="true" />
+      <wheelScale value="0.250000" />
+      <wheelScaleRear value="0.250000" />
+      <dirtLevelMin value="0.000000" />
+      <dirtLevelMax value="0.300000" />
+      <envEffScaleMin value="0.000000" />
+      <envEffScaleMax value="1.000000" />
+      <envEffScaleMin2 value="0.000000" />
+      <envEffScaleMax2 value="1.000000" />
+      <damageMapScale value="0.600000" />
+      <damageOffsetScale value="1.000000" />
+      <diffuseTint value="0x00FFFFFF" />
+      <steerWheelMult value="1.000000" />
+      <HDTextureDist value="5.000000" />
+      <lodDistances content="float_array">
+        15.000000
+        30.000000
+        60.000000
+        120.000000
+        500.000000
+        500.000000
+      </lodDistances>
+      <minSeatHeight value="0.837000" />
+      <identicalModelSpawnDistance value="20" />
+      <maxNumOfSameColor value="10" />
+      <defaultBodyHealth value="1000.000000" />
+      <pretendOccupantsScale value="1.000000" />
+      <visibleSpawnDistScale value="1.000000" />
+      <trackerPathWidth value="2.000000" />
+      <weaponForceMult value="1.000000" />
+      <frequency value="100" />
+      <swankness>SWANKNESS_3</swankness>
+      <maxNum value="10" />
+      <flags>FLAG_AVERAGE_CAR</flags>
+      <type>VEHICLE_TYPE_CAR</type>
+      <plateType>VPT_FRONT_AND_BACK_PLATES</plateType>
+      <dashboardType>VDT_FEROCI</dashboardType>
+      <vehicleClass>VC_SEDAN</vehicleClass>
+      <wheelType>VWT_SPORT</wheelType>
+      <trailers />
+      <additionalTrailers />
+      <drivers />
+      <extraIncludes />
+      <doorsWithCollisionWhenClosed />
+      <driveableDoors />
+      <bumpersNeedToCollideWithMap value="false" />
+      <needsRopeTexture value="false" />
+      <requiredExtras />
+      <rewards />
+      <cinematicPartCamera>
+        <Item>WHEEL_FRONT_RIGHT_CAMERA</Item>
+        <Item>WHEEL_FRONT_LEFT_CAMERA</Item>
+        <Item>WHEEL_REAR_RIGHT_CAMERA</Item>
+        <Item>WHEEL_REAR_LEFT_CAMERA</Item>
+      </cinematicPartCamera>
+      <NmBraceOverrideSet />
+      <buoyancySphereOffset x="0.000000" y="0.000000" z="0.000000" />
+      <buoyancySphereSizeScale value="1.000000" />
+      <pOverrideRagdollThreshold type="NULL" />
+      <firstPersonDrivebyData>
+        <Item>STD_POLICE_FRONT_LEFT</Item>
+        <Item>STD_POLICE_FRONT_RIGHT</Item>
+        <Item>STD_POLICE_REAR_LEFT</Item>
+        <Item>STD_POLICE_REAR_RIGHT</Item>
+      </firstPersonDrivebyData>
+    </Item>
+  </InitDatas>
+  <txdRelationships>
+    <Item>
+      <parent>vehshare</parent>
+      <child>${N}</child>
+    </Item>
+  </txdRelationships>
+</CVehicleModelInfo__InitDataList>
+`;
+  const liv='          <liveries>\n'+'            <Item value="false" />\n'.repeat(32)+'          </liveries>\n';
+  const col=c=>'        <Item>\n          <indices content="char_array">\n            '+c.join('\n            ')+'\n          </indices>\n'+liv+'        </Item>\n';
+  const carvar=xml+
+`<CVehicleModelInfoVariation>
+  <variationData>
+    <Item>
+      <modelName>${N}</modelName>
+      <colors>
+${[[0,0,0,156],[111,111,0,156],[4,4,111,156],[27,27,0,156],[64,64,0,156]].map(col).join('')}      </colors>
+      <kits>
+        <Item>0_default_modkit</Item>
+      </kits>
+      <windowsWithExposedEdges />
+      <plateProbabilities>
+        <Probabilities>
+          <Item>
+            <Name>Standard White</Name>
+            <Value value="100" />
+          </Item>
+        </Probabilities>
+      </plateProbabilities>
+      <lightSettings value="1" />
+      <sirenSettings value="0" />
+    </Item>
+  </variationData>
+</CVehicleModelInfoVariation>
+`;
+  const df=(f,t,pers)=>`    <Item>
+      <filename>${dev}:/${f}</filename>
+      <fileType>${t}</fileType>
+      <overlay value="false" />
+      <disabled value="true" />
+      <persistent value="${pers?'true':'false'}" />
+    </Item>
+`;
+  const content=xml+
+`<CDataFileMgr__ContentsOfDataFileXml>
+  <disabledFiles />
+  <includedXmlFiles />
+  <includedDataFiles />
+  <dataFiles>
+${df('common/data/vehicles.meta','VEHICLE_METADATA_FILE')}${df('common/data/carvariations.meta','VEHICLE_VARIATION_FILE')}${df('%PLATFORM%/vehicles.rpf','RPF_FILE',true)}  </dataFiles>
+  <contentChangeSets>
+    <Item>
+      <changeSetName>${N.toUpperCase()}_AUTOGEN</changeSetName>
+      <filesToDisable />
+      <filesToEnable>
+        <Item>${dev}:/common/data/vehicles.meta</Item>
+        <Item>${dev}:/common/data/carvariations.meta</Item>
+        <Item>${dev}:/%PLATFORM%/vehicles.rpf</Item>
+      </filesToEnable>
+      <txdToLoad />
+      <txdToUnload />
+      <residentResources />
+      <unregisterResources />
+    </Item>
+  </contentChangeSets>
+  <patchFiles />
+</CDataFileMgr__ContentsOfDataFileXml>
+`;
+  const setup=xml+
+`<SSetupData>
+  <deviceName>${dev}</deviceName>
+  <datFile>content.xml</datFile>
+  <timeStamp>11/24/2026 12:00:00</timeStamp>
+  <nameHash>${N}</nameHash>
+  <contentChangeSets />
+  <contentChangeSetGroups>
+    <Item>
+      <NameHash>GROUP_STARTUP</NameHash>
+      <ContentChangeSets>
+        <Item>${N.toUpperCase()}_AUTOGEN</Item>
+      </ContentChangeSets>
+    </Item>
+  </contentChangeSetGroups>
+  <startupScript />
+  <scriptCallstackSize value="0" />
+  <type>EXTRACONTENT_COMPAT_PACK</type>
+  <order value="31" />
+  <minorOrder value="0" />
+  <isLevelPack value="false" />
+  <dependencyPackHash />
+  <requiredVersion />
+  <subPackCount value="0" />
+</SSetupData>
+`;
+  const crlf=s=>s.replace(/\r?\n/g,'\r\n');
+  return{vehicles:crlf(vehicles),carvariations:crlf(carvar),content:crlf(content),setup2:crlf(setup)};
+}
+/* Addon DLC: dlcpacks/<nom>/dlc.rpf
+ *   content.xml, setup2.xml, common/data/{vehicles.meta, carvariations.meta}, x64/vehicles.rpf {<nom>.yft, <nom>_hi.yft, <nom>.ytd} */
+async function buildAddon(o){
+  const name=addonName(o.name);if(name.length<2)throw new Error('Addon nomi kamida 2 ta harf bo‘lsin (a-z, 0-9, _)');
+  if(!o.yft||!o.ytd)throw new Error('Avval mashinani o‘tkazing (yft/ytd yo‘q)');
+  const X=addonXml(name),te=new TextEncoder(),f=(n,s)=>({name:n,data:te.encode(s)});
+  const veh=await buildRpf({dir:true,kids:[{name:name+'.yft',data:o.yft,res:true},{name:name+'_hi.yft',data:o.yft,res:true},{name:name+'.ytd',data:o.ytd,res:true}]},o.rpfOpt);
+  const rpf=await buildRpf({dir:true,kids:[f('content.xml',X.content),f('setup2.xml',X.setup2),
+    {dir:true,name:'common',kids:[{dir:true,name:'data',kids:[f('vehicles.meta',X.vehicles),f('carvariations.meta',X.carvariations)]}]},
+    {dir:true,name:'x64',kids:[{name:'vehicles.rpf',data:veh,raw:true}]}]},o.rpfOpt);
+  return{rpf,name,gameName:name.toUpperCase().slice(0,11),dlclist:'<Item>dlcpacks:/'+name+'/</Item>',xml:X,vanilla:V_NAMES.has(name)};
+}
+/* dlclist.xml ga addon qatorini qo'shish: foydalanuvchining o'z fayli (OpenIV dan eksport) -> </Paths> dan oldin
+ * <Item>dlcpacks:/nom/</Item>. Kodlash (BOM, UTF-8/UTF-16), qator oxiri va chekinish saqlanadi; takror qo'shilmaydi. */
+function dlclistLine(name){return'<Item>dlcpacks:/'+addonName(name)+'/</Item>';}
+function dlclistAdd(bytes,name){
+  name=addonName(name);if(name.length<2)throw new Error('Addon nomi noto‘g‘ri');
+  const u=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes);let enc='utf-8',bom=0;
+  if(u[0]===0xEF&&u[1]===0xBB&&u[2]===0xBF)bom=3;else if(u[0]===0xFF&&u[1]===0xFE){enc='utf-16le';bom=2;}else if(u[0]===0xFE&&u[1]===0xFF)throw new Error('dlclist.xml UTF-16 BE kodlashda — OpenIV dan qayta eksport qiling');
+  const txt=new TextDecoder(enc).decode(u.subarray(bom));
+  if(!/<SMandatoryPacksData[\s>]/.test(txt))throw new Error('Bu dlclist.xml emas (<SMandatoryPacksData> topilmadi). OpenIV da mods\\update\\update.rpf\\common\\data\\dlclist.xml ni eksport qilib bering.');
+  const end=txt.lastIndexOf('</Paths>');if(end<0)throw new Error('dlclist.xml da </Paths> topilmadi');
+  const noCom=txt.replace(/<!--[\s\S]*?-->/g,''),items=noCom.match(/<Item>[^<]*<\/Item>/gi)||[];
+  const has=items.some(x=>x.replace(/\s+/g,'').toLowerCase()==='<item>dlcpacks:/'+name+'/</item>'||x.replace(/\s+/g,'').toLowerCase()==='<item>dlcpacks:/'+name+'</item>');
+  if(has)return{bytes:u,added:false,count:items.length,line:dlclistLine(name)};
+  const nl=/\r\n/.test(txt)?'\r\n':'\n';
+  const lines=txt.slice(0,end).split(/\r?\n/);let ind='\t\t';for(let i=lines.length-1;i>=0;i--){const m=/^([ \t]*)<Item>/i.exec(lines[i]);if(m){ind=m[1];break;}}
+  // </Paths> o'z qatorida bo'lsa, oldingi qator oxiridan keyin qo'shamiz
+  const lineStart=txt.lastIndexOf('\n',end-1)+1,before=txt.slice(lineStart,end);
+  let out;
+  if(/^[ \t]*$/.test(before))out=txt.slice(0,lineStart)+ind+dlclistLine(name)+nl+txt.slice(lineStart);
+  else out=txt.slice(0,end)+nl+ind+dlclistLine(name)+nl+txt.slice(end);
+  let body;if(enc==='utf-16le'){body=new Uint8Array(out.length*2);for(let i=0;i<out.length;i++){const c=out.charCodeAt(i);body[i*2]=c&255;body[i*2+1]=c>>8;}}else body=new TextEncoder().encode(out);
+  const res=new Uint8Array(bom+body.length);res.set(u.subarray(0,bom));res.set(body,bom);
+  return{bytes:res,added:true,count:items.length+1,line:dlclistLine(name)};
+}
+G.SA2V={convert,saScan,donorScan,buildYtd,texEncode,pageList,encFlags,packPages,storeDeflate,RB,buildRpf,buildAddon,addonXml,addonName,V_NAMES,dlclistAdd,dlclistLine,_t:{scaleGeomBound,scaleDisc,rebuildBvh,quatRows,geomInfo,modelsOf}};
 })(GV);
 
 /* Ichki GTA V shablon (felon o‘rni): skelet, fizika, kolliziya, shaderlar. Ko‘rinadigan geometriya va teksturalar YO‘Q (nol qilingan). */
@@ -11741,22 +12032,22 @@ function paneV5(p){
   if(V.donor>=0&&!L.donor.includes(V.donor))V.donor=-1; // -1 = ichki shablon
   p.appendChild(el('h3',{text:'GTA SA → GTA 5 (mashina)'}));
   p.appendChild(el('div',{class:'note',html:'SA mashinasini GTA 5 ga o‘tkazadi. Faqat <b>SA mashina</b> kerak: <code>.dff</code> + <code>.txd</code>. '+
-    'Natija o‘yindagi <b>felon</b> mashinasi o‘rniga chiqadi (felon.yft, felon_hi.yft, felon.ytd). Kuzov, eshiklar, kapot, bagaj, bamperlar, g‘ildiraklar, shisha, chiroqlar va rul o‘z joyiga qo‘yiladi; kolliziya mashina shakliga moslanadi; teksturalar yangi <code>.ytd</code> ga yoziladi.'}));
+    'Natija ikki xil olinadi: <b>dlc.rpf</b> — o‘yinga <b>yangi mashina</b> (addon) bo‘lib qo‘shiladi; yoki <b>ZIP</b> — o‘yindagi <b>felon</b> o‘rniga (felon.yft, felon_hi.yft, felon.ytd). Kuzov, eshiklar, kapot, bagaj, bamperlar, g‘ildiraklar, shisha, chiroqlar va rul o‘z joyiga qo‘yiladi; kolliziya mashina shakliga moslanadi; teksturalar yangi <code>.ytd</code> ga yoziladi.'}));
   if(!L.sa.length){
     const miss=['SA mashina (.dff + .txd)'];
     p.appendChild(el('div',{class:'card',id:'v5Need'},[el('div',{html:'<b>Yetishmayapti:</b> '+miss.join(', ')}),el('div',{class:'row'},[el('button',{class:'btn pri',type:'button',onclick:()=>$('#fileIn').click()},['📂 Fayl qo‘shish'])])]));
     return;
   }
   const sel=(label,id,list,cur,on)=>{const s=el('select',{id},list.map(i=>el('option',{value:i,text:S.items[i].file,selected:i===cur})));s.addEventListener('change',()=>{on(+s.value);V.res=null;V.err='';renderPane();});return el('div',{class:'row'},[el('label',{text:label}),s]);};
-  p.appendChild(sel('SA mashina','v5Sa',L.sa,V.sa,v=>{V.sa=v;}));
-  {const s=el('select',{id:'v5Donor'},[el('option',{value:-1,text:'Ichki shablon (felon o‘rniga) — tavsiya',selected:V.donor<0})].concat(L.donor.map(i=>el('option',{value:i,text:'O‘z donorim: '+S.items[i].file,selected:i===V.donor}))));
+  p.appendChild(sel('SA mashina','v5Sa',L.sa,V.sa,v=>{V.sa=v;V.addon='';V.rpfInfo='';}));
+  {const s=el('select',{id:'v5Donor'},[el('option',{value:-1,text:'Ichki shablon (felon asosida) — tavsiya',selected:V.donor<0})].concat(L.donor.map(i=>el('option',{value:i,text:'O‘z donorim: '+S.items[i].file,selected:i===V.donor}))));
    s.addEventListener('change',()=>{V.donor=+s.value;V.name='';V.res=null;V.err='';renderPane();});
    p.appendChild(el('div',{class:'row'},[el('label',{text:'GTA 5 shablon'}),s]));}
   if(!V.name)V.name=V.donor>=0?v5Base(S.items[V.donor]):'felon';
   if(!S.items.some(it=>it.ext==='txd'))p.appendChild(el('div',{class:'note',id:'v5NoTxd',style:'color:#fbbf24',text:'⚠ TXD yuklanmagan — mashina teksturasiz (oq/rangli) chiqadi. .txd faylini ham qo‘shing.'}));
   {const i=el('input',{type:'text',id:'v5Name',maxlength:20,spellcheck:'false'});i.value=V.name;i.addEventListener('input',()=>{V.name=i.value.toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20);});
-   p.appendChild(el('div',{class:'row'},[el('label',{text:'Fayl nomi'}),i]));
-   p.appendChild(el('div',{class:'note',text:'Odatda felon qoldiring — o‘yindagi felon mashinasi almashadi (shablon felon uchun tayyorlangan).'}));}
+   p.appendChild(el('div',{class:'row'},[el('label',{text:'ZIP fayl nomi'}),i]));
+   p.appendChild(el('div',{class:'note',text:'Faqat ZIP (almashtirish) uchun: odatda felon qoldiring — o‘yindagi felon almashadi. dlc.rpf (addon) nomi pastda, natijadan keyin so‘raladi.'}));}
   // SA tahlili (tez)
   let scan=null;try{scan=v5Scan();}catch(e){p.appendChild(el('div',{class:'card err',id:'v5Err',text:'SA fayl o‘qilmadi: '+e.message}));return;}
   {const parts=Object.keys(scan.dummies).sort(),wh=Object.keys(scan.wheelD).sort();let tr=0;scan.meshes.forEach(m=>tr+=m.g.nTri);
@@ -11774,10 +12065,45 @@ function paneV5(p){
     st.tris+' poligon · '+st.meshes+' bo‘lak · '+st.shaders+' shader · '+st.textures+' tekstura<br>'+
     'Qismlar: '+st.parts.filter(x=>!/light/.test(x)).join(', ')+'<br>Chiroqlar: '+(st.lights.length?st.lights.join(', '):'—')+'<br>G‘ildirak radiusi: '+st.wheelR.toFixed(2)+' m · Rul: '+(st.steer?'aylanadi':'kuzovda (aylanmaydi)')+(st.collision&&st.collision.total?' · Kolliziya: SA shakliga moslandi ('+st.collision.fitted+'/'+st.collision.total+' nuqta)':'')}));
   if(R.report.warn.length)p.appendChild(el('div',{class:'card',id:'v5Warn',style:'border-left:3px solid #fbbf24',html:'<b>Ogohlantirish:</b><br>'+R.report.warn.map(x=>'• '+esc5(x)).join('<br>')}));
-  p.appendChild(el('div',{class:'row'},[
-    el('button',{class:'btn pri',type:'button',id:'btnV5Zip',onclick:()=>v5Zip()},['⬇ ZIP (yft + _hi.yft + ytd)']),
-    el('button',{class:'btn',type:'button',id:'btnV5View',onclick:()=>v5View()},['👁 Natijani 3D da ko‘rish'])]));
-  p.appendChild(el('div',{class:'note',html:'<b>O‘rnatish (OpenIV):</b> <code>mods</code> rejimida <code>x64e.rpf → levels → gta5 → vehicles.rpf</code> ichidagi <code>'+V.outName+'.yft</code>, <code>'+V.outName+'_hi.yft</code>, <code>'+V.outName+'.ytd</code> ni ZIP dagilar bilan almashtiring. Fizika (og‘irlik, motor) donornikicha qoladi — handling.meta o‘zgarmaydi.'}));
+  // 1) addon: dlc.rpf (yangi mashina)
+  if(!V.addon)V.addon=G.SA2V.addonName('sa_'+v5Base(S.items[V.sa]));
+  {const i=el('input',{type:'text',id:'v5Addon',maxlength:20,spellcheck:'false'});i.value=V.addon;
+   const warn=el('div',{class:'note',id:'v5AddonWarn',style:'color:#f87171'}),note=el('div',{class:'note',id:'v5AddonNote'});
+   const rbtn=el('button',{class:'btn pri',type:'button',id:'btnV5Rpf',onclick:()=>v5Rpf()},['⬇ dlc.rpf (yangi mashina)']);
+   const dlLine=el('pre',{id:'v5DlLine',style:'margin:6px 0;padding:8px 10px;background:rgba(0,0,0,.35);border-radius:6px;user-select:all;white-space:pre;overflow:auto;font-size:13px'});
+   const dlSt=el('div',{class:'note',id:'v5DlDone'});
+   const dlIn=el('input',{type:'file',id:'v5DlIn',accept:'.xml,text/xml',style:'display:none'});
+   dlIn.addEventListener('change',()=>{const f=dlIn.files&&dlIn.files[0];dlIn.value='';if(f)v5DlAdd(f,dlSt);});
+   const dlCard=el('div',{class:'card',id:'v5Dl'},[
+     el('div',{html:'<b>dlclist.xml uchun kod</b> — mashina o‘yinda chiqishi uchun shu qator <code>dlclist.xml</code> ga yoziladi:'}),dlLine,
+     el('div',{class:'row',style:'flex-wrap:wrap;gap:8px'},[
+       el('button',{class:'btn',type:'button',id:'btnV5Copy',onclick:()=>v5Copy(G.SA2V.dlclistLine(V.addon))},['📋 Kodni nusxalash']),
+       el('button',{class:'btn',type:'button',id:'btnV5DlPick',onclick:()=>dlIn.click()},['📂 dlclist.xml ga avtomatik qo‘shish']),dlIn]),
+     el('div',{class:'note',html:'Avtomatik: OpenIV da <code>mods\\update\\update.rpf → common → data</code> ichidagi <code>dlclist.xml</code> ni o‘ng tugma → <b>Export</b> qiling va shu tugma bilan tanlang — qator qo‘shilgan <b>dlclist.xml</b> yuklab olinadi. Uni OpenIV «Edit mode» da o‘sha joyga sudrab tashlang (eskisini almashtiradi). O‘yindagi boshqa DLC qatorlari o‘zgarmaydi.'}),
+     dlSt]);
+   const upd=()=>{const n=V.addon,bad=n.length<2,van=G.SA2V.V_NAMES.has(n);
+     warn.textContent=bad?'⚠ Nom kamida 2 ta belgi (a-z, 0-9, _), harf bilan boshlansin.':van?'⚠ «'+n+'» — GTA 5 dagi mashina nomi bilan bir xil. Addon uchun boshqa nom bering (masalan sa_'+n+'), aks holda o‘yin chalkashadi.':'';
+     warn.style.display=warn.textContent?'':'none';
+     rbtn.disabled=bad;
+     dlLine.textContent=bad?'—':G.SA2V.dlclistLine(n);dlCard.querySelectorAll('button').forEach(x=>x.disabled=bad);
+     if(V.dlFor!==n){V.dlInfo='';V.dlFor=n;}dlSt.innerHTML=V.dlInfo||'';dlSt.style.display=V.dlInfo?'':'none';
+     note.innerHTML='<b>dlc.rpf ni o‘rnatish (addon — yangi mashina, felon o‘zgarmaydi):</b><br>'+
+       '1) OpenIV da «ASI Manager» orqali <b>ASI Loader</b> va <b>OpenIV.asi</b> o‘rnatilgan, <code>mods</code> papkasi ishlatiladi.<br>'+
+       '2) Fayl nomi aynan <code>dlc.rpf</code> bo‘lsin va shu joyga qo‘ying: <code>GTA V\\mods\\update\\x64\\dlcpacks\\'+esc5(n)+'\\dlc.rpf</code> (papka nomi: <code>'+esc5(n)+'</code>).<br>'+
+       '3) <code>mods\\update\\update.rpf → common → data → dlclist.xml</code> ga yuqoridagi kodni qo‘shing (<code>&lt;/Paths&gt;</code> dan oldin) — yoki «dlclist.xml ga avtomatik qo‘shish» tugmasidan foydalaning.<br>'+
+       '4) O‘yinda trainer (Menyoo, Simple Trainer va h.k.) bilan <b>'+esc5(n)+'</b> nomini yozib chaqiring.<br>'+
+       'Fizika (og‘irlik, motor, tezlik) va ovoz GTA 5 dagi felon’niki (handling.meta qo‘shilmaydi).';};
+   i.addEventListener('input',()=>{V.addon=G.SA2V.addonName(i.value);if(i.value!==V.addon){const c=i.selectionStart;i.value=V.addon;try{i.setSelectionRange(c,c);}catch(e){}}upd();});
+   p.appendChild(el('div',{class:'row'},[el('label',{text:'Addon nomi (spawn)'}),i]));
+   p.appendChild(warn);
+   p.appendChild(el('div',{class:'row',style:'flex-wrap:wrap;gap:8px'},[
+     rbtn,
+     el('button',{class:'btn',type:'button',id:'btnV5Zip',onclick:()=>v5Zip()},['⬇ ZIP (felon o‘rniga)']),
+     el('button',{class:'btn',type:'button',id:'btnV5View',onclick:()=>v5View()},['👁 Natijani 3D da ko‘rish'])]));
+   if(V.rpfInfo)p.appendChild(el('div',{class:'card',id:'v5RpfDone',html:V.rpfInfo}));
+   p.appendChild(dlCard);p.appendChild(note);upd();}
+  // 2) almashtirish: ZIP
+  p.appendChild(el('div',{class:'note',html:'<b>ZIP ni o‘rnatish (felon o‘rniga):</b> OpenIV <code>mods</code> rejimida <code>x64e.rpf → levels → gta5 → vehicles.rpf</code> ichidagi <code>'+V.outName+'.yft</code>, <code>'+V.outName+'_hi.yft</code>, <code>'+V.outName+'.ytd</code> ni ZIP dagilar bilan almashtiring. Fizika (og‘irlik, motor) donornikicha qoladi — handling.meta o‘zgarmaydi.'}));
   p.appendChild(el('details',{},[el('summary',{text:'Batafsil hisobot'}),el('div',{class:'note',html:R.report.info.map(esc5).join('<br>')})]));
 }
 function v5Scan(){const V=S.v5,it=S.items[V.sa];if(!it)return null;if(V._scanIt!==it){V._scan=G.SA2V.saScan(it.raw);V._scanIt=it;}return V._scan;}
@@ -11790,11 +12116,44 @@ async function v5Run(){
     const dbase=dn?v5Base(dn):'felon',names=!dn?[]:G.poolList().filter(t=>(t.origin||'').toLowerCase().replace(/\.ytd.*$/,'')===dbase||(t.origin||'').toLowerCase().indexOf(dbase+'.ytd')===0||(t.origin||'').toLowerCase().indexOf(dbase+'_hi.ytd')===0).map(t=>t.name);
     const scan=v5Scan();
     const r=await G.SA2V.convert(dn?{dff:sa.raw,scan,getTex:v5Tex,getDonorTex:names.length?v5Tex:null,donor:dn.raw,donorTexNames:names}:{dff:sa.raw,scan,getTex:v5Tex});
-    V.res=r;V.outName=V.name||dbase;
+    V.res=r;V.outName=V.name||dbase;V.rpfInfo='';
     log('SA→GTA5: '+sa.file+' → '+V.outName+'.yft ('+r.stat.tris+' poligon)');r.report.warn.forEach(w=>log('SA→GTA5: '+w,'w'));
     toast('✓ GTA 5 fayllari tayyor: '+V.outName+'.yft / .ytd');
   }catch(e){V.res=null;V.err='Xato: '+(e.message||e);log('SA→GTA5: '+V.err,'e');toast(V.err);}
   V.busy=false;setBusy(false);renderPane();
+}
+async function v5Rpf(){
+  const V=S.v5,R=V.res;if(!R||V.busy)return;
+  const n=G.SA2V.addonName(V.addon);if(n.length<2){toast('Addon nomini kiriting');return;}
+  V.busy=true;setBusy(true,'dlc.rpf yig‘ilmoqda…');await tick();
+  try{
+    const A=await G.SA2V.buildAddon({name:n,yft:R.yft,ytd:R.ytd});
+    // o'z o'quvchimiz bilan tekshiruv: arxiv ochiladi va ichidagi fayllar aynan bir xil
+    const L=await G.readRpf(G.memSrc(A.rpf),'',0),get=async p=>{const it=L.find(x=>x.path===p);return it?await it.get():null;};
+    const same=(a,b)=>!!a&&a.length===b.length&&a.every((v,k)=>v===b[k]);
+    const vp='x64/vehicles.rpf/';
+    if(L.length!==7||!same(await get(vp+n+'.yft'),R.yft)||!same(await get(vp+n+'_hi.yft'),R.yft)||!same(await get(vp+n+'.ytd'),R.ytd)||!(await get('common/data/vehicles.meta')))throw new Error('dlc.rpf tekshiruvdan o‘tmadi');
+    save('dlc.rpf',A.rpf,'application/octet-stream');
+    V.rpfInfo='<b>✓ dlc.rpf tayyor</b> ('+(A.rpf.length/1048576).toFixed(1)+' MB) — qayta o‘qib tekshirildi: 7 ta fayl to‘g‘ri.<br>'+
+      'Ichida: <code>content.xml</code>, <code>setup2.xml</code>, <code>common/data/vehicles.meta</code>, <code>carvariations.meta</code>, <code>x64/vehicles.rpf</code> → <code>'+esc5(n)+'.yft</code>, <code>'+esc5(n)+'_hi.yft</code>, <code>'+esc5(n)+'.ytd</code><br>'+
+      'dlclist.xml qatori: <code>'+esc5(A.dlclist)+'</code> · Spawn nomi: <b>'+esc5(n)+'</b>';
+    log('SA→GTA5: dlc.rpf ('+n+', '+(A.rpf.length/1048576).toFixed(1)+' MB)');toast('✓ dlc.rpf tayyor: dlcpacks/'+n+'/dlc.rpf');
+  }catch(e){V.rpfInfo='';toast('dlc.rpf xatosi: '+(e.message||e));log('SA→GTA5 dlc.rpf: '+(e.message||e),'e');}
+  V.busy=false;setBusy(false);renderPane();
+}
+function v5Copy(txt){
+  const done=()=>toast('✓ Nusxalandi: '+txt),fb=()=>{try{const t=document.createElement('textarea');t.value=txt;t.style.position='fixed';t.style.opacity='0';document.body.appendChild(t);t.select();const r=document.execCommand('copy');t.remove();r?done():toast('Nusxalab bo‘lmadi — qatorni belgilab, Ctrl+C bosing');}catch(e){toast('Nusxalab bo‘lmadi — qatorni belgilab, Ctrl+C bosing');}};
+  try{if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(txt).then(done,fb);else fb();}catch(e){fb();}
+}
+async function v5DlAdd(f,st){
+  const V=S.v5,n=G.SA2V.addonName(V.addon);
+  try{
+    if(f.size>4e6)throw new Error('Fayl juda katta — bu dlclist.xml emas');
+    const r=G.SA2V.dlclistAdd(new Uint8Array(await f.arrayBuffer()),n);
+    if(r.added){save('dlclist.xml',r.bytes,'text/xml');V.dlInfo='<span style="color:#4ade80">✓ dlclist.xml tayyor</span> — <code>'+esc5(r.line)+'</code> qo‘shildi (jami '+r.count+' ta DLC qatori). Yuklangan faylni OpenIV da <code>update.rpf → common → data</code> ga qo‘ying.';log('SA→GTA5: dlclist.xml ga '+r.line+' qo‘shildi');toast('✓ dlclist.xml tayyor');}
+    else{V.dlInfo='<span style="color:#fbbf24">ℹ Bu faylda <code>'+esc5(r.line)+'</code> allaqachon bor</span> — o‘zgartirish shart emas ('+r.count+' ta DLC qatori).';toast('dlclist.xml da bu qator allaqachon bor');}
+  }catch(e){V.dlInfo='<span style="color:#f87171">✗ '+esc5(e.message||e)+'</span>';toast(e.message||String(e));}
+  V.dlFor=n;st.innerHTML=V.dlInfo;st.style.display='';
 }
 function v5Zip(){
   const V=S.v5,R=V.res;if(!R)return;const n=V.outName;
