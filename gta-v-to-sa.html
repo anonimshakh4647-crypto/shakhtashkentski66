@@ -8728,12 +8728,24 @@ const SA_PART=[ // [regex (freym nomi), GTA V suyagi]
   [/^(windscreen_dummy|windscreen)$/i,'windscreen'],
   [/^(steer|steering|steeringwheel|steering_wheel|steer_wheel|wheel_steer|rul|rul_ok|rul_dummy)$/i,'steeringwheel']];
 const SA_WHEEL=[[/^(wheel_lf_dummy|wheel_lf)$/i,'wheel_lf'],[/^(wheel_rf_dummy|wheel_rf)$/i,'wheel_rf'],[/^(wheel_lb_dummy|wheel_lr_dummy|wheel_lr)$/i,'wheel_lr'],[/^(wheel_rb_dummy|wheel_rr_dummy|wheel_rr)$/i,'wheel_rr']];
-const LIGHT_COL=[[[255,175,0],'headlight_l'],[[0,255,200],'headlight_r'],[[185,255,0],'taillight_l'],[[255,60,0],'taillight_r']];
+/* Chiroqlar. SA: material rangi = chiroq turi (o'yin + IVF kodlari, IT SHAKH burilish rangi).
+ * GTA 5: vehicle_lightsemissive geometriyasining vertex rangi ALFA kanali = chiroq ID (ZModeler3 / Sollumz jadvali; donor felon ham shunday):
+ * 1/2 fara, 3/4 orqa (gabarit), 5/6 old burilish, 7/8 orqa burilish, 9/10 stop, 11 o'rta stop, 12/13 orqaga yurish. ID siz (255) -- doim yonib turadi. */
+const LIGHT_ROLE=[[[255,175,0],'head','l'],[[0,255,200],'head','r'],[[185,255,0],'tail','l'],[[255,60,0],'tail','r'],
+  [[184,255,0],'brake','l'],[[255,59,0],'brake','r'],[[255,173,0],'rev','l'],[[0,255,198],'rev','r'],[[255,174,0],'fog','l'],[[0,255,199],'fog','r'],
+  [[183,255,0],'indf','l'],[[255,58,0],'indf','r'],[[182,255,0],'indm','l'],[[255,57,0],'indm','r'],[[181,255,0],'indr','l'],[[255,56,0],'indr','r'],
+  [[255,141,7],'turn',null]];
+const LIGHT_ID={headlight_l:1,headlight_r:2,taillight_l:3,taillight_r:4,indicator_lf:5,indicator_rf:6,indicator_lr:7,indicator_rr:8,brakelight_l:9,brakelight_r:10,reversinglight_l:12,reversinglight_r:13};
+const LIGHT_RGB={head:[255,250,235],fog:[255,250,235],rev:[255,255,255],tail:[205,18,18],brake:[205,18,18],indf:[255,135,0],indm:[255,135,0],indr:[255,135,0],turn:[255,135,0]};
+function lightTarget(role,side,front){ // -> GTA 5 chiroq suyagi nomi (ID shu nomdan)
+  switch(role){case'head':case'fog':return'headlight_'+side;case'tail':return'taillight_'+side;case'brake':return'brakelight_'+side;case'rev':return'reversinglight_'+side;
+    case'indf':case'indm':return'indicator_'+side+'f';case'indr':return'indicator_'+side+'r';default:return'indicator_'+side+(front?'f':'r');}
+}
 const eqc=(c,r)=>c[0]===r[0]&&c[1]===r[1]&&c[2]===r[2];
 function matKind(m,isWheel){
   const c=m.color||[255,255,255,255];
   if(isWheel)return{kind:'tire'};
-  for(const[rgb,bone]of LIGHT_COL)if(eqc(c,rgb))return{kind:'light',bone};
+  for(const[rgb,role,side]of LIGHT_ROLE)if(eqc(c,rgb))return{kind:'light',role,side};
   if(eqc(c,[60,255,0]))return{kind:'paint',slot:1};
   if(eqc(c,[255,0,175]))return{kind:'paint',slot:2};
   if(c[3]<250)return{kind:'glass'};
@@ -8953,6 +8965,11 @@ async function convert(opt){
   const wPick=wheelCand.filter(m=>m.part==='@wheel_rf');const wList=wPick.length?wPick:wheelCand.length?[wheelCand[0].part].flatMap(p=>wheelCand.filter(m=>m.part===p)):[];
   const getG=(key,o)=>{let g=groups.get(key);if(!g){g=newGroup(o);groups.set(key,g);}return g;};
   const tintOf=c=>{const d=Math.max(Math.abs(c[0]-255),Math.abs(c[1]-255),Math.abs(c[2]-255));return d<12?null:[c[0],c[1],c[2]];};
+  // chiroq: old/orqa chegarasi (g'ildiraklar o'rtasi); IVF stop bo'lmasa, SA orqa chirog'i opt.tailAs bo'yicha ('tail' gabarit | 'brake' stop)
+  const midY=(()=>{const ys=Object.values(SA.wheelD).map(f=>SA.pos(f)[1]);return ys.length?(Math.min(...ys)+Math.max(...ys))/2:0;})();
+  let hasBrake=false;for(const m of SA.meshes)for(const mt of(m.g.materials||[])){const c=mt.color||[];if(LIGHT_ROLE.some(([rgb,r])=>r==='brake'&&eqc(c,rgb)))hasBrake=true;}
+  const tailAs=!hasBrake&&opt.tailAs==='brake'?'brake':'tail';
+  const lightUse={},lightTri={};
   function addMesh(m,targetBone,isWheel,xf,rotN){
     const g=m.g,nV=g.nV,P=g.pos,N=g.nrm,UV=g.uvs&&g.uvs[0],UV2=g.uvs&&g.uvs[1],mats=g.materials||[];
     // normal yo'q bo'lsa -- hisoblash
@@ -8968,16 +8985,36 @@ async function convert(opt){
     for(let t=0;t<g.nTri;t++){
       const a=g.tris[t*4],b=g.tris[t*4+1],c=g.tris[t*4+2],mi=g.tris[t*4+3],mt=mats[mi]||{color:[255,255,255,255],tex:''};
       if(a===b||b===c||a===c)continue;
-      let mi_=matInfo.get(mi);
-      if(!mi_){const mk=matKind(mt,isWheel);let bone=targetBone,kind=mk.kind;if(kind==='light')bone=D.byName[mk.bone]?mk.bone:targetBone;
+      let mk=null;
+      if(!isWheel){mk=matKind(mt,false);if(mk.kind!=='light')mk=null;}
+      let lkey='';
+      if(mk){ // chiroq: tomon -- uchburchak markazi (rang kodi xato bo'lsa ham), markazdagisi -- rang bo'yicha; ID -- GTA 5 jadvali
+        const cx=(WP[a*3]+WP[b*3]+WP[c*3])/3,cy=(WP[a*3+1]+WP[b*3+1]+WP[c*3+1])/3;
+        const side=cx<-0.02?'l':cx>0.02?'r':(mk.side||'l'),front=cy>=midY;
+        // joyi bo'yicha: oldidagi fara/orqa/orqaga-yurish rangli chiroq -- fara (faralar bilan yonadi), orqadagisi -- orqa chiroq;
+        // burilish kodlari ham old/orqa joyiga qarab (SA modellarida rang kodlari ko'pincha aralash)
+        let role=mk.role;
+        if(role==='head'||role==='tail'||role==='rev'||role==='fog'||role==='brake'){if(front)role=role==='fog'?'fog':'head';else role=role==='head'||role==='fog'?'tail':role;}
+        else if(role==='indf'||role==='indm'||role==='indr')role='turn';
+        if(role==='tail')role=tailAs;
+        const tgt=lightTarget(role,side,front),slot=role==='fog'?'fog_'+side:tgt;lkey=tgt+'|'+role+'|'+slot;}
+      const mkey=mi+'|'+lkey;
+      let mi_=matInfo.get(mkey);
+      if(!mi_){const mk2=mk||matKind(mt,isWheel);let bone=targetBone,kind=mk2.kind,lid=0,role='',slot='';
+        if(mk){const [tgt,r,sl]=lkey.split('|');role=r;slot=sl;lid=LIGHT_ID[tgt]||0;
+          // harakatlanuvchi qismdagi chiroq (bagaj, bamper, eshik) o'sha qism bilan yuradi; aks holda chiroq suyagi (bo'lsa)
+          if(targetBone==='chassis'||!D.byName[targetBone])bone=D.byName[tgt]?tgt:targetBone;}
         const tex=(mt.textured&&mt.tex)?mt.tex.toLowerCase():'';const tint=(kind==='paint'||kind==='light')?null:tintOf(mt.color||[255,255,255]);
         const shiny=kind==='spec'&&(!!mt.fx||/chrom|hrom|krom|metal|mirror|zerkal/i.test(tex));
-        const key=(isWheel?'W':'M')+'|'+bone+'|'+kind+'|'+tex+'|'+(tint?tint.join(','):'')+(shiny?'|S':'');
-        const gr=getG(key,{wheel:isWheel,bone,kind,tex,tint,shiny,alpha:(mt.color&&mt.color[3])||255});
+        const key=(isWheel?'W':'M')+'|'+bone+'|'+kind+'|'+tex+'|'+(tint?tint.join(','):'')+(shiny?'|S':'')+(kind==='light'?'|L'+lid+'|'+role:'');
+        const gr=getG(key,{wheel:isWheel,bone,kind,tex,tint,shiny,alpha:(mt.color&&mt.color[3])||255,lid,role});
         let rm=remap.get(key);if(!rm){rm=new Int32Array(nV).fill(-1);remap.set(key,rm);}
-        mi_={gr,rm,bone,light:kind==='light'?mk.bone:null};matInfo.set(mi,mi_);}
+        mi_={gr,rm,bone,light:mk?slot:null,lid};matInfo.set(mkey,mi_);}
       const gr=mi_.gr,rm=mi_.rm,bone=mi_.bone;
-      if(mi_.light){const lp=lightPts[mi_.light]||(lightPts[mi_.light]=new BB());bbAdd(lp,a);bbAdd(lp,b);bbAdd(lp,c);}
+      if(mi_.light){const lp=lightPts[mi_.light]||(lightPts[mi_.light]=new BB());bbAdd(lp,a);bbAdd(lp,b);bbAdd(lp,c);lightUse[mi_.lid]=(lightUse[mi_.lid]||0)+1;
+        const A=[WP[a*3],WP[a*3+1],WP[a*3+2]],B=[WP[b*3],WP[b*3+1],WP[b*3+2]],C=[WP[c*3],WP[c*3+1],WP[c*3+2]],cr=v3x(v3s(B,A),v3s(C,A)),l2=v3l(cr),ar=l2/2,fy=l2>1e-12?Math.abs(cr[1])/l2:0;
+        // og'irlik: yuza x (oldga/orqaga qaragan qismi)^2 -- chiroq oynasi oldga/orqaga qaraydi, kapot/bagaj ustidagi rasm (chiroq rangida) -- tepaga
+        (lightTri[mi_.light]||(lightTri[mi_.light]=[])).push((A[0]+B[0]+C[0])/3,(A[1]+B[1]+C[1])/3,(A[2]+B[2]+C[2])/3,ar+1e-9,ar*fy*fy);}
       gr.T.need(3);
       for(const v of[a,b,c]){let r=rm[v];if(r<0){WF[0]=WP[v*3];WF[1]=WP[v*3+1];WF[2]=WP[v*3+2];WF[3]=WN[v*3];WF[4]=WN[v*3+1];WF[5]=WN[v*3+2];
           WF[6]=UV?UV[v*2]:0;WF[7]=UV?UV[v*2+1]:0;WF[8]=UV2?UV2[v*2]:WF[6];WF[9]=UV2?UV2[v*2+1]:WF[7];r=gAdd(gr,0);rm[v]=r;}
@@ -9042,12 +9079,33 @@ async function convert(opt){
   for(const w of['wheel_lf','wheel_rf','wheel_lr','wheel_rr'])if(!fixed[w]){rep.warn.push(w+' joyi SA modelda topilmadi — donor joyi cho‘zib olindi');}
   // chiroqlar: geometriya markazi, bo'lmasa dummy
   const dl=SA.dpos;const sideX=(p,s)=>p?[s*Math.abs(p[0]),p[1],p[2]]:null;
-  const lc=n=>lightPts[n]&&lightPts[n].n?lightPts[n].c:null;
-  let HL=lc('headlight_l')||sideX(dl.headlights,-1),HR=lc('headlight_r')||sideX(dl.headlights,1),TL=lc('taillight_l')||sideX(dl.taillights,-1),TR=lc('taillight_r')||sideX(dl.taillights,1);
-  if(!HL&&HR)HL=mir(HR);if(!HR&&HL)HR=mir(HL);if(!TL&&TR)TL=mir(TR);if(!TR&&TL)TR=mir(TL);
-  setF('headlight_l',HL);setF('headlight_r',HR);
-  for(const n of['taillight_l','brakelight_l','reversinglight_l','indicator_lr'])setF(n,TL);
-  for(const n of['taillight_r','brakelight_r','reversinglight_r','indicator_rr'])setF(n,TR);
+  // chiroq markazi: uchburchaklarning yuza bo'yicha medianasi, faqat mashinaning eng chetki qismida (old/orqa yarmining tashqi 35%) --
+  // chiroq rangidagi tasodifiy ichki/o'rtadagi bo'laklar yorug'lik manbasini siljitmasin
+  const lc=n=>{const L=lightTri[n];if(!L||!L.length)return null;
+    let mnY=1e9,mxY=-1e9;for(let i=0;i<L.length;i+=5){mnY=Math.min(mnY,L[i+1]);mxY=Math.max(mxY,L[i+1]);}
+    const front=(mnY+mxY)/2>=midY,lim=front?mxY-0.35*Math.max(0,mxY-midY):mnY+0.35*Math.max(0,midY-mnY);
+    let idx=[];for(let i=0;i<L.length;i+=5)if(front?L[i+1]>=lim:L[i+1]<=lim)idx.push(i);if(!idx.length)for(let i=0;i<L.length;i+=5)idx.push(i);
+    let wF=0;for(const i of idx)wF+=L[i+4];const wk=wF>1e-5?4:3; // oldga qaragan yuza yetarli bo'lsa -- shu bo'yicha, aks holda oddiy yuza
+    const med=k=>{const a=idx.map(i=>[L[i+k],L[i+wk]]).sort((p,q)=>p[0]-q[0]);let tot=0;for(const x of a)tot+=x[1];let acc=0;for(const x of a){acc+=x[1];if(acc>=tot/2)return x[0];}return a[a.length-1][0];};
+    return[med(0),med(1),med(2)];};
+  const pair=(a,b)=>{if(!a&&b)a=mir(b);if(!b&&a)b=mir(a);return[a,b];};
+  const bw=bodyBB.n?bodyBB.mx[0]-bodyBB.mn[0]:1.8,bh=bodyBB.n?bodyBB.mx[2]-bodyBB.mn[2]:1.4,bz=bodyBB.n?bodyBB.mn[2]:-0.6;
+  const defL=(s,fr)=>bodyBB.n?[s*bw*0.33,fr?bodyBB.mx[1]-0.12:bodyBB.mn[1]+0.12,bz+bh*(fr?0.42:0.5)]:null;
+  const inBody=q=>q&&(!bodyBB.n||[0,1,2].every(k=>q[k]>=bodyBB.mn[k]-0.5&&q[k]<=bodyBB.mx[k]+0.5))?q:null; // buzuq dummy (masalan z=-29) olinmaydi
+  const dH=inBody(dl.headlights),dT=inBody(dl.taillights);
+  let [HL,HR]=pair(lc('headlight_l')||lc('fog_l')||sideX(dH,-1),lc('headlight_r')||lc('fog_r')||sideX(dH,1));
+  let [TL,TR]=pair(lc('taillight_l')||lc('brakelight_l')||sideX(dT,-1),lc('taillight_r')||lc('brakelight_r')||sideX(dT,1));
+  if(!HL){HL=defL(-1,1);HR=defL(1,1);}if(!TL){TL=defL(-1,0);TR=defL(1,0);}
+  const two=(n,dl_,dr)=>{const [l,r]=pair(lc(n+'_l'),lc(n+'_r'));setF(n+'_l',l||dl_);setF(n+'_r',r||dr);};
+  setF('headlight_l',HL);setF('headlight_r',HR);setF('taillight_l',TL);setF('taillight_r',TR);
+  two('brakelight',TL,TR);two('reversinglight',TL,TR);
+  {const [l,r]=pair(lc('indicator_lr'),lc('indicator_rr'));setF('indicator_lr',l||TL);setF('indicator_rr',r||TR);}
+  {const [l,r]=pair(lc('indicator_lf'),lc('indicator_rf'));setF('indicator_lf',l||HL);setF('indicator_rf',r||HR);}
+  {const nm={1:'fara chap',2:'fara o‘ng',3:'orqa chap',4:'orqa o‘ng',5:'burilish old chap',6:'burilish old o‘ng',7:'burilish orqa chap',8:'burilish orqa o‘ng',9:'stop chap',10:'stop o‘ng',12:'orqaga yurish chap',13:'orqaga yurish o‘ng'};
+   const ids=Object.keys(lightUse).map(Number).sort((a,b)=>a-b);
+   if(ids.length)rep.info.push('Chiroqlar (GTA 5 ID, vertex alfa): '+ids.map(i=>nm[i]+' = '+i).join(', ')+(tailAs==='brake'?' — SA orqa chirog‘i stop-signal qilib berildi':''));
+   else rep.warn.push('SA modelda chiroq materiallari (rang kodlari) topilmadi — GTA 5 da chiroq oynalari yonmaydi, faqat yorug‘lik manbalari ishlaydi');
+   if((lightUse[5]||lightUse[6])&&!D.byName.indicator_lf)rep.warn.push('Old burilish chiroqlari (ID 5/6): shablon skeletida indicator_lf/rf suyagi yo‘q — oynasi ID bilan belgilandi, lekin o‘yinda yonishi tekshirilmagan');}
   if(dl.exhaust)for(const b of D.bones)if(/^exhaust(_\d+)?$/i.test(b.name))fixed[b.name]=dl.exhaust.slice();
   setF('engine',dl.engine);setF('petrolcap',dl.petrol);
   if(dl.seatF){setF('seat_dside_f',sideX(dl.seatF,-1));setF('seat_pside_f',sideX(dl.seatF,1));}
@@ -9102,6 +9160,7 @@ async function convert(opt){
       missing.add(gr.tex);}
     if(gr.tint&&gr.kind!=='paint'&&gr.kind!=='light'){const nm='itv_c'+gr.tint.map(hex2).join('');return addT(nm,solidTex(gr.tint,gr.kind==='glass'?Math.max(30,gr.alpha):255),20);}
     if(gr.kind==='glass')return addT('itv_glass',solidTex([40,44,48],Math.max(40,gr.alpha)),20);
+    if(gr.kind==='light'){const c=LIGHT_RGB[gr.role]||[255,255,255];return addT('itv_l'+c.map(hex2).join(''),solidTex(c),20);}
     return W_();
   };
   // --- shaderlar (har guruh: tur + tekstura) ---
@@ -9183,7 +9242,7 @@ async function convert(opt){
             else if(k===1){vbuf[o+2]=255;}
             else if(k===2){vbuf[o+2]=bone;}
             else if(k===3){if(ty===6){vdv.setFloat32(o,n[0],true);vdv.setFloat32(o+4,n[1],true);vdv.setFloat32(o+8,n[2],true);}}
-            else if(k===4||k===5){vbuf[o]=vbuf[o+1]=vbuf[o+2]=vbuf[o+3]=255;}
+            else if(k===4||k===5){vbuf[o]=vbuf[o+1]=vbuf[o+2]=vbuf[o+3]=255;if(k===4&&gr.lid)vbuf[o+3]=gr.lid;}
             else if(k>=6&&k<=13){const q=k===7?uv2:uv;if(ty===5){vdv.setFloat32(o,q[0],true);vdv.setFloat32(o+4,q[1],true);}else if(ty===1){vdv.setUint16(o,toHalf(q[0]),true);vdv.setUint16(o+2,toHalf(q[1]),true);}}
             else if(k===14){let tg=TG?[TG[i*3],TG[i*3+1],TG[i*3+2]]:[1,0,0];const d=v3d(tg,n);tg=v3s(tg,[n[0]*d,n[1]*d,n[2]*d]);let l=v3l(tg);if(l<1e-8){tg=Math.abs(n[0])<0.9?v3x(n,[1,0,0]):v3x(n,[0,1,0]);l=v3l(tg)||1;}
               if(ty===7){vdv.setFloat32(o,tg[0]/l,true);vdv.setFloat32(o+4,tg[1]/l,true);vdv.setFloat32(o+8,tg[2]/l,true);vdv.setFloat32(o+12,1,true);}}
@@ -9281,7 +9340,7 @@ async function convert(opt){
   }else rep.warn.push('Donorda composite kolliziya topilmadi');
 
   // --- YTD ---
-  if(missing.size)rep.warn.push('TXD da topilmagan teksturalar ('+missing.size+'): '+[...missing].slice(0,12).join(', ')+(missing.size>12?'…':'')+' — oq rang bilan almashtirildi');
+  if(missing.size)rep.warn.push('TXD da topilmagan teksturalar ('+missing.size+'): '+[...missing].slice(0,12).join(', ')+(missing.size>12?'…':'')+' — oq rang bilan almashtirildi (chiroqlarda — o‘z rangi: fara oq, orqa/stop qizil, burilish sariq)');
   const texList=[...tex].map(([name,enc])=>({name,enc}));
   const ytd=await buildYtd(texList);
   // --- YFT siqish ---
@@ -9291,7 +9350,7 @@ async function convert(opt){
   const body=await deflateRaw(data);
   const yft=rsc7(ver,sf,gf2,body);const sysSize2=sysSz;
   const stat={meshes:mg.length,verts:mg.reduce((s,q)=>s+q.vc,0),tris:mg.reduce((s,q)=>s+q.ic/3,0),shaders:SH.length,textures:texList.length,used:heap.used,free:heap.total,
-    wheelTris:wheelGr.reduce((s,g)=>s+g.nt,0),srcVerts:SA.meshes.reduce((s,m)=>s+m.g.nV,0),gfxPages:GP?GP.pages.length:0,steer:!!steer,collision:{fitted:wrapStat.n,total:wrapStat.t},wheelPos:Object.fromEntries(['wheel_lf','wheel_rf','wheel_lr','wheel_rr'].map(n=>[n,D.byName[n]?NW[D.byName[n].i]:null])),parts:Object.keys(partBB).sort(),lights:Object.keys(lightPts).filter(k=>lightPts[k].n).sort(),wheelR,wheelHW,S,wheelGeoms:wBB?1:0};
+    wheelTris:wheelGr.reduce((s,g)=>s+g.nt,0),srcVerts:SA.meshes.reduce((s,m)=>s+m.g.nV,0),gfxPages:GP?GP.pages.length:0,steer:!!steer,collision:{fitted:wrapStat.n,total:wrapStat.t},wheelPos:Object.fromEntries(['wheel_lf','wheel_rf','wheel_lr','wheel_rr'].map(n=>[n,D.byName[n]?NW[D.byName[n].i]:null])),parts:Object.keys(partBB).sort(),lights:Object.keys(lightPts).filter(k=>lightPts[k].n).sort(),lightIds:Object.fromEntries(Object.entries(lightUse).map(([k,v])=>[k,v])),tailAs,wheelR,wheelHW,S,wheelGeoms:wBB?1:0};
   rep.info.push('Geometriya: '+stat.meshes+' bo‘lak, '+stat.verts+' vertex, '+stat.tris+' uchburchak; '+SH.length+' shader; '+texList.length+' tekstura');
   if(SA.skipped.length)rep.info.push('Tashlab ketildi: '+SA.skipped.slice(0,10).join(', ')+(SA.skipped.length>10?'…':''));
   return{yft,ytd:ytd.bytes,report:rep,stat,data,sysSize:sysSize2,gfxSize:gfxSize2,flags:[sf,gf2],ver,missing:[...missing],_free:heap.free.map(r=>r.slice()),_free0:heap.free0,_cuts:heap.cuts,_allocs:heap.log||[]};
@@ -12055,6 +12114,11 @@ function paneV5(p){
    p.appendChild(el('div',{class:'card',id:'v5Scan',html:'<b>SA mashinada topildi:</b> '+scan.meshes.length+' qism, '+tr+' poligon<br>'+
      'G‘ildiraklar: '+(wh.length?wh.join(', '):'<span style="color:#f87171">yo‘q</span>')+'<br>Harakatlanuvchi qismlar: '+(parts.length?parts.join(', '):'—')+
      (ok?'':'<br><span style="color:#f87171">'+(bike?'Bu mototsikl — hozircha faqat 4 g‘ildirakli mashinalar o‘tkaziladi.':'Bu fayl mashina emas — g‘ildirak dummy’lari yo‘q.')+'</span>')}));}
+  {const s=el('select',{id:'v5Tail'},[el('option',{value:'tail',text:'Gabarit — faralar yoqilganda yonadi (standart)',selected:V.tailAs!=='brake'}),el('option',{value:'brake',text:'Stop-signal — tormoz bosilganda yonadi',selected:V.tailAs==='brake'})]);
+   s.addEventListener('change',()=>{V.tailAs=s.value;V.res=null;V.err='';renderPane();});
+   p.appendChild(el('div',{class:'row'},[el('label',{text:'SA orqa chiroqlari'}),s]));
+   p.appendChild(el('div',{class:'note',text:'GTA 5 da har chiroq o‘z vazifasi bilan yonadi: faralar (1/2), orqa chiroqlar (3/4), stop (9/10), orqaga yurish (12/13), burilish (5–8). Oddiy SA mashinada orqa chiroq bitta — u gabarit yoki stop bo‘ladi. Mashinada alohida stop chirog‘i (IVF kodi) bo‘lsa, ikkalasi ham ishlaydi.'}));
+   if(!G.poolGet('vehiclelights128'))p.appendChild(el('div',{class:'note',id:'v5NoGen',style:'color:#fbbf24',html:'💡 Chiroqlar SA dagidek aniq rangda chiqishi uchun GTA SA dagi <code>models\\generic\\vehicle.txd</code> ni ham qo‘shing (unda <code>vehiclelights128</code> bor). Qo‘shilmasa — chiroqlar taxminiy rangda: fara oq, orqa/stop qizil, burilish sariq.'}));}
   const go=el('button',{class:'btn pri',type:'button',id:'btnV5Go',disabled:V.busy},[V.res?'🔁 Qayta o‘tkazish':'🚗 GTA 5 ga o‘tkazish']);
   go.addEventListener('click',()=>v5Run());
   p.appendChild(el('div',{class:'row'},[go]));
@@ -12063,19 +12127,30 @@ function paneV5(p){
   const st=R.stat;
   p.appendChild(el('div',{class:'card',id:'v5Done',html:'<b>✓ Tayyor:</b> '+V.outName+'.yft, '+V.outName+'_hi.yft, '+V.outName+'.ytd<br>'+
     st.tris+' poligon · '+st.meshes+' bo‘lak · '+st.shaders+' shader · '+st.textures+' tekstura<br>'+
-    'Qismlar: '+st.parts.filter(x=>!/light/.test(x)).join(', ')+'<br>Chiroqlar: '+(st.lights.length?st.lights.join(', '):'—')+'<br>G‘ildirak radiusi: '+st.wheelR.toFixed(2)+' m · Rul: '+(st.steer?'aylanadi':'kuzovda (aylanmaydi)')+(st.collision&&st.collision.total?' · Kolliziya: SA shakliga moslandi ('+st.collision.fitted+'/'+st.collision.total+' nuqta)':'')}));
+    'Qismlar: '+st.parts.filter(x=>!/light|indicator/.test(x)).join(', ')+'<br>Chiroqlar: '+v5LightText(st)+'<br>G‘ildirak radiusi: '+st.wheelR.toFixed(2)+' m · Rul: '+(st.steer?'aylanadi':'kuzovda (aylanmaydi)')+(st.collision&&st.collision.total?' · Kolliziya: SA shakliga moslandi ('+st.collision.fitted+'/'+st.collision.total+' nuqta)':'')}));
   if(R.report.warn.length)p.appendChild(el('div',{class:'card',id:'v5Warn',style:'border-left:3px solid #fbbf24',html:'<b>Ogohlantirish:</b><br>'+R.report.warn.map(x=>'• '+esc5(x)).join('<br>')}));
   // 1) addon: dlc.rpf (yangi mashina)
   if(!V.addon)V.addon=G.SA2V.addonName('sa_'+v5Base(S.items[V.sa]));
   {const i=el('input',{type:'text',id:'v5Addon',maxlength:20,spellcheck:'false'});i.value=V.addon;
    const warn=el('div',{class:'note',id:'v5AddonWarn',style:'color:#f87171'}),note=el('div',{class:'note',id:'v5AddonNote'});
    const rbtn=el('button',{class:'btn pri',type:'button',id:'btnV5Rpf',onclick:()=>v5Rpf()},['⬇ dlc.rpf (yangi mashina)']);
+   const pre=(id)=>el('pre',{id,style:'margin:6px 0;padding:8px 10px;background:rgba(0,0,0,.35);border-radius:6px;user-select:all;white-space:pre-wrap;word-break:break-all;font-size:13px'});
+   const dirName=pre('v5DirName'),dirPath=pre('v5DirPath');
+   const stepCard=el('div',{class:'card',id:'v5Step1'},[
+     el('div',{html:'<b>1-qadam — dlc.rpf ni o‘yin papkasiga qo‘yish.</b> GTA V o‘rnatilgan papkada <code>mods\\update\\x64\\dlcpacks</code> ni oching (yo‘q bo‘lsa — shu papkalarni o‘zingiz yarating) va ichida <b>shu nomli yangi papka</b> oching:'}),dirName,
+     el('div',{html:'Yuklab olingan <code>dlc.rpf</code> ni shu papka ichiga qo‘ying. Natija aynan shunday bo‘lishi kerak:'}),dirPath,
+     el('div',{class:'note',html:'⚠ Fayl nomi faqat <code>dlc.rpf</code> bo‘lsin (brauzer «dlc (1).rpf» deb saqlasa — qayta nomlang). Papka nomi = addon nomi = dlclist.xml dagi nom — uchalasi bir xil bo‘lishi shart.'}),
+     el('div',{class:'row',style:'flex-wrap:wrap;gap:8px'},[
+       el('button',{class:'btn',type:'button',id:'btnV5CopyDir',onclick:()=>v5Copy(V.addon)},['📋 Papka nomini nusxalash']),
+       el('button',{class:'btn',type:'button',id:'btnV5CopyPath',onclick:()=>v5Copy('mods\\update\\x64\\dlcpacks\\'+V.addon)},['📋 Yo‘lni nusxalash']),
+       el('button',{class:'btn pri',type:'button',id:'btnV5RpfZip',onclick:()=>v5RpfZip()},['⬇ ZIP — papkalari bilan tayyor'])]),
+     el('div',{class:'note',html:'<b>Eng oson yo‘l:</b> «ZIP — papkalari bilan tayyor» ni yuklab, uni <b>GTA V o‘rnatilgan papkaga</b> oching (Extract). ZIP ichida <code>mods\\update\\x64\\dlcpacks\\&lt;nom&gt;\\dlc.rpf</code> bor — papka va fayl o‘zi kerakli joyga tushadi, faqat 2-qadam qoladi. O‘yin fayllaridan hech narsa o‘chirilmaydi.'})]);
    const dlLine=el('pre',{id:'v5DlLine',style:'margin:6px 0;padding:8px 10px;background:rgba(0,0,0,.35);border-radius:6px;user-select:all;white-space:pre;overflow:auto;font-size:13px'});
    const dlSt=el('div',{class:'note',id:'v5DlDone'});
    const dlIn=el('input',{type:'file',id:'v5DlIn',accept:'.xml,text/xml',style:'display:none'});
    dlIn.addEventListener('change',()=>{const f=dlIn.files&&dlIn.files[0];dlIn.value='';if(f)v5DlAdd(f,dlSt);});
    const dlCard=el('div',{class:'card',id:'v5Dl'},[
-     el('div',{html:'<b>dlclist.xml uchun kod</b> — mashina o‘yinda chiqishi uchun shu qator <code>dlclist.xml</code> ga yoziladi:'}),dlLine,
+     el('div',{html:'<b>2-qadam — dlclist.xml ga kod.</b> O‘yin yangi papkani shu qator orqali taniydi — <code>dlclist.xml</code> ga yoziladi:'}),dlLine,
      el('div',{class:'row',style:'flex-wrap:wrap;gap:8px'},[
        el('button',{class:'btn',type:'button',id:'btnV5Copy',onclick:()=>v5Copy(G.SA2V.dlclistLine(V.addon))},['📋 Kodni nusxalash']),
        el('button',{class:'btn',type:'button',id:'btnV5DlPick',onclick:()=>dlIn.click()},['📂 dlclist.xml ga avtomatik qo‘shish']),dlIn]),
@@ -12086,13 +12161,12 @@ function paneV5(p){
      warn.style.display=warn.textContent?'':'none';
      rbtn.disabled=bad;
      dlLine.textContent=bad?'—':G.SA2V.dlclistLine(n);dlCard.querySelectorAll('button').forEach(x=>x.disabled=bad);
+     dirName.textContent=bad?'—':n;dirPath.textContent=bad?'—':'GTA V\\mods\\update\\x64\\dlcpacks\\'+n+'\\dlc.rpf';stepCard.querySelectorAll('button').forEach(x=>x.disabled=bad);
      if(V.dlFor!==n){V.dlInfo='';V.dlFor=n;}dlSt.innerHTML=V.dlInfo||'';dlSt.style.display=V.dlInfo?'':'none';
-     note.innerHTML='<b>dlc.rpf ni o‘rnatish (addon — yangi mashina, felon o‘zgarmaydi):</b><br>'+
-       '1) OpenIV da «ASI Manager» orqali <b>ASI Loader</b> va <b>OpenIV.asi</b> o‘rnatilgan, <code>mods</code> papkasi ishlatiladi.<br>'+
-       '2) Fayl nomi aynan <code>dlc.rpf</code> bo‘lsin va shu joyga qo‘ying: <code>GTA V\\mods\\update\\x64\\dlcpacks\\'+esc5(n)+'\\dlc.rpf</code> (papka nomi: <code>'+esc5(n)+'</code>).<br>'+
-       '3) <code>mods\\update\\update.rpf → common → data → dlclist.xml</code> ga yuqoridagi kodni qo‘shing (<code>&lt;/Paths&gt;</code> dan oldin) — yoki «dlclist.xml ga avtomatik qo‘shish» tugmasidan foydalaning.<br>'+
-       '4) O‘yinda trainer (Menyoo, Simple Trainer va h.k.) bilan <b>'+esc5(n)+'</b> nomini yozib chaqiring.<br>'+
-       'Fizika (og‘irlik, motor, tezlik) va ovoz GTA 5 dagi felon’niki (handling.meta qo‘shilmaydi).';};
+     note.innerHTML='<b>3-qadam — o‘yinda chaqirish:</b> o‘yinni ishga tushiring, trainer (Menyoo, Simple Trainer va h.k.) da «Spawn vehicle by name» ga <b>'+esc5(n)+'</b> deb yozing.<br>'+
+       '<b>Oldindan kerak:</b> OpenIV → «ASI Manager» da <b>ASI Loader</b> va <b>OpenIV.asi</b> o‘rnatilgan; <code>mods</code> papkasida <code>update\\update.rpf</code> nusxasi bor (OpenIV «Copy to mods folder»).<br>'+
+       '<b>Yakuniy joylar:</b> <code>GTA V\\mods\\update\\x64\\dlcpacks\\'+esc5(n)+'\\dlc.rpf</code> va <code>GTA V\\mods\\update\\update.rpf → common → data → dlclist.xml</code> ichida <code>&lt;Item&gt;dlcpacks:/'+esc5(n)+'/&lt;/Item&gt;</code>.<br>'+
+       'Fizika (og‘irlik, motor, tezlik) va ovoz GTA 5 dagi felon’niki (handling.meta qo‘shilmaydi). Mashina chiqmasa: papka nomi, fayl nomi (dlc.rpf) va dlclist qatorini tekshiring.';};
    i.addEventListener('input',()=>{V.addon=G.SA2V.addonName(i.value);if(i.value!==V.addon){const c=i.selectionStart;i.value=V.addon;try{i.setSelectionRange(c,c);}catch(e){}}upd();});
    p.appendChild(el('div',{class:'row'},[el('label',{text:'Addon nomi (spawn)'}),i]));
    p.appendChild(warn);
@@ -12101,10 +12175,15 @@ function paneV5(p){
      el('button',{class:'btn',type:'button',id:'btnV5Zip',onclick:()=>v5Zip()},['⬇ ZIP (felon o‘rniga)']),
      el('button',{class:'btn',type:'button',id:'btnV5View',onclick:()=>v5View()},['👁 Natijani 3D da ko‘rish'])]));
    if(V.rpfInfo)p.appendChild(el('div',{class:'card',id:'v5RpfDone',html:V.rpfInfo}));
-   p.appendChild(dlCard);p.appendChild(note);upd();}
+   p.appendChild(stepCard);p.appendChild(dlCard);p.appendChild(note);upd();}
   // 2) almashtirish: ZIP
   p.appendChild(el('div',{class:'note',html:'<b>ZIP ni o‘rnatish (felon o‘rniga):</b> OpenIV <code>mods</code> rejimida <code>x64e.rpf → levels → gta5 → vehicles.rpf</code> ichidagi <code>'+V.outName+'.yft</code>, <code>'+V.outName+'_hi.yft</code>, <code>'+V.outName+'.ytd</code> ni ZIP dagilar bilan almashtiring. Fizika (og‘irlik, motor) donornikicha qoladi — handling.meta o‘zgarmaydi.'}));
   p.appendChild(el('details',{},[el('summary',{text:'Batafsil hisobot'}),el('div',{class:'note',html:R.report.info.map(esc5).join('<br>')})]));
+}
+function v5LightText(st){
+  const L=st.lightIds||{},nm=[[1,2,'fara'],[3,4,st.tailAs==='brake'?'orqa (stop)':'orqa (gabarit)'],[9,10,'stop'],[12,13,'orqaga yurish'],[5,6,'burilish old'],[7,8,'burilish orqa']];
+  const out=[];for(const[a,b,n]of nm){const s=(L[a]?'chap':'')+(L[a]&&L[b]?'+':'')+(L[b]?'o‘ng':'');if(s)out.push(n+' '+s+' ('+[L[a]?a:0,L[b]?b:0].filter(Boolean).join('/')+')');}
+  return out.length?out.join(', '):'<span style="color:#fbbf24">SA modelda chiroq materiallari topilmadi</span>';
 }
 function v5Scan(){const V=S.v5,it=S.items[V.sa];if(!it)return null;if(V._scanIt!==it){V._scan=G.SA2V.saScan(it.raw);V._scanIt=it;}return V._scan;}
 const esc5=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
@@ -12115,27 +12194,61 @@ async function v5Run(){
   try{
     const dbase=dn?v5Base(dn):'felon',names=!dn?[]:G.poolList().filter(t=>(t.origin||'').toLowerCase().replace(/\.ytd.*$/,'')===dbase||(t.origin||'').toLowerCase().indexOf(dbase+'.ytd')===0||(t.origin||'').toLowerCase().indexOf(dbase+'_hi.ytd')===0).map(t=>t.name);
     const scan=v5Scan();
-    const r=await G.SA2V.convert(dn?{dff:sa.raw,scan,getTex:v5Tex,getDonorTex:names.length?v5Tex:null,donor:dn.raw,donorTexNames:names}:{dff:sa.raw,scan,getTex:v5Tex});
+    const r=await G.SA2V.convert(dn?{dff:sa.raw,scan,getTex:v5Tex,getDonorTex:names.length?v5Tex:null,donor:dn.raw,donorTexNames:names,tailAs:V.tailAs}:{dff:sa.raw,scan,getTex:v5Tex,tailAs:V.tailAs});
     V.res=r;V.outName=V.name||dbase;V.rpfInfo='';
     log('SA→GTA5: '+sa.file+' → '+V.outName+'.yft ('+r.stat.tris+' poligon)');r.report.warn.forEach(w=>log('SA→GTA5: '+w,'w'));
     toast('✓ GTA 5 fayllari tayyor: '+V.outName+'.yft / .ytd');
   }catch(e){V.res=null;V.err='Xato: '+(e.message||e);log('SA→GTA5: '+V.err,'e');toast(V.err);}
   V.busy=false;setBusy(false);renderPane();
 }
+async function v5MakeAddon(n){ // yig'ish + o'z o'quvchimiz bilan tekshiruv (arxiv ochiladi, ichidagi fayllar aynan bir xil)
+  const V=S.v5,R=V.res;if(V._ad&&V._ad.n===n&&V._ad.res===R)return V._ad.A;
+  const A=await G.SA2V.buildAddon({name:n,yft:R.yft,ytd:R.ytd});
+  const L=await G.readRpf(G.memSrc(A.rpf),'',0),get=async p=>{const it=L.find(x=>x.path===p);return it?await it.get():null;};
+  const same=(a,b)=>!!a&&a.length===b.length&&a.every((v,k)=>v===b[k]);
+  const vp='x64/vehicles.rpf/';
+  if(L.length!==7||!same(await get(vp+n+'.yft'),R.yft)||!same(await get(vp+n+'_hi.yft'),R.yft)||!same(await get(vp+n+'.ytd'),R.ytd)||!(await get('common/data/vehicles.meta')))throw new Error('dlc.rpf tekshiruvdan o‘tmadi');
+  V._ad={n,res:R,A};return A;
+}
+function v5GuideTxt(n){
+  return['GTA SA -> GTA 5 addon mashina (IT SHAKH)','',
+    'Spawn nomi: '+n,'',
+    '1-QADAM. PAPKA',
+    '  Bu ZIP ni GTA V o\u2018rnatilgan papkaga oching (Extract). Natija:',
+    '    GTA V\\mods\\update\\x64\\dlcpacks\\'+n+'\\dlc.rpf',
+    '  Qo\u2018lda qilsangiz: dlcpacks ichida "'+n+'" nomli papka oching va dlc.rpf ni ichiga qo\u2018ying.',
+    '  Fayl nomi faqat dlc.rpf, papka nomi aynan '+n+' bo\u2018lsin.','',
+    '2-QADAM. DLCLIST.XML',
+    '  OpenIV (Edit mode): mods\\update\\update.rpf > common > data > dlclist.xml',
+    '  </Paths> qatoridan OLDIN shu qatorni qo\u2018shing:',
+    '    '+G.SA2V.dlclistLine(n),
+    '  (yoki saytdagi "dlclist.xml ga avtomatik qo\u2018shish" tugmasi)','',
+    '3-QADAM. O\u2018YINDA',
+    '  Trainer (Menyoo, Simple Trainer) > Spawn vehicle by name > '+n,'',
+    'Kerak: OpenIV + ASI Loader + OpenIV.asi, mods papkasida update\\update.rpf nusxasi.',
+    'Fizika va ovoz: GTA 5 dagi felon.',''].join('\r\n');
+}
+async function v5RpfZip(){
+  const V=S.v5,R=V.res;if(!R||V.busy)return;
+  const n=G.SA2V.addonName(V.addon);if(n.length<2){toast('Addon nomini kiriting');return;}
+  V.busy=true;setBusy(true,'ZIP yig‘ilmoqda…');await tick();
+  try{
+    const A=await v5MakeAddon(n);
+    save(n+'_gta5_addon.zip',G.zipStore([{name:'mods/update/x64/dlcpacks/'+n+'/dlc.rpf',data:A.rpf},{name:'OQING_'+n+'.txt',data:new TextEncoder().encode('\ufeff'+v5GuideTxt(n))}]),'application/zip');
+    log('SA→GTA5: '+n+'_gta5_addon.zip (mods/update/x64/dlcpacks/'+n+'/dlc.rpf)');toast('✓ ZIP tayyor: GTA V papkasiga oching');
+  }catch(e){toast('ZIP xatosi: '+(e.message||e));log('SA→GTA5 ZIP: '+(e.message||e),'e');}
+  V.busy=false;setBusy(false);
+}
 async function v5Rpf(){
   const V=S.v5,R=V.res;if(!R||V.busy)return;
   const n=G.SA2V.addonName(V.addon);if(n.length<2){toast('Addon nomini kiriting');return;}
   V.busy=true;setBusy(true,'dlc.rpf yig‘ilmoqda…');await tick();
   try{
-    const A=await G.SA2V.buildAddon({name:n,yft:R.yft,ytd:R.ytd});
-    // o'z o'quvchimiz bilan tekshiruv: arxiv ochiladi va ichidagi fayllar aynan bir xil
-    const L=await G.readRpf(G.memSrc(A.rpf),'',0),get=async p=>{const it=L.find(x=>x.path===p);return it?await it.get():null;};
-    const same=(a,b)=>!!a&&a.length===b.length&&a.every((v,k)=>v===b[k]);
-    const vp='x64/vehicles.rpf/';
-    if(L.length!==7||!same(await get(vp+n+'.yft'),R.yft)||!same(await get(vp+n+'_hi.yft'),R.yft)||!same(await get(vp+n+'.ytd'),R.ytd)||!(await get('common/data/vehicles.meta')))throw new Error('dlc.rpf tekshiruvdan o‘tmadi');
+    const A=await v5MakeAddon(n);
     save('dlc.rpf',A.rpf,'application/octet-stream');
     V.rpfInfo='<b>✓ dlc.rpf tayyor</b> ('+(A.rpf.length/1048576).toFixed(1)+' MB) — qayta o‘qib tekshirildi: 7 ta fayl to‘g‘ri.<br>'+
       'Ichida: <code>content.xml</code>, <code>setup2.xml</code>, <code>common/data/vehicles.meta</code>, <code>carvariations.meta</code>, <code>x64/vehicles.rpf</code> → <code>'+esc5(n)+'.yft</code>, <code>'+esc5(n)+'_hi.yft</code>, <code>'+esc5(n)+'.ytd</code><br>'+
+      'Qo‘yiladigan joy: <code>GTA V\\mods\\update\\x64\\dlcpacks\\'+esc5(n)+'\\dlc.rpf</code><br>'+
       'dlclist.xml qatori: <code>'+esc5(A.dlclist)+'</code> · Spawn nomi: <b>'+esc5(n)+'</b>';
     log('SA→GTA5: dlc.rpf ('+n+', '+(A.rpf.length/1048576).toFixed(1)+' MB)');toast('✓ dlc.rpf tayyor: dlcpacks/'+n+'/dlc.rpf');
   }catch(e){V.rpfInfo='';toast('dlc.rpf xatosi: '+(e.message||e));log('SA→GTA5 dlc.rpf: '+(e.message||e),'e');}
